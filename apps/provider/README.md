@@ -37,9 +37,7 @@ NEXT_PUBLIC_BASE_URL=http://localhost:3001
 # Optional: Port for the provider server (defaults to 3001)
 PORT=3001
 
-# Optional: Ethereum RPC URLs for DID resolution
-ETHEREUM_RPC_URL=https://eth.llamarpc.com
-SEPOLIA_RPC_URL=https://sepolia.llamarpc.com
+
 
 # Optional: Ethereum private key for Veramo agent DID
 # If not provided, a key will be generated for the session

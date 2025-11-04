@@ -37,13 +37,10 @@ export async function initializeProviderClient(): Promise<AgenticTrustClient> {
                              process.env.NEXT_PUBLIC_AGENTIC_TRUST_SESSION_PACKAGE_PATH;
   const ensRegistry = process.env.AGENTIC_TRUST_ENS_REGISTRY ||
                       process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_REGISTRY;
-  const sessionPackageRpcUrl = process.env.AGENTIC_TRUST_SESSION_PACKAGE_RPC_URL ||
-                               process.env.NEXT_PUBLIC_AGENTIC_TRUST_SESSION_PACKAGE_RPC_URL;
-  const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL ||
-                     process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL;
+
 
   // RPC URLs for DID resolution
-  const sepoliaRpcUrl = process.env.SEPOLIA_RPC_URL;
+  const rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL;
 
   // Get identity registry from environment
   const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY ||
@@ -78,8 +75,8 @@ export async function initializeProviderClient(): Promise<AgenticTrustClient> {
   }
 
   // Set RPC URLs if provided (for AgenticTrustClient's internal Veramo agent)
-  if (sepoliaRpcUrl) {
-    config.sepoliaRpcUrl = sepoliaRpcUrl;
+  if (rpcUrl) {
+    config.rpcUrl = rpcUrl;
   }
 
   // Set identity registry if provided
@@ -102,6 +99,7 @@ export async function initializeProviderClient(): Promise<AgenticTrustClient> {
   }
 
   // Create the client
+  console.info('Creating AgenticTrustClient instance: ', config.rpcUrl, ', privateKey: ', config.privateKey);
   agenticTrustClientInstance = await AgenticTrustClient.create(config);
   return agenticTrustClientInstance;
 }

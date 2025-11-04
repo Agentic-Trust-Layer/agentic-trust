@@ -24,7 +24,7 @@ export function createApiClientConfig(
   const baseUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BASE_URL || process.env.AGENTIC_TRUST_BASE_URL;
 
 
-  const sepoliaRpcUrl = process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL;
+  const rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL;
   const identityRegistry = process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY ||
     process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
   const reputationRegistry = process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY ||
@@ -55,8 +55,8 @@ export function createApiClientConfig(
     config.privateKey = privateKey;
   }
 
-  if (sepoliaRpcUrl) {
-    config.sepoliaRpcUrl = sepoliaRpcUrl;
+  if (rpcUrl) {
+    config.rpcUrl = rpcUrl;
   }
 
   // Set identity registry if provided

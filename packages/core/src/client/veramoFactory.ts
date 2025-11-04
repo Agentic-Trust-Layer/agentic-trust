@@ -39,13 +39,11 @@ import {
  * 
  * @param privateKey - Optional Ethereum private key (hex string with or without 0x prefix)
  *                     If not provided, a key will be generated for the session
- * @param ethereumRpcUrl - Optional Ethereum mainnet RPC URL
- * @param sepoliaRpcUrl - Optional Sepolia testnet RPC URL
+ * @param rpcUrl - Optional Sepolia testnet RPC URL
  */
 export async function createVeramoAgentForClient(
   privateKey?: string,
-  ethereumRpcUrl?: string,
-  sepoliaRpcUrl?: string
+  rpcUrl?: string
 ): Promise<VeramoAgent> {
   console.warn('🏭 createVeramoAgentForClient: Starting...');
   
@@ -62,22 +60,21 @@ export async function createVeramoAgentForClient(
 
   // Get Ethereum RPC URLs from parameters or defaults
   console.warn('🏭 createVeramoAgentForClient: Setting up RPC URLs...');
-  const ethereumRpc = ethereumRpcUrl || 'https://eth.llamarpc.com';
-  const sepoliaRpc = sepoliaRpcUrl || 'https://sepolia.llamarpc.com';
-  console.warn('🏭 createVeramoAgentForClient: RPC URLs:', { ethereumRpc, sepoliaRpc });
+  const rpc = rpcUrl
+
 
   // Create ethr DID provider for client DIDs
   console.warn('🏭 createVeramoAgentForClient: Creating ethr DID provider...');
   const ethrDidProvider = new EthrDIDProvider({
     defaultKms: 'local',
     networks: [
-      {
-        name: 'mainnet',
-        rpcUrl: ethereumRpc,
-      },
+      //{
+      //  name: 'mainnet',
+      //  rpcUrl: rpc,
+      //},
       {
         name: 'sepolia',
-        rpcUrl: sepoliaRpc,
+        rpcUrl: rpc,
       },
     ],
   });
@@ -119,13 +116,13 @@ export async function createVeramoAgentForClient(
           ...agentDidResolver(),
           ...ethrDidResolver({
             networks: [
-              {
-                name: 'mainnet',
-                rpcUrl: ethereumRpc,
-              },
+              //{
+              //  name: 'mainnet',
+              //  rpcUrl: rpcUrl,
+              //},
               {
                 name: 'sepolia',
-                rpcUrl: sepoliaRpc,
+                rpcUrl: rpcUrl,
               },
             ],
           }),

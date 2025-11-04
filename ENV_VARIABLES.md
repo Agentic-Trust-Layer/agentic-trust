@@ -27,7 +27,7 @@ AGENTIC_TRUST_PRIVATE_KEY=0x...
 # NEXT_PUBLIC_AGENTIC_TRUST_PRIVATE_KEY=0x...
 
 # Ethereum RPC URLs for DID resolution
-NEXT_PUBLIC_SEPOLIA_RPC_URL=https://sepolia.llamarpc.com
+NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL=https://sepolia.llamarpc.com
 # Note: Ethereum RPC URL is not currently used in web app, but can be added if needed
 
 # Session Package Configuration (alternative to reputation config)
@@ -37,8 +37,7 @@ NEXT_PUBLIC_AGENTIC_TRUST_ENS_REGISTRY=0x...
 # Optional: Override values from session package file
 NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL=https://bundler.example.com
 NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY=0x...
-# Optional: Override RPC URL for session package's chain
-# AGENTIC_TRUST_SESSION_PACKAGE_RPC_URL=https://rpc.sepolia.org
+
 
 # Reputation client configuration (if NOT using session package)
 # These can be provided programmatically when creating AgenticTrustClient
@@ -80,8 +79,7 @@ NEXT_PUBLIC_BASE_URL=http://localhost:3001
 PORT=3001
 
 # Ethereum RPC URLs for DID resolution
-ETHEREUM_RPC_URL=https://eth.llamarpc.com
-SEPOLIA_RPC_URL=https://sepolia.llamarpc.com
+
 
 # Ethereum private key for Veramo agent DID
 # If not provided, a key will be generated for the session
@@ -143,7 +141,6 @@ If environment variables are not set, the following defaults are used:
 - `PROVIDER_ID`: `default-provider`
 - `AGENT_NAME`: `Agent Provider`
 - `NEXT_PUBLIC_BASE_URL`: `http://localhost:3001`
-- `ETHEREUM_RPC_URL`: `https://eth.llamarpc.com`
-- `SEPOLIA_RPC_URL`: `https://sepolia.llamarpc.com`
+
 - Private key: Generated automatically for the session
 

@@ -112,13 +112,12 @@ export class AgenticTrustClient {
       console.log('🏭 initializeVeramoAgent: Creating agent internally...');
       // Import the factory function
       const { createVeramoAgentForClient } = await import('./veramoFactory');
-      console.log('✅ initializeVeramoAgent: Factory imported');
+      console.log('✅ initializeVeramoAgent: Factory imported: ', config.rpcUrl, ', privateKey: ', config.privateKey);
       
       // Create agent internally
       const agent = await createVeramoAgentForClient(
         config.privateKey,
-        config.ethereumRpcUrl,
-        config.sepoliaRpcUrl
+        config.rpcUrl
       );
       console.log('✅ initializeVeramoAgent: Agent created, connecting...');
       this.veramo.connect(agent);
@@ -143,20 +142,6 @@ export class AgenticTrustClient {
       console.log('📋 AgenticTrustClient.create: Initializing reputation from sessionPackage...');
       await client.initializeReputationFromSessionPackage(config.sessionPackage);
       console.log('✅ AgenticTrustClient.create: Reputation initialized from sessionPackage');
-    } else if (config.reputation) {
-      console.log('📋 AgenticTrustClient.create: Initializing reputation from reputation config...');
-      const identityRegistry = config.reputation.identityRegistry || config.identityRegistry;
-      if (!identityRegistry) {
-        throw new Error(
-          'identityRegistry is required. Provide it in reputation config or set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
-        );
-      }
-      console.info('Initializing reputation from reputation config');
-      await client.reputation.initialize({
-        ...config.reputation,
-        identityRegistry,
-      });
-      console.log('✅ AgenticTrustClient.create: Reputation initialized from reputation config');
     } else if (config.identityRegistry && config.reputationRegistry) {
       console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
       // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
@@ -262,11 +247,11 @@ export class AgenticTrustClient {
       );
     }
 
-    // Get RPC URL (prefer sepoliaRpcUrl, fallback to ethereumRpcUrl)
-    const rpcUrl = config.sepoliaRpcUrl || config.ethereumRpcUrl;
+
+    const rpcUrl = config.rpcUrl;
     if (!rpcUrl) {
       throw new Error(
-        'RPC URL is required. Set NEXT_PUBLIC_SEPOLIA_RPC_URL or NEXT_PUBLIC_ETHEREUM_RPC_URL environment variable.'
+        'RPC URL is required. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL environment variable.'
       );
     }
 
@@ -275,7 +260,7 @@ export class AgenticTrustClient {
       (process.env.AGENTIC_TRUST_ENS_REGISTRY || process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_REGISTRY) as `0x${string}` | undefined;
     
     if (!ensRegistry) {
-      console.log('⚠️ ENS registry not provided. Using default Sepolia ENS registry.');
+      console.log('⚠️ ENS registry not provided. which might be ok.');
     }
 
     // Get private key from config - required for reputation client
