@@ -47,19 +47,27 @@ export async function createVeramoAgentForClient(
   ethereumRpcUrl?: string,
   sepoliaRpcUrl?: string
 ): Promise<VeramoAgent> {
+  console.warn('🏭 createVeramoAgentForClient: Starting...');
+  
   // Initialize DID providers for AA and Agent DIDs
+  console.warn('🏭 createVeramoAgentForClient: Initializing DID providers...');
   const aaDidProviders: Record<string, AADidProvider> = {};
   const agentDidProviders: Record<string, AgentDidProvider> = {};
 
   // Initialize KMS instances
+  console.warn('🏭 createVeramoAgentForClient: Initializing KMS...');
   const aaKMS = new AAKeyManagementSystem(aaDidProviders);
   const agentKMS = new AgentKeyManagementSystem(agentDidProviders);
+  console.warn('✅ createVeramoAgentForClient: KMS initialized');
 
   // Get Ethereum RPC URLs from parameters or defaults
+  console.warn('🏭 createVeramoAgentForClient: Setting up RPC URLs...');
   const ethereumRpc = ethereumRpcUrl || 'https://eth.llamarpc.com';
   const sepoliaRpc = sepoliaRpcUrl || 'https://sepolia.llamarpc.com';
+  console.warn('🏭 createVeramoAgentForClient: RPC URLs:', { ethereumRpc, sepoliaRpc });
 
   // Create ethr DID provider for client DIDs
+  console.warn('🏭 createVeramoAgentForClient: Creating ethr DID provider...');
   const ethrDidProvider = new EthrDIDProvider({
     defaultKms: 'local',
     networks: [
@@ -75,6 +83,7 @@ export async function createVeramoAgentForClient(
   });
 
   // Create the agent with required plugins
+  console.warn('🏭 createVeramoAgentForClient: Creating agent with plugins...');
   const agent = createAgent<
     IKeyManager & IDIDManager & ICredentialIssuer & ICredentialVerifier & IResolver
   >({
@@ -127,15 +136,41 @@ export async function createVeramoAgentForClient(
 
   // If a private key is provided, import it and create DID with it
   // Otherwise, generate a key for this session
+  console.warn('🏭 createVeramoAgentForClient: Setting up private key...');
   let finalPrivateKey = privateKey;
+  console.warn('🔍 DEBUG: finalPrivateKey 123', privateKey, 'type:', typeof privateKey, 'length:', privateKey?.length);
   if (!finalPrivateKey) {
     // Generate a new private key for this session
+    console.warn('🏭 createVeramoAgentForClient: Generating new private key...');
     finalPrivateKey = generatePrivateKey();
-    console.log('Generated new private key for session');
+    console.warn('✅ createVeramoAgentForClient: Generated new private key for session');
+  } else {
+    console.warn('✅ createVeramoAgentForClient: Using provided private key');
   }
 
-  // Normalize private key (ensure 0x prefix)
-  const normalizedKey = finalPrivateKey.startsWith('0x') ? finalPrivateKey : `0x${finalPrivateKey}`;
+  // Normalize and validate private key
+  // Remove any whitespace, newlines, or other invalid characters
+  let cleanedKey = finalPrivateKey.trim().replace(/\s+/g, '');
+  
+  // Remove 0x prefix if present (we'll add it back)
+  if (cleanedKey.startsWith('0x')) {
+    cleanedKey = cleanedKey.slice(2);
+  }
+  
+  // Validate it's a valid hex string (64 characters for 32 bytes)
+  if (!/^[0-9a-fA-F]{64}$/.test(cleanedKey)) {
+    throw new Error(
+      `Invalid private key format. Expected 64 hex characters (32 bytes), ` +
+      `got ${cleanedKey.length} characters. ` +
+      `Key starts with: ${cleanedKey.substring(0, 10)}...`
+    );
+  }
+  
+  // Add 0x prefix
+  const normalizedKey = `0x${cleanedKey}`;
+  
+  console.warn('🏭 createVeramoAgentForClient: Importing key into key manager...');
+  console.warn('🔑 Normalized key length:', normalizedKey.length, 'characters');
   
   // Import the private key into the key manager
   const importedKey = await agent.keyManagerImport({
@@ -143,7 +178,9 @@ export async function createVeramoAgentForClient(
     privateKeyHex: normalizedKey,
     kms: 'local',
   });
+  console.warn('✅ createVeramoAgentForClient: Key imported');
 
+  console.warn('🏭 createVeramoAgentForClient: Creating DID...');
   // Create DID with the imported key
   const identifier = await agent.didManagerCreate({
     alias: 'default',
@@ -153,7 +190,8 @@ export async function createVeramoAgentForClient(
     },
   });
 
-  console.log('Created DID:', identifier.did);
+  console.warn('✅ createVeramoAgentForClient: Created DID:', identifier.did);
+  console.warn('✅ createVeramoAgentForClient: Complete!');
 
   return agent;
 }

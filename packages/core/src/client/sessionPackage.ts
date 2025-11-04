@@ -2,6 +2,7 @@
  * Session Package Utilities
  * 
  * Handles loading and validation of session packages for agent delegation
+ * NOTE: These functions should only be called server-side (Next.js API routes, server components)
  */
 
 import fs from 'fs';

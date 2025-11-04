@@ -2,17 +2,18 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@agentic-trust/core'],
-  webpack: (config, { isServer }) => {
-    // Mark Node.js modules as external for client-side builds
-    // These modules are only available server-side
-    if (!isServer) {
-      config.resolve.fallback = {
-        ...config.resolve.fallback,
-        fs: false,
-        path: false,
-        url: false,
-      };
-    }
+      webpack: (config, { isServer }) => {
+        // Mark Node.js modules as external for client-side builds
+        // These modules are only available server-side
+        if (!isServer) {
+          config.resolve.fallback = {
+            ...config.resolve.fallback,
+            fs: false,
+            path: false,
+            url: false,
+            module: false,
+          };
+        }
 
     // Mark @metamask/delegation-toolkit as external for server-side
     // It's dynamically imported at runtime and may not be installed

@@ -19,10 +19,22 @@ export function ClientInitializer({ children }: ClientInitializerProps) {
   useEffect(() => {
     async function initialize() {
       try {
-        await initAgenticTrustClient();
+        console.warn('🔄 ClientInitializer: Starting initialization...');
+        
+        // Add timeout to prevent hanging indefinitely
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Initialization timeout after 30 seconds')), 30000);
+        });
+        
+        await Promise.race([
+          initAgenticTrustClient(),
+          timeoutPromise
+        ]);
+        
+        console.warn('✅ ClientInitializer: Initialization complete');
         setInitialized(true);
       } catch (err) {
-        console.error('Failed to initialize AgenticTrustClient:', err);
+        console.error('❌ ClientInitializer: Failed to initialize AgenticTrustClient:', err);
         setError(
           err instanceof Error
             ? err.message

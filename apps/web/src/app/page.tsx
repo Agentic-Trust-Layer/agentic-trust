@@ -27,6 +27,8 @@ export default function Home() {
         
         // Use async getClient to ensure initialization
         const { getClient } = await import('@/lib/init-client');
+
+        console.info('************* Fetching agents *************');
         const client = await getClient();
         const response: ListAgentsResponse = await client.agents.listAgents();
         setAgents(response.agents || []);
@@ -57,11 +59,11 @@ export default function Home() {
       
       const { getClient } = await import('@/lib/init-client');
       const client = await getClient();
-      console.info("search agents", searchQuery.trim());
+      console.info("search agents 123", searchQuery.trim());
       const response: ListAgentsResponse = await client.agents.searchAgents(searchQuery.trim());
       setAgents(response.agents || []);
     } catch (err) {
-      console.error('Failed to search agents:', err);
+      console.error('Failed to search agents 123:', err);
       setError(err instanceof Error ? err.message : 'Failed to search agents');
     } finally {
       setIsSearching(false);
@@ -119,11 +121,54 @@ export default function Home() {
     }
   };
 
+  const handleFeedbackAuth = async (authResponse: any) => {
+    // Extract feedback auth data from response
+    const signature = authResponse.signature;
+    const agentId = authResponse.agentId;
+    const clientAddress = authResponse.clientAddress;
+
+    if (!signature || !agentId || !clientAddress) {
+      throw new Error('Missing required feedback auth data: signature, agentId, or clientAddress');
+    }
+
+    // Get the client and reputation client
+    const { getClient } = await import('@/lib/init-client');
+    const client = await getClient();
+
+    if (!client.reputation.isInitialized()) {
+      throw new Error('Reputation client not initialized. Cannot submit feedback.');
+    }
+
+    const reputationClient = client.reputation.getClient();
+
+    // Submit feedback using the auth signature
+    // Note: agent field should be the agent address (not client address)
+    // For now, we'll use the agentId as the agent identifier
+    // You may need to adjust this based on your actual agent address
+    const feedbackResult = await reputationClient.giveClientFeedback({
+      agent: agentId.toString(), // Agent identifier
+      agentId: agentId.toString(),
+      score: 85, // Example score - you could make this configurable or prompt the user
+      feedback: 'Feedback submitted via web client after requestAuth',
+      feedbackAuth: signature,
+    });
+
+    console.info('Feedback submitted successfully:', feedbackResult);
+    return feedbackResult;
+  };
+
   const handleSendMessage = async () => {
+    // Add alert to verify function is called (for debugging)
+    console.log("🚀 handleSendMessage called", { selectedAgent, endpoint, message });
+    console.info("handleSendMessage", selectedAgent, endpoint, message);
+    console.warn("⚠️ handleSendMessage - This should be visible in browser console");
+    
     if (!selectedAgent || !endpoint || !message.trim()) {
       setError('Please select an agent, discover endpoint, and enter a message');
       return;
     }
+    
+    console.log("✅ Validation passed, proceeding with message send");
 
     try {
       setSending(true);
@@ -152,6 +197,20 @@ export default function Home() {
       // Use the agent to send the message
       const data = await selectedAgent.sendMessage(messageRequest);
       setResponse(data);
+
+      console.info("data returned", JSON.stringify(data.response, null, 2));
+      
+      // If the response contains a feedback auth signature, automatically call giveClientFeedback
+      if (data.response?.signature && data.response?.skill === 'agent.feedback.requestAuth') {
+        try {
+          await handleFeedbackAuth(data.response);
+        } catch (feedbackError) {
+          console.error('Failed to submit feedback with auth:', feedbackError);
+          // Don't throw - we still show the response
+          setError(`Feedback auth received but failed to submit: ${feedbackError instanceof Error ? feedbackError.message : 'Unknown error'}`);
+        }
+      }
+      
       setMessage(''); // Clear message after successful send
     } catch (err) {
       console.error('Failed to send message:', err);

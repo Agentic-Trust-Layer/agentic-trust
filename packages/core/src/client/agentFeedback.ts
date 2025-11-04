@@ -7,68 +7,29 @@
 import type { PublicClient, Account } from 'viem';
 import { ethers } from 'ethers';
 import type { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
-import { createRequire } from 'module';
-import path from 'path';
 
-// Import IdentityRegistry ABI
-// Use createRequire for ES modules compatibility in Node.js
-const require = createRequire(import.meta.url);
+// Cache for the ABI to avoid reloading it multiple times
+let abiCache: any = null;
 
-const getIdentityRegistryAbi = (): any => {
-  // Use require() since this is server-side code (Next.js API routes)
-  // require() works in Node.js and Next.js server-side environments
-  // We resolve via package.json to avoid webpack bundling issues
+/**
+ * Load IdentityRegistry ABI using dynamic import
+ * NOTE: This function should only be called server-side (Next.js API routes)
+ */
+const getIdentityRegistryAbi = async (): Promise<any> => {
+  // Return cached ABI if available
+  if (abiCache) {
+    return abiCache;
+  }
+
+  // Dynamic import works with webpack's module resolution and the package.json exports
   try {
-    // First try: resolve from package.json location (most reliable in monorepos and Next.js)
-    try {
-      const packagePath = require.resolve('@erc8004/agentic-trust-sdk/package.json');
-      const packageDir = path.dirname(packagePath);
-      const abiPath = path.join(packageDir, 'abis', 'IdentityRegistry.json');
-      
-      // Verify file exists before requiring
-      const fs = require('fs');
-      if (fs.existsSync(abiPath)) {
-        return require(abiPath);
-      }
-      throw new Error(`ABI file not found at ${abiPath}`);
-    } catch (packageError: any) {
-      // Fallback: try the exported path directly
-      try {
-        // Note: The exports pattern should match "./abis/IdentityRegistry.json"
-        const abiPath = require.resolve('@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json');
-        return require(abiPath);
-      } catch (resolveError: any) {
-        // Last resort: try to find it in node_modules manually
-        try {
-          // Get the package directory from node_modules
-          const corePackagePath = require.resolve('@agentic-trust/core/package.json');
-          const corePackageDir = path.dirname(corePackagePath);
-          const nodeModulesDir = path.join(corePackageDir, '..', '..');
-          const sdkAbiPath = path.join(
-            nodeModulesDir,
-            '@erc8004',
-            'agentic-trust-sdk',
-            'abis',
-            'IdentityRegistry.json'
-          );
-          const fs = require('fs');
-          if (fs.existsSync(sdkAbiPath)) {
-            return require(sdkAbiPath);
-          }
-          throw new Error(`ABI file not found at ${sdkAbiPath}`);
-        } catch (nodeModulesError: any) {
-          throw new Error(
-            `IdentityRegistry ABI not available. ` +
-            `Tried: package.json resolution (${packageError?.message || packageError}), ` +
-            `exported path (${resolveError?.message || resolveError}), ` +
-            `and node_modules path (${nodeModulesError?.message || nodeModulesError}).`
-          );
-        }
-      }
-    }
+    const abiModule = await import('@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json');
+    abiCache = abiModule.default || abiModule;
+    return abiCache;
   } catch (error: any) {
     throw new Error(
-      `Failed to load IdentityRegistry ABI: ${error?.message || error}`
+      `Failed to load IdentityRegistry ABI: ${error?.message || error}. ` +
+      `Make sure @erc8004/agentic-trust-sdk is installed and the ABI file exists.`
     );
   }
 };
@@ -107,8 +68,8 @@ export async function createFeedbackAuth(
   // Get identity registry from reputation client
   const identityReg = await reputationClient.getIdentityRegistry();
 
-  // Load IdentityRegistry ABI (synchronous since we use require)
-  const identityRegistryAbi = getIdentityRegistryAbi();
+  // Load IdentityRegistry ABI (async dynamic import)
+  const identityRegistryAbi = await getIdentityRegistryAbi();
 
   // Ensure IdentityRegistry operator approvals are configured for sessionAA
   console.info("**********************************");

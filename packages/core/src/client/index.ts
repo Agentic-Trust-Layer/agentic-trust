@@ -102,17 +102,27 @@ export class AgenticTrustClient {
    * Called automatically during create() if not provided in config
    */
   private async initializeVeramoAgent(config: ApiClientConfig): Promise<void> {
+    console.log('🔧 initializeVeramoAgent: Starting...');
+    
     if (config.veramoAgent) {
+      console.log('✅ initializeVeramoAgent: Using provided agent');
       // Use provided agent
       this.veramo.connect(config.veramoAgent);
     } else {
+      console.log('🏭 initializeVeramoAgent: Creating agent internally...');
+      // Import the factory function
+      const { createVeramoAgentForClient } = await import('./veramoFactory');
+      console.log('✅ initializeVeramoAgent: Factory imported');
+      
       // Create agent internally
       const agent = await createVeramoAgentForClient(
         config.privateKey,
         config.ethereumRpcUrl,
         config.sepoliaRpcUrl
       );
+      console.log('✅ initializeVeramoAgent: Agent created, connecting...');
       this.veramo.connect(agent);
+      console.log('✅ initializeVeramoAgent: Complete');
     }
   }
 
@@ -120,26 +130,52 @@ export class AgenticTrustClient {
    * Create a new AgenticTrust client instance
    */
   static async create(config: ApiClientConfig): Promise<AgenticTrustClient> {
+
     const client = new AgenticTrustClient(config);
-    // Initialize Veramo agent if not provided
+    
+    // Step 1: Initialize Veramo agent (always happens - either provided or created from privateKey)
     await client.initializeVeramoAgent(config);
     
-    // Initialize reputation client if configured
-    // Priority: sessionPackage > reputation config
+    // Step 2: Initialize reputation client if configured
+    // Priority: sessionPackage > reputation config > top-level config with identity/reputation registry
+    console.log('📋 AgenticTrustClient.create: Step 2 - Checking reputation configuration...');
     if (config.sessionPackage) {
+      console.log('📋 AgenticTrustClient.create: Initializing reputation from sessionPackage...');
       await client.initializeReputationFromSessionPackage(config.sessionPackage);
+      console.log('✅ AgenticTrustClient.create: Reputation initialized from sessionPackage');
     } else if (config.reputation) {
+      console.log('📋 AgenticTrustClient.create: Initializing reputation from reputation config...');
       const identityRegistry = config.reputation.identityRegistry || config.identityRegistry;
       if (!identityRegistry) {
         throw new Error(
           'identityRegistry is required. Provide it in reputation config or set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
         );
       }
+      console.info('Initializing reputation from reputation config');
       await client.reputation.initialize({
         ...config.reputation,
         identityRegistry,
       });
+      console.log('✅ AgenticTrustClient.create: Reputation initialized from reputation config');
+    } else if (config.identityRegistry && config.reputationRegistry) {
+      console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
+      // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
+      // Uses the EOA derived from privateKey (same as VeramoAgent)
+      console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
+      await client.initializeReputationFromConfig(config);
+      console.log('✅ AgenticTrustClient.create: Reputation initialized from top-level config');
+    } else {
+      console.log('⚠️ AgenticTrustClient.create: Reputation client not initialized (missing identityRegistry or reputationRegistry)');
     }
+    
+    // Summary: Both VeramoAgent and ReputationClient are now configured
+    const veramoConfigured = client.veramo.isConnected();
+    const reputationConfigured = client.reputation.isInitialized();
+    console.log('📊 AgenticTrustClient.create: Summary', {
+      veramoConfigured,
+      reputationConfigured,
+      bothConfigured: veramoConfigured && reputationConfigured,
+    });
     
     return client;
   }
@@ -175,23 +211,131 @@ export class AgenticTrustClient {
     // Get client account (session key address)
     const clientAccount = sessionPackage.sessionKey.address as `0x${string}`;
 
-    // Initialize reputation client with session package data
-    // Use reputationRegistry from delegationSetup (which includes env var overrides)
+    /*
+    const rpcUrl = this.config.rpcUrl;
+    if (!rpcUrl) {
+      throw new Error(
+        'rpcUrl is required. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL environment variable.'
+      );
+    }
+      */
+
+    const reputationRegistry = this.config.reputationRegistry;
+    if (!reputationRegistry) {
+      throw new Error(
+        'reputationRegistry is required. Set NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY environment variable.'
+      );
+    }
+
     const identityRegistry = this.config.identityRegistry;
     if (!identityRegistry) {
       throw new Error(
         'identityRegistry is required. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
       );
     }
+
     await this.reputation.initialize({
       publicClient: delegationSetup.publicClient,
       walletClient: walletClient as any,
       clientAccount,
       agentAccount: agentAccount.address as `0x${string}`,
       identityRegistry,
-      reputationRegistry: delegationSetup.reputationRegistry,
+      reputationRegistry,
       ensRegistry: config.ensRegistry,
     });
+  }
+
+  /**
+   * Initialize reputation client from top-level config (identityRegistry and reputationRegistry)
+   * Uses the EOA (Externally Owned Account) derived from the private key
+   * @internal
+   */
+  private async initializeReputationFromConfig(config: ApiClientConfig): Promise<void> {
+    console.log('🔧 initializeReputationFromConfig: Starting...');
+    
+    const identityRegistry = config.identityRegistry;
+    const reputationRegistry = config.reputationRegistry;
+    
+    if (!identityRegistry || !reputationRegistry) {
+      throw new Error(
+        'identityRegistry and reputationRegistry are required. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY and NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY environment variables.'
+      );
+    }
+
+    // Get RPC URL (prefer sepoliaRpcUrl, fallback to ethereumRpcUrl)
+    const rpcUrl = config.sepoliaRpcUrl || config.ethereumRpcUrl;
+    if (!rpcUrl) {
+      throw new Error(
+        'RPC URL is required. Set NEXT_PUBLIC_SEPOLIA_RPC_URL or NEXT_PUBLIC_ETHEREUM_RPC_URL environment variable.'
+      );
+    }
+
+    // Get ENS registry (optional, but recommended)
+    const ensRegistry = config.sessionPackage?.ensRegistry || 
+      (process.env.AGENTIC_TRUST_ENS_REGISTRY || process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_REGISTRY) as `0x${string}` | undefined;
+    
+    if (!ensRegistry) {
+      console.log('⚠️ ENS registry not provided. Using default Sepolia ENS registry.');
+    }
+
+    // Get private key from config - required for reputation client
+    if (!config.privateKey) {
+      throw new Error('privateKey is required to initialize reputation client. Set AGENTIC_TRUST_PRIVATE_KEY or NEXT_PUBLIC_AGENTIC_TRUST_PRIVATE_KEY environment variable.');
+    }
+
+    // Normalize private key (same logic as veramoFactory)
+    let cleanedKey = config.privateKey.trim().replace(/\s+/g, '');
+    if (cleanedKey.startsWith('0x')) {
+      cleanedKey = cleanedKey.slice(2);
+    }
+    if (!/^[0-9a-fA-F]{64}$/.test(cleanedKey)) {
+      throw new Error('Invalid private key format');
+    }
+    const normalizedKey = `0x${cleanedKey}` as `0x${string}`;
+
+    // Create account from private key - this gives us the EOA address
+    const { privateKeyToAccount } = await import('viem/accounts');
+    const account = privateKeyToAccount(normalizedKey);
+    
+    // Use the EOA address derived from the private key
+    const eoaAddress = account.address as `0x${string}`;
+    console.log('🔧 initializeReputationFromConfig: Using EOA from private key', eoaAddress);
+
+    // Create public and wallet clients
+    const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');
+    const { sepolia } = await import('viem/chains');
+
+    // Create public client
+    const publicClient = createPublicClient({
+      chain: sepolia,
+      transport: httpTransport(rpcUrl),
+    });
+
+    // Create wallet client with the account
+    const walletClient = createWalletClient({
+      account,
+      chain: sepolia,
+      transport: httpTransport(rpcUrl),
+    });
+
+    // Use the EOA address for both client and agent
+    // Both VeramoAgent and ReputationClient will use the same private key and thus the same EOA
+    const clientAccount: `0x${string}` = eoaAddress;
+    const agentAccount: `0x${string}` = eoaAddress;
+
+    console.log('🔧 initializeReputationFromConfig: Initializing reputation client with EOA...');
+
+    await this.reputation.initialize({
+      publicClient: publicClient as any,
+      walletClient: walletClient as any,
+      clientAccount,
+      agentAccount,
+      identityRegistry,
+      reputationRegistry,
+      ensRegistry: ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e' as `0x${string}`, // Default ENS registry on Sepolia
+    });
+
+    console.log('✅ initializeReputationFromConfig: Complete - Reputation client initialized with EOA:', eoaAddress);
   }
 
   /**

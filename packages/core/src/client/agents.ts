@@ -108,7 +108,7 @@ export class AgentsAPI {
 
     // Debug: Log the response data
     if (typeof window !== 'undefined') {
-      console.log('[listAgents] total agents:', sortedAgents.length);
+      console.log('[listAgents] total agents 123:', sortedAgents.length);
     }
 
     // Convert AgentData to Agent instances

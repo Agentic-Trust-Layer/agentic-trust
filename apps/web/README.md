@@ -22,22 +22,12 @@ Open [http://localhost:3000](http://localhost:3000) to see the app.
 
 ## Architecture
 
-The client is set up using a singleton pattern that requires a Veramo agent:
+
 
 ### Client Initialization
 
-The `AgenticTrustClient` requires a Veramo agent instance. The app automatically initializes the client on load using:
+The `AgenticTrustClient` The app automatically initializes the client on load using:
 
-1. **`src/lib/veramo.ts`**: Define your Veramo agent creation here
-   - You must implement `createVeramoAgent()` with your Veramo agent setup
-   - See `VERAMO_INTEGRATION.md` in the core package for examples
-
-2. **`src/lib/init-client.ts`**: Handles client initialization
-   - `initAgenticTrustClient()`: Initializes the client with your Veramo agent
-   - `getGraphQLClient()`: Returns the initialized client (will initialize if needed)
-
-3. **`src/app/client-initializer.tsx`**: React component that initializes the client on app load
-   - Wraps the app layout to ensure client is initialized before rendering
 
 ### Using the Client
 
@@ -68,21 +58,4 @@ The `NEXT_PUBLIC_` prefix is required for Next.js to expose the variable to the 
 ```bash
 AGENTIC_TRUST_API_KEY=your-api-key-here
 ```
-
-**Note**: Never commit `.env.local` to version control. Use `.env.example` as a template.
-
-## Veramo Agent Setup
-
-`@agentic-trust/core` package. No manual setup is required.
-
-1. Install Veramo dependencies:
-```bash
-pnpm add @veramo/core @veramo/key-manager @veramo/did-manager @veramo/did-resolver
-```
-
-2. Implement `createVeramoAgent()` in `src/lib/veramo.ts` following the pattern in `packages/core/VERAMO_INTEGRATION.md`.
-
-3. The client will automatically initialize when the app loads.
-
-See `packages/core/VERAMO_INTEGRATION.md` for detailed setup instructions.
 
