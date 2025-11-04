@@ -224,6 +224,75 @@ export class Agent {
   }
 
   /**
+   * Verify the agent by sending an authentication challenge
+   * Creates a signed challenge and sends it to the agent's endpoint
+   * This will force a fresh authentication challenge even if already authenticated
+   * @returns true if verification passed, false otherwise
+   */
+  async verify(): Promise<boolean> {
+    if (!this.a2aProvider) {
+      throw new Error('Agent not initialized. Call initialize(client) first.');
+    }
+
+    try {
+      // Get endpoint info
+      const endpointInfo = await this.getEndpoint();
+      if (!endpointInfo) {
+        throw new Error('Agent endpoint not available');
+      }
+
+      // Get agent card to determine audience for challenge
+      const agentCard = await this.fetchCard();
+      if (!agentCard?.provider?.url) {
+        throw new Error('Agent card URL is required for verification');
+      }
+
+      // Reset authentication state to force a fresh challenge
+      // Access the private authenticated flag via type assertion
+      (this.a2aProvider as any).authenticated = false;
+
+      // Create a signed challenge using the A2A protocol provider
+      // We'll send a minimal message with auth to test verification
+      const a2aRequest = {
+        fromAgentId: 'client',
+        toAgentId: endpointInfo.providerId,
+        message: 'verify', // Minimal message for verification
+        payload: {},
+      };
+
+      // The sendMessage will automatically create and include auth challenge
+      // since we reset authenticated to false
+      const response = await this.a2aProvider.sendMessage(a2aRequest);
+
+      // If the response is successful and doesn't contain authentication errors,
+      // verification passed
+      if (response.success === false) {
+        // Check if it's an authentication error
+        if (response.error?.includes('authentication') || 
+            response.error?.includes('Authentication failed')) {
+          return false;
+        }
+        // Other errors might be acceptable (e.g., agent doesn't understand the message)
+        // but verification itself passed if no auth error
+        return true;
+      }
+
+      // Success response means verification passed
+      return true;
+    } catch (error) {
+      // If error contains authentication failure, verification failed
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('authentication') || 
+          errorMessage.includes('Authentication failed')) {
+        return false;
+      }
+      // Other errors might indicate verification failed
+      console.error('Verification error:', error);
+      return false;
+    }
+  }
+
+  /**
    * Feedback API
    */
   feedback = {

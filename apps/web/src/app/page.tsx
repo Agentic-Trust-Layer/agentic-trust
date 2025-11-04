@@ -30,6 +30,8 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [loadingAgentCard, setLoadingAgentCard] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [verificationResult, setVerificationResult] = useState<boolean | null>(null);
 
   useEffect(() => {
     async function fetchAgents() {
@@ -122,6 +124,7 @@ export default function Home() {
       setSelectedSkill(null);
       setError(null);
       setLoadingAgentCard(true);
+      setVerificationResult(null); // Reset verification result when selecting new agent
       
       if (!agent.agentId) {
         throw new Error('Agent ID is required');
@@ -463,9 +466,84 @@ export default function Home() {
 
         {/* Agent Communication Panel */}
         <div>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>
-            Agent Communication
-          </h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1.5rem' }}>
+              Agent Communication
+            </h2>
+            {selectedAgent && selectedAgent.agentId !== undefined && (
+              <button
+                onClick={async () => {
+                  if (!selectedAgent?.agentId) return;
+                  
+                  setVerifying(true);
+                  setVerificationResult(null);
+                  setError(null);
+                  
+                  try {
+                    const response = await fetch(`/api/agents/${selectedAgent.agentId}/verify`, {
+                      method: 'POST',
+                    });
+                    
+                    if (!response.ok) {
+                      const errorData = await response.json();
+                      throw new Error(errorData.message || errorData.error || 'Failed to verify agent');
+                    }
+                    
+                    const data = await response.json();
+                    setVerificationResult(data.valid);
+                  } catch (err) {
+                    console.error('Failed to verify agent:', err);
+                    setError(err instanceof Error ? err.message : 'Failed to verify agent');
+                    setVerificationResult(false);
+                  } finally {
+                    setVerifying(false);
+                  }
+                }}
+                disabled={verifying || !selectedAgent}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: verifying ? '#ccc' : '#28a745',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: verifying || !selectedAgent ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  fontWeight: 'bold',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}
+              >
+                {verifying ? (
+                  <>
+                    <span>Verifying...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>✓</span>
+                    <span>Verify</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+          
+          {verificationResult !== null && (
+            <div
+              style={{
+                marginBottom: '1rem',
+                padding: '0.75rem 1rem',
+                backgroundColor: verificationResult ? '#e8f5e9' : '#ffebee',
+                border: `1px solid ${verificationResult ? '#4caf50' : '#f44336'}`,
+                borderRadius: '4px',
+                color: verificationResult ? '#2e7d32' : '#c62828',
+                fontSize: '0.9rem',
+                fontWeight: 'bold',
+              }}
+            >
+              {verificationResult ? '✓ Verification Successful' : '✗ Verification Failed'}
+            </div>
+          )}
 
           <div
             style={{
