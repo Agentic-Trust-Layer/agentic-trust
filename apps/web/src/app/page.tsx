@@ -188,6 +188,7 @@ export default function Home() {
         score: 85, // Example score - you could make this configurable or prompt the user
         feedback: 'Feedback submitted via web client after requestAuth',
         feedbackAuth: signature, // This is the encoded tuple + signature
+        clientAddress: authClientAddress, // Pass the clientAddress from the auth
       }),
     });
 

@@ -182,9 +182,32 @@ export async function POST(request: NextRequest) {
             expirySeconds,
             chainIdOverride,
           } = payload || {};
+
+
+          console.info("payloadClientAddress", payloadClientAddress);
+          console.info("agentIdParam", agentIdParam);
+          console.info("indexLimitOverride", indexLimitOverride);
+          console.info("expirySeconds", expirySeconds);
+          console.info("chainIdOverride", chainIdOverride);
           
-          // Use clientAddress from payload, authenticated session, or session package
-          let clientAddress = payloadClientAddress;
+          // For agent.feedback.requestAuth skill, clientAddress MUST be provided in payload
+          if (!payloadClientAddress) {
+            responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
+            responseContent.skill = skillId;
+            return NextResponse.json(
+              {
+                success: false,
+                messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                response: responseContent,
+              },
+              {
+                status: 400,
+                headers: getCorsHeaders(),
+              }
+            );
+          }
+          
+          const clientAddress = payloadClientAddress;
           
           // Load session package early to get both clientAddress fallback and agent account
           const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('@agentic-trust/core');
@@ -198,62 +221,64 @@ export async function POST(request: NextRequest) {
           } else {
             const sessionPackage = loadSessionPackage(sessionPackagePath);
             
-            // If not in payload, try to use authenticated client address
-            if (!clientAddress && authenticatedClientAddress) {
-              clientAddress = authenticatedClientAddress;
-            }
-            
-            // If still not available, use session package sessionKey address
+            // clientAddress should already be validated above (line 194), but double-check for safety
             if (!clientAddress) {
-              clientAddress = sessionPackage.sessionKey.address;
-            }
-            
-            if (!clientAddress) {
-              responseContent.error = 'clientAddress is required. Provide it in payload, authenticate with the A2A endpoint, or ensure session package has sessionKey.address.';
+              responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
               responseContent.skill = skillId;
-            } else {
-              const delegationSetup = buildDelegationSetup(sessionPackage);
-              
-              // Get agent account from session package
-              console.info("buildAgentAccountFromSession ")
-              const agentAccount = await buildAgentAccountFromSession(sessionPackage);
-              
-              console.info("createWalletClient ")
-              // Create wallet client for signing
-              const walletClient = createWalletClient({
-                account: agentAccount,
-                chain: delegationSetup.chain,
-                transport: http(delegationSetup.rpcUrl),
-              });
-              
-              // Use agentId from session package if not provided in payload
-              const agentId = agentIdParam ? BigInt(agentIdParam) : BigInt(sessionPackage.agentId);
-              
-              // Get reputation registry (from delegation setup or env override)
-              const reputationRegistry = delegationSetup.reputationRegistry;
-              console.info("reputationRegistry ")
-              
-              // Create feedback auth
-              const signature = await createFeedbackAuth(
+              return NextResponse.json(
                 {
-                  publicClient: delegationSetup.publicClient,
-                  reputationRegistry,
-                  agentId,
-                  clientAddress: clientAddress as `0x${string}`,
-                  signer: agentAccount,
-                  walletClient: walletClient as any,
-                  indexLimitOverride: indexLimitOverride ? BigInt(indexLimitOverride) : undefined,
-                  expirySeconds,
-                  chainIdOverride: chainIdOverride ? BigInt(chainIdOverride) : undefined,
+                  success: false,
+                  messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                  response: responseContent,
                 },
-                reputationClient
+                {
+                  status: 400,
+                  headers: getCorsHeaders(),
+                }
               );
-              
-              responseContent.signature = signature;
-              responseContent.agentId = agentId.toString();
-              responseContent.clientAddress = clientAddress;
-              responseContent.skill = skillId;
             }
+            
+            const delegationSetup = buildDelegationSetup(sessionPackage);
+            
+            // Get agent account from session package
+            console.info("buildAgentAccountFromSession ")
+            const agentAccount = await buildAgentAccountFromSession(sessionPackage);
+            
+            console.info("createWalletClient ")
+            // Create wallet client for signing
+            const walletClient = createWalletClient({
+              account: agentAccount,
+              chain: delegationSetup.chain,
+              transport: http(delegationSetup.rpcUrl),
+            });
+            
+            // Use agentId from session package if not provided in payload
+            const agentId = agentIdParam ? BigInt(agentIdParam) : BigInt(sessionPackage.agentId);
+            
+            // Get reputation registry (from delegation setup or env override)
+            const reputationRegistry = delegationSetup.reputationRegistry;
+            console.info("reputationRegistry ")
+            
+            // Create feedback auth
+            const signature = await createFeedbackAuth(
+              {
+                publicClient: delegationSetup.publicClient,
+                reputationRegistry,
+                agentId,
+                clientAddress: clientAddress as `0x${string}`,
+                signer: agentAccount,
+                walletClient: walletClient as any,
+                indexLimitOverride: indexLimitOverride ? BigInt(indexLimitOverride) : undefined,
+                expirySeconds,
+                chainIdOverride: chainIdOverride ? BigInt(chainIdOverride) : undefined,
+              },
+              reputationClient
+            );
+            
+            responseContent.signature = signature;
+            responseContent.agentId = agentId.toString();
+            responseContent.clientAddress = clientAddress;
+            responseContent.skill = skillId;
           }
         }
       } catch (error: any) {
