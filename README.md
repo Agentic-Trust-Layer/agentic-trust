@@ -2,7 +2,7 @@
 
 **Foundation for agentic trust packages - Core SDK and applications**
 
-A modern, extensible monorepo for building trustworthy autonomous agent systems. Inspired by [ElizaOS](https://github.com/elizaOS/eliza), this project provides the infrastructure and primitives needed to create, manage, and trust AI agents.
+A modern, extensible monorepo for building trustworthy autonomous agent systems.This project provides the infrastructure and primitives needed to create, manage, and trust AI agents.
 
 ## 🏗️ Architecture
 
@@ -218,13 +218,9 @@ Contributions are welcome! Please read our contributing guidelines (coming soon)
 
 MIT License - see LICENSE file for details
 
-## 🙏 Acknowledgments
-
-Inspired by [ElizaOS](https://github.com/elizaOS/eliza) - an excellent open-source framework for multi-agent AI development.
 
 ## 🔗 Related Projects
 
-- [ElizaOS](https://github.com/elizaOS/eliza) - Multi-agent AI framework
 - [ENS](https://ens.domains/) - Ethereum Name Service
 - [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) - Non-Fungible Token Ownership Designation Standard
 
