@@ -12,9 +12,7 @@
   },
   "include": [
     "*.ts",
-    "adapters/types.ts",
-    "adapters/ethers.ts",
-    "adapters/index.ts",
+    "adapters/**/*.ts",
     "abis/**/*.json"
   ],
   "exclude": [
@@ -22,7 +20,6 @@
     "dist",
     "**/*.test.ts",
     "**/*.spec.ts",
-    "adapters/viem.ts",
     "utils/ipfs.ts"
   ]
 }

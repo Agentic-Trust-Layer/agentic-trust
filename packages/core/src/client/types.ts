@@ -19,5 +19,35 @@ export interface ApiClientConfig {
   timeout?: number;
   /** Additional headers to include in requests */
   headers?: Record<string, string>;
+  /** Identity registry contract address */
+  identityRegistry?: `0x${string}`;
+  /** Reputation registry contract address */
+  reputationRegistry?: `0x${string}`;
+  /** Reputation client configuration (optional) */
+  reputation?: {
+    /** Viem public client */
+    publicClient: any;
+    /** Viem wallet client */
+    walletClient: any;
+    /** Client account address */
+    clientAccount: `0x${string}`;
+    /** Agent account address */
+    agentAccount: `0x${string}`;
+    /** Identity registry contract address */
+    identityRegistry?: `0x${string}`;
+    /** Reputation registry contract address */
+    reputationRegistry: `0x${string}`;
+    /** ENS registry contract address */
+    ensRegistry: `0x${string}`;
+  };
+  /** Session package configuration (optional) */
+  sessionPackage?: {
+    /** Path to session package JSON file */
+    filePath?: string;
+    /** Session package object (if already loaded) */
+    package?: import('./sessionPackage').SessionPackage;
+    /** ENS registry contract address (required if using session package) */
+    ensRegistry: `0x${string}`;
+  };
 }
 

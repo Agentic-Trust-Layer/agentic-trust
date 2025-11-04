@@ -25,6 +25,7 @@
     "@agentic-trust/veramo-agent-extension": "workspace:*",
     "@ensdomains/ensjs": "^3.0.0",
     "@erc8004/agentic-trust-sdk": "workspace:*",
+    "@erc8004/sdk": "workspace:*",
     "@veramo/did-manager": "^6.0.0",
     "@veramo/did-provider-ethr": "^6.0.0",
     "@veramo/did-resolver": "^6.0.0",
@@ -37,7 +38,13 @@
     "viem": "^2.38.6"
   },
   "peerDependencies": {
-    "@veramo/core": "^6.0.0"
+    "@veramo/core": "^6.0.0",
+    "@metamask/delegation-toolkit": "*"
+  },
+  "peerDependenciesMeta": {
+    "@metamask/delegation-toolkit": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

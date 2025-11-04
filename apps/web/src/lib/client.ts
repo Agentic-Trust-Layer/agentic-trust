@@ -36,6 +36,26 @@ export function createApiClientConfig(
   // Get RPC URLs from environment
   const sepoliaRpcUrl = process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL;
 
+  // Get identity registry from environment
+  const identityRegistry = process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY ||
+    process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+
+  // Get reputation registry from environment
+  const reputationRegistry = process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY ||
+    process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
+
+  // Get session package configuration
+  const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH || 
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+  const ensRegistry = process.env.AGENTIC_TRUST_ENS_REGISTRY || 
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_REGISTRY;
+  const sessionPackageRpcUrl = process.env.AGENTIC_TRUST_RPC_URL ||
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL;
+  const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL ||
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL;
+  const reputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY ||
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY;
+
   const config: ApiClientConfig = {
     timeout: 30000,
     headers: {
@@ -64,9 +84,27 @@ export function createApiClientConfig(
     config.privateKey = finalPrivateKey;
   }
 
-
   if (sepoliaRpcUrl) {
     config.sepoliaRpcUrl = sepoliaRpcUrl;
+  }
+
+  // Set identity registry if provided
+  if (identityRegistry) {
+    config.identityRegistry = identityRegistry as `0x${string}`;
+  }
+
+  // Set reputation registry if provided
+  if (reputationRegistry) {
+    config.reputationRegistry = reputationRegistry as `0x${string}`;
+  }
+
+  // Configure session package if path and ENS registry are provided
+  // Note: All overrides (rpcUrl, bundlerUrl, reputationRegistry) come from environment variables only
+  if (sessionPackagePath && ensRegistry) {
+    config.sessionPackage = {
+      filePath: sessionPackagePath,
+      ensRegistry: ensRegistry as `0x${string}`,
+    };
   }
 
   return config;

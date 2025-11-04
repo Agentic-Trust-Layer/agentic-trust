@@ -1,15 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createVeramoAgent } from '@/lib/veramo';
 import { verifyChallenge, nonceStore } from '@/lib/verification';
+import { initializeProviderClient } from '@/lib/client';
+import { createFeedbackAuth } from '@agentic-trust/core';
+import { http, createWalletClient } from 'viem';
 
-// Cache Veramo agent instance
-let veramoAgent: Awaited<ReturnType<typeof createVeramoAgent>> | null = null;
+// Cache AgenticTrust client instance
+let agenticTrustClient: Awaited<ReturnType<typeof initializeProviderClient>> | null = null;
 
-async function getVeramoAgent() {
-  if (!veramoAgent) {
-    veramoAgent = await createVeramoAgent();
+async function getAgenticTrustClient() {
+  if (!agenticTrustClient) {
+    agenticTrustClient = await initializeProviderClient();
   }
-  return veramoAgent;
+  return agenticTrustClient;
+}
+
+/**
+ * Get Veramo agent from AgenticTrustClient
+ * The client creates and manages its own Veramo agent internally
+ */
+async function getVeramoAgent() {
+  const client = await getAgenticTrustClient();
+  return client.veramo.getAgent();
 }
 
 /**
@@ -57,6 +68,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify authentication if provided (first connection)
+    let authenticatedClientAddress: string | null = null;
     if (auth) {
       const agent = await getVeramoAgent();
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
@@ -97,10 +109,22 @@ export async function POST(request: NextRequest) {
         nonceStore.add(nonce);
       }
 
+      // Extract client address from auth if available
+      if (auth.ethereumAddress) {
+        authenticatedClientAddress = auth.ethereumAddress;
+      } else if (auth.did?.startsWith('did:ethr:')) {
+        // Extract address from ethr DID
+        const addressMatch = auth.did.match(/did:ethr:0x[a-fA-F0-9]{40}/);
+        if (addressMatch) {
+          authenticatedClientAddress = addressMatch[0].replace('did:ethr:', '');
+        }
+      }
+
       console.log('Client authenticated:', {
         did: auth.did,
         kid: auth.kid,
         algorithm: auth.algorithm,
+        clientAddress: authenticatedClientAddress,
       });
     } else {
       // Authentication is optional for now, but recommended
@@ -120,7 +144,7 @@ export async function POST(request: NextRequest) {
     });
 
     // Handle skill-based requests
-    let responseContent: any = {
+    const responseContent: Record<string, unknown> = {
       received: true,
       processedAt: new Date().toISOString(),
       echo: message || 'Message received',
@@ -145,6 +169,106 @@ export async function POST(request: NextRequest) {
       } else {
         responseContent.response = `I'd be happy to help with movie questions! Try asking about specific movies, actors, directors, or request recommendations. For example: "Tell me about Inception" or "Recommend a good sci-fi movie."`;
         responseContent.skill = 'general_movie_chat';
+      }
+    } else if (skillId === 'agent.feedback.requestAuth') {
+      // Feedback request auth skill handler
+      try {
+        const client = await getAgenticTrustClient();
+        
+        // Check if reputation client is initialized
+        if (!client.reputation.isInitialized()) {
+          responseContent.error = 'Reputation client not initialized. Configure session package in environment variables.';
+          responseContent.skill = skillId;
+        } else {
+          // Get reputation client
+          const reputationClient = client.reputation.getClient();
+          
+          // Extract parameters from payload
+          const {
+            clientAddress: payloadClientAddress,
+            agentId: agentIdParam,
+            indexLimitOverride,
+            expirySeconds,
+            chainIdOverride,
+          } = payload || {};
+          
+          // Use clientAddress from payload, authenticated session, or session package
+          let clientAddress = payloadClientAddress;
+          
+          // Load session package early to get both clientAddress fallback and agent account
+          const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('@agentic-trust/core');
+          
+          const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH ||
+                                   process.env.NEXT_PUBLIC_AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+          
+          if (!sessionPackagePath) {
+            responseContent.error = 'Session package path not configured';
+            responseContent.skill = skillId;
+          } else {
+            const sessionPackage = loadSessionPackage(sessionPackagePath);
+            
+            // If not in payload, try to use authenticated client address
+            if (!clientAddress && authenticatedClientAddress) {
+              clientAddress = authenticatedClientAddress;
+            }
+            
+            // If still not available, use session package sessionKey address
+            if (!clientAddress) {
+              clientAddress = sessionPackage.sessionKey.address;
+            }
+            
+            if (!clientAddress) {
+              responseContent.error = 'clientAddress is required. Provide it in payload, authenticate with the A2A endpoint, or ensure session package has sessionKey.address.';
+              responseContent.skill = skillId;
+            } else {
+              const delegationSetup = buildDelegationSetup(sessionPackage);
+              
+              // Get agent account from session package
+              console.info("buildAgentAccountFromSession ")
+              const agentAccount = await buildAgentAccountFromSession(sessionPackage);
+              
+              console.info("createWalletClient ")
+              // Create wallet client for signing
+              const walletClient = createWalletClient({
+                account: agentAccount,
+                chain: delegationSetup.chain,
+                transport: http(delegationSetup.rpcUrl),
+              });
+              
+              // Use agentId from session package if not provided in payload
+              const agentId = agentIdParam ? BigInt(agentIdParam) : BigInt(sessionPackage.agentId);
+              
+              // Get reputation registry (from delegation setup or env override)
+              const reputationRegistry = delegationSetup.reputationRegistry;
+              console.info("reputationRegistry ")
+              
+              // Create feedback auth
+              const signature = await createFeedbackAuth(
+                {
+                  publicClient: delegationSetup.publicClient,
+                  reputationRegistry,
+                  agentId,
+                  clientAddress: clientAddress as `0x${string}`,
+                  signer: agentAccount,
+                  walletClient: walletClient as any,
+                  indexLimitOverride: indexLimitOverride ? BigInt(indexLimitOverride) : undefined,
+                  expirySeconds,
+                  chainIdOverride: chainIdOverride ? BigInt(chainIdOverride) : undefined,
+                },
+                reputationClient
+              );
+              
+              responseContent.signature = signature;
+              responseContent.agentId = agentId.toString();
+              responseContent.clientAddress = clientAddress;
+              responseContent.skill = skillId;
+            }
+          }
+        }
+      } catch (error: any) {
+        console.error('Error creating feedback auth:', error);
+        responseContent.error = error?.message || 'Failed to create feedback auth';
+        responseContent.skill = skillId;
       }
     } else if (skillId) {
       // Other skill handlers can be added here

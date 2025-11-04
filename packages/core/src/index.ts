@@ -43,3 +43,19 @@ export {
   OrgIdentityClient,
   type GiveFeedbackParams,
 } from '@erc8004/agentic-trust-sdk';
+
+// Export ViemAdapter from erc8004-sdk for convenience
+export { ViemAdapter } from '@erc8004/sdk';
+
+// Export session package utilities
+export type { SessionPackage, DelegationSetup } from './client';
+export {
+  loadSessionPackage,
+  validateSessionPackage,
+  buildDelegationSetup,
+  buildAgentAccountFromSession,
+} from './client';
+
+// Export feedback auth utilities
+export { createFeedbackAuth } from './client/agentFeedback';
+export type { RequestAuthParams } from './client/agentFeedback';

@@ -14,7 +14,7 @@ export { ReputationClient } from './ReputationClient';
 export { ValidationClient } from './ValidationClient';
 export * from './adapters/types';
 export * from './adapters/ethers';
-// export * from './adapters/viem'; // Temporarily disabled due to viem compatibility issues
+export * from './adapters/viem'; // Re-enabled for reputation client support
 export * from './types';
 // IPFS utilities temporarily disabled due to TypeScript compatibility issues
 // export {

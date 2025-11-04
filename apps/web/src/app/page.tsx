@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { ListAgentsResponse, Agent } from '@agentic-trust/core';
-import type { AgentCard, AgentSkill, MessageRequest, MessageResponse } from '@agentic-trust/core';
+import type { AgentCard, AgentSkill, MessageRequest } from '@agentic-trust/core';
 
 export default function Home() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -78,7 +78,7 @@ export default function Home() {
     }
   };
 
-  const handleDiscoverEndpoint = async (agent: Agent, index: number) => {
+  const handleDiscoverEndpoint = async (agent: Agent) => {
     try {
       setSelectedAgent(agent);
       setEndpoint(null);
@@ -277,7 +277,7 @@ export default function Home() {
                     boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
                     cursor: 'pointer',
                   }}
-                  onClick={() => handleDiscoverEndpoint(agent, index)}
+                  onClick={() => handleDiscoverEndpoint(agent)}
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
                     <div style={{ flex: 1 }}>
@@ -315,7 +315,7 @@ export default function Home() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDiscoverEndpoint(agent, index);
+                        handleDiscoverEndpoint(agent);
                       }}
                       style={{
                         padding: '0.5rem 1rem',
@@ -532,7 +532,7 @@ export default function Home() {
                   </>
                 ) : (
                   <div style={{ color: '#666', textAlign: 'center', padding: '1rem' }}>
-                    No agent card found. Click "Discover Endpoint" to load agent capabilities.
+                    No agent card found. Click &quot;Discover Endpoint&quot; to load agent capabilities.
                   </div>
                 )}
               </>

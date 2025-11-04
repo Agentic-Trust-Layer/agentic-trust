@@ -10,6 +10,7 @@ import { AgentsAPI } from './agents';
 import { A2AProtocolProviderAPI } from './a2aProtocolProvider';
 import { VeramoAPI } from './veramo';
 import { VerificationAPI } from './verification';
+import { ReputationAPI } from './reputation';
 import { createVeramoAgentForClient } from './veramoFactory';
 
 export type { ApiClientConfig } from './types';
@@ -42,6 +43,13 @@ export type {
   VerificationRequest,
   VerificationResult,
 } from './verification';
+export type { SessionPackage, DelegationSetup } from './sessionPackage';
+export {
+  loadSessionPackage,
+  validateSessionPackage,
+  buildDelegationSetup,
+  buildAgentAccountFromSession,
+} from './sessionPackage';
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -50,6 +58,7 @@ export class AgenticTrustClient {
   public a2aProtocolProvider: A2AProtocolProviderAPI;
   public veramo: VeramoAPI;
   public verification: VerificationAPI;
+  public reputation: ReputationAPI;
 
   private constructor(config: ApiClientConfig) {
     // Set default baseUrl if not provided
@@ -82,6 +91,7 @@ export class AgenticTrustClient {
     this.agents = new AgentsAPI(this.graphQLClient, this);
     this.a2aProtocolProvider = new A2AProtocolProviderAPI(this.graphQLClient);
     this.veramo = new VeramoAPI();
+    this.reputation = new ReputationAPI();
 
     // Initialize verification API (will be connected after agent is ready)
     this.verification = new VerificationAPI(() => this.veramo.getAgent());
@@ -113,7 +123,75 @@ export class AgenticTrustClient {
     const client = new AgenticTrustClient(config);
     // Initialize Veramo agent if not provided
     await client.initializeVeramoAgent(config);
+    
+    // Initialize reputation client if configured
+    // Priority: sessionPackage > reputation config
+    if (config.sessionPackage) {
+      await client.initializeReputationFromSessionPackage(config.sessionPackage);
+    } else if (config.reputation) {
+      const identityRegistry = config.reputation.identityRegistry || config.identityRegistry;
+      if (!identityRegistry) {
+        throw new Error(
+          'identityRegistry is required. Provide it in reputation config or set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
+        );
+      }
+      await client.reputation.initialize({
+        ...config.reputation,
+        identityRegistry,
+      });
+    }
+    
     return client;
+  }
+
+  /**
+   * Initialize reputation client from session package
+   * Uses environment variables only (no overrides allowed)
+   * @internal
+   */
+  private async initializeReputationFromSessionPackage(config: {
+    filePath?: string;
+    package?: import('./sessionPackage').SessionPackage;
+    ensRegistry: `0x${string}`;
+  }): Promise<void> {
+    const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('./sessionPackage');
+    
+    // Load session package
+    const sessionPackage = config.package || loadSessionPackage(config.filePath);
+    // buildDelegationSetup uses env vars only (no overrides)
+    const delegationSetup = buildDelegationSetup(sessionPackage);
+    
+    // Build agent account from session
+    const agentAccount = await buildAgentAccountFromSession(sessionPackage);
+    
+    // Create wallet client
+    const { createWalletClient, http: httpTransport } = await import('viem');
+    const walletClient = createWalletClient({
+      account: agentAccount,
+      chain: delegationSetup.chain,
+      transport: httpTransport(delegationSetup.rpcUrl),
+    });
+
+    // Get client account (session key address)
+    const clientAccount = sessionPackage.sessionKey.address as `0x${string}`;
+
+    // Initialize reputation client with session package data
+    // Use reputationRegistry from delegationSetup (which includes env var overrides)
+    const identityRegistry = this.config.identityRegistry;
+    if (!identityRegistry) {
+      throw new Error(
+        'identityRegistry is required. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
+      );
+    }
+    await this.reputation.initialize({
+      publicClient: delegationSetup.publicClient,
+      walletClient: walletClient as any,
+      clientAccount,
+      agentAccount: agentAccount.address as `0x${string}`,
+      identityRegistry,
+      reputationRegistry: delegationSetup.reputationRegistry,
+      ensRegistry: config.ensRegistry,
+    });
   }
 
   /**

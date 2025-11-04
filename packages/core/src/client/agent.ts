@@ -9,6 +9,8 @@
 import type { AgenticTrustClient } from './index';
 import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
+import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
+import type { PublicClient, Account } from 'viem';
 
 // Re-export types
 export type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
@@ -226,5 +228,72 @@ export class Agent {
   getBaseUrl(): string | undefined {
     return this.data.a2aEndpoint;
   }
+
+  /**
+   * Feedback API
+   */
+  feedback = {
+    /**
+     * Request authentication for giving feedback
+     * Creates a signed feedback auth that can be used to submit feedback
+     * 
+     * @param params - Feedback auth parameters
+     * @returns Signature string (0x-prefixed hex)
+     */
+    requestAuth: async (params: {
+      publicClient: PublicClient;
+      reputationRegistry?: `0x${string}`;
+      agentId?: bigint;
+      clientAddress: `0x${string}`;
+      signer: Account;
+      walletClient?: any;
+      indexLimitOverride?: bigint;
+      expirySeconds?: number;
+      chainIdOverride?: bigint;
+    }): Promise<`0x${string}`> => {
+      // Check if reputation client is available
+      if (!this.client.reputation.isInitialized()) {
+        throw new Error(
+          'Reputation client not initialized. ' +
+          'Provide reputation configuration when creating AgenticTrustClient.'
+        );
+      }
+
+      const reputationClient = this.client.reputation.getClient();
+
+      // Get reputation registry and walletClient from client config if not provided
+      const clientConfig = (this.client as any).config?.reputation;
+      const reputationRegistry = params.reputationRegistry || clientConfig?.reputationRegistry;
+      const walletClient = params.walletClient || clientConfig?.walletClient;
+      
+      if (!reputationRegistry) {
+        throw new Error(
+          'reputationRegistry is required. Provide it in params or in AgenticTrustClient reputation config.'
+        );
+      }
+
+      if (!walletClient) {
+        throw new Error(
+          'walletClient is required. Provide it in params or in AgenticTrustClient reputation config.'
+        );
+      }
+
+      // Use the agentId from the agent data if not provided
+      const agentId = params.agentId ?? (this.data.agentId ? BigInt(this.data.agentId) : undefined);
+      if (!agentId) {
+        throw new Error('agentId is required. Provide it in params or ensure agent has agentId in data.');
+      }
+
+      return createFeedbackAuth(
+        {
+          ...params,
+          agentId,
+          reputationRegistry,
+          walletClient,
+        },
+        reputationClient
+      );
+    },
+  };
 }
 

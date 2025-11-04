@@ -148,11 +148,15 @@ export class ViemAdapter implements BlockchainAdapter {
       throw new Error('Wallet client and account required for signing');
     }
 
+    const primaryType = Object.keys(types)[0];
+    if (!primaryType) {
+      throw new Error('Types object must have at least one key for primaryType');
+    }
     const signature = await this.walletClient.signTypedData({
       account: this.account,
       domain,
       types,
-      primaryType: Object.keys(types)[0], // Viem requires primaryType
+      primaryType, // Viem requires primaryType
       message: value,
     });
 

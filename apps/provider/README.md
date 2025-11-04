@@ -25,10 +25,41 @@ Open [http://localhost:3001](http://localhost:3001) to see the provider dashboar
 Create a `.env.local` file:
 
 ```bash
+# Required: Provider identifier
 PROVIDER_ID=my-agent-provider
+
+# Required: Agent name
 AGENT_NAME=My Agent Provider
+
+# Required: Base URL for the provider (used in agent-card.json)
 NEXT_PUBLIC_BASE_URL=http://localhost:3001
+
+# Optional: Port for the provider server (defaults to 3001)
+PORT=3001
+
+# Optional: Ethereum RPC URLs for DID resolution
+ETHEREUM_RPC_URL=https://eth.llamarpc.com
+SEPOLIA_RPC_URL=https://sepolia.llamarpc.com
+
+# Optional: Ethereum private key for Veramo agent DID
+# If not provided, a key will be generated for the session
+AGENTIC_TRUST_PRIVATE_KEY=0x...
+
+# Optional: Session Package Configuration
+# Path to session package file (for delegation-based authentication)
+# If file is in provider root: ./sessionPackage.json.secret
+# If using absolute path: /full/path/to/sessionPackage.json.secret
+AGENTIC_TRUST_SESSION_PACKAGE_PATH=./sessionPackage.json.secret
+
+# Required if using session package: ENS Registry contract address
+AGENTIC_TRUST_ENS_REGISTRY=0x...
+
+# Optional: Override values from session package file
+AGENTIC_TRUST_BUNDLER_URL=https://bundler.example.com
+AGENTIC_TRUST_REPUTATION_REGISTRY=0x...
 ```
+
+**Note**: Never commit `.env.local` to version control. Use `.env.example` as a template.
 
 ## A2A Endpoint
 

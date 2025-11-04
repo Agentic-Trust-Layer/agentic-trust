@@ -163,6 +163,12 @@ importers:
       '@erc8004/agentic-trust-sdk':
         specifier: workspace:*
         version: link:../erc8004-agentic-trust-sdk
+      '@erc8004/sdk':
+        specifier: workspace:*
+        version: link:../erc8004-sdk
+      '@metamask/delegation-toolkit':
+        specifier: '*'
+        version: 0.13.0(viem@2.38.6)
       '@veramo/core':
         specifier: ^6.0.0
         version: 6.0.0

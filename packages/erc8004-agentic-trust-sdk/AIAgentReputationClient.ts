@@ -92,10 +92,14 @@ export class AIAgentReputationClient extends BaseReputationClient {
   static async create(
     agentAdapter: any,
     clientAdapter: any,
+    identityRegistryAddress: `0x${string}`,
     registrationRegistryAddress: `0x${string}`,
     ensRegistryAddress: `0x${string}`
   ): Promise<AIAgentReputationClient> {
+
+    /*
     let identityRegistryAddress: `0x${string}`;
+    
     try {
       identityRegistryAddress = await (agentAdapter as any).call(
         registrationRegistryAddress,
@@ -109,6 +113,8 @@ export class AIAgentReputationClient extends BaseReputationClient {
     } catch (e) {
       throw new Error(`Failed to resolve identity registry from reputation registry: ${(e as any)?.message || e}`);
     }
+    */
+ 
     return new AIAgentReputationClient(
       agentAdapter,
       clientAdapter,
