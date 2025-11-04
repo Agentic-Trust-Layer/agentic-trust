@@ -79,8 +79,16 @@ export class ViemAdapter implements BlockchainAdapter {
     });
 
     // Write the transaction
+    // walletClient.writeContract should sign locally when account is set on walletClient
+    // Ensure we're not passing account in request if walletClient already has it
     console.info("Writing transaction...");
-    const hash = await this.walletClient.writeContract(request);
+    // Remove account from request if walletClient already has account configured
+    // This ensures Viem signs locally using walletClient's account
+    const { account: _, ...requestWithoutAccount } = request as any;
+    const hash = await this.walletClient.writeContract({
+      ...requestWithoutAccount,
+      // Don't pass account here - let walletClient use its configured account
+    } as any);
 
     // Wait for transaction receipt
     console.info("Waiting for transaction receipt...");

@@ -6,6 +6,7 @@
 
 import type { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAdapter } from '@erc8004/sdk';
+import type { Account } from 'viem/accounts';
 
 export class ReputationAPI {
   private reputationClient: AIAgentReputationClient | null = null;
@@ -37,8 +38,8 @@ export class ReputationAPI {
   async initialize(config: {
     publicClient: any;
     walletClient: any;
-    clientAccount: `0x${string}`;
-    agentAccount: `0x${string}`;
+    clientAccount: `0x${string}` | Account; // Can be address string or Account object
+    agentAccount: `0x${string}` | Account; // Can be address string or Account object
     identityRegistry: `0x${string}`; // Required - must be provided in reputation config or top-level config
     reputationRegistry: `0x${string}`;
     ensRegistry: `0x${string}`;
@@ -46,6 +47,8 @@ export class ReputationAPI {
     const { AIAgentReputationClient } = await import('@erc8004/agentic-trust-sdk');
 
     // Create adapters for client and agent using ViemAdapter
+    // Pass Account object if available, otherwise use address string
+    // ViemAdapter will use the Account for signing if provided
     const clientAdapter = new ViemAdapter(
       config.publicClient,
       config.walletClient,

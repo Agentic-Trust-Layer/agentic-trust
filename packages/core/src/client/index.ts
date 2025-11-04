@@ -305,18 +305,16 @@ export class AgenticTrustClient {
       transport: httpTransport(rpcUrl),
     });
 
-    // Use the EOA address for both client and agent
-    // Both VeramoAgent and ReputationClient will use the same private key and thus the same EOA
-    const clientAccount: `0x${string}` = eoaAddress;
-    const agentAccount: `0x${string}` = eoaAddress;
-
+    // Pass the Account object (not just address) to ViemAdapter so it can sign transactions locally
+    // This ensures transactions are signed locally and sent via eth_sendRawTransaction
+    // instead of trying to use eth_sendTransaction (which requires write-enabled RPC)
     console.log('🔧 initializeReputationFromConfig: Initializing reputation client with EOA...');
 
     await this.reputation.initialize({
       publicClient: publicClient as any,
       walletClient: walletClient as any,
-      clientAccount,
-      agentAccount,
+      clientAccount: account, // Pass Account object for local signing
+      agentAccount: account, // Pass Account object for local signing
       identityRegistry,
       reputationRegistry,
       ensRegistry: ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e' as `0x${string}`, // Default ENS registry on Sepolia
