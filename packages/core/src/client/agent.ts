@@ -11,6 +11,7 @@ import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import type { PublicClient, Account } from 'viem';
+import type { GiveFeedbackParams } from '@erc8004/agentic-trust-sdk';
 
 // Re-export types
 export type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
@@ -286,6 +287,39 @@ export class Agent {
         },
         reputationClient
       );
+    },
+
+    /**
+     * Submit client feedback to the reputation contract
+     * @param params - Feedback parameters including score, feedback, feedbackAuth, etc.
+     * @returns Transaction result with txHash
+     * @throws Error if reputation client is not initialized
+     */
+    giveFeedback: async (params: Omit<GiveFeedbackParams, 'agent' | 'agentId'> & { agentId?: string }): Promise<{ txHash: string }> => {
+      // Check if reputation client is available
+      if (!this.client.reputation.isInitialized()) {
+        throw new Error(
+          'Reputation client not initialized. ' +
+          'Provide reputation configuration when creating AgenticTrustClient.'
+        );
+      }
+
+      const reputationClient = this.client.reputation.getClient();
+
+      // Use the agentId from the agent data if not provided
+      const agentId = params.agentId ?? (this.data.agentId ? this.data.agentId.toString() : undefined);
+      if (!agentId) {
+        throw new Error('agentId is required. Provide it in params or ensure agent has agentId in data.');
+      }
+
+      // Build the full feedback params
+      const feedbackParams: GiveFeedbackParams = {
+        ...params,
+        agent: agentId,
+        agentId,
+      };
+
+      return await reputationClient.giveClientFeedback(feedbackParams);
     },
   };
 }
