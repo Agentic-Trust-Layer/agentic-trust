@@ -50,6 +50,7 @@ export async function verifyChallenge(
 
     // Validate audience
     if (aud !== expectedAudience) {
+      console.log('Audience mismatch:', aud, 'expected:', expectedAudience);
       return { valid: false, error: 'Audience mismatch' };
     }
 

@@ -7,7 +7,7 @@ export interface ApiClientConfig {
   /** Veramo agent instance - optional, will be created automatically if not provided */
   veramoAgent?: VeramoAgent;
   /** Base URL for the GraphQL API endpoint */
-  baseUrl?: string;
+  graphQLUrl?: string;
   /** API key for authentication */
   apiKey?: string;
   /** Ethereum private key (hex string with or without 0x prefix) - if not provided, a key will be generated for the session */
@@ -31,7 +31,7 @@ export interface ApiClientConfig {
     /** Session package object (if already loaded) */
     package?: import('./sessionPackage').SessionPackage;
     /** ENS registry contract address (required if using session package) */
-    ensRegistry: `0x${string}`;
+    ensRegistry?: `0x${string}`;
   };
 }
 

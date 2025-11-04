@@ -69,6 +69,7 @@ export class ViemAdapter implements BlockchainAdapter {
 
     // ABI is already in proper JSON format, use directly
     // Simulate the transaction first
+    console.info("Simulating transaction...");
     const { request } = await this.publicClient.simulateContract({
       address: contractAddress as Address,
       abi: abi as any,
@@ -78,14 +79,17 @@ export class ViemAdapter implements BlockchainAdapter {
     });
 
     // Write the transaction
+    console.info("Writing transaction...");
     const hash = await this.walletClient.writeContract(request);
 
     // Wait for transaction receipt
+    console.info("Waiting for transaction receipt...");
     const receipt = await this.publicClient.waitForTransactionReceipt({
       hash,
     });
 
     // Parse events from the receipt
+    console.info("Parsing events from receipt...");
     const events: any[] = [];
 
     for (const log of receipt.logs) {

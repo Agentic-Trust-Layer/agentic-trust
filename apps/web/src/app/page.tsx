@@ -1,20 +1,32 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { ListAgentsResponse, Agent } from '@agentic-trust/core';
 import type { AgentCard, AgentSkill, MessageRequest } from '@agentic-trust/core';
 
+// Plain agent data type from API (not Agent instances)
+type AgentData = {
+  agentId?: number;
+  agentName?: string;
+  a2aEndpoint?: string;
+  createdAtTime?: string;
+  updatedAtTime?: string;
+};
+
 export default function Home() {
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agents, setAgents] = useState<AgentData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<AgentData | null>(null);
   const [agentCard, setAgentCard] = useState<AgentCard | null>(null);
   const [endpoint, setEndpoint] = useState<{ providerId: string; endpoint: string; method?: string } | null>(null);
   const [message, setMessage] = useState('');
   const [selectedSkill, setSelectedSkill] = useState<AgentSkill | null>(null);
   const [sending, setSending] = useState(false);
-  const [response, setResponse] = useState<any>(null);
+  const [response, setResponse] = useState<{ 
+    response?: { response?: string; skill?: string }; 
+    messageId?: string;
+    [key: string]: unknown;
+  } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [loadingAgentCard, setLoadingAgentCard] = useState(false);
@@ -25,13 +37,16 @@ export default function Home() {
         setLoading(true);
         setError(null);
         
-        // Use async getClient to ensure initialization
-        const { getClient } = await import('@/lib/init-client');
-
-        console.info('************* Fetching agents *************');
-        const client = await getClient();
-        const response: ListAgentsResponse = await client.agents.listAgents();
-        setAgents(response.agents || []);
+        console.info('************* Fetching agents via API *************');
+        const response = await fetch('/api/agents');
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
+        }
+        
+        const data = await response.json();
+        setAgents(data.agents || []);
       } catch (err) {
         console.error('Failed to fetch agents:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch agents');
@@ -46,10 +61,18 @@ export default function Home() {
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
       // If search is empty, fetch all agents
-      const { getClient } = await import('@/lib/init-client');
-      const client = await getClient();
-      const response: ListAgentsResponse = await client.agents.listAgents();
-      setAgents(response.agents || []);
+      try {
+        const response = await fetch('/api/agents');
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
+        }
+        const data = await response.json();
+        setAgents(data.agents || []);
+      } catch (err) {
+        console.error('Failed to fetch agents:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch agents');
+      }
       return;
     }
 
@@ -57,13 +80,24 @@ export default function Home() {
       setIsSearching(true);
       setError(null);
       
-      const { getClient } = await import('@/lib/init-client');
-      const client = await getClient();
-      console.info("search agents 123", searchQuery.trim());
-      const response: ListAgentsResponse = await client.agents.searchAgents(searchQuery.trim());
-      setAgents(response.agents || []);
+      console.info("search agents via API", searchQuery.trim());
+      const response = await fetch('/api/agents', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: searchQuery.trim() }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to search agents');
+      }
+      
+      const data = await response.json();
+      setAgents(data.agents || []);
     } catch (err) {
-      console.error('Failed to search agents 123:', err);
+      console.error('Failed to search agents:', err);
       setError(err instanceof Error ? err.message : 'Failed to search agents');
     } finally {
       setIsSearching(false);
@@ -80,7 +114,7 @@ export default function Home() {
     }
   };
 
-  const handleDiscoverEndpoint = async (agent: Agent) => {
+  const handleDiscoverEndpoint = async (agent: AgentData) => {
     try {
       setSelectedAgent(agent);
       setEndpoint(null);
@@ -89,24 +123,25 @@ export default function Home() {
       setError(null);
       setLoadingAgentCard(true);
       
-      // Agent is already initialized with client during construction
-      // Fetch agent card using the agent
-      const card = await agent.fetchCard();
+      if (!agent.agentId) {
+        throw new Error('Agent ID is required');
+      }
       
-      if (card) {
-        setAgentCard(card);
+      // Fetch agent card via server-side API
+      const response = await fetch(`/api/agents/${agent.agentId}/card`);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to fetch agent card');
+      }
+      
+      const data = await response.json();
+      
+      if (data.card) {
+        setAgentCard(data.card);
         
-        // Check if agent supports the protocol
-        const supportsProtocol = await agent.supportsProtocol();
-        
-        if (supportsProtocol) {
-          // Get endpoint from the agent
-          const endpointInfo = await agent.getEndpoint();
-          if (endpointInfo) {
-            setEndpoint(endpointInfo);
-          } else {
-            setError('Agent card found but could not determine endpoint');
-          }
+        if (data.supportsProtocol && data.endpoint) {
+          setEndpoint(data.endpoint);
         } else {
           setError('Agent does not support messaging protocol (missing skills or endpoint)');
         }
@@ -121,38 +156,47 @@ export default function Home() {
     }
   };
 
-  const handleFeedbackAuth = async (authResponse: any) => {
+  const handleFeedbackAuth = async (authResponse: Record<string, unknown>) => {
     // Extract feedback auth data from response
+    console.info("authResponse", JSON.stringify(authResponse, null, 2));
+    
+    // Extract the signature from the response (feedbackAuth is encoded tuple + signature)
     const signature = authResponse.signature;
     const agentId = authResponse.agentId;
-    const clientAddress = authResponse.clientAddress;
+    const authClientAddress = authResponse.clientAddress; // Address encoded in the auth
 
-    if (!signature || !agentId || !clientAddress) {
+    if (!signature || !agentId || !authClientAddress) {
       throw new Error('Missing required feedback auth data: signature, agentId, or clientAddress');
     }
 
-    // Get the client and reputation client
-    const { getClient } = await import('@/lib/init-client');
-    const client = await getClient();
-
-    if (!client.reputation.isInitialized()) {
-      throw new Error('Reputation client not initialized. Cannot submit feedback.');
+    // Ensure signature is a string (hex format)
+    if (typeof signature !== 'string' || !signature.startsWith('0x')) {
+      throw new Error(`Invalid signature format. Expected hex string starting with 0x, got: ${typeof signature}`);
     }
 
-    const reputationClient = client.reputation.getClient();
+    console.info("Submitting feedback via server-side API...");
 
-    // Submit feedback using the auth signature
-    // Note: agent field should be the agent address (not client address)
-    // For now, we'll use the agentId as the agent identifier
-    // You may need to adjust this based on your actual agent address
-    const feedbackResult = await reputationClient.giveClientFeedback({
-      agent: agentId.toString(), // Agent identifier
-      agentId: agentId.toString(),
-      score: 85, // Example score - you could make this configurable or prompt the user
-      feedback: 'Feedback submitted via web client after requestAuth',
-      feedbackAuth: signature,
+    // Submit feedback via server-side API route
+    // This avoids RPC provider issues and keeps private keys on the server
+    const response = await fetch('/api/feedback', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        agentId: agentId.toString(),
+        score: 85, // Example score - you could make this configurable or prompt the user
+        feedback: 'Feedback submitted via web client after requestAuth',
+        feedbackAuth: signature, // This is the encoded tuple + signature
+      }),
     });
 
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.message || errorData.error || 'Failed to submit feedback');
+    }
+
+    const feedbackResult = await response.json();
     console.info('Feedback submitted successfully:', feedbackResult);
     return feedbackResult;
   };
@@ -175,6 +219,10 @@ export default function Home() {
       setError(null);
       setResponse(null);
 
+      if (!selectedAgent.agentId) {
+        throw new Error('Agent ID is required');
+      }
+
       // Build message request with optional skill targeting
       const messageRequest: MessageRequest = {
         message: message,
@@ -194,8 +242,21 @@ export default function Home() {
         };
       }
 
-      // Use the agent to send the message
-      const data = await selectedAgent.sendMessage(messageRequest);
+      // Send message via server-side API
+      const response = await fetch(`/api/agents/${selectedAgent.agentId}/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messageRequest),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to send message');
+      }
+
+      const data = await response.json();
       setResponse(data);
 
       console.info("data returned", JSON.stringify(data.response, null, 2));
@@ -203,6 +264,7 @@ export default function Home() {
       // If the response contains a feedback auth signature, automatically call giveClientFeedback
       if (data.response?.signature && data.response?.skill === 'agent.feedback.requestAuth') {
         try {
+          console.info("data.response", JSON.stringify(data.response, null, 2));
           await handleFeedbackAuth(data.response);
         } catch (feedbackError) {
           console.error('Failed to submit feedback with auth:', feedbackError);
@@ -291,10 +353,13 @@ export default function Home() {
                 onClick={async () => {
                   setSearchQuery('');
                   // Fetch all agents when clearing search
-                  const { getClient } = await import('@/lib/init-client');
-                  const client = await getClient();
-                  const response: ListAgentsResponse = await client.agents.listAgents();
-                  setAgents(response.agents || []);
+                  const response = await fetch('/api/agents');
+                  if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
+                  }
+                  const data = await response.json();
+                  setAgents(data.agents || []);
                 }}
                 style={{
                   padding: '0.75rem 1rem',
@@ -365,9 +430,9 @@ export default function Home() {
                           </span>
                         )}
                       </div>
-                      {agent.data.createdAtTime && (
+                      {agent.createdAtTime && (
                         <div style={{ fontSize: '0.85rem', color: '#666' }}>
-                          Created: {new Date(agent.data.createdAtTime).toLocaleString()}
+                          Created: {new Date(agent.createdAtTime).toLocaleString()}
                         </div>
                       )}
                     </div>

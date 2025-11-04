@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getClient } from '@/lib/init-client';
 import type {
   Challenge,
   SignedChallenge,
@@ -35,15 +34,26 @@ export default function VerifyPage() {
         return;
       }
 
-      const client = await getClient();
       const audience = window.location.origin;
 
-      const challenge = client.verification.createChallenge({
-        agentDid: agentDid.trim(),
-        audience,
+      const response = await fetch('/api/verify/challenge', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          agentDid: agentDid.trim(),
+          audience,
+        }),
       });
 
-      setChallenge(challenge);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to create challenge');
+      }
+
+      const challengeData = await response.json();
+      setChallenge(challengeData);
       setSignedChallenge(null);
     } catch (err) {
       console.error('Failed to create challenge:', err);
@@ -69,14 +79,25 @@ export default function VerifyPage() {
         return;
       }
 
-      const client = await getClient();
-      const signed = await client.verification.signChallenge(
-        challenge,
-        keyId.trim(),
-        algorithm
-      );
+      const response = await fetch('/api/verify/sign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          challenge,
+          keyId: keyId.trim(),
+          algorithm,
+        }),
+      });
 
-      setSignedChallenge(signed);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to sign challenge');
+      }
+
+      const signedData = await response.json();
+      setSignedChallenge(signedData);
     } catch (err) {
       console.error('Failed to sign challenge:', err);
       setError(err instanceof Error ? err.message : 'Failed to sign challenge');
@@ -95,15 +116,26 @@ export default function VerifyPage() {
         return;
       }
 
-      const client = await getClient();
       const audience = window.location.origin;
 
-      const result = await client.verification.verifyAgent({
-        signedChallenge,
-        audience,
-        nonce: challenge?.nonce,
+      const response = await fetch('/api/verify/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          signedChallenge,
+          audience,
+          nonce: challenge?.nonce,
+        }),
       });
 
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || errorData.error || 'Failed to verify');
+      }
+
+      const result = await response.json();
       setVerificationResult(result);
     } catch (err) {
       console.error('Failed to verify:', err);

@@ -153,6 +153,11 @@ export async function createFeedbackAuth(
     message: { raw: ethers.getBytes(messageHash) },
   });
 
-  return signature as `0x${string}`;
+  // Return encoded tuple + signature concatenated
+  // Contract expects: encoded(FeedbackAuth struct) + signature
+  // This matches the format expected by the contract's giveFeedback function
+  const feedbackAuth = ethers.concat([encoded, signature]) as `0x${string}`;
+  
+  return feedbackAuth;
 }
 

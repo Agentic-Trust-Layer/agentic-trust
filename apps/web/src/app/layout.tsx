@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import './globals.css';
-import { ClientInitializer } from './client-initializer';
 
 export const metadata: Metadata = {
   title: 'Agentic Trust',
@@ -15,7 +14,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <ClientInitializer>{children}</ClientInitializer>
+        {children}
       </body>
     </html>
   );

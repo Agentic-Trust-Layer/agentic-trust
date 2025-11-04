@@ -122,11 +122,13 @@ export class AgentsAPI {
 
   /**
    * Get a single agent by ID
+   * @param agentId - The agent ID as a string
+   * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
-  async getAgent(id: string): Promise<Agent | null> {
+  async getAgent(agentId: string, chainId: number = 11155111): Promise<Agent | null> {
     const query = `
-      query GetAgent($id: String!) {
-        agent(id: $id) {
+      query GetAgent($chainId: Int!, $agentId: String!) {
+        agent(chainId: $chainId, agentId: $agentId) {
           agentId
           agentName
           createdAtTime
@@ -137,7 +139,10 @@ export class AgentsAPI {
     `;
 
     try {
-      const data = await this.graphQLClient.request<{ agent: AgentData | null }>(query, { id });
+      const data = await this.graphQLClient.request<{ agent: AgentData | null }>(query, { 
+        chainId,
+        agentId 
+      });
       if (!data.agent) {
         return null;
       }

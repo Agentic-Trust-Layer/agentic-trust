@@ -27,7 +27,7 @@ pnpm add @agentic-trust/core
 import { AgenticTrustClient } from '@agentic-trust/core';
 
 const client = await AgenticTrustClient.create({
-  baseUrl: 'https://8004-agent.io',
+  graphQLUrl: 'https://8004-agent.io',
   apiKey: 'your-api-key',
   // Veramo agent will be created automatically if not provided
 });

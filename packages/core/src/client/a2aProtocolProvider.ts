@@ -153,7 +153,7 @@ export class A2AProtocolProviderAPI {
  * Handles direct A2A communication with an agent provider
  */
 export class A2AProtocolProvider {
-  private baseUrl: string;
+  private providerUrl: string;
   private agentCard: AgentCard | null = null;
   private a2aEndpoint: string | null = null;
   private veramoAgent: VeramoAgent | null = null;
@@ -163,11 +163,15 @@ export class A2AProtocolProvider {
 
   /**
    * Construct an A2A Protocol Provider for a specific agent
-   * @param a2aEndpoint - The base URL from the agent's a2aEndpoint field
+   * @param a2aEndpoint - The base URL from the agent's a2aEndpoint field (must be absolute)
    * @param veramoAgent - Veramo agent for authentication
    */
   constructor(a2aEndpoint: string, veramoAgent: VeramoAgent) {
-    this.baseUrl = a2aEndpoint.replace(/\/$/, ''); // Remove trailing slash
+    // Verify a2aEndpoint is an absolute URL
+    if (!a2aEndpoint.startsWith('http://') && !a2aEndpoint.startsWith('https://')) {
+      console.log(`Warning: a2aEndpoint should be an absolute URL (starting with http:// or https://), got: ${a2aEndpoint}`);
+    }
+    this.providerUrl = a2aEndpoint.replace(/\/$/, ''); // Remove trailing slash
     this.veramoAgent = veramoAgent;
   }
 
@@ -180,14 +184,31 @@ export class A2AProtocolProvider {
     }
 
     try {
-      const card = await fetchAgentCard(this.baseUrl);
+      console.log(`Fetching agent card from: ${this.providerUrl}`);
+      const card = await fetchAgentCard(this.providerUrl);
+      console.log(`Agent card: ${JSON.stringify(card)}`);
       if (card) {
         this.agentCard = card;
         // Extract A2A endpoint from agent card
-        const cardUrl = card.url;
+        const cardUrl = card.provider?.url;
+
+        if (!cardUrl) { 
+          console.log(`Warning: Agent card URL is not available`);
+          return null;
+        }
+        // Verify card.provider?.url is absolute
+        if (!cardUrl || (!cardUrl.startsWith('http://') && !cardUrl.startsWith('https://'))) {
+          console.log(`Warning: Agent card URL should be an absolute URL (starting with http:// or https://), got: ${cardUrl}`);
+        }
+        
         this.a2aEndpoint = cardUrl.endsWith('/api/a2a') 
           ? cardUrl 
           : `${cardUrl.replace(/\/$/, '')}/api/a2a`;
+          
+        // Verify the constructed a2aEndpoint is absolute
+        if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
+          console.log(`Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got: ${this.a2aEndpoint}`);
+        }
       }
       return card;
     } catch (error) {
@@ -217,6 +238,11 @@ export class A2AProtocolProvider {
       return null;
     }
 
+    // Verify endpoint is absolute before returning
+    if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
+      console.log(`Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got: ${this.a2aEndpoint}`);
+    }
+
     return {
       providerId: this.agentCard.name || 'unknown',
       endpoint: this.a2aEndpoint,
@@ -232,7 +258,7 @@ export class A2AProtocolProvider {
     return card !== null && 
            card.skills !== undefined && 
            card.skills.length > 0 && 
-           card.url !== undefined;
+           card.provider?.url !== undefined;
   }
 
   /**
@@ -388,7 +414,14 @@ export class A2AProtocolProvider {
       // Use the agent card's URL as the audience (provider's base URL)
       // This should match what the provider expects
       const agentCard = await this.fetchAgentCard();
-      const aud = agentCard?.url || this.baseUrl;
+      if (!agentCard?.provider?.url) {
+        throw new Error('Agent card URL is required for authentication');
+      }
+      // Verify agentCard.provider?.url is absolute
+      if (!agentCard.provider?.url.startsWith('http://') && !agentCard.provider?.url.startsWith('https://')) {
+        console.log(`Warning: Agent card URL should be an absolute URL (starting with http:// or https://), got: ${agentCard.provider?.url}`);
+      }
+      const aud = agentCard.provider?.url;
       authChallenge = await this.createSignedChallenge(aud);
       if (authChallenge) {
         this.authenticated = true;
@@ -430,10 +463,4 @@ export class A2AProtocolProvider {
     }
   }
 
-  /**
-   * Get the base URL
-   */
-  getBaseUrl(): string {
-    return this.baseUrl;
-  }
 }

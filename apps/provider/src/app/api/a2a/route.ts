@@ -1,25 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyChallenge, nonceStore } from '@/lib/verification';
-import { initializeProviderClient } from '@/lib/client';
+import { getProviderClient } from '@/lib/client';
 import { createFeedbackAuth } from '@agentic-trust/core';
 import { http, createWalletClient } from 'viem';
-
-// Cache AgenticTrust client instance
-let agenticTrustClient: Awaited<ReturnType<typeof initializeProviderClient>> | null = null;
-
-async function getAgenticTrustClient() {
-  if (!agenticTrustClient) {
-    agenticTrustClient = await initializeProviderClient();
-  }
-  return agenticTrustClient;
-}
 
 /**
  * Get Veramo agent from AgenticTrustClient
  * The client creates and manages its own Veramo agent internally
  */
 async function getVeramoAgent() {
-  const client = await getAgenticTrustClient();
+  const client = await getProviderClient();
   return client.veramo.getAgent();
 }
 
@@ -71,7 +61,8 @@ export async function POST(request: NextRequest) {
     let authenticatedClientAddress: string | null = null;
     if (auth) {
       const agent = await getVeramoAgent();
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+      // Base URL of the provider app (for challenge audience validation)
+      const providerUrl = process.env.PROVIDER_BASE_URL || '';
       
       // Extract nonce from challenge
       const challengeLines = auth.challenge.split('\n');
@@ -92,7 +83,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Verify the challenge
-      const verification = await verifyChallenge(agent, auth, baseUrl);
+      const verification = await verifyChallenge(agent, auth, providerUrl);
       
       if (!verification.valid) {
         return NextResponse.json(
@@ -173,7 +164,7 @@ export async function POST(request: NextRequest) {
     } else if (skillId === 'agent.feedback.requestAuth') {
       // Feedback request auth skill handler
       try {
-        const client = await getAgenticTrustClient();
+        const client = await getProviderClient();
         
         // Check if reputation client is initialized
         if (!client.reputation.isInitialized()) {
@@ -198,10 +189,10 @@ export async function POST(request: NextRequest) {
           // Load session package early to get both clientAddress fallback and agent account
           const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('@agentic-trust/core');
           
-          const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH ||
-                                   process.env.NEXT_PUBLIC_AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+          const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
           
           if (!sessionPackagePath) {
+            console.error('Session package path not configured');
             responseContent.error = 'Session package path not configured';
             responseContent.skill = skillId;
           } else {
@@ -308,14 +299,13 @@ export async function GET() {
   const providerId = process.env.PROVIDER_ID || 'default-provider';
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   
-  // In production, this would be the actual URL where this provider is hosted
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-    (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3001');
+  // Base URL of the provider app (for constructing endpoint URL)
+  const providerUrl = process.env.PROVIDER_BASE_URL || 'http://localhost:3001';
   
   return NextResponse.json({
     providerId,
     agentName,
-    endpoint: `${baseUrl}/api/a2a`,
+    endpoint: `${providerUrl}/api/a2a`,
     method: 'POST',
     capabilities: ['receive-a2a-messages', 'echo', 'process-payload'],
     version: '1.0.0',

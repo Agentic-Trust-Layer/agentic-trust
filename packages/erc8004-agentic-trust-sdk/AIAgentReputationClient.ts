@@ -140,8 +140,17 @@ export class AIAgentReputationClient extends BaseReputationClient {
     // Convert optional string parameters to bytes32 (or empty bytes32 if not provided)
     const tag1 = params.tag1 ? ethers.id(params.tag1).slice(0, 66) : ethers.ZeroHash;
     const tag2 = params.tag2 ? ethers.id(params.tag2).slice(0, 66) : ethers.ZeroHash;
-    const feedbackHash = params.feedbackHash || ethers.ZeroHash;
+    const feedbackHash = '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
     const feedbackUri = params.feedbackUri || '';
+
+    console.info("params.feedbackAuth", JSON.stringify(params.feedbackAuth, null, 2));
+    console.info("this.reputationAddress", this.reputationAddress);
+    console.info("agentId", params.agentId);
+    console.info("score", params.score);
+    console.info("tag1", tag1);
+    console.info("tag2", tag2);
+    console.info("feedbackUri", feedbackUri);
+    console.info("feedbackHash", feedbackHash);
 
     const result = await this.clientAdapter.send(
       this.reputationAddress,

@@ -61,14 +61,16 @@ export class AgenticTrustClient {
   public reputation: ReputationAPI;
 
   private constructor(config: ApiClientConfig) {
-    // Set default baseUrl if not provided
-    const baseUrl = config.baseUrl || '';
-    this.config = { ...config, baseUrl };
+    this.config = { ...config };
     
     // Construct GraphQL endpoint URL
-    const endpoint = baseUrl.endsWith('/graphql')
-      ? baseUrl
-      : `${baseUrl.replace(/\/$/, '')}/graphql`;
+    if (!config.graphQLUrl) {
+      throw new Error('graphQLUrl is required in ApiClientConfig');
+    }
+    
+    const endpoint = config.graphQLUrl.endsWith('/graphql')
+      ? config.graphQLUrl
+      : `${config.graphQLUrl.replace(/\/$/, '')}/graphql`;
 
     // Build headers
     const headers: Record<string, string> = {
@@ -140,7 +142,7 @@ export class AgenticTrustClient {
     console.log('📋 AgenticTrustClient.create: Step 2 - Checking reputation configuration...');
     if (config.sessionPackage) {
       console.log('📋 AgenticTrustClient.create: Initializing reputation from sessionPackage...');
-      await client.initializeReputationFromSessionPackage(config.sessionPackage);
+      await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: import('./sessionPackage').SessionPackage; ensRegistry: `0x${string}` });
       console.log('✅ AgenticTrustClient.create: Reputation initialized from sessionPackage');
     } else if (config.identityRegistry && config.reputationRegistry) {
       console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
@@ -356,13 +358,12 @@ export class AgenticTrustClient {
   setApiKey(apiKey: string): void {
     this.config.apiKey = apiKey;
     
-    // Get baseUrl (should always be set from constructor)
-    const baseUrl = this.config.baseUrl || '';
+    const graphQLUrl = this.config.graphQLUrl || '';
     
     // Recreate client with new API key
-    const endpoint = baseUrl.endsWith('/graphql')
-      ? baseUrl
-      : `${baseUrl.replace(/\/$/, '')}/graphql`;
+    const endpoint = graphQLUrl.endsWith('/graphql')
+      ? graphQLUrl
+      : `${graphQLUrl.replace(/\/$/, '')}/graphql`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

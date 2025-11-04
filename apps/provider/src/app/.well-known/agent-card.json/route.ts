@@ -6,25 +6,25 @@ import { NextResponse } from 'next/server';
  * Returns the agent card with capabilities, skills, and endpoint information
  */
 export async function GET() {
-  const providerId = process.env.PROVIDER_ID || 'default-provider';
+  
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'A sample agent provider for A2A communication';
   
-  // Get base URL for the provider
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3001';
+  // Get providerUrl URL for the provider
+  const providerUrl = process.env.PROVIDER_BASE_URL || '';
   
   // Get agent ID from environment or use default
-  const agentId = parseInt(process.env.AGENT_ID || '11', 10);
-  const agentAddress = process.env.AGENT_ADDRESS || 'eip155:11155111:0x80fAA3740fDb03D7536C7fEef94f6F34Ea932bd3';
-  const agentSignature = process.env.AGENT_SIGNATURE || '0x4d6ff18c69d1306363b4728dfecbf6f71c552936c8cb3c5b47d255f0f20719f042e25d6b70258856a91c1c9c07ab7cb5ee5402fe0c6ff39109f2b63329993afe1b';
+  const agentId = parseInt(process.env.AGENT_ID || '0', 10);
+  const agentAddress = process.env.AGENT_ADDRESS || '';
+  const agentSignature = process.env.AGENT_SIGNATURE || '';
 
   const agentCard = {
     name: agentName,
     description: agentDescription,
-    url: baseUrl,
+    url: providerUrl,
     provider: {
       organization: process.env.PROVIDER_ORGANIZATION || 'A2A Samples',
-      url: process.env.PROVIDER_URL || 'https://example.com/a2a-samples',
+      url: process.env.PROVIDER_BASE_URL,
     },
     version: process.env.AGENT_VERSION || '0.0.2',
     capabilities: {

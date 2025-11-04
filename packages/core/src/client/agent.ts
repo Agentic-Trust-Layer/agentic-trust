@@ -223,13 +223,6 @@ export class Agent {
   }
 
   /**
-   * Get the agent's base URL
-   */
-  getBaseUrl(): string | undefined {
-    return this.data.a2aEndpoint;
-  }
-
-  /**
    * Feedback API
    */
   feedback = {
