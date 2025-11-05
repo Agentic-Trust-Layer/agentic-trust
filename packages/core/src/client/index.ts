@@ -229,6 +229,8 @@ export class AgenticTrustClient {
       identityRegistry,
       reputationRegistry,
       ensRegistry: config.ensRegistry,
+      sessionPackagePath: config.filePath || process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH,
+      agentId: BigInt(sessionPackage.agentId),
     });
   }
 

@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyChallenge, nonceStore } from '@/lib/verification';
 import { getProviderClient } from '@/lib/client';
-import { createFeedbackAuth } from '@agentic-trust/core';
-import { http, createWalletClient } from 'viem';
 
 /**
  * Get Veramo agent from AgenticTrustClient
@@ -171,27 +169,15 @@ export async function POST(request: NextRequest) {
           responseContent.error = 'Reputation client not initialized. Configure session package in environment variables.';
           responseContent.skill = skillId;
         } else {
-          // Get reputation client
-          const reputationClient = client.reputation.getClient();
-          
           // Extract parameters from payload
           const {
-            clientAddress: payloadClientAddress,
+            clientAddress,
             agentId: agentIdParam,
-            indexLimitOverride,
-            expirySeconds,
-            chainIdOverride,
+            expirySeconds
           } = payload || {};
 
-
-          console.info("payloadClientAddress", payloadClientAddress);
-          console.info("agentIdParam", agentIdParam);
-          console.info("indexLimitOverride", indexLimitOverride);
-          console.info("expirySeconds", expirySeconds);
-          console.info("chainIdOverride", chainIdOverride);
-          
           // For agent.feedback.requestAuth skill, clientAddress MUST be provided in payload
-          if (!payloadClientAddress) {
+          if (!clientAddress) {
             responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
             responseContent.skill = skillId;
             return NextResponse.json(
@@ -207,77 +193,23 @@ export async function POST(request: NextRequest) {
             );
           }
           
-          const clientAddress = payloadClientAddress;
-          
-          // Load session package early to get both clientAddress fallback and agent account
-          const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('@agentic-trust/core');
-          
-          const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
-          
-          if (!sessionPackagePath) {
-            console.error('Session package path not configured');
-            responseContent.error = 'Session package path not configured';
-            responseContent.skill = skillId;
-          } else {
-            const sessionPackage = loadSessionPackage(sessionPackagePath);
-            
-            // clientAddress should already be validated above (line 194), but double-check for safety
-            if (!clientAddress) {
-              responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
-              responseContent.skill = skillId;
-              return NextResponse.json(
-                {
-                  success: false,
-                  messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-                  response: responseContent,
-                },
-                {
-                  status: 400,
-                  headers: getCorsHeaders(),
-                }
-              );
-            }
-            
-            const delegationSetup = buildDelegationSetup(sessionPackage);
-            
-            // Get agent account from session package
-            console.info("buildAgentAccountFromSession ")
-            const agentAccount = await buildAgentAccountFromSession(sessionPackage);
-            
-            console.info("createWalletClient ")
-            // Create wallet client for signing
-            const walletClient = createWalletClient({
-              account: agentAccount,
-              chain: delegationSetup.chain,
-              transport: http(delegationSetup.rpcUrl),
+          try {
+            // Request feedback auth - reputation API handles all session package, delegation setup, etc.
+            const feedbackAuthResponse = await client.reputation.requestFeedbackAuth({
+              clientAddress: clientAddress as `0x${string}`,
+              agentId: agentIdParam,
+              skillId: skillId,
+              expirySeconds
             });
             
-            // Use agentId from session package if not provided in payload
-            const agentId = agentIdParam ? BigInt(agentIdParam) : BigInt(sessionPackage.agentId);
-            
-            // Get reputation registry (from delegation setup or env override)
-            const reputationRegistry = delegationSetup.reputationRegistry;
-            console.info("reputationRegistry ")
-            
-            // Create feedback auth
-            const signature = await createFeedbackAuth(
-              {
-                publicClient: delegationSetup.publicClient,
-                reputationRegistry,
-                agentId,
-                clientAddress: clientAddress as `0x${string}`,
-                signer: agentAccount,
-                walletClient: walletClient as any,
-                indexLimitOverride: indexLimitOverride ? BigInt(indexLimitOverride) : undefined,
-                expirySeconds,
-                chainIdOverride: chainIdOverride ? BigInt(chainIdOverride) : undefined,
-              },
-              reputationClient
-            );
-            
-            responseContent.signature = signature;
-            responseContent.agentId = agentId.toString();
-            responseContent.clientAddress = clientAddress;
+            // Use the response directly from reputation API
+            responseContent.signature = feedbackAuthResponse.signature;
+            responseContent.agentId = feedbackAuthResponse.agentId;
+            responseContent.clientAddress = feedbackAuthResponse.clientAddress;
+            responseContent.skill = feedbackAuthResponse.skill;
+          } catch (error: any) {
+            console.error('Error creating feedback auth:', error);
+            responseContent.error = error?.message || 'Failed to create feedback auth';
             responseContent.skill = skillId;
           }
         }

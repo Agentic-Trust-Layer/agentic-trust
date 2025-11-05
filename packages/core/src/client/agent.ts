@@ -305,14 +305,11 @@ export class Agent {
      */
     requestAuth: async (params: {
       publicClient: PublicClient;
-      reputationRegistry?: `0x${string}`;
       agentId?: bigint;
       clientAddress: `0x${string}`;
       signer: Account;
       walletClient?: any;
-      indexLimitOverride?: bigint;
       expirySeconds?: number;
-      chainIdOverride?: bigint;
     }): Promise<`0x${string}`> => {
       // Check if reputation client is available
       if (!this.client.reputation.isInitialized()) {
@@ -324,17 +321,10 @@ export class Agent {
 
       const reputationClient = this.client.reputation.getClient();
 
-      // Get reputation registry and walletClient from client config if not provided
+      // Get walletClient from client config if not provided
       const clientConfig = (this.client as any).config?.reputation;
-      const reputationRegistry = params.reputationRegistry || clientConfig?.reputationRegistry;
       const walletClient = params.walletClient || clientConfig?.walletClient;
       
-      if (!reputationRegistry) {
-        throw new Error(
-          'reputationRegistry is required. Provide it in params or in AgenticTrustClient reputation config.'
-        );
-      }
-
       if (!walletClient) {
         throw new Error(
           'walletClient is required. Provide it in params or in AgenticTrustClient reputation config.'
@@ -351,7 +341,6 @@ export class Agent {
         {
           ...params,
           agentId,
-          reputationRegistry,
           walletClient,
         },
         reputationClient

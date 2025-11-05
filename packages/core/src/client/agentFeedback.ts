@@ -36,14 +36,11 @@ const getIdentityRegistryAbi = async (): Promise<any> => {
 
 export interface RequestAuthParams {
   publicClient: PublicClient;
-  reputationRegistry: `0x${string}`;
   agentId: bigint;
   clientAddress: `0x${string}`;
   signer: Account;
   walletClient?: any;
-  indexLimitOverride?: bigint;
   expirySeconds?: number;
-  chainIdOverride?: bigint;
 }
 
 /**
@@ -55,14 +52,11 @@ export async function createFeedbackAuth(
 ): Promise<`0x${string}`> {
   const {
     publicClient,
-    reputationRegistry,
     agentId,
     clientAddress,
     signer,
     walletClient,
-    indexLimitOverride,
-    expirySeconds = 3600,
-    chainIdOverride,
+    expirySeconds = 3600
   } = params;
 
   // Get identity registry from reputation client
@@ -105,12 +99,10 @@ export async function createFeedbackAuth(
   }
 
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
-  const chainId = chainIdOverride ?? BigInt(publicClient.chain?.id ?? 0);
+  const chainId = BigInt(publicClient.chain?.id ??  0);
 
   const U64_MAX = 18446744073709551615n;
-  const lastIndexFetched = indexLimitOverride !== undefined
-    ? (indexLimitOverride - 1n)
-    : await reputationClient.getLastIndex(agentId, clientAddress);
+  const lastIndexFetched = await reputationClient.getLastIndex(agentId, clientAddress);
   let indexLimit = lastIndexFetched + 1n;
   let expiry = nowSec + BigInt(expirySeconds);
   if (expiry > U64_MAX) {
