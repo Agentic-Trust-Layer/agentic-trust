@@ -74,6 +74,8 @@ export class AIAgentReputationClient extends BaseReputationClient {
     chainId: bigint,
     signerAddress: string
   ): any {
+
+    console.info("----------> createFeedbackAuth", agentId, clientAddress, indexLimit, expiry, chainId, signerAddress);
     return (BaseReputationClient.prototype as any).createFeedbackAuth.call(
       this,
       agentId,

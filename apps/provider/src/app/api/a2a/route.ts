@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyChallenge, nonceStore } from '@/lib/verification';
-import { getProviderClient } from '@/lib/client';
+import { getAgenticTrustClient } from '@/lib/client';
+
 
 /**
  * Get Veramo agent from AgenticTrustClient
  * The client creates and manages its own Veramo agent internally
  */
 async function getVeramoAgent() {
-  const client = await getProviderClient();
-  return client.veramo.getAgent();
+  const atClient = await getAgenticTrustClient();
+  return atClient.veramo.getAgent();
 }
 
 /**
@@ -162,57 +163,74 @@ export async function POST(request: NextRequest) {
     } else if (skillId === 'agent.feedback.requestAuth') {
       // Feedback request auth skill handler
       try {
-        const client = await getProviderClient();
-        
-        // Check if reputation client is initialized
-        if (!client.reputation.isInitialized()) {
-          responseContent.error = 'Reputation client not initialized. Configure session package in environment variables.';
-          responseContent.skill = skillId;
-        } else {
-          // Extract parameters from payload
-          const {
-            clientAddress,
-            agentId: agentIdParam,
-            expirySeconds
-          } = payload || {};
 
-          // For agent.feedback.requestAuth skill, clientAddress MUST be provided in payload
-          if (!clientAddress) {
-            responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
-            responseContent.skill = skillId;
-            return NextResponse.json(
-              {
-                success: false,
-                messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-                response: responseContent,
-              },
-              {
-                status: 400,
-                headers: getCorsHeaders(),
-              }
-            );
+        const atClient = await getAgenticTrustClient();
+        const clientAddress = payload.clientAddress;
+
+
+        const {
+          agentId: agentIdParam,
+          expirySeconds
+        } = payload || {};
+
+
+        // For agent.feedback.requestAuth skill, clientAddress MUST be provided in payload
+        if (!clientAddress) {
+          responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
+          responseContent.skill = skillId;
+          return NextResponse.json(
+            {
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            },
+            {
+              status: 400,
+              headers: getCorsHeaders(),
+            }
+          );
+        }
+        
+        try {
+          // Get agent instance (we need it for feedback.requestAuth)
+          // The agentId should match the session package agentId
+          const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+          let agentIdForRequest: string | undefined;
+          if (sessionPackagePath) {
+            const { loadSessionPackage } = await import('@agentic-trust/core');
+            const sessionPackage = loadSessionPackage(sessionPackagePath);
+            agentIdForRequest = sessionPackage.agentId.toString();
+          } else {
+            agentIdForRequest = agentIdParam?.toString();
           }
           
-          try {
-            // Request feedback auth - reputation API handles all session package, delegation setup, etc.
-            const feedbackAuthResponse = await client.reputation.requestFeedbackAuth({
-              clientAddress: clientAddress as `0x${string}`,
-              agentId: agentIdParam,
-              skillId: skillId,
-              expirySeconds
-            });
-            
-            // Use the response directly from reputation API
-            responseContent.signature = feedbackAuthResponse.signature;
-            responseContent.agentId = feedbackAuthResponse.agentId;
-            responseContent.clientAddress = feedbackAuthResponse.clientAddress;
-            responseContent.skill = feedbackAuthResponse.skill;
-          } catch (error: any) {
-            console.error('Error creating feedback auth:', error);
-            responseContent.error = error?.message || 'Failed to create feedback auth';
-            responseContent.skill = skillId;
+          // Get agent by ID to use its feedback.requestAuth method
+          const agent = agentIdForRequest ? await atClient.agents.getAgent(agentIdForRequest) : null;
+          
+          if (!agent) {
+            throw new Error('Agent not found. Cannot request feedback auth without agent instance.');
           }
+          
+          // Request feedback auth - Agent.feedback.requestAuth handles all session package, delegation setup, etc.
+          
+          const feedbackAuthResponse = await agent.feedback.requestAuth({
+            clientAddress,
+            agentId: agentIdParam,
+            skillId: skillId,
+            expirySeconds
+          });
+          
+          // Use the response directly from agent feedback API
+          responseContent.feedbackAuth = feedbackAuthResponse.feedbackAuth;
+          responseContent.agentId = feedbackAuthResponse.agentId;
+          responseContent.clientAddress = feedbackAuthResponse.clientAddress;
+          responseContent.skill = feedbackAuthResponse.skill;
+        } catch (error: any) {
+          console.error('Error creating feedback auth:', error);
+          responseContent.error = error?.message || 'Failed to create feedback auth';
+          responseContent.skill = skillId;
         }
+      
       } catch (error: any) {
         console.error('Error creating feedback auth:', error);
         responseContent.error = error?.message || 'Failed to create feedback auth';

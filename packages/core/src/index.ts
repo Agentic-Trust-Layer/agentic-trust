@@ -59,3 +59,26 @@ export {
 // Export feedback auth utilities
 export { createFeedbackAuth } from './client/agentFeedback';
 export type { RequestAuthParams } from './client/agentFeedback';
+
+// Export reputation client singleton
+export {
+  getReputationClient,
+  isReputationClientInitialized,
+  resetReputationClient,
+} from './client/reputationClient';
+
+// Export client app singleton
+export {
+  getClientApp,
+  getClientAddress,
+  isClientAppInitialized,
+  resetClientApp,
+} from './client/clientApp';
+
+// Export provider app singleton
+export {
+  getProviderApp,
+  getProviderAgentId,
+  isProviderAppInitialized,
+  resetProviderApp,
+} from './client/providerApp';

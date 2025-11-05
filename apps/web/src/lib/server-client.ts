@@ -13,7 +13,7 @@ let initializationPromise: Promise<AgenticTrustClient> | null = null;
  * Get or create the server-side AgenticTrustClient singleton
  * This ensures all API routes use the same instance
  */
-export async function getServerClient(): Promise<AgenticTrustClient> {
+export async function getAgentTrustClient(): Promise<AgenticTrustClient> {
   // If already initialized, return immediately
   if (serverClient) {
     return serverClient;

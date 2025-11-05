@@ -4,12 +4,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/lib/server-client';
+import { getAgentTrustClient } from '@/lib/server-client';
 
 export async function GET() {
   try {
-    const client = await getServerClient();
-    const response = await client.agents.listAgents();
+    const atClient = await getAgentTrustClient();
+    const response = await atClient.agents.listAgents();
     
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({
@@ -51,8 +51,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = await getServerClient();
-    const response = await client.agents.searchAgents(query.trim());
+    const atClient = await getAgentTrustClient();
+    const response = await atClient.agents.searchAgents(query.trim());
     
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({

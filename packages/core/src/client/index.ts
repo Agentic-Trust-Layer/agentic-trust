@@ -9,9 +9,8 @@ import type { ApiClientConfig } from './types';
 import { AgentsAPI } from './agents';
 import { A2AProtocolProviderAPI } from './a2aProtocolProvider';
 import { VeramoAPI } from './veramo';
-import { VerificationAPI } from './verification';
-import { ReputationAPI } from './reputation';
-import { createVeramoAgentForClient } from './veramoFactory';
+
+import { getClientAddress } from './clientApp';
 
 export type { ApiClientConfig } from './types';
 export type { AgentData } from './agents';
@@ -50,6 +49,23 @@ export {
   buildDelegationSetup,
   buildAgentAccountFromSession,
 } from './sessionPackage';
+export {
+  getReputationClient,
+  isReputationClientInitialized,
+  resetReputationClient,
+} from './reputationClient';
+export {
+  getClientApp,
+  getClientAddress,
+  isClientAppInitialized,
+  resetClientApp,
+} from './clientApp';
+export {
+  getProviderApp,
+  getProviderAgentId,
+  isProviderAppInitialized,
+  resetProviderApp,
+} from './providerApp';
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -57,8 +73,16 @@ export class AgenticTrustClient {
   public agents: AgentsAPI;
   public a2aProtocolProvider: A2AProtocolProviderAPI;
   public veramo: VeramoAPI;
-  public verification: VerificationAPI;
-  public reputation: ReputationAPI;
+
+  /**
+   * Get the client address from ClientApp singleton
+   * @returns The client's Ethereum address
+   * @throws Error if ClientApp is not initialized
+   */
+  async getClientAddress(): Promise<`0x${string}`> {
+    
+    return await getClientAddress();
+  }
 
   private constructor(config: ApiClientConfig) {
     this.config = { ...config };
@@ -93,10 +117,7 @@ export class AgenticTrustClient {
     this.agents = new AgentsAPI(this.graphQLClient, this);
     this.a2aProtocolProvider = new A2AProtocolProviderAPI(this.graphQLClient);
     this.veramo = new VeramoAPI();
-    this.reputation = new ReputationAPI();
 
-    // Initialize verification API (will be connected after agent is ready)
-    this.verification = new VerificationAPI(() => this.veramo.getAgent());
   }
 
   /**
@@ -155,15 +176,6 @@ export class AgenticTrustClient {
       console.log('⚠️ AgenticTrustClient.create: Reputation client not initialized (missing identityRegistry or reputationRegistry)');
     }
     
-    // Summary: Both VeramoAgent and ReputationClient are now configured
-    const veramoConfigured = client.veramo.isConnected();
-    const reputationConfigured = client.reputation.isInitialized();
-    console.log('📊 AgenticTrustClient.create: Summary', {
-      veramoConfigured,
-      reputationConfigured,
-      bothConfigured: veramoConfigured && reputationConfigured,
-    });
-    
     return client;
   }
 
@@ -221,17 +233,6 @@ export class AgenticTrustClient {
       );
     }
 
-    await this.reputation.initialize({
-      publicClient: delegationSetup.publicClient,
-      walletClient: walletClient as any,
-      clientAccount,
-      agentAccount: agentAccount.address as `0x${string}`,
-      identityRegistry,
-      reputationRegistry,
-      ensRegistry: config.ensRegistry,
-      sessionPackagePath: config.filePath || process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH,
-      agentId: BigInt(sessionPackage.agentId),
-    });
   }
 
   /**
@@ -294,35 +295,7 @@ export class AgenticTrustClient {
     const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');
     const { sepolia } = await import('viem/chains');
 
-    // Create public client
-    const publicClient = createPublicClient({
-      chain: sepolia,
-      transport: httpTransport(rpcUrl),
-    });
 
-    // Create wallet client with the account
-    const walletClient = createWalletClient({
-      account,
-      chain: sepolia,
-      transport: httpTransport(rpcUrl),
-    });
-
-    // Pass the Account object (not just address) to ViemAdapter so it can sign transactions locally
-    // This ensures transactions are signed locally and sent via eth_sendRawTransaction
-    // instead of trying to use eth_sendTransaction (which requires write-enabled RPC)
-    console.log('🔧 initializeReputationFromConfig: Initializing reputation client with EOA...');
-
-    await this.reputation.initialize({
-      publicClient: publicClient as any,
-      walletClient: walletClient as any,
-      clientAccount: account, // Pass Account object for local signing
-      agentAccount: account, // Pass Account object for local signing
-      identityRegistry,
-      reputationRegistry,
-      ensRegistry: ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e' as `0x${string}`, // Default ENS registry on Sepolia
-    });
-
-    console.log('✅ initializeReputationFromConfig: Complete - Reputation client initialized with EOA:', eoaAddress);
   }
 
   /**

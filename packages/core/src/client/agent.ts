@@ -10,8 +10,8 @@ import type { AgenticTrustClient } from './index';
 import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
-import type { PublicClient, Account } from 'viem';
 import type { GiveFeedbackParams } from '@erc8004/agentic-trust-sdk';
+import { getProviderApp } from './providerApp';
 
 // Re-export types
 export type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
@@ -82,14 +82,7 @@ export class Agent {
     return this.data.a2aEndpoint;
   }
 
-  /**
-   * Initialize the agent with protocol support
-   * Uses the client's Veramo agent to set up authentication
-   * Called automatically during construction if agent has a2aEndpoint
-   * 
-   * NOTE: This only sets up the protocol provider - it does NOT fetch the agent card.
-   * The agent card is fetched lazily when fetchCard() is called.
-   */
+
   private initialize(): void {
     if (this.initialized) {
       return;
@@ -109,18 +102,11 @@ export class Agent {
     this.initialized = true;
   }
 
-  /**
-   * Check if agent has been initialized
-   */
+
   isInitialized(): boolean {
     return this.initialized;
   }
 
-  /**
-   * Fetch the agent card (discover capabilities)
-   * This is lazily loaded - the card is only fetched when this method is called,
-   * not during agent construction or listing.
-   */
   async fetchCard(): Promise<AgentCard | null> {
     if (!this.a2aProvider) {
       throw new Error('Agent not initialized. Call initialize(client) first.');
@@ -134,34 +120,20 @@ export class Agent {
     return this.agentCard;
   }
 
-  /**
-   * Get the agent card (cached)
-   */
   getCard(): AgentCard | null {
     return this.agentCard;
   }
 
-  /**
-   * Get available skills
-   * This will lazily fetch the agent card if not already cached
-   */
   async getSkills(): Promise<AgentSkill[]> {
     const card = await this.fetchCard(); // Lazy load
     return card?.skills || [];
   }
 
-  /**
-   * Get agent capabilities
-   * This will lazily fetch the agent card if not already cached
-   */
   async getCapabilities(): Promise<AgentCapabilities | null> {
     const card = await this.fetchCard(); // Lazy load
     return card?.capabilities || null;
   }
 
-  /**
-   * Check if agent supports the protocol
-   */
   async supportsProtocol(): Promise<boolean> {
     if (!this.a2aProvider) {
       return false;
@@ -174,9 +146,7 @@ export class Agent {
            card.url !== undefined;
   }
 
-  /**
-   * Get the endpoint information
-   */
+
   async getEndpoint(): Promise<{ providerId: string; endpoint: string; method?: string } | null> {
     if (!this.a2aProvider) {
       throw new Error('Agent not initialized. Call initialize(client) first.');
@@ -296,55 +266,58 @@ export class Agent {
    * Feedback API
    */
   feedback = {
-    /**
-     * Request authentication for giving feedback
-     * Creates a signed feedback auth that can be used to submit feedback
-     * 
-     * @param params - Feedback auth parameters
-     * @returns Signature string (0x-prefixed hex)
-     */
+
     requestAuth: async (params: {
-      publicClient: PublicClient;
-      agentId?: bigint;
       clientAddress: `0x${string}`;
-      signer: Account;
-      walletClient?: any;
+      agentId?: bigint | string;
+      skillId?: string;
       expirySeconds?: number;
-    }): Promise<`0x${string}`> => {
-      // Check if reputation client is available
-      if (!this.client.reputation.isInitialized()) {
-        throw new Error(
-          'Reputation client not initialized. ' +
-          'Provide reputation configuration when creating AgenticTrustClient.'
-        );
+    }): Promise<{ 
+      feedbackAuth: `0x${string}`; 
+      agentId: string;
+      clientAddress: `0x${string}`;
+      skill: string;
+    }> => {
+
+      const providerApp = await getProviderApp();
+      if (!providerApp) {
+        throw new Error('provider app not initialized');
       }
 
-      const reputationClient = this.client.reputation.getClient();
 
-      // Get walletClient from client config if not provided
-      const clientConfig = (this.client as any).config?.reputation;
-      const walletClient = params.walletClient || clientConfig?.walletClient;
+      const clientAddress = params.clientAddress;
+      console.info("----------> clientAddress inside agent.ts -----> ", clientAddress);
+
+
       
-      if (!walletClient) {
-        throw new Error(
-          'walletClient is required. Provide it in params or in AgenticTrustClient reputation config.'
-        );
-      }
-
-      // Use the agentId from the agent data if not provided
-      const agentId = params.agentId ?? (this.data.agentId ? BigInt(this.data.agentId) : undefined);
-      if (!agentId) {
-        throw new Error('agentId is required. Provide it in params or ensure agent has agentId in data.');
-      }
-
-      return createFeedbackAuth(
+      // Use agentId from params, stored agentId, or provider app
+      const agentId = params.agentId 
+        ? BigInt(params.agentId)
+        : (this.data.agentId ? BigInt(this.data.agentId) : providerApp.agentId);
+      
+      // Get reputation client singleton
+      const { getReputationClient } = await import('./reputationClient');
+      const reputationClient = await getReputationClient();
+      
+      // Create feedback auth using provider app's wallet client
+      const feedbackAuth = await createFeedbackAuth(
         {
-          ...params,
+          publicClient: providerApp.publicClient,
           agentId,
-          walletClient,
+          clientAddress,
+          signer: providerApp.agentAccount,
+          walletClient: providerApp.walletClient as any,
+          expirySeconds: params.expirySeconds
         },
         reputationClient
       );
+      
+      return {
+        feedbackAuth,
+        agentId: agentId.toString(),
+        clientAddress,
+        skill: params.skillId || 'agent.feedback.requestAuth',
+      };
     },
 
     /**
@@ -353,16 +326,12 @@ export class Agent {
      * @returns Transaction result with txHash
      * @throws Error if reputation client is not initialized
      */
-    giveFeedback: async (params: Omit<GiveFeedbackParams, 'agent' | 'agentId'> & { agentId?: string }): Promise<{ txHash: string }> => {
-      // Check if reputation client is available
-      if (!this.client.reputation.isInitialized()) {
-        throw new Error(
-          'Reputation client not initialized. ' +
-          'Provide reputation configuration when creating AgenticTrustClient.'
-        );
-      }
-
-      const reputationClient = this.client.reputation.getClient();
+    giveFeedback: async (params: Omit<GiveFeedbackParams, 'agent' | 'agentId'> & { agentId?: string, clientAddress?: `0x${string}` }): Promise<{ txHash: string }> => {
+      const { getReputationClient } = await import('./reputationClient');
+      const { getClientApp } = await import('./clientApp');
+      
+      const reputationClient = await getReputationClient();
+      const clientApp = await getClientApp();
 
       // Use the agentId from the agent data if not provided
       const agentId = params.agentId ?? (this.data.agentId ? this.data.agentId.toString() : undefined);
@@ -370,7 +339,8 @@ export class Agent {
         throw new Error('agentId is required. Provide it in params or ensure agent has agentId in data.');
       }
 
-      // Build the full feedback params
+
+      // Build the full feedback params (without clientAddress as it's not in the type)
       const feedbackParams: GiveFeedbackParams = {
         ...params,
         agent: agentId,

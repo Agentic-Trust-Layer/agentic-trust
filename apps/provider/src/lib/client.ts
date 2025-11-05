@@ -20,7 +20,8 @@ let initializationPromise: Promise<AgenticTrustClient> | null = null;
  * Note: AgenticTrustClient creates its own Veramo agent internally via veramoFactory.
  * This agent includes all necessary resolvers for DID resolution (verification).
  */
-export async function getProviderClient(): Promise<AgenticTrustClient> {
+export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
+
   // If already initialized, return immediately
   if (agenticTrustClientInstance) {
     return agenticTrustClientInstance;
@@ -117,10 +118,10 @@ export async function getProviderClient(): Promise<AgenticTrustClient> {
 }
 
 /**
- * @deprecated Use getProviderClient() instead. This function is kept for backward compatibility.
+ * @deprecated Use getAgenticTrustClient() instead. This function is kept for backward compatibility.
  */
 export async function initializeProviderClient(): Promise<AgenticTrustClient> {
-  return getProviderClient();
+  return getAgenticTrustClient();
 }
 
 /**

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { AgentCard, AgentSkill, MessageRequest } from '@agentic-trust/core';
+import { type AgentCard, type AgentSkill, type MessageRequest } from '@agentic-trust/core';
 
 // Plain agent data type from API (not Agent instances)
 type AgentData = {
@@ -159,22 +159,16 @@ export default function Home() {
     }
   };
 
-  const handleFeedbackAuth = async (authResponse: Record<string, unknown>) => {
-    // Extract feedback auth data from response
-    console.info("authResponse", JSON.stringify(authResponse, null, 2));
-    
-    // Extract the signature from the response (feedbackAuth is encoded tuple + signature)
-    const signature = authResponse.signature;
-    const agentId = authResponse.agentId;
-    const authClientAddress = authResponse.clientAddress; // Address encoded in the auth
+  const handleFeedbackAuth = async (feedbackAuth: string, agentId: string, clientAddress: string) => {
 
-    if (!signature || !agentId || !authClientAddress) {
-      throw new Error('Missing required feedback auth data: signature, agentId, or clientAddress');
+
+    if (!feedbackAuth || !agentId || !clientAddress) {
+      throw new Error('Missing required feedback auth data: feedbackAuth, agentId, or clientAddress');
     }
 
     // Ensure signature is a string (hex format)
-    if (typeof signature !== 'string' || !signature.startsWith('0x')) {
-      throw new Error(`Invalid signature format. Expected hex string starting with 0x, got: ${typeof signature}`);
+    if (typeof feedbackAuth !== 'string' || !feedbackAuth.startsWith('0x')) {
+      throw new Error(`Invalid signature format. Expected hex string starting with 0x, got: ${typeof feedbackAuth}`);
     }
 
     console.info("Submitting feedback via server-side API...");
@@ -187,11 +181,11 @@ export default function Home() {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        agentId: agentId.toString(),
+        agentId: agentId,
         score: 85, // Example score - you could make this configurable or prompt the user
         feedback: 'Feedback submitted via web client after requestAuth',
-        feedbackAuth: signature, // This is the encoded tuple + signature
-        clientAddress: authClientAddress, // Pass the clientAddress from the auth
+        feedbackAuth: feedbackAuth, // This is the encoded tuple + signature
+        clientAddress: clientAddress, // Pass the clientAddress from the auth
       }),
     });
 
@@ -261,15 +255,35 @@ export default function Home() {
       }
 
       const data = await response.json();
+      console.info("data returned from send message", JSON.stringify(data, null, 2));
+
+
       setResponse(data);
 
       console.info("data returned", JSON.stringify(data.response, null, 2));
       
       // If the response contains a feedback auth signature, automatically call giveClientFeedback
-      if (data.response?.signature && data.response?.skill === 'agent.feedback.requestAuth') {
+      if (data.response?.skill === 'agent.feedback.requestAuth' && data.response?.feedbackAuth) {
         try {
-          console.info("data.response", JSON.stringify(data.response, null, 2));
-          await handleFeedbackAuth(data.response);
+          // Get client address from server-side API
+          const addressResponse = await fetch('/api/client-address');
+          if (!addressResponse.ok) {
+            throw new Error('Failed to get client address');
+          }
+          const addressData = await addressResponse.json();
+          const clientAddress = addressData.clientAddress;
+
+          console.info("&&&&&&&&&& clientAddress", clientAddress);
+          
+          if (!clientAddress) {
+            throw new Error('Client address not available');
+          }
+          
+          if (!selectedAgent?.agentId) {
+            throw new Error('Agent ID not available');
+          }
+          
+          await handleFeedbackAuth(data.response.feedbackAuth, selectedAgent.agentId.toString(), clientAddress);
         } catch (feedbackError) {
           console.error('Failed to submit feedback with auth:', feedbackError);
           // Don't throw - we still show the response

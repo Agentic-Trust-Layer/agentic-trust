@@ -3,7 +3,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/lib/server-client';
+import { getAgentTrustClient } from '@/lib/server-client';
+import { getReputationClient } from '@agentic-trust/core';
 import type { MessageRequest } from '@agentic-trust/core';
 
 export async function POST(
@@ -29,10 +30,10 @@ export async function POST(
       );
     }
 
-    const client = await getServerClient();
+    const atClient = await getAgentTrustClient();
     
     // Get agent by ID directly
-    const agent = await client.agents.getAgent(agentId);
+    const agent = await atClient.agents.getAgent(agentId);
 
     if (!agent) {
       return NextResponse.json(
@@ -45,15 +46,10 @@ export async function POST(
     // Get client address from reputation client
     let clientAddress: string | undefined;
     if (skillId === 'agent.feedback.requestAuth') {
-      if (!client.reputation.isInitialized()) {
-        return NextResponse.json(
-          { error: 'Reputation client not initialized. Cannot request feedback auth without client address.' },
-          { status: 500 }
-        );
-      }
+      
       
       try {
-        const reputationClient = client.reputation.getClient();
+        const reputationClient = await getReputationClient();
         const clientAdapter = (reputationClient as unknown as { clientAdapter?: { getAddress: () => Promise<string> } }).clientAdapter;
         if (!clientAdapter) {
           return NextResponse.json(
@@ -80,16 +76,17 @@ export async function POST(
       }
     } else {
       // For other skills, try to get client address if available (but not required)
-      if (client.reputation.isInitialized()) {
-        try {
-          const reputationClient = client.reputation.getClient();
+      try {
+        const { isReputationClientInitialized } = await import('@agentic-trust/core');
+        if (isReputationClientInitialized()) {
+          const reputationClient = await getReputationClient();
           const clientAdapter = (reputationClient as unknown as { clientAdapter?: { getAddress: () => Promise<string> } }).clientAdapter;
           if (clientAdapter) {
             clientAddress = await clientAdapter.getAddress();
           }
-        } catch (error) {
-          console.warn('Failed to get client address:', error);
         }
+      } catch (error) {
+        console.warn('Failed to get client address:', error);
       }
     }
 

@@ -3,7 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/lib/server-client';
+import { getAgentTrustClient } from '@/lib/server-client';
 
 export async function POST(
   request: NextRequest,
@@ -19,10 +19,10 @@ export async function POST(
       );
     }
 
-    const client = await getServerClient();
+    const atClient = await getAgentTrustClient();
     
     // Get agent by ID directly
-    const agent = await client.agents.getAgent(agentId);
+    const agent = await atClient.agents.getAgent(agentId);
 
     if (!agent) {
       return NextResponse.json(

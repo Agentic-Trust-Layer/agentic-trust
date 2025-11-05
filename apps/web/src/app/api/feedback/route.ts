@@ -3,13 +3,13 @@
  * Handles reputation contract calls on the server side
  */
 
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/lib/server-client';
+import { NextRequest, NextResponse, userAgent } from 'next/server';
+import { getAgentTrustClient } from '@/lib/server-client';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { agentId, score, feedback, feedbackAuth, tag1, tag2, feedbackUri, feedbackHash, clientAddress: providedClientAddress } = body;
+    const { agentId, score, feedback, feedbackAuth, tag1, tag2, feedbackUri, feedbackHash, clientAddress } = body;
 
     // Validate required fields
     if (!agentId || score === undefined || !feedbackAuth) {
@@ -19,12 +19,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
-
     // Get server-side client
-    const client = await getServerClient();
+    const atClient = await getAgentTrustClient();
 
     // Get the agent by ID
-    const agent = await client.agents.getAgent(agentId.toString());
+    const agent = await atClient.agents.getAgent(agentId.toString());
     if (!agent) {
       return NextResponse.json(
         { error: 'Agent not found' },
@@ -32,9 +31,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Submit feedback using the agent's feedback API
-    // giveFeedback will check if reputation client is initialized and use agent's agentId
+    // clientAddress is optional - if not provided, it will be retrieved from ClientApp
     const feedbackResult = await agent.feedback.giveFeedback({
+      ...(clientAddress && { clientAddress }),
       score: typeof score === 'number' ? score : parseInt(score, 10),
       feedback: feedback || 'Feedback submitted via web client',
       feedbackAuth: feedbackAuth,
@@ -44,10 +43,11 @@ export async function POST(request: NextRequest) {
       feedbackHash,
     });
 
+
+    
     return NextResponse.json({
       success: true,
-      txHash: feedbackResult.txHash,
-      clientAddress: providedClientAddress,
+      txHash: feedbackResult.txHash
     });
   } catch (error: unknown) {
     console.error('Error submitting feedback:', error);
