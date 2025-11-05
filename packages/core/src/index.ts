@@ -82,3 +82,18 @@ export {
   isProviderAppInitialized,
   resetProviderApp,
 } from './client/providerApp';
+
+// Export identity client singleton
+export {
+  getIdentityClient,
+  isIdentityClientInitialized,
+  resetIdentityClient,
+} from './client/identityClient';
+
+// Export admin app singleton
+export {
+  getAdminApp,
+  getAdminAddress,
+  isAdminAppInitialized,
+  resetAdminApp,
+} from './client/adminApp';
