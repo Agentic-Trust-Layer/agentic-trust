@@ -4,6 +4,7 @@ Next.js application for agent administration - create, update, delete, and trans
 
 ## Features
 
+- **Web3Auth Integration**: Secure authentication via social login (Google, GitHub, Twitter, Facebook) or MetaMask
 - **Create Agent**: Register new agents on-chain with metadata
 - **Update Agent**: Modify agent token URI and metadata
 - **Delete Agent**: Transfer agent to address(0) (burn)
@@ -28,12 +29,11 @@ Open [http://localhost:3002](http://localhost:3002) to access the admin dashboar
 Create a `.env.local` file:
 
 ```bash
-# Required: Admin mode
-AGENTIC_TRUST_IS_ADMIN_APP=true
+# Required: Web3Auth Client ID (get from https://dashboard.web3auth.io/)
+NEXT_PUBLIC_WEB3AUTH_CLIENT_ID=your-web3auth-client-id
 
-# Required: Admin private key (for signing transactions)
-AGENTIC_TRUST_ADMIN_PRIVATE_KEY=0x...
-# OR use AGENTIC_TRUST_PRIVATE_KEY if ADMIN_PRIVATE_KEY is not set
+# Optional: Web3Auth Network (testnet or mainnet, defaults to mainnet)
+NEXT_PUBLIC_WEB3AUTH_NETWORK=testnet
 
 # Required: RPC URL
 AGENTIC_TRUST_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/...
@@ -50,14 +50,34 @@ AGENTIC_TRUST_API_KEY=...
 # Optional: Reputation Registry (if using reputation features)
 AGENTIC_TRUST_REPUTATION_REGISTRY=0x...
 
-# Optional: Chain ID (defaults to 11155111 for Sepolia)
-AGENTIC_TRUST_CHAIN_ID=11155111
+# Optional: Chain ID (defaults to Sepolia: 0xaa36a7 / 11155111)
+NEXT_PUBLIC_CHAIN_ID=0xaa36a7
 
 # Optional: Port (defaults to 3002)
 PORT=3002
+
+# Optional: Fallback admin private key (if not using Web3Auth)
+# Only used if Web3Auth session is not available
+AGENTIC_TRUST_ADMIN_PRIVATE_KEY=0x...
 ```
 
 **Note**: Never commit `.env.local` to version control.
+
+## Web3Auth Setup
+
+1. **Create a Web3Auth Account**: Go to [https://dashboard.web3auth.io/](https://dashboard.web3auth.io/)
+2. **Create a Project**: Create a new project and get your Client ID
+3. **Configure Social Providers**: Enable Google, GitHub, Twitter, Facebook in your Web3Auth dashboard
+4. **Set Environment Variable**: Add `NEXT_PUBLIC_WEB3AUTH_CLIENT_ID` to your `.env.local`
+
+## Authentication
+
+The admin app uses Web3Auth for authentication:
+
+- **Social Login**: Google, GitHub, Twitter, Facebook
+- **MetaMask**: Direct wallet connection
+
+After authentication, the private key (for social logins) or provider (for MetaMask) is stored in a secure HTTP-only cookie session.
 
 ## API Routes
 
@@ -162,16 +182,18 @@ List all registered agents.
 
 ## Usage
 
-1. **Create Agent**: Fill in the form with agent name, account address, optional token URI, and metadata
-2. **Update Agent**: Enter agent ID and provide new token URI and/or metadata
-3. **Delete Agent**: Enter agent ID and confirm deletion (transfers to address(0))
-4. **Transfer Agent**: Enter agent ID and recipient address
-5. **View Agents**: The agents list automatically refreshes after operations
+1. **Login**: Choose your authentication method (social login or MetaMask)
+2. **Create Agent**: Fill in the form with agent name, account address, optional token URI, and metadata
+3. **Update Agent**: Enter agent ID and provide new token URI and/or metadata
+4. **Delete Agent**: Enter agent ID and confirm deletion (transfers to address(0))
+5. **Transfer Agent**: Enter agent ID and recipient address
+6. **View Agents**: The agents list automatically refreshes after operations
 
 ## Security
 
-- All operations require the admin private key
-- Transactions are signed server-side
+- All operations require Web3Auth authentication
+- Private keys are stored in secure HTTP-only cookies (server-side only)
+- Transactions are signed server-side using the authenticated user's private key
+- Session expires after 24 hours
 - Admin private key should never be exposed to client-side code
-- Ensure proper access controls for the admin dashboard
-
+- For MetaMask connections, signing happens through the provider (private key never exposed)

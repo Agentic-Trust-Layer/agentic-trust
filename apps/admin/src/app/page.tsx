@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useWeb3Auth } from '@/components/Web3AuthProvider';
+import { useWallet } from '@/components/WalletProvider';
+import { LoginPage } from '@/components/LoginPage';
 
 type Agent = {
   agentId?: number;
@@ -11,8 +14,16 @@ type Agent = {
 };
 
 export default function AdminPage() {
+  const { connected: web3AuthConnected, address: web3AuthAddress, userInfo, disconnect: web3AuthDisconnect, loading: authLoading } = useWeb3Auth();
+  const { connected: walletConnected, address: walletAddress, connect: walletConnect, disconnect: walletDisconnect, loading: walletLoading } = useWallet();
+  
+  // Use either Web3Auth or direct wallet connection
+  const connected = web3AuthConnected || walletConnected;
+  const address = web3AuthAddress || walletAddress;
+  const loading = authLoading || walletLoading;
+  
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -44,14 +55,51 @@ export default function AdminPage() {
     to: '',
   });
 
-  // Fetch agents on mount
+  // Fetch agents on mount (only if connected)
   useEffect(() => {
-    fetchAgents();
-  }, []);
+    if (connected && !loading) {
+      fetchAgents();
+    }
+  }, [connected, loading]);
+
+  // Set agent account from logged in user address
+  useEffect(() => {
+    if (address) {
+      setCreateForm(prev => ({
+        ...prev,
+        agentAccount: address,
+      }));
+    }
+  }, [address]);
+  
+  // Handle disconnect
+  const handleDisconnect = async () => {
+    if (web3AuthConnected) {
+      await web3AuthDisconnect();
+    }
+    if (walletConnected) {
+      await walletDisconnect();
+    }
+  };
+
+  // Show login page if not connected via Web3Auth
+  // But allow wallet connection even if Web3Auth is not connected
+  if (authLoading && !walletConnected) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
+        <div>Loading...</div>
+      </div>
+    );
+  }
+
+  // Only show login page if neither Web3Auth nor wallet is connected
+  if (!web3AuthConnected && !walletConnected && !authLoading) {
+    return <LoginPage />;
+  }
 
   const fetchAgents = async () => {
     try {
-      setLoading(true);
+      setPageLoading(true);
       setError(null);
       const response = await fetch('/api/agents/list');
       if (!response.ok) {
@@ -64,7 +112,7 @@ export default function AdminPage() {
       console.error('Failed to fetch agents:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch agents');
     } finally {
-      setLoading(false);
+      setPageLoading(false);
     }
   };
 
@@ -194,9 +242,32 @@ export default function AdminPage() {
 
   return (
     <main style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '2rem', fontSize: '2rem', fontWeight: 'bold' }}>
-        Agent Administration
-      </h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+        <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 'bold' }}>
+          Agent Administration
+        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {address && (
+            <div style={{ fontSize: '0.9rem', color: '#666', fontFamily: 'monospace' }}>
+              {address.slice(0, 6)}...{address.slice(-4)}
+            </div>
+          )}
+          <button
+            onClick={handleDisconnect}
+            style={{
+              padding: '0.5rem 1rem',
+              backgroundColor: '#dc3545',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '0.9rem',
+            }}
+          >
+            Logout
+          </button>
+        </div>
+      </div>
 
       {error && (
         <div style={{ 

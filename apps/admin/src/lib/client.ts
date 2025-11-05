@@ -12,27 +12,34 @@ let initializationPromise: Promise<AgenticTrustClient> | null = null;
 
 /**
  * Get or create the server-side AgenticTrustClient singleton for the admin app
- * Uses admin configuration from environment variables
+ * Uses admin configuration from environment variables or session
  */
 export async function getAdminClient(): Promise<AgenticTrustClient> {
-  // If already initialized, return immediately
-  if (agenticTrustClientInstance) {
-    return agenticTrustClientInstance;
-  }
-
-  // If initialization is in progress, wait for it
-  if (initializationPromise) {
-    return initializationPromise;
-  }
-
-  // Start initialization
-  initializationPromise = (async () => {
+  // Always create a new instance per request to support session-based auth
+  // This ensures each request uses the correct private key from the session
+  try {
+    // Get configuration from environment variables (server-side only)
+    const graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
+    const apiKey = process.env.AGENTIC_TRUST_API_KEY;
+    
+    // Try to get private key from session first, then fall back to environment variable
+    let privateKey: string | undefined;
     try {
-      // Get configuration from environment variables (server-side only)
-      const graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
-      const apiKey = process.env.AGENTIC_TRUST_API_KEY;
-      const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+      // Fetch private key from session API (server-side)
+      const { cookies } = await import('next/headers');
+      const cookieStore = await cookies();
+      privateKey = cookieStore.get('admin_private_key')?.value;
+    } catch (error) {
+      // If cookies() fails, fall back to environment variable
+      console.warn('Could not access cookies, using environment variable for private key');
+    }
+    
+    // Fall back to environment variable if no session key
+    if (!privateKey) {
+      privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+    }
+    
+    const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
 
       // Get identity registry from environment
       const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
@@ -77,17 +84,13 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
 
       // Create the client
       console.info('Creating Admin AgenticTrustClient instance');
-      agenticTrustClientInstance = await AgenticTrustClient.create(config);
-      console.log('✅ Admin AgenticTrustClient singleton initialized');
-      return agenticTrustClientInstance;
+      const client = await AgenticTrustClient.create(config);
+      console.log('✅ Admin AgenticTrustClient initialized');
+      return client;
     } catch (error) {
       console.error('❌ Failed to initialize admin AgenticTrustClient:', error);
-      initializationPromise = null; // Reset on error so it can be retried
       throw error;
     }
-  })();
-
-  return initializationPromise;
 }
 
 /**
