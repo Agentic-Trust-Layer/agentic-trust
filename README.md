@@ -9,6 +9,7 @@ A modern, extensible monorepo for building trustworthy autonomous agent systems.
 
 
 ![Agentic Flow](./docs/AgentSolution.png)
+![Agentic Flow](./docs/AgentIdentity.png)
 ![Agentic Trust Core Architecture](./docs/AgentArchitecture.png)
 
 
