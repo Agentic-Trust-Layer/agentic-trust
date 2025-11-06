@@ -162,6 +162,31 @@ export class A2AProtocolProvider {
   private clientKid: string | null = null;
 
   /**
+   * Check if an endpoint URL is a placeholder/example URL
+   * Note: localhost URLs are allowed for development, only actual placeholder/example domains are flagged
+   */
+  private static isPlaceholderUrl(url: string): boolean {
+    const placeholderPatterns = [
+      // Match example.com and its subdomains (actual placeholder domain)
+      /^https?:\/\/(www\.)?example\.com/i,
+      // Match other example domains (example.org, example.net, etc.)
+      /^https?:\/\/example\.(com|org|net|edu|gov)/i,
+      // Match URLs containing "placeholder" (but not localhost)
+      /placeholder/i,
+      // Match URLs containing "example" but NOT localhost (to avoid false positives)
+      // This will catch things like "example.com" but not "localhost:3001"
+      /example/i,
+    ];
+    
+    // Don't flag localhost URLs - they're valid for development
+    if (/^https?:\/\/localhost/i.test(url) || /^https?:\/\/127\.0\.0\.1/i.test(url)) {
+      return false;
+    }
+    
+    return placeholderPatterns.some(pattern => pattern.test(url));
+  }
+
+  /**
    * Construct an A2A Protocol Provider for a specific agent
    * @param a2aEndpoint - The base URL from the agent's a2aEndpoint field (must be absolute)
    * @param veramoAgent - Veramo agent for authentication
@@ -171,6 +196,12 @@ export class A2AProtocolProvider {
     if (!a2aEndpoint.startsWith('http://') && !a2aEndpoint.startsWith('https://')) {
       console.log(`Warning: a2aEndpoint should be an absolute URL (starting with http:// or https://), got: ${a2aEndpoint}`);
     }
+    
+    // Check if endpoint is a placeholder/example URL
+    if (A2AProtocolProvider.isPlaceholderUrl(a2aEndpoint)) {
+      console.warn(`Warning: A2A endpoint appears to be a placeholder URL: ${a2aEndpoint}. This endpoint will not work for actual A2A communication.`);
+    }
+    
     this.providerUrl = a2aEndpoint.replace(/\/$/, ''); // Remove trailing slash
     this.veramoAgent = veramoAgent;
   }
@@ -406,6 +437,15 @@ export class A2AProtocolProvider {
     const endpointInfo = await this.getA2AEndpoint();
     if (!endpointInfo) {
       throw new Error('A2A endpoint not available. Fetch agent card first.');
+    }
+
+    // Validate endpoint is not a placeholder
+    if (A2AProtocolProvider.isPlaceholderUrl(endpointInfo.endpoint)) {
+      throw new Error(
+        `Invalid A2A endpoint: The agent's A2A endpoint appears to be a placeholder URL (${endpointInfo.endpoint}). ` +
+        `Please update the agent's endpoint to a valid, accessible URL. ` +
+        `The endpoint should point to a real agent provider that can handle A2A protocol messages.`
+      );
     }
 
     // Authenticate on first message if Veramo agent is available

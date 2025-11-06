@@ -1,17 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleCreateAgent } from '@agentic-trust/core';
-import { getAdminClient } from '@/lib/client'; // Replace with your app's client getter
+import { getClient } from '@/lib/client'; // Replace with your app's client getter
 
 /**
  * Create agent API endpoint
  * Auto-generated from @agentic-trust/core
  * 
- * To customize, replace getAdminClient with your app-specific client getter function
+ * To customize, replace getClient with your app-specific client getter function
  */
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const result = await handleCreateAgent(body, getAdminClient);
+    const result = await handleCreateAgent(body, getClient);
     
     // Check if result is an error
     if ('error' in result) {

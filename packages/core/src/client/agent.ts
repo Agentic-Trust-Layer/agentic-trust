@@ -174,6 +174,14 @@ export class Agent {
       throw new Error('Agent not initialized. Call initialize(client) first.');
     }
 
+    // Check if agent has a valid A2A endpoint
+    if (!this.data.a2aEndpoint) {
+      throw new Error(
+        'Agent does not have an A2A endpoint configured. ' +
+        'The agent must have a valid A2A endpoint URL to receive messages.'
+      );
+    }
+
     // Build A2A request format
     const endpointInfo = await this.getEndpoint();
     if (!endpointInfo) {

@@ -20,8 +20,8 @@ export default function AdminPage() {
   const { connected: walletConnected, address: walletAddress, connect: walletConnect, disconnect: walletDisconnect, loading: walletLoading } = useWallet();
   
   // Use either Web3Auth or direct wallet connection
-  const connected = web3AuthConnected || walletConnected;
-  const address = web3AuthAddress || walletAddress;
+  const eoaConnected = web3AuthConnected || walletConnected;
+  const eoaAddress = web3AuthAddress || walletAddress;
   const loading = authLoading || walletLoading;
   
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -70,20 +70,20 @@ export default function AdminPage() {
 
   // Fetch agents on mount (only if connected)
   useEffect(() => {
-    if (connected && !loading) {
+    if (eoaConnected && !loading) {
       fetchAgents();
     }
-  }, [connected, loading]);
+  }, [eoaConnected, loading]);
 
   // Set agent account from logged in user address
   useEffect(() => {
-    if (address) {
+    if (eoaAddress) {
       setCreateForm(prev => ({
         ...prev,
-        agentAccount: address,
+        agentAccount: eoaAddress,
       }));
     }
-  }, [address]);
+  }, [eoaAddress]);
 
   // Filter agents based on search query
   useEffect(() => {
@@ -109,51 +109,53 @@ export default function AdminPage() {
            setError(null);
            setSuccess(null);
            
-           // Reset data sources
-           setContractData(null);
-           setIpfsData(null);
-           setGraphQLData(null);
-           
-           // Fetch data from all sources
-           if (agent.agentId) {
-             setLoadingData(true);
-             try {
-               // Fetch from all sources in parallel
-               const [contractRes, ipfsRes, graphQLRes] = await Promise.allSettled([
-                 fetch(`/api/agents/${agent.agentId}/contract`),
-                 fetch(`/api/agents/${agent.agentId}/ipfs`),
-                 fetch(`/api/agents/${agent.agentId}/graphql?chainId=11155111`),
-               ]);
-               
-               // Handle contract data
-               if (contractRes.status === 'fulfilled' && contractRes.value.ok) {
-                 const contractJson = await contractRes.value.json();
-                 setContractData(contractJson);
-               } else {
-                 console.warn('Failed to fetch contract data:', contractRes);
-               }
-               
-               // Handle IPFS data
-               if (ipfsRes.status === 'fulfilled' && ipfsRes.value.ok) {
-                 const ipfsJson = await ipfsRes.value.json();
-                 setIpfsData(ipfsJson);
-               } else {
-                 console.warn('Failed to fetch IPFS data:', ipfsRes);
-               }
-               
-               // Handle GraphQL data
-               if (graphQLRes.status === 'fulfilled' && graphQLRes.value.ok) {
-                 const graphQLJson = await graphQLRes.value.json();
-                 setGraphQLData(graphQLJson);
-               } else {
-                 console.warn('Failed to fetch GraphQL data:', graphQLRes);
-               }
-             } catch (err) {
-               console.error('Error fetching agent data:', err);
-             } finally {
-               setLoadingData(false);
-             }
-           }
+          // Reset data sources
+          setContractData(null);
+          setIpfsData(null);
+          setGraphQLData(null);
+          
+          // Fetch data from consolidated route
+          if (agent.agentId) {
+            setLoadingData(true);
+            try {
+              // Fetch from consolidated route
+              const response = await fetch(`/api/agents/${agent.agentId}?chainId=11155111`);
+              
+              if (response.ok) {
+                const data = await response.json();
+                
+                // Extract contract data
+                if (data.contract) {
+                  setContractData({
+                    agentId: data.agentId,
+                    tokenURI: data.contract.tokenURI,
+                    metadata: data.contract.metadata,
+                  });
+                }
+                
+                // Extract IPFS data
+                if (data.ipfs) {
+                  setIpfsData({
+                    tokenURI: data.ipfs.tokenURI,
+                    registration: data.ipfs.registration,
+                  });
+                }
+                
+                // Extract GraphQL data
+                if (data.graphql) {
+                  setGraphQLData({
+                    agentData: data.graphql,
+                  });
+                }
+              } else {
+                console.warn('Failed to fetch agent info:', response.status, response.statusText);
+              }
+            } catch (err) {
+              console.error('Error fetching agent data:', err);
+            } finally {
+              setLoadingData(false);
+            }
+          }
          };
 
   // Handle disconnect
@@ -218,7 +220,7 @@ export default function AdminPage() {
           image: createForm.image || undefined,
           agentUrl: createForm.agentUrl || undefined,
         },
-        account: address as Address,
+        account: eoaAddress as Address,
         onStatusUpdate: setSuccess,
       });
 
@@ -337,9 +339,9 @@ export default function AdminPage() {
           Agent Administration
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          {address && (
+          {eoaAddress && (
             <div style={{ fontSize: '0.9rem', color: '#666', fontFamily: 'monospace' }}>
-              {address.slice(0, 6)}...{address.slice(-4)}
+              {eoaAddress.slice(0, 6)}...{eoaAddress.slice(-4)}
             </div>
           )}
           <button

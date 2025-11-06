@@ -8,6 +8,12 @@
 export { AgenticTrustClient, createVeramoAgentForClient } from './client';
 export { fetchAgentCard } from './client/agentCard';
 export { Agent } from './client';
+
+// API route handlers (reusable across apps)
+export { handleCreateAgent } from './api/agents/create';
+export type { CreateAgentRequestBody } from './api/agents/create';
+export { handleGetAgentInfo } from './api/agents/getAgentInfo';
+export type { AgentInfoResponse } from './api/agents/getAgentInfo';
 export type { 
   MessageRequest, 
   MessageResponse, 

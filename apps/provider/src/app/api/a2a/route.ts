@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@/lib/client';
 
-
-
-
+/**
+ * Force dynamic rendering for this route
+ * This route handles A2A requests and needs to be server-rendered
+ */
+export const dynamic = 'force-dynamic';
 
 /**
  * CORS headers for A2A endpoint
@@ -238,7 +240,10 @@ export async function GET() {
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   
   // Base URL of the provider app (for constructing endpoint URL)
-  const providerUrl = process.env.PROVIDER_BASE_URL || 'http://localhost:3001';
+  // Try PROVIDER_BASE_URL first, then NEXT_PUBLIC_BASE_URL, then fallback to localhost
+  const providerUrl = process.env.PROVIDER_BASE_URL || 
+                     process.env.NEXT_PUBLIC_BASE_URL || 
+                     'http://localhost:3001';
   
   return NextResponse.json({
     providerId,
