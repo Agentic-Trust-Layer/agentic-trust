@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAdminClient } from '@/lib/client';
 
 export async function POST(
   request: NextRequest,
@@ -16,14 +17,11 @@ export async function POST(
       );
     }
 
-    // Get the GraphQL client and refresh the agent
-    const { getAgentsGraphQLClient } = await import('@agentic-trust/core');
-    const graphQLClient = await getAgentsGraphQLClient();
-    
     // Use provided chainId or default to Sepolia (11155111)
     const chainIdToUse = chainId || 11155111;
     
-    const result = await graphQLClient.refreshAgent(agentId, chainIdToUse);
+    const client = await getAdminClient();
+    const result = await client.agents.refreshAgent(agentId, chainIdToUse);
 
     return NextResponse.json({
       success: true,

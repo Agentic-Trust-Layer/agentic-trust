@@ -1,16 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyChallenge, nonceStore } from '@/lib/verification';
 import { getAgenticTrustClient } from '@/lib/client';
 
 
-/**
- * Get Veramo agent from AgenticTrustClient
- * The client creates and manages its own Veramo agent internally
- */
-async function getVeramoAgent() {
-  const atClient = await getAgenticTrustClient();
-  return atClient.veramo.getAgent();
-}
+
+
 
 /**
  * CORS headers for A2A endpoint
@@ -33,6 +26,7 @@ export async function OPTIONS() {
     headers: getCorsHeaders(),
   });
 }
+
 
 /**
  * A2A (Agent-to-Agent) API Endpoint
@@ -59,30 +53,12 @@ export async function POST(request: NextRequest) {
     // Verify authentication if provided (first connection)
     let authenticatedClientAddress: string | null = null;
     if (auth) {
-      const agent = await getVeramoAgent();
+      const atClient = await getAgenticTrustClient();
       // Base URL of the provider app (for challenge audience validation)
       const providerUrl = process.env.PROVIDER_BASE_URL || '';
       
-      // Extract nonce from challenge
-      const challengeLines = auth.challenge.split('\n');
-      const nonceLine = challengeLines.find((line: string) => line.startsWith('nonce='));
-      const nonce = nonceLine?.split('=')[1];
-
-      if (nonce) {
-        // Check for replay attacks
-        if (nonceStore.has(nonce)) {
-          return NextResponse.json(
-            { success: false, error: 'Replay attack detected: nonce already used' },
-            { 
-              status: 401,
-              headers: getCorsHeaders(),
-            }
-          );
-        }
-      }
-
-      // Verify the challenge
-      const verification = await verifyChallenge(agent, auth, providerUrl);
+      // Verify the challenge using AgenticTrustClient (handles Veramo internally)
+      const verification = await atClient.verifyChallenge(auth, providerUrl);
       
       if (!verification.valid) {
         return NextResponse.json(
@@ -94,21 +70,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Add nonce to store to prevent replay
-      if (nonce) {
-        nonceStore.add(nonce);
-      }
-
-      // Extract client address from auth if available
-      if (auth.ethereumAddress) {
-        authenticatedClientAddress = auth.ethereumAddress;
-      } else if (auth.did?.startsWith('did:ethr:')) {
-        // Extract address from ethr DID
-        const addressMatch = auth.did.match(/did:ethr:0x[a-fA-F0-9]{40}/);
-        if (addressMatch) {
-          authenticatedClientAddress = addressMatch[0].replace('did:ethr:', '');
-        }
-      }
+      // Extract client address from verification result or auth
+      authenticatedClientAddress = verification.clientAddress || auth.ethereumAddress || null;
 
       console.log('Client authenticated:', {
         did: auth.did,

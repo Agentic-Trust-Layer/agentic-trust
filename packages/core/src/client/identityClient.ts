@@ -46,11 +46,14 @@ export async function getIdentityClient(): Promise<AIAgentIdentityClient> {
       }
 
       // Create identity client (read-only, uses public client)
-      identityClientInstance = new AIAgentIdentityClient(
+      // Use legacy pattern for now to avoid viem type conflicts
+      // The new viem-native pattern is available but requires consistent viem versions
+      identityClientInstance = new AIAgentIdentityClient({
         chainId,
         rpcUrl,
-        identityRegistry as `0x${string}`
-      );
+        walletClient: null, // Read-only, no wallet
+        identityRegistryAddress: identityRegistry as `0x${string}`,
+      });
 
       console.log('✅ IdentityClient singleton initialized');
       return identityClientInstance;

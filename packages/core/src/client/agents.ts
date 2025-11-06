@@ -69,6 +69,26 @@ export class AgentsAPI {
   }
 
   /**
+   * Get raw agent data from GraphQL (for internal use)
+   * Returns the raw AgentData from the GraphQL indexer
+   */
+  async getAgentFromGraphQL(chainId: number, agentId: string): Promise<AgentData | null> {
+    const graphQLClient = await getAgentsGraphQLClient();
+    return await graphQLClient.getAgent(chainId, agentId);
+  }
+
+  /**
+   * Refresh/Index an agent in the GraphQL indexer
+   * Triggers the indexer to re-index the specified agent
+   * @param agentId - Agent ID to refresh (required)
+   * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
+   */
+  async refreshAgent(agentId: string, chainId: number = 11155111): Promise<any> {
+    const graphQLClient = await getAgentsGraphQLClient();
+    return await graphQLClient.refreshAgent(agentId, chainId);
+  }
+
+  /**
    * Search agents by name
    * @param query - Search query string to match against agent names
    * Fetches all matching agents using pagination if needed
@@ -122,14 +142,116 @@ export class AgentsAPI {
                version?: string;
                capabilities?: Record<string, any>;
              }>;
-           }): Promise<{ agentId: bigint; txHash: string }> => {
+           }): Promise<
+      | { agentId: bigint; txHash: string }
+      | {
+          requiresClientSigning: true;
+          transaction: {
+            to: `0x${string}`;
+            data: `0x${string}`;
+            value: string;
+            gas?: string;
+            gasPrice?: string;
+            maxFeePerGas?: string;
+            maxPriorityFeePerGas?: string;
+            nonce?: number;
+            chainId: number;
+          };
+          tokenURI: string;
+          metadata: Array<{ key: string; value: string }>;
+        }
+    > => {
       const { getAdminApp } = await import('./adminApp');
       const { IdentityClient } = await import('@erc8004/sdk');
 
       const adminApp = await getAdminApp();
       if (!adminApp) {
-        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
       }
+      
+      // If no private key, prepare transaction for client-side signing
+      if (!adminApp.hasPrivateKey) {
+        // Prepare transaction for client-side signing
+        const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+        if (!identityRegistry || typeof identityRegistry !== 'string') {
+          throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+        }
+
+        const identityRegistryHex = identityRegistry.startsWith('0x') 
+          ? identityRegistry 
+          : `0x${identityRegistry}`;
+
+        // Build metadata array
+        const metadata = [
+          { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
+          { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+        ].filter(m => m.value !== '');
+
+        // Create registration JSON and upload to IPFS
+        let tokenURI = '';
+        const { sepolia } = await import('viem/chains');
+        const chainId = sepolia.id;
+        
+        try {
+          const { uploadRegistration, createRegistrationJSON } = await import('./registration');
+          
+          const registrationJSON = createRegistrationJSON({
+            name: params.agentName,
+            agentAccount: params.agentAccount,
+            description: params.description,
+            image: params.image,
+            agentUrl: params.agentUrl,
+            chainId,
+            identityRegistry: identityRegistryHex as `0x${string}`,
+            supportedTrust: params.supportedTrust,
+            endpoints: params.endpoints,
+          });
+          
+          const uploadResult = await uploadRegistration(registrationJSON);
+          tokenURI = uploadResult.tokenURI;
+        } catch (error) {
+          console.error('Failed to upload registration JSON to IPFS:', error);
+          throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+
+        // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
+        const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
+        const aiIdentityClient = new AIAgentIdentityClient({
+          chainId,
+          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+          identityRegistryAddress: identityRegistryHex as `0x${string}`,
+        });
+
+        // Prepare complete transaction (encoding, gas estimation, nonce, etc.)
+        // AIAgentIdentityClient handles all Ethereum logic internally using its publicClient
+        const transaction = await aiIdentityClient.prepareRegisterTransaction(
+          tokenURI,
+          metadata,
+          adminApp.address // Only address needed - no publicClient passed
+        );
+
+        return {
+          requiresClientSigning: true,
+          transaction,
+          tokenURI,
+          metadata: metadata.map(m => ({ key: m.key, value: m.value })),
+        };
+      }
+      
+      // Check wallet balance before attempting transaction
+      try {
+        const balance = await adminApp.publicClient.getBalance({ address: adminApp.address });
+        if (balance === 0n) {
+          throw new Error(`Wallet ${adminApp.address} has zero balance. Please fund the wallet with Sepolia ETH to pay for gas.`);
+        }
+        console.log(`Wallet balance: ${balance.toString()} wei (${(Number(balance) / 1e18).toFixed(6)} ETH)`);
+      } catch (balanceError: any) {
+        if (balanceError.message.includes('zero balance')) {
+          throw balanceError;
+        }
+        console.warn('Could not check wallet balance:', balanceError.message);
+      }
+      
       const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
       if (!identityRegistry || typeof identityRegistry !== 'string') {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
@@ -147,8 +269,11 @@ export class AgentsAPI {
       );
 
       // Build metadata array
-      // Ensure all values are non-empty strings (required by IdentityClient.stringToBytes)
-      // IdentityClient will convert these strings to bytes using TextEncoder
+      // For agentAccount (address), we need to pass it as-is since it's already a hex string
+      // IdentityClient.stringToBytes will encode strings as UTF-8, which is fine for agentName
+      // but agentAccount should be treated as an address string (which will be encoded as UTF-8)
+      // Note: The contract expects bytes, and encoding the address string as UTF-8 is acceptable
+      // as long as it's consistently decoded on read
       const metadata = [
         { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
         { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
@@ -201,6 +326,167 @@ export class AgentsAPI {
       }
 
       return result;
+    },
+
+    /**
+     * Prepare a create agent transaction for client-side signing
+     * Returns transaction data that can be signed and submitted by the client
+     */
+    prepareCreateAgentTransaction: async (params: {
+      agentName: string;
+      agentAccount: `0x${string}`;
+      description?: string;
+      image?: string;
+      agentUrl?: string;
+      supportedTrust?: string[];
+      endpoints?: Array<{
+        name: string;
+        endpoint: string;
+        version?: string;
+        capabilities?: Record<string, any>;
+      }>;
+    }): Promise<{
+      requiresClientSigning: true;
+      transaction: {
+        to: `0x${string}`;
+        data: `0x${string}`;
+        value: string;
+        gas?: string;
+        gasPrice?: string;
+        maxFeePerGas?: string;
+        maxPriorityFeePerGas?: string;
+        nonce?: number;
+        chainId: number;
+      };
+      tokenURI: string;
+      metadata: Array<{ key: string; value: string }>;
+    }> => {
+      const { getAdminApp } = await import('./adminApp');
+      const { IdentityClient } = await import('@erc8004/sdk');
+
+      const adminApp = await getAdminApp();
+      if (!adminApp) {
+        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and connect via wallet');
+      }
+
+      if (adminApp.hasPrivateKey) {
+        throw new Error('prepareCreateAgentTransaction should only be used when no private key is available');
+      }
+
+      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      if (!identityRegistry || typeof identityRegistry !== 'string') {
+        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+      }
+
+      const identityRegistryHex = identityRegistry.startsWith('0x') 
+        ? identityRegistry 
+        : `0x${identityRegistry}`;
+
+      // Create read-only IdentityClient using AdminApp's publicClient
+      const identityClient = new IdentityClient(
+        adminApp.adminAdapter as any,
+        identityRegistryHex
+      );
+
+      // Build metadata array
+      const metadata = [
+        { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
+        { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+      ].filter(m => m.value !== '');
+
+      // Create registration JSON and upload to IPFS
+      let tokenURI = '';
+      const { sepolia } = await import('viem/chains');
+      const chainId = sepolia.id;
+      
+      try {
+        const { uploadRegistration, createRegistrationJSON } = await import('./registration');
+        
+        const registrationJSON = createRegistrationJSON({
+          name: params.agentName,
+          agentAccount: params.agentAccount,
+          description: params.description,
+          image: params.image,
+          agentUrl: params.agentUrl,
+          chainId,
+          identityRegistry: identityRegistryHex as `0x${string}`,
+          supportedTrust: params.supportedTrust,
+          endpoints: params.endpoints,
+        });
+        
+        const uploadResult = await uploadRegistration(registrationJSON);
+        tokenURI = uploadResult.tokenURI;
+      } catch (error) {
+        console.error('Failed to upload registration JSON to IPFS:', error);
+        throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
+      // Encode the transaction data
+      const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
+      const aiIdentityClient = new AIAgentIdentityClient({
+        chainId,
+        rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+        identityRegistryAddress: identityRegistryHex as `0x${string}`,
+      });
+
+      // Encode registerWithMetadata function call
+      const encodedData = await aiIdentityClient.encodeRegisterWithMetadata(tokenURI, metadata);
+
+      // Simulate transaction to get gas estimates
+      let gasEstimate: bigint | undefined;
+      let gasPrice: bigint | undefined;
+      let maxFeePerGas: bigint | undefined;
+      let maxPriorityFeePerGas: bigint | undefined;
+      let nonce: number | undefined;
+
+      try {
+        // Get current gas prices
+        const [gasPriceData, blockData] = await Promise.all([
+          adminApp.publicClient.getGasPrice(),
+          adminApp.publicClient.getBlock({ blockTag: 'latest' }),
+        ]);
+
+        gasPrice = gasPriceData;
+        
+        // Try EIP-1559 gas prices if available
+        if (blockData && 'baseFeePerGas' in blockData && blockData.baseFeePerGas) {
+          maxFeePerGas = (blockData.baseFeePerGas * 2n) / 10n; // 2x base fee
+          maxPriorityFeePerGas = blockData.baseFeePerGas / 10n; // 10% of base fee
+        }
+
+        // Estimate gas
+        gasEstimate = await adminApp.publicClient.estimateGas({
+          account: adminApp.address,
+          to: identityRegistryHex as `0x${string}`,
+          data: encodedData as `0x${string}`,
+        });
+
+        // Get nonce
+        nonce = await adminApp.publicClient.getTransactionCount({
+          address: adminApp.address,
+          blockTag: 'pending',
+        });
+      } catch (error) {
+        console.warn('Could not estimate gas or get transaction parameters:', error);
+        // Continue without gas estimates - client can estimate
+      }
+
+      return {
+        requiresClientSigning: true,
+        transaction: {
+          to: identityRegistryHex as `0x${string}`,
+          data: encodedData as `0x${string}`,
+          value: '0',
+          gas: gasEstimate ? gasEstimate.toString() : undefined,
+          gasPrice: gasPrice ? gasPrice.toString() : undefined,
+          maxFeePerGas: maxFeePerGas ? maxFeePerGas.toString() : undefined,
+          maxPriorityFeePerGas: maxPriorityFeePerGas ? maxPriorityFeePerGas.toString() : undefined,
+          nonce,
+          chainId,
+        },
+        tokenURI,
+        metadata: metadata.map(m => ({ key: m.key, value: m.value })),
+      };
     },
 
     /**
@@ -293,10 +579,10 @@ export class AgentsAPI {
 
       // Transfer to zero address (burn)
       const result = await adminApp.adminAdapter.send(
-        identityRegistry,
-        IdentityRegistryABI.default || IdentityRegistryABI,
+        identityRegistry as `0x${string}`,
+        (IdentityRegistryABI.default || IdentityRegistryABI) as any,
         'transferFrom',
-        [from, to, agentId]
+        [from, to, agentId] as any
       );
 
       return { txHash: result.txHash };
@@ -332,10 +618,10 @@ export class AgentsAPI {
 
       // Transfer to new owner
       const result = await adminApp.adminAdapter.send(
-        identityRegistry,
-        IdentityRegistryABI.default || IdentityRegistryABI,
+        identityRegistry as `0x${string}`,
+        (IdentityRegistryABI.default || IdentityRegistryABI) as any,
         'transferFrom',
-        [from, params.to, agentId]
+        [from, params.to, agentId] as any
       );
 
       return { txHash: result.txHash };

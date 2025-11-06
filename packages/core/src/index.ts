@@ -23,6 +23,8 @@ export type {
   ProviderEndpoint,
   AgentRegistration,
   VeramoAgent,
+  AuthChallenge,
+  ChallengeVerificationResult,
   Challenge,
   ChallengeRequest,
   SignedChallenge,
@@ -115,12 +117,9 @@ export {
   type AgentRegistrationJSON,
 } from './client/registration';
 
-// Export Agents GraphQL Client singleton
-export {
-  getAgentsGraphQLClient,
-  isAgentsGraphQLClientInitialized,
-  resetAgentsGraphQLClient,
-} from './client/agentsGraphQLClient';
+// Note: getAgentsGraphQLClient is intentionally NOT exported
+// Apps should use AgenticTrustClient.agents.getAgentFromGraphQL() instead
+// Internal singleton utilities remain internal
 
 // Re-export AI Agent GraphQL Client types from SDK
 export type {

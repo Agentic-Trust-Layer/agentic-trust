@@ -7,13 +7,15 @@ import { BlockchainAdapter } from './adapters/types';
 import { MetadataEntry, AgentRegistrationFile } from './types';
 import IdentityRegistryABI from './abis/IdentityRegistry.json';
 
+import type { Address } from 'viem';
+
 export class IdentityClient {
   private adapter: BlockchainAdapter;
-  private contractAddress: string;
+  private contractAddress: Address;
 
-  constructor(adapter: BlockchainAdapter, contractAddress: string) {
+  constructor(adapter: BlockchainAdapter, contractAddress: string | Address) {
     this.adapter = adapter;
-    this.contractAddress = contractAddress;
+    this.contractAddress = contractAddress as Address;
   }
 
   /**
@@ -23,9 +25,9 @@ export class IdentityClient {
   async register(): Promise<{ agentId: bigint; txHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'register',
-      []
+      [] as any
     );
 
     // Parse agentId from receipt logs
@@ -34,7 +36,7 @@ export class IdentityClient {
 
     return {
       agentId,
-      txHash: result.txHash,
+      txHash: result.hash || (result as any).txHash,
     };
   }
 
@@ -46,16 +48,16 @@ export class IdentityClient {
   async registerWithURI(tokenURI: string): Promise<{ agentId: bigint; txHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'register(string)',
-      [tokenURI]
+      [tokenURI] as any
     );
 
     const agentId = this.extractAgentIdFromReceipt(result);
 
     return {
       agentId,
-      txHash: result.txHash,
+      txHash: result.hash || (result as any).txHash,
     };
   }
 
@@ -87,16 +89,16 @@ export class IdentityClient {
     console.log('********************* registerWithMetadata: metadataFormatted', metadataFormatted);
     const result = await this.adapter.send(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'register(string,(string,bytes)[])',
-      [tokenURI, metadataFormatted]
+      [tokenURI, metadataFormatted] as any
     );
 
     const agentId = this.extractAgentIdFromReceipt(result);
 
     return {
       agentId,
-      txHash: result.txHash,
+      txHash: result.hash || (result as any).txHash,
     };
   }
 
@@ -110,7 +112,7 @@ export class IdentityClient {
     console.log('********************* getTokenURI: agentId', agentId);
     return await this.adapter.call(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'tokenURI',
       [agentId]
     );
@@ -126,12 +128,12 @@ export class IdentityClient {
   async setAgentUri(agentId: bigint, uri: string): Promise<{ txHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'setAgentUri',
       [agentId, uri]
     );
 
-    return { txHash: result.txHash };
+    return { txHash: result.hash || (result as any).txHash };
   }
 
   /**
@@ -142,7 +144,7 @@ export class IdentityClient {
   async getOwner(agentId: bigint): Promise<string> {
     return await this.adapter.call(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'ownerOf',
       [agentId]
     );
@@ -158,7 +160,7 @@ export class IdentityClient {
 
     const bytes = await this.adapter.call(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'getMetadata',
       [agentId, key]
     );
@@ -175,12 +177,12 @@ export class IdentityClient {
   async setMetadata(agentId: bigint, key: string, value: string): Promise<{ txHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
-      IdentityRegistryABI,
+      IdentityRegistryABI as any,
       'setMetadata',
       [agentId, key, this.stringToBytes(value)]
     );
 
-    return { txHash: result.txHash };
+    return { txHash: result.hash || (result as any).txHash };
   }
 
   /**

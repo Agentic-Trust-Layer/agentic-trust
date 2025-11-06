@@ -34,11 +34,29 @@ export async function POST(request: NextRequest) {
       agentUrl,
     });
 
-    return NextResponse.json({
-      success: true,
-      agentId: result.agentId.toString(),
-      txHash: result.txHash,
-    });
+    // Check if result requires client-side signing
+    if ('requiresClientSigning' in result && result.requiresClientSigning === true) {
+      // Return prepared transaction for client-side signing
+      return NextResponse.json({
+        success: true,
+        requiresClientSigning: true,
+        transaction: result.transaction,
+        tokenURI: result.tokenURI,
+        metadata: result.metadata,
+      });
+    }
+
+    // Server-side signed transaction (result has agentId and txHash)
+    if ('agentId' in result && 'txHash' in result) {
+      return NextResponse.json({
+        success: true,
+        agentId: result.agentId.toString(),
+        txHash: result.txHash,
+      });
+    }
+
+    // Fallback (should not happen)
+    throw new Error('Unexpected result type from createAgent');
   } catch (error: unknown) {
     console.error('Error creating agent:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

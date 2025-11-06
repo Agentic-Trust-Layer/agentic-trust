@@ -18,19 +18,21 @@ export interface GiveFeedbackParams {
   feedbackAuth: string; // Signed feedbackAuth
 }
 
+import type { Address } from 'viem';
+
 export class ReputationClient {
   private adapter: BlockchainAdapter;
-  private contractAddress: string;
-  private identityRegistryAddress: string;
+  private contractAddress: Address;
+  private identityRegistryAddress: Address;
 
   constructor(
     adapter: BlockchainAdapter,
-    contractAddress: string,
-    identityRegistryAddress: string
+    contractAddress: string | Address,
+    identityRegistryAddress: string | Address
   ) {
     this.adapter = adapter;
-    this.contractAddress = contractAddress;
-    this.identityRegistryAddress = identityRegistryAddress;
+    this.contractAddress = contractAddress as Address;
+    this.identityRegistryAddress = identityRegistryAddress as Address;
   }
 
   /**
@@ -119,7 +121,7 @@ export class ReputationClient {
 
     const result = await this.adapter.send(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'giveFeedback',
       [
         params.agentId,
@@ -132,7 +134,7 @@ export class ReputationClient {
       ]
     );
 
-    return { txHash: result.txHash };
+    return { txHash: result.hash || (result as any).txHash };
   }
 
   /**
@@ -145,12 +147,12 @@ export class ReputationClient {
   async revokeFeedback(agentId: bigint, feedbackIndex: bigint): Promise<{ txHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'revokeFeedback',
       [agentId, feedbackIndex]
     );
 
-    return { txHash: result.txHash };
+    return { txHash: result.hash || (result as any).txHash };
   }
 
   /**
@@ -174,12 +176,12 @@ export class ReputationClient {
 
     const result = await this.adapter.send(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'appendResponse',
       [agentId, clientAddress, feedbackIndex, responseUri, hash]
     );
 
-    return { txHash: result.txHash };
+    return { txHash: result.hash || (result as any).txHash };
   }
 
   /**
@@ -189,7 +191,7 @@ export class ReputationClient {
   async getIdentityRegistry(): Promise<string> {
     return await this.adapter.call(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'getIdentityRegistry',
       []
     );
@@ -215,11 +217,11 @@ export class ReputationClient {
     const t1 = tag1 ? ethers.id(tag1).slice(0, 66) : ethers.ZeroHash;
     const t2 = tag2 ? ethers.id(tag2).slice(0, 66) : ethers.ZeroHash;
 
-    const result = await this.adapter.call(
+    const result = await this.adapter.call<any>(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'getSummary',
-      [agentId, clients, t1, t2]
+      [agentId, clients, t1, t2] as any
     );
 
     return {
@@ -241,11 +243,11 @@ export class ReputationClient {
     clientAddress: string,
     index: bigint
   ): Promise<{ score: number; tag1: string; tag2: string; isRevoked: boolean }> {
-    const result = await this.adapter.call(
+    const result = await this.adapter.call<any>(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'readFeedback',
-      [agentId, clientAddress, index]
+      [agentId, clientAddress, index] as any
     );
 
     return {
@@ -285,11 +287,11 @@ export class ReputationClient {
     const t2 = tag2 ? ethers.id(tag2).slice(0, 66) : ethers.ZeroHash;
     const includeRev = includeRevoked || false;
 
-    const result = await this.adapter.call(
+    const result = await this.adapter.call<any>(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'readAllFeedback',
-      [agentId, clients, t1, t2, includeRev]
+      [agentId, clients, t1, t2, includeRev] as any
     );
 
     return {
@@ -316,11 +318,11 @@ export class ReputationClient {
     const index = feedbackIndex || BigInt(0);
     const resp = responders || [];
 
-    const result = await this.adapter.call(
+    const result = await this.adapter.call<any>(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'getResponseCount',
-      [agentId, client, index, resp]
+      [agentId, client, index, resp] as any
     );
 
     return BigInt(result);
@@ -333,9 +335,9 @@ export class ReputationClient {
   async getClients(agentId: bigint): Promise<string[]> {
     return await this.adapter.call(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'getClients',
-      [agentId]
+      [agentId] as any
     );
   }
 
@@ -348,11 +350,11 @@ export class ReputationClient {
    * @returns Last feedback index (0 if no feedback yet)
    */
   async getLastIndex(agentId: bigint, clientAddress: string): Promise<bigint> {
-    const result = await this.adapter.call(
+    const result = await this.adapter.call<any>(
       this.contractAddress,
-      ReputationRegistryABI,
+      ReputationRegistryABI as any,
       'getLastIndex',
-      [agentId, clientAddress]
+      [agentId, clientAddress] as any
     );
 
     return BigInt(result);

@@ -10,6 +10,7 @@ import { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAdapter } from '@erc8004/sdk';
 import { getClientApp } from './clientApp';
 import { getProviderApp } from './providerApp';
+import { getAdminApp } from './adminApp';
 
 // Singleton instance
 let reputationClientInstance: AIAgentReputationClient | null = null;
@@ -52,16 +53,27 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_RPC_URL');
       }
 
-      // Determine if this is a client app or provider app
+      // Determine if this is a client app, provider app, or admin app
       const isClientApp = process.env.AGENTIC_TRUST_IS_CLIENT_APP === '1' || 
                           process.env.AGENTIC_TRUST_IS_CLIENT_APP?.trim() === 'true';
       const isProviderApp = process.env.AGENTIC_TRUST_IS_PROVIDER_APP === '1' || 
                             process.env.AGENTIC_TRUST_IS_PROVIDER_APP?.trim() === 'true';
+      const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1' || 
+                         process.env.AGENTIC_TRUST_IS_ADMIN_APP?.trim() === 'true';
 
       let agentAdapter: any;
       let clientAdapter: any;
 
-      if (isProviderApp) {
+      if (isAdminApp) {
+        // Admin app: use AdminApp adapter (supports wallet providers and private key)
+        const adminApp = await getAdminApp();
+        if (adminApp && adminApp.adminAdapter) {
+          agentAdapter = adminApp.adminAdapter;
+          clientAdapter = adminApp.adminAdapter; // For admin, agent and client are the same
+        } else {
+          throw new Error('AdminApp not initialized. Connect wallet or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+        }
+      } else if (isProviderApp) {
         // Provider app: use ProviderApp for agent, ClientApp for client
         const providerApp = await getProviderApp();
         if (providerApp) {
@@ -78,11 +90,9 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
             clientApp.account
           );
         }
-        
-        
       } else {
         throw new Error(
-          'Cannot initialize reputation client: Either AGENTIC_TRUST_IS_CLIENT_APP or AGENTIC_TRUST_IS_PROVIDER_APP must be set to true/1'
+          'Cannot initialize reputation client: Set AGENTIC_TRUST_IS_CLIENT_APP, AGENTIC_TRUST_IS_PROVIDER_APP, or AGENTIC_TRUST_IS_ADMIN_APP to true/1'
         );
       }
 

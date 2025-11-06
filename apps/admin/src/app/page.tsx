@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useWeb3Auth } from '@/components/Web3AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
+import type { Address } from 'viem';
 
 type Agent = {
   agentId?: number;
@@ -224,9 +225,104 @@ export default function AdminPage() {
       }
 
       const data = await response.json();
-      setSuccess(`Agent created successfully! Agent ID: ${data.agentId}, TX: ${data.txHash}`);
-      setCreateForm({ agentName: '', agentAccount: '', description: '', image: '', agentUrl: '' });
-      fetchAgents(); // Refresh list
+
+      // Check if client-side signing is required
+      if (data.requiresClientSigning && data.transaction) {
+        // Sign and submit transaction on client side
+        try {
+          const { createWalletClient, custom } = await import('viem');
+          const { sepolia } = await import('viem/chains');
+          
+          // Get wallet provider (MetaMask or Web3Auth)
+          if (!window.ethereum) {
+            throw new Error('No wallet provider found. Please connect MetaMask or use Web3Auth.');
+          }
+
+          if (!address) {
+            throw new Error('Wallet not connected. Please connect your wallet first.');
+          }
+
+          // Create wallet client with custom transport (MetaMask/EIP-1193)
+          const walletClient = createWalletClient({
+            account: address as Address,
+            chain: sepolia,
+            transport: custom(window.ethereum),
+          });
+
+          // Transaction is already prepared in Viem-compatible format (hex strings)
+          // No conversion needed - use directly
+          const txParams = data.transaction;
+
+          // Sign and send transaction
+          setSuccess('Transaction prepared. Please confirm in your wallet...');
+          const hash = await walletClient.sendTransaction(txParams);
+          
+          setSuccess(`Transaction submitted! Hash: ${hash}. Waiting for confirmation...`);
+          
+          // Wait for transaction receipt
+          const { createPublicClient, http, decodeEventLog } = await import('viem');
+          const rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || 'https://eth-sepolia.g.alchemy.com/v2/demo';
+          const publicClient = createPublicClient({
+            chain: sepolia,
+            transport: http(rpcUrl),
+          });
+
+          const receipt = await publicClient.waitForTransactionReceipt({ hash });
+          
+          // Extract agentId from receipt logs (look for Transfer event with from=0x0)
+          let agentId: string | undefined;
+          try {
+            const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+            const zeroAddress = '0x0000000000000000000000000000000000000000000000000000000000000000';
+            
+            for (const log of receipt.logs) {
+              if (log.topics[0] === transferTopic && log.topics[1] === zeroAddress) {
+                // Extract tokenId (agentId) from topics[3]
+                if (log.topics[3]) {
+                  agentId = BigInt(log.topics[3]).toString();
+                  break;
+                }
+              }
+            }
+          } catch (extractError) {
+            console.warn('Could not extract agentId from receipt:', extractError);
+          }
+
+          if (agentId) {
+            setSuccess(`Agent created successfully! Agent ID: ${agentId}, TX: ${hash}`);
+            
+            // Refresh GraphQL indexer for this agent
+            try {
+              const refreshResponse = await fetch(`/api/agents/${agentId}/refresh`, {
+                method: 'POST',
+              });
+              if (!refreshResponse.ok) {
+                console.warn('Failed to refresh agent in GraphQL indexer');
+              } else {
+                console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
+              }
+            } catch (refreshError) {
+              console.warn('Error refreshing agent in GraphQL indexer:', refreshError);
+            }
+          } else {
+            setSuccess(`Agent creation transaction confirmed! TX: ${hash} (Agent ID will be available after indexing)`);
+          }
+          setCreateForm({ agentName: '', agentAccount: '', description: '', image: '', agentUrl: '' });
+          
+          // Refresh agents list after a short delay to allow indexing
+          setTimeout(() => {
+            fetchAgents();
+          }, 2000);
+        } catch (signError: any) {
+          console.error('Error signing transaction:', signError);
+          setError(`Failed to sign transaction: ${signError.message || 'Unknown error'}`);
+        }
+      } else {
+        // Server-side signed transaction
+        setSuccess(`Agent created successfully! Agent ID: ${data.agentId}, TX: ${data.txHash}`);
+        setCreateForm({ agentName: '', agentAccount: '', description: '', image: '', agentUrl: '' });
+        fetchAgents(); // Refresh list
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create agent');
     }

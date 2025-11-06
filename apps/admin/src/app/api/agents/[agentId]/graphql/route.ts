@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentsGraphQLClient } from '@agentic-trust/core';
+import { getAdminClient } from '@/lib/client';
 
 export async function GET(
   request: NextRequest,
@@ -17,8 +17,8 @@ export async function GET(
       );
     }
 
-    const graphQLClient = await getAgentsGraphQLClient();
-    const agentData = await graphQLClient.getAgent(chainId, agentId);
+    const client = await getAdminClient();
+    const agentData = await client.agents.getAgentFromGraphQL(chainId, agentId);
 
     return NextResponse.json({
       success: true,

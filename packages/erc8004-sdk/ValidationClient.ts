@@ -3,6 +3,7 @@
  * Handles validation requests and responses
  */
 
+import type { Address } from 'viem';
 import { BlockchainAdapter } from './adapters/types';
 import { ValidationStatus } from './types';
 import ValidationRegistryABI from './abis/ValidationRegistry.json';
@@ -25,11 +26,11 @@ export interface ValidationResponseParams {
 
 export class ValidationClient {
   private adapter: BlockchainAdapter;
-  private contractAddress: string;
+  private contractAddress: Address;
 
-  constructor(adapter: BlockchainAdapter, contractAddress: string) {
+  constructor(adapter: BlockchainAdapter, contractAddress: string | Address) {
     this.adapter = adapter;
-    this.contractAddress = contractAddress;
+    this.contractAddress = contractAddress as Address;
   }
 
   /**
@@ -44,13 +45,13 @@ export class ValidationClient {
   async validationRequest(params: ValidationRequestParams): Promise<{ txHash: string; requestHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
-      ValidationRegistryABI,
+      ValidationRegistryABI as any,
       'validationRequest',
       [params.validatorAddress, params.agentId, params.requestUri, params.requestHash]
     );
 
     return {
-      txHash: result.txHash,
+      txHash: result.hash || (result as any).txHash,
       requestHash: params.requestHash,
     };
   }
@@ -77,12 +78,12 @@ export class ValidationClient {
 
     const result = await this.adapter.send(
       this.contractAddress,
-      ValidationRegistryABI,
+      ValidationRegistryABI as any,
       'validationResponse',
       [params.requestHash, params.response, responseUri, responseHash, tag]
     );
 
-    return { txHash: result.txHash };
+    return { txHash: result.hash || (result as any).txHash };
   }
 
   /**
@@ -90,11 +91,11 @@ export class ValidationClient {
    * Spec: function getIdentityRegistry() external view returns (address identityRegistry)
    */
   async getIdentityRegistry(): Promise<string> {
-    return await this.adapter.call(
+    return await this.adapter.call<string>(
       this.contractAddress,
-      ValidationRegistryABI,
+      ValidationRegistryABI as any,
       'getIdentityRegistry',
-      []
+      [] as any
     );
   }
 
@@ -110,20 +111,20 @@ export class ValidationClient {
   async getValidationStatus(requestHash: string): Promise<ValidationStatus> {
     try {
       // Try with new ABI first (6 return values)
-      const result = await this.adapter.call(
+      const result = await this.adapter.call<any>(
         this.contractAddress,
-        ValidationRegistryABI,
+        ValidationRegistryABI as any,
         'getValidationStatus',
-        [requestHash]
+        [requestHash] as any
       );
 
       return {
-        validatorAddress: result.validatorAddress || result[0],
-        agentId: BigInt(result.agentId || result[1]),
-        response: Number(result.response || result[2]),
-        responseHash: result.responseHash || result[3],
-        tag: result.tag || result[4],
-        lastUpdate: BigInt(result.lastUpdate || result[5]),
+        validatorAddress: (result as any).validatorAddress || (result as any)[0],
+        agentId: BigInt((result as any).agentId || (result as any)[1]),
+        response: Number((result as any).response || (result as any)[2]),
+        responseHash: (result as any).responseHash || (result as any)[3],
+        tag: (result as any).tag || (result as any)[4],
+        lastUpdate: BigInt((result as any).lastUpdate || (result as any)[5]),
       };
     } catch (error: any) {
       // If decoding fails, try with old ABI (5 return values, no responseHash)
@@ -145,20 +146,20 @@ export class ValidationClient {
           }
         ];
 
-        const result = await this.adapter.call(
+        const result = await this.adapter.call<any>(
           this.contractAddress,
-          oldABI,
+          oldABI as any,
           'getValidationStatus',
-          [requestHash]
+          [requestHash] as any
         );
 
         return {
-          validatorAddress: result.validatorAddress || result[0],
-          agentId: BigInt(result.agentId || result[1]),
-          response: Number(result.response || result[2]),
+          validatorAddress: (result as any).validatorAddress || (result as any)[0],
+          agentId: BigInt((result as any).agentId || (result as any)[1]),
+          response: Number((result as any).response || (result as any)[2]),
           responseHash: ethers.ZeroHash, // Default for old contracts
-          tag: result.tag || result[3],
-          lastUpdate: BigInt(result.lastUpdate || result[4]),
+          tag: (result as any).tag || (result as any)[3],
+          lastUpdate: BigInt((result as any).lastUpdate || (result as any)[4]),
         };
       }
 
@@ -185,16 +186,16 @@ export class ValidationClient {
     const validators = validatorAddresses || [];
     const tagBytes = tag ? ethers.id(tag).slice(0, 66) : ethers.ZeroHash;
 
-    const result = await this.adapter.call(
+    const result = await this.adapter.call<any>(
       this.contractAddress,
-      ValidationRegistryABI,
+      ValidationRegistryABI as any,
       'getSummary',
-      [agentId, validators, tagBytes]
+      [agentId, validators, tagBytes] as any
     );
 
     return {
-      count: BigInt(result.count || result[0]),
-      avgResponse: Number(result.avgResponse || result[1]),
+      count: BigInt((result as any).count || (result as any)[0]),
+      avgResponse: Number((result as any).avgResponse || (result as any)[1]),
     };
   }
 
@@ -206,11 +207,11 @@ export class ValidationClient {
    * @returns Array of request hashes
    */
   async getAgentValidations(agentId: bigint): Promise<string[]> {
-    return await this.adapter.call(
+    return await this.adapter.call<any[]>(
       this.contractAddress,
-      ValidationRegistryABI,
+      ValidationRegistryABI as any,
       'getAgentValidations',
-      [agentId]
+      [agentId] as any
     );
   }
 
@@ -222,11 +223,11 @@ export class ValidationClient {
    * @returns Array of request hashes
    */
   async getValidatorRequests(validatorAddress: string): Promise<string[]> {
-    return await this.adapter.call(
+    return await this.adapter.call<any[]>(
       this.contractAddress,
-      ValidationRegistryABI,
+      ValidationRegistryABI as any,
       'getValidatorRequests',
-      [validatorAddress]
+      [validatorAddress] as any
     );
   }
 }

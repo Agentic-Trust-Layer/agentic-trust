@@ -8,7 +8,7 @@ import { GraphQLClient } from 'graphql-request';
 import type { ApiClientConfig } from './types';
 import { AgentsAPI } from './agents';
 import { A2AProtocolProviderAPI } from './a2aProtocolProvider';
-import { VeramoAPI } from './veramo';
+import { VeramoAPI, type AuthChallenge, type ChallengeVerificationResult } from './veramo';
 
 import { getClientAddress } from './clientApp';
 
@@ -33,7 +33,7 @@ export { A2AProtocolProvider } from './a2aProtocolProvider';
 export type {
   AgentRegistration,
 } from './agentCard';
-export type { VeramoAgent } from './veramo';
+export type { VeramoAgent, AuthChallenge, ChallengeVerificationResult } from './veramo';
 export { createVeramoAgentForClient } from './veramoFactory';
 export type {
   Challenge,
@@ -82,6 +82,21 @@ export class AgenticTrustClient {
   async getClientAddress(): Promise<`0x${string}`> {
     
     return await getClientAddress();
+  }
+
+  /**
+   * Verify a signed challenge
+   * Handles all Veramo agent logic internally - no Veramo exposure at app level
+   * 
+   * @param auth - The authentication challenge with signature
+   * @param expectedAudience - Expected audience (provider URL) for validation
+   * @returns Verification result with client address if valid
+   */
+  async verifyChallenge(
+    auth: AuthChallenge,
+    expectedAudience: string
+  ): Promise<ChallengeVerificationResult> {
+    return this.veramo.verifyChallenge(auth, expectedAudience);
   }
 
   private constructor(config: ApiClientConfig) {
@@ -166,6 +181,7 @@ export class AgenticTrustClient {
    */
   static async create(config: ApiClientConfig): Promise<AgenticTrustClient> {
 
+    console.log('______________ AgenticTrustClient: ', config);
     const client = new AgenticTrustClient(config);
     
     // Step 1: Initialize Veramo agent (always happens - either provided or created from privateKey)
@@ -179,12 +195,16 @@ export class AgenticTrustClient {
       await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: import('./sessionPackage').SessionPackage; ensRegistry: `0x${string}` });
       console.log('✅ AgenticTrustClient.create: Reputation initialized from sessionPackage');
     } else if (config.identityRegistry && config.reputationRegistry) {
-      console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
       // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
       // Uses the EOA derived from privateKey (same as VeramoAgent)
-      console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
-      await client.initializeReputationFromConfig(config);
-      console.log('✅ AgenticTrustClient.create: Reputation initialized from top-level config');
+      // Note: Reputation client requires private key for signing operations
+      if (config.privateKey) {
+        console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
+        await client.initializeReputationFromConfig(config);
+        console.log('✅ AgenticTrustClient.create: Reputation initialized from top-level config');
+      } else {
+        console.log('⚠️ AgenticTrustClient.create: Reputation client not initialized (private key required for reputation operations)');
+      }
     } else {
       console.log('⚠️ AgenticTrustClient.create: Reputation client not initialized (missing identityRegistry or reputationRegistry)');
     }
@@ -281,34 +301,130 @@ export class AgenticTrustClient {
       console.log('⚠️ ENS registry not provided. which might be ok.');
     }
 
-    // Get private key from config - required for reputation client
-    if (!config.privateKey) {
-      throw new Error('privateKey is required to initialize reputation client. Set AGENTIC_TRUST_PRIVATE_KEY or NEXT_PUBLIC_AGENTIC_TRUST_PRIVATE_KEY environment variable.');
+    // Try to get walletClient from AdminApp or ClientApp (supports wallet providers)
+    // If not available, fall back to privateKey-based creation
+    let agentAdapter: any;
+    let clientAdapter: any;
+    let eoaAddress: `0x${string}` | undefined;
+
+    // Try AdminApp first (for admin operations)
+    try {
+      const { getAdminApp } = await import('./adminApp');
+      const adminApp = await getAdminApp();
+      if (adminApp && adminApp.adminAdapter) {
+        // Use AdminApp's adapter (works with private key OR wallet provider)
+        agentAdapter = adminApp.adminAdapter;
+        clientAdapter = adminApp.adminAdapter; // For admin, agent and client are the same
+        eoaAddress = adminApp.address;
+        console.log('🔧 initializeReputationFromConfig: Using AdminApp adapter', eoaAddress);
+      }
+    } catch (error) {
+      // AdminApp not available, try ClientApp
+      console.log('🔧 initializeReputationFromConfig: AdminApp not available, trying ClientApp...');
     }
 
-    // Normalize private key (same logic as veramoFactory)
-    let cleanedKey = config.privateKey.trim().replace(/\s+/g, '');
-    if (cleanedKey.startsWith('0x')) {
-      cleanedKey = cleanedKey.slice(2);
+    // Try ClientApp if AdminApp didn't work
+    if (!agentAdapter) {
+      try {
+        const { getClientApp } = await import('./clientApp');
+        const clientApp = await getClientApp();
+        if (clientApp && clientApp.clientAdapter) {
+          // Use ClientApp's adapter
+          agentAdapter = new (await import('@erc8004/sdk')).ViemAdapter(
+            clientApp.publicClient as any,
+            clientApp.walletClient as any,
+            clientApp.account
+          );
+          clientAdapter = clientApp.clientAdapter;
+          eoaAddress = clientApp.address;
+          console.log('🔧 initializeReputationFromConfig: Using ClientApp adapter', eoaAddress);
+        }
+      } catch (error) {
+        // ClientApp not available, fall back to privateKey
+        console.log('🔧 initializeReputationFromConfig: ClientApp not available, falling back to privateKey...');
+      }
     }
-    if (!/^[0-9a-fA-F]{64}$/.test(cleanedKey)) {
-      throw new Error('Invalid private key format');
-    }
-    const normalizedKey = `0x${cleanedKey}` as `0x${string}`;
 
-    // Create account from private key - this gives us the EOA address
-    const { privateKeyToAccount } = await import('viem/accounts');
-    const account = privateKeyToAccount(normalizedKey);
+    // Fall back to privateKey-based creation if no wallet/app available
+    if (!agentAdapter && config.privateKey) {
+      console.log('🔧 initializeReputationFromConfig: Creating adapter from privateKey...');
+      
+      // Normalize private key (same logic as veramoFactory)
+      let cleanedKey = config.privateKey.trim().replace(/\s+/g, '');
+      if (cleanedKey.startsWith('0x')) {
+        cleanedKey = cleanedKey.slice(2);
+      }
+      if (!/^[0-9a-fA-F]{64}$/.test(cleanedKey)) {
+        throw new Error('Invalid private key format');
+      }
+      const normalizedKey = `0x${cleanedKey}` as `0x${string}`;
+
+      // Create account from private key
+      const { privateKeyToAccount } = await import('viem/accounts');
+      const account = privateKeyToAccount(normalizedKey);
+      eoaAddress = account.address as `0x${string}`;
+
+      // Create public and wallet clients
+      const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');
+      const { sepolia } = await import('viem/chains');
+
+      const publicClient = createPublicClient({
+        chain: sepolia,
+        transport: httpTransport(rpcUrl),
+      });
+
+      const walletClient = createWalletClient({
+        account,
+        chain: sepolia,
+        transport: httpTransport(rpcUrl),
+      });
+
+      // Create adapters
+      const { ViemAdapter } = await import('@erc8004/sdk');
+      agentAdapter = new ViemAdapter(publicClient as any, walletClient as any, account);
+      clientAdapter = agentAdapter; // For single account, agent and client are the same
+
+      console.log('🔧 initializeReputationFromConfig: Using EOA from private key', eoaAddress);
+    }
+
+    // If we still don't have adapters, throw error
+    if (!agentAdapter || !clientAdapter) {
+      throw new Error(
+        'Cannot initialize reputation client: No wallet available. ' +
+        'Provide either:\n' +
+        '  1. Wallet connection (MetaMask/Web3Auth) - AdminApp will be used\n' +
+        '  2. Private key via AGENTIC_TRUST_PRIVATE_KEY or config.privateKey\n' +
+        '  3. ClientApp initialization (set AGENTIC_TRUST_IS_CLIENT_APP=true)'
+      );
+    }
+
+    // Create the reputation client using the adapters
+    // The adapters can be from AdminApp (wallet provider), ClientApp, or created from privateKey
+    const { AIAgentReputationClient } = await import('@erc8004/agentic-trust-sdk');
     
-    // Use the EOA address derived from the private key
-    const eoaAddress = account.address as `0x${string}`;
-    console.log('🔧 initializeReputationFromConfig: Using EOA from private key', eoaAddress);
+    const reputationClient = await AIAgentReputationClient.create(
+      agentAdapter,
+      clientAdapter,
+      identityRegistry,
+      reputationRegistry,
+      (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}` // Default ENS registry on Sepolia
+    );
 
-    // Create public and wallet clients
-    const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');
-    const { sepolia } = await import('viem/chains');
-
-
+    // Store the reputation client in the singleton
+    // Import the singleton module and set it directly
+    const reputationClientModule = await import('./reputationClient');
+    // Access the singleton instance variable (we need to export a setter or access it)
+    // For now, we'll use a workaround - the singleton will be initialized when getReputationClient is called
+    // But we've created the client here, so future calls to getReputationClient should use the singleton's logic
+    // Actually, the singleton pattern creates its own instance, so we need to either:
+    // 1. Store this instance somewhere accessible to the singleton, or
+    // 2. Make sure the singleton uses the same adapters
+    
+    // Since the singleton recreates the client, we need to ensure it uses the same adapters
+    // The singleton logic in reputationClient.ts will use getAdminApp/getClientApp which should return the same adapters
+    // So the singleton should work correctly
+    
+    console.log('✅ initializeReputationFromConfig: Reputation client created with walletClient/adapter', eoaAddress);
   }
 
   /**

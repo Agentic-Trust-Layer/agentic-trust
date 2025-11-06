@@ -3,55 +3,121 @@
  * Allows SDK to work with any blockchain library (ethers, viem, etc.)
  */
 
-export interface ContractCallResult {
-  txHash: string;
-  blockNumber?: bigint;
-  [key: string]: any;
-}
+import type {
+  Abi,
+  Address,
+  Hex,
+  PublicClient,
+  WalletClient,
+  Chain,
+  Transport,
+  Account,
+} from 'viem';
 
-/**
- * Generic blockchain adapter interface
- * Implementations provide library-specific functionality
- */
+// -----------------------------
+// Types
+// -----------------------------
+
+export type ContractCallResult = {
+  hash: Hex; // transaction hash
+  blockNumber?: bigint;
+  receipt?: any;
+  events?: any[];
+  [key: string]: any;
+};
+
 export interface BlockchainAdapter {
   /**
-   * Call a read-only contract function
+   * Call a read-only contract function (no signature required)
+   * @param contractAddress - The contract address
+   * @param abi - The contract ABI
+   * @param functionName - The function name to call
+   * @param args - Optional function arguments
+   * @returns The result of the contract call
    */
-  call(
-    contractAddress: string,
-    abi: any[],
+  call<T = unknown>(
+    contractAddress: Address,
+    abi: Abi,
     functionName: string,
-    args: any[]
-  ): Promise<any>;
+    args?: readonly unknown[]
+  ): Promise<T>;
 
   /**
-   * Send a transaction to a contract function
+   * Send a transaction to a contract function (requires signature)
+   * @param contractAddress - The contract address
+   * @param abi - The contract ABI
+   * @param functionName - The function name to call
+   * @param args - Optional function arguments
+   * @param overrides - Optional transaction overrides (value, gas, account, etc.)
+   * @returns Transaction result with hash
    */
   send(
-    contractAddress: string,
-    abi: any[],
+    contractAddress: Address,
+    abi: Abi,
     functionName: string,
-    args: any[]
+    args?: readonly unknown[],
+    overrides?: {
+      value?: bigint;
+      gas?: bigint;
+      gasPrice?: bigint;
+      maxFeePerGas?: bigint;
+      maxPriorityFeePerGas?: bigint;
+      nonce?: number;
+      account?: Address; // override from-address if needed
+      chain?: Chain; // override chain if needed
+    }
   ): Promise<ContractCallResult>;
 
   /**
-   * Get the current signer/wallet address
-   * Returns null if no signer configured (read-only mode)
+   * Encode function call data (requires nothing, just encoding)
+   * @param contractAddress - The contract address (for validation, may be optional)
+   * @param abi - The contract ABI
+   * @param functionName - The function name to encode
+   * @param args - Optional function arguments
+   * @returns Encoded function call data as hex string
    */
-  getAddress(): Promise<string | null>;
+  encodeFunctionData(
+    contractAddress: Address,
+    abi: Abi,
+    functionName: string,
+    args?: readonly unknown[]
+  ): Promise<Hex>;
 
   /**
-   * Get the chain ID
+   * Current signer/wallet address (null in read-only mode)
+   * @returns The address of the current signer, or null if no signer
+   */
+  getAddress(): Promise<Address | null>;
+
+  /**
+   * Get chain id
+   * @returns The current chain ID
    */
   getChainId(): Promise<number>;
 
   /**
-   * Sign a message (EIP-191 or ERC-1271)
+   * Sign a message (EIP-191). If no wallet, throws
+   * @param message - The message to sign (string or Uint8Array)
+   * @returns The signature as hex string
    */
-  signMessage(message: string | Uint8Array): Promise<string>;
+  signMessage(message: string | Uint8Array): Promise<Hex>;
 
   /**
-   * Sign typed data (EIP-712)
+   * Sign typed data (EIP-712). If no wallet, throws
+   * @param domain - The EIP-712 domain
+   * @param types - The EIP-712 types
+   * @param value - The value to sign
+   * @returns The signature as hex string
    */
-  signTypedData(domain: any, types: any, value: any): Promise<string>;
+  signTypedData<TTypedData extends Record<string, unknown>>(
+    domain: any,
+    types: any,
+    value: TTypedData
+  ): Promise<Hex>;
 }
+
+export type ViemAdapterOptions = {
+  publicClient: PublicClient;
+  walletClient?: WalletClient<Transport, Chain, Account> | null;
+  /** Optional custom signers (useful for ERC-1271 setups managed elsewhere) */
+};

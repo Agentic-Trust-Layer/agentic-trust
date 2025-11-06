@@ -77,9 +77,13 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
         config.identityRegistry = identityRegistry as `0x${string}`;
       }
 
-      // Set reputation registry if provided
-      if (reputationRegistry) {
+      // Set reputation registry if provided AND private key is available
+      // Reputation client requires private key for signing operations
+      // For wallet-only connections (MetaMask/Web3Auth), omit reputation registry
+      if (reputationRegistry && privateKey) {
         config.reputationRegistry = reputationRegistry as `0x${string}`;
+      } else if (reputationRegistry && !privateKey) {
+        console.warn('⚠️ Reputation registry provided but no private key available. Reputation client will not be initialized. Use Web3Auth social login or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY for reputation operations.');
       }
 
       // Create the client
