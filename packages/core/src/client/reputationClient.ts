@@ -74,10 +74,44 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
           throw new Error('AdminApp not initialized. Connect wallet or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
         }
       } else if (isProviderApp) {
-        // Provider app: use ProviderApp for agent, ClientApp for client
+        // Provider app: use ProviderApp for agent, try ClientApp for client, or create from session package
         const providerApp = await getProviderApp();
         if (providerApp) {
           agentAccountProvider = providerApp.accountProvider;
+          
+          // Try to get ClientApp for client operations
+          try {
+            const { getClientApp } = await import('./clientApp');
+            const clientApp = await getClientApp();
+            if (clientApp && clientApp.accountProvider) {
+              clientAccountProvider = clientApp.accountProvider;
+            }
+          } catch (error) {
+            // ClientApp not available, create read-only clientAccountProvider from session package
+            // The client is the session key owner (EOA that controls the smart account)
+            const sessionKeyAddress = providerApp.sessionPackage.sessionKey.address as `0x${string}`;
+            const { createPublicClient, http } = await import('viem');
+            const { sepolia } = await import('viem/chains');
+            
+            const clientPublicClient = createPublicClient({
+              chain: sepolia,
+              transport: http(rpcUrl),
+            });
+            
+            // Create read-only AccountProvider for client (no wallet client, no signing)
+            // For provider apps, client operations that require signing should be handled differently
+            clientAccountProvider = new ViemAccountProvider({
+              publicClient: clientPublicClient as any,
+              walletClient: null,
+              account: sessionKeyAddress, // Use address as account for read-only operations
+              chainConfig: {
+                id: sepolia.id,
+                rpcUrl,
+                name: sepolia.name,
+                chain: sepolia,
+              },
+            });
+          }
         }
       } else if (isClientApp) {
         // Client app: use ClientApp for both agent and client (same account)

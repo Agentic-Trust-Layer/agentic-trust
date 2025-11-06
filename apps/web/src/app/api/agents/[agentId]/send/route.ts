@@ -4,7 +4,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentTrustClient } from '@/lib/server-client';
-import { getReputationClient } from '@agentic-trust/core';
 import type { MessageRequest } from '@agentic-trust/core';
 
 export async function POST(
@@ -43,25 +42,16 @@ export async function POST(
     }
 
     // For agent.feedback.requestAuth skill, clientAddress is REQUIRED
-    // Get client address from reputation client
+    // Get client address from AgenticTrustClient
     let clientAddress: string | undefined;
     if (skillId === 'agent.feedback.requestAuth') {
-      
-      
       try {
-        const reputationClient = await getReputationClient();
-        const clientAdapter = (reputationClient as unknown as { clientAdapter?: { getAddress: () => Promise<string> } }).clientAdapter;
-        if (!clientAdapter) {
-          return NextResponse.json(
-            { error: 'Client adapter not available. Cannot get client address for feedback auth.' },
-            { status: 500 }
-          );
-        }
-        clientAddress = await clientAdapter.getAddress();
+        // Use AgenticTrustClient's getClientAddress method
+        clientAddress = await atClient.getClientAddress();
         
         if (!clientAddress) {
           return NextResponse.json(
-            { error: 'Failed to get client address from reputation client. Cannot request feedback auth.' },
+            { error: 'Failed to get client address. Cannot request feedback auth.' },
             { status: 500 }
           );
         }
@@ -77,16 +67,10 @@ export async function POST(
     } else {
       // For other skills, try to get client address if available (but not required)
       try {
-        const { isReputationClientInitialized } = await import('@agentic-trust/core');
-        if (isReputationClientInitialized()) {
-          const reputationClient = await getReputationClient();
-          const clientAdapter = (reputationClient as unknown as { clientAdapter?: { getAddress: () => Promise<string> } }).clientAdapter;
-          if (clientAdapter) {
-            clientAddress = await clientAdapter.getAddress();
-          }
-        }
+        clientAddress = await atClient.getClientAddress();
       } catch (error) {
         console.warn('Failed to get client address:', error);
+        // Not required for other skills, so we continue without it
       }
     }
 
