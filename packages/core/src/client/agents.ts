@@ -89,6 +89,211 @@ export class AgentsAPI {
   }
 
   /**
+   * Create a new agent
+   * Requires AdminApp to be initialized (server-side)
+   * @param params - Agent creation parameters
+   * @returns Created agent ID and transaction hash, or prepared transaction for client-side signing
+   */
+  async createAgent(params: {
+    agentName: string;
+    agentAccount: `0x${string}`;
+    description?: string;
+    image?: string;
+    agentUrl?: string;
+    supportedTrust?: string[];
+    endpoints?: Array<{
+      name: string;
+      endpoint: string;
+      version?: string;
+      capabilities?: Record<string, any>;
+    }>;
+  }): Promise<
+    | { agentId: bigint; txHash: string }
+    | {
+        requiresClientSigning: true;
+        transaction: {
+          to: `0x${string}`;
+          data: `0x${string}`;
+          value: string;
+          gas?: string;
+          gasPrice?: string;
+          maxFeePerGas?: string;
+          maxPriorityFeePerGas?: string;
+          nonce?: number;
+          chainId: number;
+        };
+        tokenURI: string;
+        metadata: Array<{ key: string; value: string }>;
+      }
+  > {
+    const { getAdminApp } = await import('./adminApp');
+    const { IdentityClient } = await import('@erc8004/sdk');
+
+    const adminApp = await getAdminApp();
+    if (!adminApp) {
+      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
+    }
+    
+    // If no private key, prepare transaction for client-side signing
+    if (!adminApp.hasPrivateKey) {
+      // Prepare transaction for client-side signing
+      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      if (!identityRegistry || typeof identityRegistry !== 'string') {
+        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+      }
+
+      const identityRegistryHex = identityRegistry.startsWith('0x') 
+        ? identityRegistry 
+        : `0x${identityRegistry}`;
+
+      // Build metadata array
+      const metadata = [
+        { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
+        { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+      ].filter(m => m.value !== '');
+
+      // Create registration JSON and upload to IPFS
+      let tokenURI = '';
+      const { sepolia } = await import('viem/chains');
+      const chainId = sepolia.id;
+      
+      try {
+        const { uploadRegistration, createRegistrationJSON } = await import('./registration');
+        
+        const registrationJSON = createRegistrationJSON({
+          name: params.agentName,
+          agentAccount: params.agentAccount,
+          description: params.description,
+          image: params.image,
+          agentUrl: params.agentUrl,
+          chainId,
+          identityRegistry: identityRegistryHex as `0x${string}`,
+          supportedTrust: params.supportedTrust,
+          endpoints: params.endpoints,
+        });
+        
+        const uploadResult = await uploadRegistration(registrationJSON);
+        tokenURI = uploadResult.tokenURI;
+      } catch (error) {
+        console.error('Failed to upload registration JSON to IPFS:', error);
+        throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
+
+      // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
+      const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
+      const aiIdentityClient = new AIAgentIdentityClient({
+        chainId,
+        rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+        identityRegistryAddress: identityRegistryHex as `0x${string}`,
+      });
+
+      // Prepare complete transaction (encoding, gas estimation, nonce, etc.)
+      // AIAgentIdentityClient handles all Ethereum logic internally using its publicClient
+      const transaction = await aiIdentityClient.prepareRegisterTransaction(
+        tokenURI,
+        metadata,
+        adminApp.address // Only address needed - no publicClient passed
+      );
+
+      return {
+        requiresClientSigning: true,
+        transaction,
+        tokenURI,
+        metadata: metadata.map(m => ({ key: m.key, value: m.value })),
+      };
+    }
+    
+    // Check wallet balance before attempting transaction
+    try {
+      const balance = await adminApp.publicClient.getBalance({ address: adminApp.address });
+      if (balance === 0n) {
+        throw new Error(`Wallet ${adminApp.address} has zero balance. Please fund the wallet with Sepolia ETH to pay for gas.`);
+      }
+      console.log(`Wallet balance: ${balance.toString()} wei (${(Number(balance) / 1e18).toFixed(6)} ETH)`);
+    } catch (balanceError: any) {
+      if (balanceError.message.includes('zero balance')) {
+        throw balanceError;
+      }
+      console.warn('Could not check wallet balance:', balanceError.message);
+    }
+    
+    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+    if (!identityRegistry || typeof identityRegistry !== 'string') {
+      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+    }
+    
+    // Ensure identityRegistry is a valid hex string
+    const identityRegistryHex = identityRegistry.startsWith('0x') 
+      ? identityRegistry 
+      : `0x${identityRegistry}`;
+
+    // Create write-capable IdentityClient using AdminApp adapter
+    const identityClient = new IdentityClient(
+      adminApp.adminAdapter as any,
+      identityRegistryHex
+    );
+
+    // Build metadata array
+    // For agentAccount (address), we need to pass it as-is since it's already a hex string
+    // IdentityClient.stringToBytes will encode strings as UTF-8, which is fine for agentName
+    // but agentAccount should be treated as an address string (which will be encoded as UTF-8)
+    // Note: The contract expects bytes, and encoding the address string as UTF-8 is acceptable
+    // as long as it's consistently decoded on read
+    const metadata = [
+      { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
+      { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+    ].filter(m => m.value !== ''); // Remove empty values
+
+    // Always create registration JSON and upload to IPFS
+    let tokenURI = '';
+    // Get chain ID (default to Sepolia) - defined outside try block so it's accessible later
+    const { sepolia } = await import('viem/chains');
+    const chainId = sepolia.id;
+    
+    try {
+      // Import registration utilities
+      const { uploadRegistration, createRegistrationJSON } = await import('./registration');
+      
+      // Create registration JSON with ERC-8004 compliant structure
+      // Note: agentId will be set after registration, so we'll update it later if needed
+      const registrationJSON = createRegistrationJSON({
+        name: params.agentName,
+        agentAccount: params.agentAccount,
+        description: params.description,
+        image: params.image,
+        agentUrl: params.agentUrl,
+        chainId,
+        identityRegistry: identityRegistryHex as `0x${string}`,
+        supportedTrust: params.supportedTrust,
+        endpoints: params.endpoints,
+      });
+      
+      // Upload to IPFS and get tokenURI
+      const uploadResult = await uploadRegistration(registrationJSON);
+      tokenURI = uploadResult.tokenURI;
+    } catch (error) {
+      console.error('Failed to upload registration JSON to IPFS:', error);
+      throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Register agent with metadata and tokenURI
+    const result = await identityClient.registerWithMetadata(tokenURI, metadata);
+
+    // Refresh the agent in the GraphQL indexer
+    try {
+      const graphQLClient = await getAgentsGraphQLClient();
+      // Use the same chainId that was used for registration
+      await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
+      console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
+    } catch (refreshError) {
+      // Log error but don't fail agent creation if refresh fails
+      console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
+    }
+
+    return result;
+  }
+
+  /**
    * Search agents by name
    * @param query - Search query string to match against agent names
    * Fetches all matching agents using pagination if needed
@@ -122,211 +327,9 @@ export class AgentsAPI {
   /**
    * Admin API for agent management
    * These methods require AdminApp to be initialized
+   * Note: createAgent is now available directly on agents (not agents.admin)
    */
   admin = {
-    /**
-     * Create a new agent
-     * @param params - Agent creation parameters
-     * @returns Created agent ID and transaction hash
-     */
-           createAgent: async (params: {
-             agentName: string;
-             agentAccount: `0x${string}`;
-             description?: string;
-             image?: string;
-             agentUrl?: string;
-             supportedTrust?: string[];
-             endpoints?: Array<{
-               name: string;
-               endpoint: string;
-               version?: string;
-               capabilities?: Record<string, any>;
-             }>;
-           }): Promise<
-      | { agentId: bigint; txHash: string }
-      | {
-          requiresClientSigning: true;
-          transaction: {
-            to: `0x${string}`;
-            data: `0x${string}`;
-            value: string;
-            gas?: string;
-            gasPrice?: string;
-            maxFeePerGas?: string;
-            maxPriorityFeePerGas?: string;
-            nonce?: number;
-            chainId: number;
-          };
-          tokenURI: string;
-          metadata: Array<{ key: string; value: string }>;
-        }
-    > => {
-      const { getAdminApp } = await import('./adminApp');
-      const { IdentityClient } = await import('@erc8004/sdk');
-
-      const adminApp = await getAdminApp();
-      if (!adminApp) {
-        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
-      }
-      
-      // If no private key, prepare transaction for client-side signing
-      if (!adminApp.hasPrivateKey) {
-        // Prepare transaction for client-side signing
-        const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-        if (!identityRegistry || typeof identityRegistry !== 'string') {
-          throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-        }
-
-        const identityRegistryHex = identityRegistry.startsWith('0x') 
-          ? identityRegistry 
-          : `0x${identityRegistry}`;
-
-        // Build metadata array
-        const metadata = [
-          { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
-          { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
-        ].filter(m => m.value !== '');
-
-        // Create registration JSON and upload to IPFS
-        let tokenURI = '';
-        const { sepolia } = await import('viem/chains');
-        const chainId = sepolia.id;
-        
-        try {
-          const { uploadRegistration, createRegistrationJSON } = await import('./registration');
-          
-          const registrationJSON = createRegistrationJSON({
-            name: params.agentName,
-            agentAccount: params.agentAccount,
-            description: params.description,
-            image: params.image,
-            agentUrl: params.agentUrl,
-            chainId,
-            identityRegistry: identityRegistryHex as `0x${string}`,
-            supportedTrust: params.supportedTrust,
-            endpoints: params.endpoints,
-          });
-          
-          const uploadResult = await uploadRegistration(registrationJSON);
-          tokenURI = uploadResult.tokenURI;
-        } catch (error) {
-          console.error('Failed to upload registration JSON to IPFS:', error);
-          throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        }
-
-        // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
-        const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
-        const aiIdentityClient = new AIAgentIdentityClient({
-          chainId,
-          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
-          identityRegistryAddress: identityRegistryHex as `0x${string}`,
-        });
-
-        // Prepare complete transaction (encoding, gas estimation, nonce, etc.)
-        // AIAgentIdentityClient handles all Ethereum logic internally using its publicClient
-        const transaction = await aiIdentityClient.prepareRegisterTransaction(
-          tokenURI,
-          metadata,
-          adminApp.address // Only address needed - no publicClient passed
-        );
-
-        return {
-          requiresClientSigning: true,
-          transaction,
-          tokenURI,
-          metadata: metadata.map(m => ({ key: m.key, value: m.value })),
-        };
-      }
-      
-      // Check wallet balance before attempting transaction
-      try {
-        const balance = await adminApp.publicClient.getBalance({ address: adminApp.address });
-        if (balance === 0n) {
-          throw new Error(`Wallet ${adminApp.address} has zero balance. Please fund the wallet with Sepolia ETH to pay for gas.`);
-        }
-        console.log(`Wallet balance: ${balance.toString()} wei (${(Number(balance) / 1e18).toFixed(6)} ETH)`);
-      } catch (balanceError: any) {
-        if (balanceError.message.includes('zero balance')) {
-          throw balanceError;
-        }
-        console.warn('Could not check wallet balance:', balanceError.message);
-      }
-      
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      if (!identityRegistry || typeof identityRegistry !== 'string') {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
-      
-      // Ensure identityRegistry is a valid hex string
-      const identityRegistryHex = identityRegistry.startsWith('0x') 
-        ? identityRegistry 
-        : `0x${identityRegistry}`;
-
-      // Create write-capable IdentityClient using AdminApp adapter
-      const identityClient = new IdentityClient(
-        adminApp.adminAdapter as any,
-        identityRegistryHex
-      );
-
-      // Build metadata array
-      // For agentAccount (address), we need to pass it as-is since it's already a hex string
-      // IdentityClient.stringToBytes will encode strings as UTF-8, which is fine for agentName
-      // but agentAccount should be treated as an address string (which will be encoded as UTF-8)
-      // Note: The contract expects bytes, and encoding the address string as UTF-8 is acceptable
-      // as long as it's consistently decoded on read
-      const metadata = [
-        { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
-        { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
-      ].filter(m => m.value !== ''); // Remove empty values
-
-      // Always create registration JSON and upload to IPFS
-      let tokenURI = '';
-      // Get chain ID (default to Sepolia) - defined outside try block so it's accessible later
-      const { sepolia } = await import('viem/chains');
-      const chainId = sepolia.id;
-      
-      try {
-        // Import registration utilities
-        const { uploadRegistration, createRegistrationJSON } = await import('./registration');
-        
-        // Create registration JSON with ERC-8004 compliant structure
-        // Note: agentId will be set after registration, so we'll update it later if needed
-        const registrationJSON = createRegistrationJSON({
-          name: params.agentName,
-          agentAccount: params.agentAccount,
-          description: params.description,
-          image: params.image,
-          agentUrl: params.agentUrl,
-          chainId,
-          identityRegistry: identityRegistryHex as `0x${string}`,
-          supportedTrust: params.supportedTrust,
-          endpoints: params.endpoints,
-        });
-        
-        // Upload to IPFS and get tokenURI
-        const uploadResult = await uploadRegistration(registrationJSON);
-        tokenURI = uploadResult.tokenURI;
-      } catch (error) {
-        console.error('Failed to upload registration JSON to IPFS:', error);
-        throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
-
-      // Register agent with metadata and tokenURI
-      const result = await identityClient.registerWithMetadata(tokenURI, metadata);
-
-      // Refresh the agent in the GraphQL indexer
-      try {
-        const graphQLClient = await getAgentsGraphQLClient();
-        // Use the same chainId that was used for registration
-        await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
-        console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
-      } catch (refreshError) {
-        // Log error but don't fail agent creation if refresh fails
-        console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
-      }
-
-      return result;
-    },
 
     /**
      * Prepare a create agent transaction for client-side signing

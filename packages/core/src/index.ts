@@ -131,3 +131,17 @@ export type {
   SearchAgentsResponse,
   RefreshAgentResponse,
 } from '@erc8004/agentic-trust-sdk';
+
+// Export client-side wallet signing utilities
+export {
+  signAndSendTransaction,
+  extractAgentIdFromReceipt,
+  refreshAgentInIndexer,
+  isWalletProviderAvailable,
+  getWalletAddress,
+} from './client/walletSigning';
+export type {
+  PreparedTransaction,
+  TransactionResult,
+  SignTransactionOptions,
+} from './client/walletSigning';

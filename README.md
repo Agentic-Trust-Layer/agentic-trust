@@ -9,7 +9,8 @@ A modern, extensible monorepo for building trustworthy autonomous agent systems.
 
 This is a monorepo managed with [Turbo](https://turbo.build/) and [pnpm workspaces](https://pnpm.io/workspaces).
 
-![Agentic Trust Core Architecture](./docs/AgenticTrustCoreArchitecture.png)
+![Agentic Flow](./docs/AgentSolution.png)
+![Agentic Trust Core Architecture](./docs/AgenticArchitecture.png)
 
 
 ```

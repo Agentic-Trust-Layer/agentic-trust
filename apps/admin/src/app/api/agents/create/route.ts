@@ -24,9 +24,8 @@ export async function POST(request: NextRequest) {
 
     const client = await getAdminClient();
 
-    // Create agent using admin API
-    // Registration JSON will be automatically created and uploaded to IPFS per ERC-8004
-    const result = await client.agents.admin.createAgent({
+    // Create agent - Registration JSON will be automatically created and uploaded to IPFS per ERC-8004
+    const result = await client.agents.createAgent({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
       description,
