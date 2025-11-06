@@ -42,13 +42,10 @@ export type {
   VerificationRequest,
   VerificationResult,
 } from './verification';
+// Session package utilities are server-only and should be imported from '@agentic-trust/core/server'
+// They are NOT exported here to prevent browser bundling issues (uses Node.js 'fs' module)
+// Type exports are safe for client-side
 export type { SessionPackage, DelegationSetup } from './sessionPackage';
-export {
-  loadSessionPackage,
-  validateSessionPackage,
-  buildDelegationSetup,
-  buildAgentAccountFromSession,
-} from './sessionPackage';
 export {
   getReputationClient,
   isReputationClientInitialized,

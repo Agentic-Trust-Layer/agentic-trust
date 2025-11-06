@@ -67,14 +67,8 @@ export {
 // Legacy export for backward compatibility (deprecated - use ViemAccountProvider instead)
 export { ViemAdapter } from '@erc8004/sdk';
 
-// Export session package utilities
-export type { SessionPackage, DelegationSetup } from './client';
-export {
-  loadSessionPackage,
-  validateSessionPackage,
-  buildDelegationSetup,
-  buildAgentAccountFromSession,
-} from './client';
+// Session package utilities are server-only and should be imported from '@agentic-trust/core/server'
+// They are NOT exported here to prevent browser bundling issues (uses Node.js 'fs' module)
 
 // Export feedback auth utilities
 export { createFeedbackAuth } from './client/agentFeedback';

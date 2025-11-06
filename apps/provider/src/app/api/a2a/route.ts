@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
           const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
           let agentIdForRequest: string | undefined;
           if (sessionPackagePath) {
-            const { loadSessionPackage } = await import('@agentic-trust/core');
+            const { loadSessionPackage } = await import('@agentic-trust/core/server');
             const sessionPackage = loadSessionPackage(sessionPackagePath);
             agentIdForRequest = sessionPackage.agentId.toString();
           } else {

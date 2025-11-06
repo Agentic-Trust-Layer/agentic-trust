@@ -23,6 +23,26 @@ const nextConfig = {
       }
     }
 
+    // For client-side builds, exclude Node.js modules and server-only code
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      };
+      
+      // Use IgnorePlugin to prevent sessionPackage from being bundled
+      const webpack = require('webpack');
+      config.plugins = config.plugins || [];
+      config.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /sessionPackage/,
+          contextRegExp: /@agentic-trust\/core/,
+        })
+      );
+    }
+
     // Suppress webpack warnings about dynamic imports
     config.ignoreWarnings = [
       { module: /node_modules/ },
