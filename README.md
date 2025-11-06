@@ -5,7 +5,6 @@
 
 A modern, extensible monorepo for building trustworthy autonomous agent systems.This project provides the infrastructure and primitives needed to create, manage, and trust AI agents.
 
-## 🏗️ Architecture
 
 ### Agentic Trust Capabilities
 ![Agentic Flow](./docs/AgentSolution.png)
