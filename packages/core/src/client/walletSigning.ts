@@ -186,14 +186,26 @@ export async function refreshAgentInIndexer(
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}), // Send empty body to avoid JSON parsing errors
     });
     
     if (!response.ok) {
-      console.warn(`Failed to refresh agent ${agentId} in GraphQL indexer`);
+      const errorText = await response.text();
+      console.warn(`Failed to refresh agent ${agentId} in GraphQL indexer: ${response.status} ${response.statusText}`, errorText);
       return;
     }
     
-    console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
+    // Try to parse response, but don't fail if it's empty
+    try {
+      const data = await response.json();
+      console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`, data);
+    } catch (parseError) {
+      // Response might be empty, that's okay
+      console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
+    }
   } catch (error) {
     console.warn(`Error refreshing agent ${agentId} in GraphQL indexer:`, error);
   }
@@ -384,8 +396,25 @@ export async function createAgentWithWallet(
     };
   } else {
     // Server-side signed transaction
+    // Ensure we have the required fields
+    if (!data.agentId || !data.txHash) {
+      throw new Error(`Invalid response from create agent API. Expected agentId and txHash, got: ${JSON.stringify(data)}`);
+    }
+    
+    const agentIdStr = data.agentId.toString();
+    
+    // Refresh GraphQL indexer for server-side signed transactions too
+    if (agentIdStr) {
+      try {
+        await refreshAgentInIndexer(agentIdStr);
+      } catch (error) {
+        // Don't fail the whole operation if refresh fails
+        console.warn('Failed to refresh agent in indexer:', error);
+      }
+    }
+    
     return {
-      agentId: data.agentId?.toString(),
+      agentId: agentIdStr,
       txHash: data.txHash,
       requiresClientSigning: false,
     };

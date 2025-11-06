@@ -124,27 +124,27 @@ export default function AdminPage() {
               if (response.ok) {
                 const data = await response.json();
                 
-                // Extract contract data
-                if (data.contract) {
+                // Extract identity metadata (contract) data
+                if (data.identityMetadata) {
                   setContractData({
                     agentId: data.agentId,
-                    tokenURI: data.contract.tokenURI,
-                    metadata: data.contract.metadata,
+                    tokenURI: data.identityMetadata.tokenURI,
+                    metadata: data.identityMetadata.metadata,
                   });
                 }
                 
-                // Extract IPFS data
-                if (data.ipfs) {
+                // Extract identity registration (IPFS) data
+                if (data.identityRegistration) {
                   setIpfsData({
-                    tokenURI: data.ipfs.tokenURI,
-                    registration: data.ipfs.registration,
+                    tokenURI: data.identityRegistration.tokenURI,
+                    registration: data.identityRegistration.registration,
                   });
                 }
                 
-                // Extract GraphQL data
-                if (data.graphql) {
+                // Extract discovery (GraphQL) data
+                if (data.discovery) {
                   setGraphQLData({
-                    agentData: data.graphql,
+                    agentData: data.discovery,
                   });
                 }
               } else {

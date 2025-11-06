@@ -7,8 +7,16 @@ export async function POST(
 ) {
   try {
     const { agentId } = await params;
-    const body = await request.json();
-    const { chainId } = body;
+    
+    // Parse body if present (optional for refresh endpoint)
+    let chainId: number | undefined;
+    try {
+      const body = await request.json();
+      chainId = body.chainId;
+    } catch (error) {
+      // Body is optional, continue without it
+      chainId = undefined;
+    }
 
     if (!agentId) {
       return NextResponse.json(
