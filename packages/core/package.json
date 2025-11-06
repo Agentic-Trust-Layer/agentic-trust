@@ -35,11 +35,12 @@
     "ethers": "^6.15.0",
     "ethr-did-resolver": "^11.0.5",
     "graphql-request": "^6.1.0",
-    "viem": "^2.38.6"
+    "viem": "^2.38.6",
+    "web3.storage": "^4.5.5"
   },
   "peerDependencies": {
-    "@veramo/core": "^6.0.0",
-    "@metamask/delegation-toolkit": "*"
+    "@metamask/delegation-toolkit": "*",
+    "@veramo/core": "^6.0.0"
   },
   "peerDependenciesMeta": {
     "@metamask/delegation-toolkit": {

@@ -2,21 +2,13 @@
  * Agents API for AgenticTrust Client
  */
 
-import type { GraphQLClient } from 'graphql-request';
+import type { AgentData } from '@erc8004/agentic-trust-sdk';
 import { Agent } from './agent';
 import type { AgenticTrustClient } from './index';
+import { getAgentsGraphQLClient } from './agentsGraphQLClient';
 
-/**
- * Agent data interface (raw data from GraphQL)
- */
-export interface AgentData {
-  agentId?: number;
-  agentName?: string;
-  createdAtTime?: string;
-  updatedAtTime?: string;
-  a2aEndpoint?: string; // URL to agent-card.json
-  [key: string]: unknown; // Allow for additional fields that may exist
-}
+// Re-export AgentData for compatibility
+export type { AgentData };
 
 export interface ListAgentsResponse {
   agents: Agent[];
@@ -25,7 +17,6 @@ export interface ListAgentsResponse {
 
 export class AgentsAPI {
   constructor(
-    private graphQLClient: GraphQLClient,
     private client: AgenticTrustClient
   ) {}
 
@@ -36,70 +27,11 @@ export class AgentsAPI {
    * Fetches all agents using pagination if needed
    */
   async listAgents(): Promise<ListAgentsResponse> {
-    let allAgents: AgentData[] = [];
-    let hasMore = true;
-    let offset = 0;
-    const limit = 100; // Default limit per page
-
-    // Fetch all agents using pagination
-    while (hasMore) {
-      const query = `
-        query ListAgents($limit: Int, $offset: Int) {
-          agents(limit: $limit, offset: $offset) {
-            agentId
-            agentName
-            createdAtTime
-            updatedAtTime
-            a2aEndpoint
-          }
-        }
-      `;
-
-      try {
-        const data = await this.graphQLClient.request<{ agents: AgentData[] }>(query, {
-          limit,
-          offset,
-        });
-
-        const pageAgents = data.agents || [];
-        allAgents = allAgents.concat(pageAgents);
-
-        // If we got fewer agents than the limit, we've reached the end
-        if (pageAgents.length < limit) {
-          hasMore = false;
-        } else {
-          offset += limit;
-          // Safety limit: prevent infinite loops
-          if (offset > 10000) {
-            console.warn('[listAgents] Reached safety limit of 10000 agents');
-            hasMore = false;
-          }
-        }
-      } catch (error) {
-        // If pagination parameters aren't supported, try without them
-        if (offset === 0) {
-          const fallbackQuery = `
-            query ListAgents {
-              agents {
-                agentId
-                agentName
-                createdAtTime
-                updatedAtTime
-                a2aEndpoint
-              }
-            }
-          `;
-          const data = await this.graphQLClient.request<{ agents: AgentData[] }>(fallbackQuery);
-          allAgents = data.agents || [];
-        } else {
-          console.warn('[listAgents] Pagination error, using fetched agents so far:', error);
-        }
-        hasMore = false;
-      }
-    }
+    const graphQLClient = await getAgentsGraphQLClient();
+    const allAgents = await graphQLClient.listAgents();
 
     // Sort all agents by agentId in descending order
-    const sortedAgents = allAgents.sort((a, b) => {
+    const sortedAgents = allAgents.sort((a: AgentData, b: AgentData) => {
       // Sort by agentId in descending order (highest first)
       const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
       const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
@@ -112,7 +44,7 @@ export class AgentsAPI {
     }
 
     // Convert AgentData to Agent instances
-    const agentInstances = sortedAgents.map(data => new Agent(data, this.client));
+    const agentInstances = sortedAgents.map((data: AgentData) => new Agent(data, this.client));
 
     return {
       agents: agentInstances,
@@ -126,31 +58,14 @@ export class AgentsAPI {
    * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
   async getAgent(agentId: string, chainId: number = 11155111): Promise<Agent | null> {
-    const query = `
-      query GetAgent($chainId: Int!, $agentId: String!) {
-        agent(chainId: $chainId, agentId: $agentId) {
-          agentId
-          agentName
-          createdAtTime
-          updatedAtTime
-          a2aEndpoint
-        }
-      }
-    `;
-
-    try {
-      const data = await this.graphQLClient.request<{ agent: AgentData | null }>(query, { 
-        chainId,
-        agentId 
-      });
-      if (!data.agent) {
-        return null;
-      }
-      return new Agent(data.agent, this.client);
-    } catch (error) {
-      console.warn('Failed to get agent from GraphQL:', error);
+    const graphQLClient = await getAgentsGraphQLClient();
+    const agentData = await graphQLClient.getAgent(chainId, agentId);
+    
+    if (!agentData) {
       return null;
     }
+    
+    return new Agent(agentData, this.client);
   }
 
   /**
@@ -159,83 +74,11 @@ export class AgentsAPI {
    * Fetches all matching agents using pagination if needed
    */
   async searchAgents(query: string): Promise<ListAgentsResponse> {
-    let allAgents: AgentData[] = [];
-    let hasMore = true;
-    let offset = 0;
-    const limit = 100; // Default limit per page
-
-    // Try GraphQL search with pagination first
-    while (hasMore) {
-      const graphqlQuery = `
-        query SearchAgents($query: String!, $limit: Int, $offset: Int) {
-          agents(filter: { agentName: { contains: $query } }, limit: $limit, offset: $offset) {
-            agentId
-            agentName
-            createdAtTime
-            updatedAtTime
-            a2aEndpoint
-          }
-        }
-      `;
-
-      try {
-        const data = await this.graphQLClient.request<{ agents: AgentData[] }>(graphqlQuery, {
-          query,
-          limit,
-          offset,
-        });
-
-        const pageAgents = data.agents || [];
-        allAgents = allAgents.concat(pageAgents);
-
-        // If we got fewer agents than the limit, we've reached the end
-        if (pageAgents.length < limit) {
-          hasMore = false;
-        } else {
-          offset += limit;
-          // Safety limit: prevent infinite loops
-          if (offset > 10000) {
-            console.warn('[searchAgents] Reached safety limit of 10000 agents');
-            hasMore = false;
-          }
-        }
-      } catch (error) {
-        // If pagination with filter isn't supported, try without pagination first
-        if (offset === 0) {
-          try {
-            const simpleQuery = `
-              query SearchAgents($query: String!) {
-                agents(filter: { agentName: { contains: $query } }) {
-                  agentId
-                  agentName
-                  createdAtTime
-                  updatedAtTime
-                  a2aEndpoint
-                }
-              }
-            `;
-            const data = await this.graphQLClient.request<{ agents: AgentData[] }>(simpleQuery, {
-              query,
-            });
-            allAgents = data.agents || [];
-          } catch (filterError) {
-            // If GraphQL filter doesn't work, fall back to client-side filtering
-            const allAgentsList = await this.listAgents();
-            const searchLower = query.toLowerCase();
-            // Extract AgentData from Agent instances for filtering
-            allAgents = allAgentsList.agents
-              .map(agent => agent.data)
-              .filter((agentData) => agentData.agentName?.toLowerCase().includes(searchLower));
-          }
-        } else {
-          console.warn('[searchAgents] Pagination error, using fetched agents so far:', error);
-        }
-        hasMore = false;
-      }
-    }
+    const graphQLClient = await getAgentsGraphQLClient();
+    const allAgents = await graphQLClient.searchAgents(query);
 
     // Sort all agents by agentId in descending order
-    const sortedAgents = allAgents.sort((a, b) => {
+    const sortedAgents = allAgents.sort((a: AgentData, b: AgentData) => {
       // Sort by agentId in descending order (highest first)
       const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
       const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
@@ -248,7 +91,7 @@ export class AgentsAPI {
     }
 
     // Convert AgentData to Agent instances
-    const agentInstances = sortedAgents.map(data => new Agent(data, this.client));
+    const agentInstances = sortedAgents.map((data: AgentData) => new Agent(data, this.client));
 
     return {
       agents: agentInstances,
@@ -266,12 +109,20 @@ export class AgentsAPI {
      * @param params - Agent creation parameters
      * @returns Created agent ID and transaction hash
      */
-    createAgent: async (params: {
-      agentName: string;
-      agentAccount: `0x${string}`;
-      tokenURI?: string;
-      metadata?: Array<{ key: string; value: string }>;
-    }): Promise<{ agentId: bigint; txHash: string }> => {
+           createAgent: async (params: {
+             agentName: string;
+             agentAccount: `0x${string}`;
+             description?: string;
+             image?: string;
+             agentUrl?: string;
+             supportedTrust?: string[];
+             endpoints?: Array<{
+               name: string;
+               endpoint: string;
+               version?: string;
+               capabilities?: Record<string, any>;
+             }>;
+           }): Promise<{ agentId: bigint; txHash: string }> => {
       const { getAdminApp } = await import('./adminApp');
       const { IdentityClient } = await import('@erc8004/sdk');
 
@@ -280,28 +131,74 @@ export class AgentsAPI {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
       const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      if (!identityRegistry) {
+      if (!identityRegistry || typeof identityRegistry !== 'string') {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
+      
+      // Ensure identityRegistry is a valid hex string
+      const identityRegistryHex = identityRegistry.startsWith('0x') 
+        ? identityRegistry 
+        : `0x${identityRegistry}`;
 
       // Create write-capable IdentityClient using AdminApp adapter
       const identityClient = new IdentityClient(
         adminApp.adminAdapter as any,
-        identityRegistry
+        identityRegistryHex
       );
 
       // Build metadata array
+      // Ensure all values are non-empty strings (required by IdentityClient.stringToBytes)
+      // IdentityClient will convert these strings to bytes using TextEncoder
       const metadata = [
-        { key: 'agentName', value: params.agentName },
-        { key: 'agentAccount', value: params.agentAccount },
-        ...(params.metadata || [])
-      ];
+        { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
+        { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+      ].filter(m => m.value !== ''); // Remove empty values
 
-      // Use tokenURI if provided, otherwise empty string (can be set later)
-      const tokenURI = params.tokenURI || '';
+      // Always create registration JSON and upload to IPFS
+      let tokenURI = '';
+      // Get chain ID (default to Sepolia) - defined outside try block so it's accessible later
+      const { sepolia } = await import('viem/chains');
+      const chainId = sepolia.id;
+      
+      try {
+        // Import registration utilities
+        const { uploadRegistration, createRegistrationJSON } = await import('./registration');
+        
+        // Create registration JSON with ERC-8004 compliant structure
+        // Note: agentId will be set after registration, so we'll update it later if needed
+        const registrationJSON = createRegistrationJSON({
+          name: params.agentName,
+          agentAccount: params.agentAccount,
+          description: params.description,
+          image: params.image,
+          agentUrl: params.agentUrl,
+          chainId,
+          identityRegistry: identityRegistryHex as `0x${string}`,
+          supportedTrust: params.supportedTrust,
+          endpoints: params.endpoints,
+        });
+        
+        // Upload to IPFS and get tokenURI
+        const uploadResult = await uploadRegistration(registrationJSON);
+        tokenURI = uploadResult.tokenURI;
+      } catch (error) {
+        console.error('Failed to upload registration JSON to IPFS:', error);
+        throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
 
-      // Register agent with metadata
+      // Register agent with metadata and tokenURI
       const result = await identityClient.registerWithMetadata(tokenURI, metadata);
+
+      // Refresh the agent in the GraphQL indexer
+      try {
+        const graphQLClient = await getAgentsGraphQLClient();
+        // Use the same chainId that was used for registration
+        await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
+        console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
+      } catch (refreshError) {
+        // Log error but don't fail agent creation if refresh fails
+        console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
+      }
 
       return result;
     },

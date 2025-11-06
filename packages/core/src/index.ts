@@ -14,8 +14,6 @@ export type {
   AgentCard, 
   AgentSkill, 
   AgentCapabilities,
-  AgentData,
-  ListAgentsResponse,
 } from './client';
 export type {
   ApiClientConfig,
@@ -97,3 +95,40 @@ export {
   isAdminAppInitialized,
   resetAdminApp,
 } from './client/adminApp';
+
+// Export IPFS storage
+export {
+  createIPFSStorage,
+  getIPFSStorage,
+  isIPFSStorageInitialized,
+  resetIPFSStorage,
+  type IPFSStorage,
+  type IPFSConfig,
+  type UploadResult,
+} from './storage/ipfs';
+
+// Export ERC-8004 registration JSON utilities
+export {
+  uploadRegistration,
+  getRegistration,
+  createRegistrationJSON,
+  type AgentRegistrationJSON,
+} from './client/registration';
+
+// Export Agents GraphQL Client singleton
+export {
+  getAgentsGraphQLClient,
+  isAgentsGraphQLClientInitialized,
+  resetAgentsGraphQLClient,
+} from './client/agentsGraphQLClient';
+
+// Re-export AI Agent GraphQL Client types from SDK
+export type {
+  AIAgentGraphQLClient,
+  AIAgentGraphQLClientConfig,
+  AgentData,
+  ListAgentsResponse,
+  GetAgentResponse,
+  SearchAgentsResponse,
+  RefreshAgentResponse,
+} from '@erc8004/agentic-trust-sdk';

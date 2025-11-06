@@ -19,17 +19,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Validate private key format
-    if (!/^0x[a-fA-F0-9]{64}$/.test(privateKey)) {
+    // Normalize private key: ensure it has 0x prefix
+    let normalizedKey = privateKey.trim();
+    if (!normalizedKey.startsWith('0x')) {
+      normalizedKey = `0x${normalizedKey}`;
+    }
+    
+    // Validate private key format (must be 64 hex characters after 0x)
+    if (!/^0x[a-fA-F0-9]{64}$/.test(normalizedKey)) {
       return NextResponse.json(
-        { error: 'Invalid private key format' },
+        { error: `Invalid private key format. Expected 64 hex characters, got ${normalizedKey.length - 2} after 0x prefix` },
         { status: 400 }
       );
     }
 
     // Store in httpOnly cookie (secure)
     const cookieStore = await cookies();
-    cookieStore.set('admin_private_key', privateKey, {
+    cookieStore.set('admin_private_key', normalizedKey, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',

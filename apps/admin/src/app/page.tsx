@@ -23,17 +23,28 @@ export default function AdminPage() {
   const loading = authLoading || walletLoading;
   
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
+  const [showAgentDialog, setShowAgentDialog] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Agent data from different sources
+  const [contractData, setContractData] = useState<any>(null);
+  const [ipfsData, setIpfsData] = useState<any>(null);
+  const [graphQLData, setGraphQLData] = useState<any>(null);
+  const [loadingData, setLoadingData] = useState(false);
 
   // Create agent form state
   const [createForm, setCreateForm] = useState({
     agentName: '',
     agentAccount: '',
-    tokenURI: '',
-    metadataKey: '',
-    metadataValue: '',
+    description: '',
+    image: '',
+    agentUrl: '',
   });
 
   // Update agent form state
@@ -71,7 +82,78 @@ export default function AdminPage() {
       }));
     }
   }, [address]);
-  
+
+  // Filter agents based on search query
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredAgents(agents);
+      return;
+    }
+
+    const query = searchQuery.toLowerCase().trim();
+    const filtered = agents.filter(agent => {
+      const agentIdMatch = agent.agentId?.toString().toLowerCase().includes(query);
+      const agentNameMatch = agent.agentName?.toLowerCase().includes(query);
+      return agentIdMatch || agentNameMatch;
+    });
+    setFilteredAgents(filtered);
+  }, [searchQuery, agents]);
+
+         // Handle agent row click
+         const handleAgentClick = async (agent: Agent) => {
+           setSelectedAgent(agent);
+           setShowAgentDialog(true);
+           // Clear any previous error/success messages when opening dialog
+           setError(null);
+           setSuccess(null);
+           
+           // Reset data sources
+           setContractData(null);
+           setIpfsData(null);
+           setGraphQLData(null);
+           
+           // Fetch data from all sources
+           if (agent.agentId) {
+             setLoadingData(true);
+             try {
+               // Fetch from all sources in parallel
+               const [contractRes, ipfsRes, graphQLRes] = await Promise.allSettled([
+                 fetch(`/api/agents/${agent.agentId}/contract`),
+                 fetch(`/api/agents/${agent.agentId}/ipfs`),
+                 fetch(`/api/agents/${agent.agentId}/graphql?chainId=11155111`),
+               ]);
+               
+               // Handle contract data
+               if (contractRes.status === 'fulfilled' && contractRes.value.ok) {
+                 const contractJson = await contractRes.value.json();
+                 setContractData(contractJson);
+               } else {
+                 console.warn('Failed to fetch contract data:', contractRes);
+               }
+               
+               // Handle IPFS data
+               if (ipfsRes.status === 'fulfilled' && ipfsRes.value.ok) {
+                 const ipfsJson = await ipfsRes.value.json();
+                 setIpfsData(ipfsJson);
+               } else {
+                 console.warn('Failed to fetch IPFS data:', ipfsRes);
+               }
+               
+               // Handle GraphQL data
+               if (graphQLRes.status === 'fulfilled' && graphQLRes.value.ok) {
+                 const graphQLJson = await graphQLRes.value.json();
+                 setGraphQLData(graphQLJson);
+               } else {
+                 console.warn('Failed to fetch GraphQL data:', graphQLRes);
+               }
+             } catch (err) {
+               console.error('Error fetching agent data:', err);
+             } finally {
+               setLoadingData(false);
+             }
+           }
+         };
+
   // Handle disconnect
   const handleDisconnect = async () => {
     if (web3AuthConnected) {
@@ -106,15 +188,17 @@ export default function AdminPage() {
         const errorData = await response.json();
         throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
       }
-      const data = await response.json();
-      setAgents(data.agents || []);
-    } catch (err) {
-      console.error('Failed to fetch agents:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch agents');
-    } finally {
-      setPageLoading(false);
-    }
-  };
+             const data = await response.json();
+             const agentsList = data.agents || [];
+             setAgents(agentsList);
+             setFilteredAgents(agentsList);
+           } catch (err) {
+             console.error('Failed to fetch agents:', err);
+             setError(err instanceof Error ? err.message : 'Failed to fetch agents');
+           } finally {
+             setPageLoading(false);
+           }
+         };
 
   const handleCreateAgent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,18 +206,15 @@ export default function AdminPage() {
       setError(null);
       setSuccess(null);
 
-      const metadata = createForm.metadataKey && createForm.metadataValue
-        ? [{ key: createForm.metadataKey, value: createForm.metadataValue }]
-        : undefined;
-
       const response = await fetch('/api/agents/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentName: createForm.agentName,
           agentAccount: createForm.agentAccount,
-          tokenURI: createForm.tokenURI || undefined,
-          metadata,
+          description: createForm.description || undefined,
+          image: createForm.image || undefined,
+          agentUrl: createForm.agentUrl || undefined,
         }),
       });
 
@@ -144,7 +225,7 @@ export default function AdminPage() {
 
       const data = await response.json();
       setSuccess(`Agent created successfully! Agent ID: ${data.agentId}, TX: ${data.txHash}`);
-      setCreateForm({ agentName: '', agentAccount: '', tokenURI: '', metadataKey: '', metadataValue: '' });
+      setCreateForm({ agentName: '', agentAccount: '', description: '', image: '', agentUrl: '' });
       fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create agent');
@@ -327,37 +408,46 @@ export default function AdminPage() {
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Token URI (optional)
+                Description
+              </label>
+              <textarea
+                value={createForm.description}
+                onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
+                rows={3}
+                placeholder="A natural language description of the agent..."
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px', fontFamily: 'inherit' }}
+              />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Image URL
               </label>
               <input
-                type="text"
-                value={createForm.tokenURI}
-                onChange={(e) => setCreateForm({ ...createForm, tokenURI: e.target.value })}
+                type="url"
+                value={createForm.image}
+                onChange={(e) => setCreateForm({ ...createForm, image: e.target.value })}
+                placeholder="https://example.com/agent-image.png"
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Metadata Key (optional)
+                Agent URL (Base URL)
               </label>
               <input
-                type="text"
-                value={createForm.metadataKey}
-                onChange={(e) => setCreateForm({ ...createForm, metadataKey: e.target.value })}
+                type="url"
+                value={createForm.agentUrl}
+                onChange={(e) => setCreateForm({ ...createForm, agentUrl: e.target.value })}
+                placeholder="https://agent.example.com"
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
               />
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
+                Used to automatically create A2A and MCP endpoints. A2A: {createForm.agentUrl ? `${createForm.agentUrl.replace(/\/$/, '')}/.well-known/agent-card.json` : '.../.well-known/agent-card.json'}, MCP: {createForm.agentUrl ? `${createForm.agentUrl.replace(/\/$/, '')}/` : '.../'}
+              </p>
             </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Metadata Value (optional)
-              </label>
-              <input
-                type="text"
-                value={createForm.metadataValue}
-                onChange={(e) => setCreateForm({ ...createForm, metadataValue: e.target.value })}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
-              />
-            </div>
+            <p style={{ marginTop: '0.5rem', marginBottom: '1rem', fontSize: '0.85rem', color: '#666' }}>
+              Registration JSON will be automatically created and uploaded to IPFS per ERC-8004 specification
+            </p>
             <button
               type="submit"
               style={{
@@ -548,10 +638,27 @@ export default function AdminPage() {
             Refresh
           </button>
         </div>
-        {loading ? (
+        <div style={{ marginBottom: '1rem' }}>
+          <input
+            type="text"
+            placeholder="Search by Agent ID or Agent Name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              border: '1px solid #ddd',
+              borderRadius: '4px',
+              fontSize: '1rem',
+            }}
+          />
+        </div>
+        {pageLoading ? (
           <div style={{ padding: '2rem', textAlign: 'center' }}>Loading agents...</div>
-        ) : agents.length === 0 ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>No agents found</div>
+        ) : filteredAgents.length === 0 ? (
+          <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
+            {searchQuery ? `No agents found matching "${searchQuery}"` : 'No agents found'}
+          </div>
         ) : (
           <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -564,8 +671,22 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {agents.map((agent) => (
-                  <tr key={agent.agentId} style={{ borderBottom: '1px solid #eee' }}>
+                {filteredAgents.map((agent, index) => (
+                  <tr 
+                    key={`agent-${agent.agentId !== undefined ? agent.agentId : 'unknown'}-${index}`} 
+                    onClick={() => handleAgentClick(agent)}
+                    style={{ 
+                      borderBottom: '1px solid #eee',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#f5f5f5';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                  >
                     <td style={{ padding: '0.75rem' }}>{agent.agentId}</td>
                     <td style={{ padding: '0.75rem' }}>{agent.agentName || 'N/A'}</td>
                     <td style={{ padding: '0.75rem', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
@@ -581,6 +702,254 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Agent Details Dialog */}
+      {showAgentDialog && selectedAgent && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowAgentDialog(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: '8px',
+              padding: '2rem',
+              maxWidth: '1400px',
+              width: '95%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+              <h2 style={{ fontSize: '1.5rem', margin: 0 }}>Agent Details</h2>
+              <button
+                onClick={() => setShowAgentDialog(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '1.5rem',
+                  cursor: 'pointer',
+                  color: '#666',
+                  padding: '0.25rem 0.5rem',
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            {loadingData ? (
+              <div style={{ padding: '2rem', textAlign: 'center' }}>Loading agent data...</div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                {/* Contract Data */}
+                <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
+                  <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>Contract Data</h3>
+                  {contractData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                        <div style={{ fontFamily: 'monospace', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
+                          {contractData.agentId || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {contractData.tokenURI || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Metadata</strong>
+                        <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                          <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {JSON.stringify(contractData.metadata || {}, null, 2)}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ color: '#999', fontSize: '0.9rem' }}>No contract data available</div>
+                  )}
+                </div>
+                
+                {/* IPFS Data */}
+                <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
+                  <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>IPFS Registration</h3>
+                  {ipfsData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
+                      {ipfsData.registration ? (
+                        <>
+                          <div>
+                            <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
+                            <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                              {ipfsData.tokenURI || 'N/A'}
+                            </div>
+                          </div>
+                          <div>
+                            <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Registration JSON</strong>
+                            <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', maxHeight: '400px', overflowY: 'auto' }}>
+                              <pre style={{ margin: 0, fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                {JSON.stringify(ipfsData.registration, null, 2)}
+                              </pre>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ color: '#999', fontSize: '0.9rem' }}>
+                          {ipfsData.error || 'No registration data found'}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#999', fontSize: '0.9rem' }}>No IPFS data available</div>
+                  )}
+                </div>
+                
+                {/* GraphQL Data */}
+                <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
+                  <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>GraphQL Indexer</h3>
+                  {graphQLData?.agentData ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                        <div style={{ fontFamily: 'monospace', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
+                          {graphQLData.agentData.agentId || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent Name</strong>
+                        <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
+                          {graphQLData.agentData.agentName || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>A2A Endpoint</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {graphQLData.agentData.a2aEndpoint || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Created At</strong>
+                        <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
+                          {graphQLData.agentData.createdAtTime 
+                            ? new Date(parseInt(graphQLData.agentData.createdAtTime) * 1000).toLocaleString()
+                            : 'N/A'}
+                        </div>
+                      </div>
+                      {graphQLData.agentData.updatedAtTime && (
+                        <div>
+                          <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Updated At</strong>
+                          <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
+                            {new Date(parseInt(graphQLData.agentData.updatedAtTime) * 1000).toLocaleString()}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#999', fontSize: '0.9rem' }}>No GraphQL data available</div>
+                  )}
+                </div>
+              </div>
+            )}
+            
+            {/* Original Agent Data (from list) */}
+            <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f0f0', borderRadius: '8px' }}>
+              <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>List Data (from initial fetch)</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
+                <div><strong>Agent ID:</strong> {selectedAgent.agentId || 'N/A'}</div>
+                <div><strong>Agent Name:</strong> {selectedAgent.agentName || 'N/A'}</div>
+                <div><strong>A2A Endpoint:</strong> {selectedAgent.a2aEndpoint || 'N/A'}</div>
+                <div><strong>Created At:</strong> {selectedAgent.createdAtTime ? new Date(parseInt(selectedAgent.createdAtTime) * 1000).toLocaleString() : 'N/A'}</div>
+              </div>
+            </div>
+            
+            {(error || success) && (
+              <div style={{
+                marginTop: '1rem',
+                padding: '0.75rem',
+                backgroundColor: error ? '#ffebee' : '#e8f5e9',
+                borderRadius: '4px',
+                border: `1px solid ${error ? '#f44336' : '#4caf50'}`,
+                color: error ? '#c62828' : '#2e7d32',
+                fontSize: '0.9rem',
+              }}>
+                {error || success}
+              </div>
+            )}
+            
+            <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={async () => {
+                  if (!selectedAgent?.agentId) return;
+                  try {
+                    setRefreshing(true);
+                    setError(null);
+                    setSuccess(null);
+                    const response = await fetch(`/api/agents/${selectedAgent.agentId}/refresh`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ chainId: 11155111 }), // Default to Sepolia
+                    });
+                    if (!response.ok) {
+                      const errorData = await response.json();
+                      throw new Error(errorData.message || errorData.error || 'Failed to refresh agent');
+                    }
+                    const data = await response.json();
+                    setSuccess(`Agent ${selectedAgent.agentId} refreshed successfully!`);
+                    // Optionally refresh the agent list to show updated data
+                    fetchAgents();
+                  } catch (err) {
+                    console.error('Error refreshing agent:', err);
+                    setError(err instanceof Error ? err.message : 'Failed to refresh agent');
+                  } finally {
+                    setRefreshing(false);
+                  }
+                }}
+                disabled={refreshing || !selectedAgent?.agentId}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: refreshing ? '#6c757d' : '#007bff',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: refreshing || !selectedAgent?.agentId ? 'not-allowed' : 'pointer',
+                  fontSize: '0.9rem',
+                  opacity: refreshing || !selectedAgent?.agentId ? 0.6 : 1,
+                }}
+              >
+                {refreshing ? 'Refreshing...' : 'Refresh in Indexer'}
+              </button>
+              <button
+                onClick={() => setShowAgentDialog(false)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#6c757d',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

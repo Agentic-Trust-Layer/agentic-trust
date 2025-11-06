@@ -4,7 +4,7 @@ import { getAdminClient } from '@/lib/client';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { agentName, agentAccount, tokenURI, metadata } = body;
+    const { agentName, agentAccount, description, image, agentUrl } = body;
 
     // Validate required fields
     if (!agentName || !agentAccount) {
@@ -25,11 +25,13 @@ export async function POST(request: NextRequest) {
     const client = await getAdminClient();
 
     // Create agent using admin API
+    // Registration JSON will be automatically created and uploaded to IPFS per ERC-8004
     const result = await client.agents.admin.createAgent({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
-      tokenURI,
-      metadata,
+      description,
+      image,
+      agentUrl,
     });
 
     return NextResponse.json({

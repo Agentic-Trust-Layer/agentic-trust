@@ -87,15 +87,37 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         // Get private key from Web3Auth
         const privateKey = await getPrivateKey();
         if (privateKey) {
+          // Normalize private key: ensure it has 0x prefix and is the correct length
+          let normalizedKey = privateKey.trim();
+          if (!normalizedKey.startsWith('0x')) {
+            normalizedKey = `0x${normalizedKey}`;
+          }
+          
+          // Ensure it's 64 hex characters (32 bytes) after 0x
+          if (normalizedKey.length !== 66) {
+            // If it's shorter, pad with zeros; if longer, truncate
+            const hexPart = normalizedKey.slice(2);
+            if (hexPart.length < 64) {
+              normalizedKey = `0x${hexPart.padStart(64, '0')}`;
+            } else if (hexPart.length > 64) {
+              normalizedKey = `0x${hexPart.slice(0, 64)}`;
+            }
+          }
+          
           // Store in session via API
-          await fetch('/api/auth/session', {
+          const response = await fetch('/api/auth/session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ privateKey }),
+            body: JSON.stringify({ privateKey: normalizedKey }),
           });
           
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to store private key in session');
+          }
+          
           // Derive address from private key for display
-          const account = privateKeyToAccount(privateKey as `0x${string}`);
+          const account = privateKeyToAccount(normalizedKey as `0x${string}`);
           setAddress(account.address);
         } else {
           // For MetaMask, we can't get private key directly

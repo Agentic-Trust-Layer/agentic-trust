@@ -11,3 +11,12 @@ export { AIAgentL2ENSNamespaceClient } from './AIAgentL2ENSNamespaceClient';
 export { AIAgentIdentityClient } from './AIAgentIdentityClient';
 export { AIAgentReputationClient, type GiveFeedbackParams } from './AIAgentReputationClient';
 export { OrgIdentityClient } from './OrgIdentityClient';
+export {
+  AIAgentGraphQLClient,
+  type AIAgentGraphQLClientConfig,
+  type AgentData,
+  type ListAgentsResponse,
+  type GetAgentResponse,
+  type SearchAgentsResponse,
+  type RefreshAgentResponse,
+} from './AIAgentGraphQLClient';

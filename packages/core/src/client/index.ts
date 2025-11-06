@@ -113,8 +113,21 @@ export class AgenticTrustClient {
       headers,
     });
 
+    // Initialize AgentsGraphQLClient singleton with this client's config
+    // This ensures the singleton uses the same configuration as this client
+    // Initialize lazily (will be initialized when first used)
+    import('./agentsGraphQLClient').then(({ getAgentsGraphQLClient }) => {
+      getAgentsGraphQLClient({
+        endpoint,
+        apiKey: config.apiKey,
+        headers: config.headers,
+      }).catch((error) => {
+        console.warn('Failed to initialize AgentsGraphQLClient singleton:', error);
+      });
+    });
+
     // Initialize API namespaces
-    this.agents = new AgentsAPI(this.graphQLClient, this);
+    this.agents = new AgentsAPI(this);
     this.a2aProtocolProvider = new A2AProtocolProviderAPI(this.graphQLClient);
     this.veramo = new VeramoAPI();
 
@@ -350,7 +363,7 @@ export class AgenticTrustClient {
     });
 
     // Recreate APIs with new client (keep existing Veramo connection)
-    this.agents = new AgentsAPI(this.graphQLClient, this);
+    this.agents = new AgentsAPI(this);
     this.a2aProtocolProvider = new A2AProtocolProviderAPI(this.graphQLClient);
   }
 

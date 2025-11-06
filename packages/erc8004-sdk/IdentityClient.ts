@@ -69,12 +69,22 @@ export class IdentityClient {
     tokenURI: string,
     metadata: MetadataEntry[] = []
   ): Promise<{ agentId: bigint; txHash: string }> {
-    // Convert metadata to contract format
-    const metadataFormatted = metadata.map(m => ({
-      key: m.key,
-      value: this.stringToBytes(m.value)
-    }));
 
+    console.log('********************* registerWithMetadata: metadata', metadata);
+    
+    // Convert metadata to contract format
+    // For viem, bytes need to be hex strings, not Uint8Array
+    const metadataFormatted = metadata.map(m => {
+      const bytes = this.stringToBytes(m.value);
+      // Convert Uint8Array to hex string for viem compatibility
+      const hexString = this.bytesToHex(bytes);
+      return {
+        key: m.key,
+        value: hexString
+      };
+    });
+
+    console.log('********************* registerWithMetadata: metadataFormatted', metadataFormatted);
     const result = await this.adapter.send(
       this.contractAddress,
       IdentityRegistryABI,
@@ -97,6 +107,7 @@ export class IdentityClient {
    * @returns URI string (MAY be ipfs://, https://, etc.)
    */
   async getTokenURI(agentId: bigint): Promise<string> {
+    console.log('********************* getTokenURI: agentId', agentId);
     return await this.adapter.call(
       this.contractAddress,
       IdentityRegistryABI,
@@ -241,5 +252,14 @@ export class IdentityClient {
       return new TextDecoder().decode(arr);
     }
     return bytes.toString();
+  }
+
+  /**
+   * Helper: Convert Uint8Array to hex string (for viem compatibility)
+   */
+  private bytesToHex(bytes: Uint8Array): string {
+    return '0x' + Array.from(bytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
   }
 }
