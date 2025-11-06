@@ -7,9 +7,13 @@ A modern, extensible monorepo for building trustworthy autonomous agent systems.
 
 ## 🏗️ Architecture
 
-
+### Agentic Trust Capabilities
 ![Agentic Flow](./docs/AgentSolution.png)
+
+### Agentic Trust Identity
 ![Agentic Flow](./docs/AgentIdentity.png)
+
+### Agentic Trust Library
 ![Agentic Trust Core Architecture](./docs/AgentArchitecture.png)
 
 
