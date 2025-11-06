@@ -154,8 +154,8 @@ export class AgentsAPI {
 
       // Create registration JSON and upload to IPFS
       let tokenURI = '';
-      const { sepolia } = await import('viem/chains');
-      const chainId = sepolia.id;
+      const { sepolia: sepoliaChain, baseSepolia, optimismSepolia } = await import('viem/chains');
+      const chainId: number = sepoliaChain.id;
       
       try {
         const { uploadRegistration, createRegistrationJSON } = await import('./registration');
@@ -181,9 +181,37 @@ export class AgentsAPI {
 
       // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
       const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
+      const { ViemAccountProvider } = await import('@erc8004/sdk');
+      const { createPublicClient, http } = await import('viem');
+      
+      // Get chain by ID
+      let chain: typeof sepoliaChain | typeof baseSepolia | typeof optimismSepolia = sepoliaChain;
+      const baseSepoliaChainId = 84532;
+      const optimismSepoliaChainId = 11155420;
+      if (chainId === baseSepoliaChainId) {
+        chain = baseSepolia;
+      } else if (chainId === optimismSepoliaChainId) {
+        chain = optimismSepolia;
+      }
+      
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
+      });
+
+      const accountProvider = new ViemAccountProvider({
+        publicClient: publicClient as any,
+        walletClient: null, // Read-only for transaction preparation
+        chainConfig: {
+          id: chainId,
+          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+          name: chain.name,
+          chain: chain as any,
+        },
+      });
+
       const aiIdentityClient = new AIAgentIdentityClient({
-        chainId,
-        rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+        accountProvider,
         identityRegistryAddress: identityRegistryHex as `0x${string}`,
       });
 
@@ -227,10 +255,11 @@ export class AgentsAPI {
       ? identityRegistry 
       : `0x${identityRegistry}`;
 
-    // Create write-capable IdentityClient using AdminApp adapter
-    const identityClient = new IdentityClient(
-      adminApp.adminAdapter as any,
-      identityRegistryHex
+    // Create write-capable IdentityClient using AdminApp AccountProvider
+    const { BaseIdentityClient } = await import('@erc8004/sdk');
+    const identityClient = new BaseIdentityClient(
+      adminApp.accountProvider,
+      identityRegistryHex as `0x${string}`
     );
 
     // Build metadata array
@@ -385,10 +414,11 @@ export class AgentsAPI {
         ? identityRegistry 
         : `0x${identityRegistry}`;
 
-      // Create read-only IdentityClient using AdminApp's publicClient
-      const identityClient = new IdentityClient(
-        adminApp.adminAdapter as any,
-        identityRegistryHex
+      // Create read-only IdentityClient using AdminApp's AccountProvider
+      const { BaseIdentityClient } = await import('@erc8004/sdk');
+      const identityClient = new BaseIdentityClient(
+        adminApp.accountProvider,
+        identityRegistryHex as `0x${string}`
       );
 
       // Build metadata array
@@ -517,10 +547,11 @@ export class AgentsAPI {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
 
-      // Create write-capable IdentityClient using AdminApp adapter
-      const identityClient = new IdentityClient(
-        adminApp.adminAdapter as any,
-        identityRegistry
+      // Create write-capable IdentityClient using AdminApp AccountProvider
+      const { BaseIdentityClient } = await import('@erc8004/sdk');
+      const identityClient = new BaseIdentityClient(
+        adminApp.accountProvider,
+        identityRegistry as `0x${string}`
       );
 
       const agentId = BigInt(params.agentId);
@@ -581,14 +612,19 @@ export class AgentsAPI {
       const to = '0x0000000000000000000000000000000000000000' as `0x${string}`;
 
       // Transfer to zero address (burn)
-      const result = await adminApp.adminAdapter.send(
-        identityRegistry as `0x${string}`,
-        (IdentityRegistryABI.default || IdentityRegistryABI) as any,
-        'transferFrom',
-        [from, to, agentId] as any
-      );
+      const data = await adminApp.accountProvider.encodeFunctionData({
+        abi: (IdentityRegistryABI.default || IdentityRegistryABI) as any,
+        functionName: 'transferFrom',
+        args: [from, to, agentId],
+      });
 
-      return { txHash: result.txHash };
+      const result = await adminApp.accountProvider.send({
+        to: identityRegistry as `0x${string}`,
+        data,
+        value: 0n,
+      });
+
+      return { txHash: result.hash };
     },
 
     /**
@@ -620,14 +656,19 @@ export class AgentsAPI {
       const from = adminApp.address;
 
       // Transfer to new owner
-      const result = await adminApp.adminAdapter.send(
-        identityRegistry as `0x${string}`,
-        (IdentityRegistryABI.default || IdentityRegistryABI) as any,
-        'transferFrom',
-        [from, params.to, agentId] as any
-      );
+      const data = await adminApp.accountProvider.encodeFunctionData({
+        abi: (IdentityRegistryABI.default || IdentityRegistryABI) as any,
+        functionName: 'transferFrom',
+        args: [from, params.to, agentId],
+      });
 
-      return { txHash: result.txHash };
+      const result = await adminApp.accountProvider.send({
+        to: identityRegistry as `0x${string}`,
+        data,
+        value: 0n,
+      });
+
+      return { txHash: result.hash };
     },
   };
 }

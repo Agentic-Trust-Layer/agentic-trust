@@ -301,43 +301,57 @@ export class AgenticTrustClient {
       console.log('⚠️ ENS registry not provided. which might be ok.');
     }
 
-    // Try to get walletClient from AdminApp or ClientApp (supports wallet providers)
+    // Try to get AccountProvider from AdminApp or ClientApp (supports wallet providers)
     // If not available, fall back to privateKey-based creation
-    let agentAdapter: any;
-    let clientAdapter: any;
+    let agentAccountProvider: any;
+    let clientAccountProvider: any;
     let eoaAddress: `0x${string}` | undefined;
 
     // Try AdminApp first (for admin operations)
-    try {
-      const { getAdminApp } = await import('./adminApp');
-      const adminApp = await getAdminApp();
-      if (adminApp && adminApp.adminAdapter) {
-        // Use AdminApp's adapter (works with private key OR wallet provider)
-        agentAdapter = adminApp.adminAdapter;
-        clientAdapter = adminApp.adminAdapter; // For admin, agent and client are the same
-        eoaAddress = adminApp.address;
-        console.log('🔧 initializeReputationFromConfig: Using AdminApp adapter', eoaAddress);
+    // Only try AdminApp if we're in an admin app context
+    const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === 'true' || process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1';
+    if (isAdminApp) {
+      try {
+        const { getAdminApp } = await import('./adminApp');
+        const adminApp = await getAdminApp();
+        if (adminApp && adminApp.accountProvider) {
+          // Use AdminApp's AccountProvider (works with private key OR wallet provider)
+          agentAccountProvider = adminApp.accountProvider;
+          clientAccountProvider = adminApp.accountProvider; // For admin, agent and client are the same
+          eoaAddress = adminApp.address;
+          console.log('🔧 initializeReputationFromConfig: Using AdminApp AccountProvider', eoaAddress);
+        }
+      } catch (error) {
+        // AdminApp not available, try ClientApp
+        console.log('🔧 initializeReputationFromConfig: AdminApp not available, trying ClientApp...');
       }
-    } catch (error) {
-      // AdminApp not available, try ClientApp
-      console.log('🔧 initializeReputationFromConfig: AdminApp not available, trying ClientApp...');
+    } else {
+      // Skip AdminApp for non-admin apps (web, provider, etc.)
+      console.log('🔧 initializeReputationFromConfig: Skipping AdminApp (not an admin app), trying ClientApp...');
     }
 
     // Try ClientApp if AdminApp didn't work
-    if (!agentAdapter) {
+    if (!agentAccountProvider) {
       try {
         const { getClientApp } = await import('./clientApp');
         const clientApp = await getClientApp();
-        if (clientApp && clientApp.clientAdapter) {
-          // Use ClientApp's adapter
-          agentAdapter = new (await import('@erc8004/sdk')).ViemAdapter(
-            clientApp.publicClient as any,
-            clientApp.walletClient as any,
-            clientApp.account
-          );
-          clientAdapter = clientApp.clientAdapter;
+        if (clientApp && clientApp.accountProvider) {
+          // Use ClientApp's AccountProvider
+          const { ViemAccountProvider } = await import('@erc8004/sdk');
+          agentAccountProvider = new ViemAccountProvider({
+            publicClient: clientApp.publicClient,
+            walletClient: clientApp.walletClient as any,
+            account: clientApp.account,
+            chainConfig: {
+              id: clientApp.publicClient.chain?.id || 11155111,
+              rpcUrl: (clientApp.publicClient.transport as any)?.url || '',
+              name: clientApp.publicClient.chain?.name || 'Unknown',
+              chain: clientApp.publicClient.chain || undefined,
+            },
+          });
+          clientAccountProvider = clientApp.accountProvider;
           eoaAddress = clientApp.address;
-          console.log('🔧 initializeReputationFromConfig: Using ClientApp adapter', eoaAddress);
+          console.log('🔧 initializeReputationFromConfig: Using ClientApp AccountProvider', eoaAddress);
         }
       } catch (error) {
         // ClientApp not available, fall back to privateKey
@@ -346,8 +360,8 @@ export class AgenticTrustClient {
     }
 
     // Fall back to privateKey-based creation if no wallet/app available
-    if (!agentAdapter && config.privateKey) {
-      console.log('🔧 initializeReputationFromConfig: Creating adapter from privateKey...');
+    if (!agentAccountProvider && config.privateKey) {
+      console.log('🔧 initializeReputationFromConfig: Creating AccountProvider from privateKey...');
       
       // Normalize private key (same logic as veramoFactory)
       let cleanedKey = config.privateKey.trim().replace(/\s+/g, '');
@@ -379,16 +393,26 @@ export class AgenticTrustClient {
         transport: httpTransport(rpcUrl),
       });
 
-      // Create adapters
-      const { ViemAdapter } = await import('@erc8004/sdk');
-      agentAdapter = new ViemAdapter(publicClient as any, walletClient as any, account);
-      clientAdapter = agentAdapter; // For single account, agent and client are the same
+      // Create AccountProviders
+      const { ViemAccountProvider } = await import('@erc8004/sdk');
+      agentAccountProvider = new ViemAccountProvider({
+        publicClient,
+        walletClient,
+        account,
+        chainConfig: {
+          id: sepolia.id,
+          rpcUrl,
+          name: sepolia.name,
+          chain: sepolia,
+        },
+      });
+      clientAccountProvider = agentAccountProvider; // For single account, agent and client are the same
 
       console.log('🔧 initializeReputationFromConfig: Using EOA from private key', eoaAddress);
     }
 
-    // If we still don't have adapters, throw error
-    if (!agentAdapter || !clientAdapter) {
+    // If we still don't have AccountProviders, throw error
+    if (!agentAccountProvider || !clientAccountProvider) {
       throw new Error(
         'Cannot initialize reputation client: No wallet available. ' +
         'Provide either:\n' +
@@ -398,13 +422,13 @@ export class AgenticTrustClient {
       );
     }
 
-    // Create the reputation client using the adapters
-    // The adapters can be from AdminApp (wallet provider), ClientApp, or created from privateKey
+    // Create the reputation client using the AccountProviders
+    // The AccountProviders can be from AdminApp (wallet provider), ClientApp, or created from privateKey
     const { AIAgentReputationClient } = await import('@erc8004/agentic-trust-sdk');
     
     const reputationClient = await AIAgentReputationClient.create(
-      agentAdapter,
-      clientAdapter,
+      agentAccountProvider,
+      clientAccountProvider,
       identityRegistry,
       reputationRegistry,
       (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}` // Default ENS registry on Sepolia

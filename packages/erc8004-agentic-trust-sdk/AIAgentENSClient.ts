@@ -1,11 +1,11 @@
 /**
- * Agentic Trust SDK - Identity Client
- * Extends the base ERC-8004 IdentityClient with AA-centric helpers.
+ * Agentic Trust SDK - ENS Client
+ * Uses AccountProvider (Ports & Adapters pattern) for chain I/O.
  */
 import { createPublicClient, http, namehash, labelhash, encodeFunctionData, hexToString, type Chain, type PublicClient } from 'viem';
 import { ethers } from 'ethers';
 import { sepolia } from 'viem/chains';
-
+import { AccountProvider } from '@erc8004/sdk';
 
 import BaseRegistrarABI from  './abis/BaseRegistrarImplementation.json'
 import ETHRegistrarControllerABI from './abis/ETHRegistrarController.json';
@@ -15,7 +15,7 @@ import PublicResolverABI from './abis/PublicResolver.json';
 
 export class AIAgentENSClient {
   private chain: Chain;
-  private adapter: any;
+  private accountProvider: AccountProvider;
   private ensRegistryAddress: `0x${string}`;
   private ensResolverAddress: `0x${string}`;
   private identityRegistryAddress: `0x${string}`;
@@ -24,22 +24,24 @@ export class AIAgentENSClient {
   constructor(
     chain: Chain,
     rpcUrl: string,
-    adapter: any,
+    accountProvider: AccountProvider,
     ensRegistryAddress: `0x${string}`,
     ensResolverAddress: `0x${string}`,
     identityRegistryAddress: `0x${string}`,
   ) {
-
-
     this.chain = chain;
-    this.adapter = adapter;
+    this.accountProvider = accountProvider;
     // @ts-ignore - viem version compatibility issue
-    this.publicClient = // @ts-ignore - viem version compatibility issue
-    createPublicClient({ chain, transport: http(rpcUrl) } as any);
+    this.publicClient = createPublicClient({ chain, transport: http(rpcUrl) } as any);
     this.ensRegistryAddress = ensRegistryAddress;
     this.ensResolverAddress = ensResolverAddress;
     this.identityRegistryAddress = identityRegistryAddress;
 
+    // Try to extract publicClient from AccountProvider if it's a ViemAccountProvider
+    const viemProvider = accountProvider as any;
+    if (viemProvider.publicClient) {
+      this.publicClient = viemProvider.publicClient;
+    }
   }
 
   getEnsRegistryAddress(): `0x${string}` {
@@ -260,20 +262,18 @@ export class AIAgentENSClient {
     // 1) resolver for reverse node
     let resolverAddr: `0x${string}` | null = null;
     try {
-
-      // @ts-ignore - viem version compatibility issue
-      resolverAddr = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
+      resolverAddr = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{
             name: 'resolver',
             type: 'function',
             stateMutability: 'view',
             inputs: [{ name: 'node', type: 'bytes32' }],
             outputs: [{ name: '', type: 'address' }]
-        }],
+        }] as any,
         functionName: 'resolver',
-        args: [reverseNode]
-      }) as `0x${string}` | null;
+        args: [reverseNode],
+      });
 
 
     } catch {}
@@ -285,13 +285,12 @@ export class AIAgentENSClient {
     let ensName: string | null = null;
     try {
 
-      // @ts-ignore - viem version compatibility issue
-      ensName = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      ensName = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'name',
-        args: [reverseNode]
-      }).catch(() => null) as string | null;
+        args: [reverseNode],
+      }).catch(() => null);
 
 
       if (typeof ensName !== 'string' || !ensName) ensName = null;
@@ -303,13 +302,12 @@ export class AIAgentENSClient {
       const forwardNode = namehash(ensName);
       try {
 
-        // @ts-ignore - viem version compatibility issue
-        const value = await this.publicClient?.readContract({
-          address: resolverAddr,
-          abi: PublicResolverABI.abi,
+        const value = await this.accountProvider.call<string>({
+          to: resolverAddr,
+          abi: PublicResolverABI.abi as any,
           functionName: 'text',
-          args: [forwardNode, 'agent-identity']
-        }).catch(() => null) as string | null;
+          args: [forwardNode, 'agent-identity'],
+        }).catch(() => null);
 
         const decoded = this.decodeAgentIdentity(value);
         agentId = decoded?.agentId ?? null;
@@ -337,7 +335,7 @@ export class AIAgentENSClient {
     console.info("++++++++++++++++++++ getAgentIdentityByName: ensName", ensName);
     console.info("++++++++++++++++++++ getAgentIdentityByName: this.ensRegistryAddress", this.ensRegistryAddress);
 
-    console.info("++++++++++++++++++++ getAgentIdentityByName: adapter", this.adapter);
+    console.info("++++++++++++++++++++ getAgentIdentityByName: accountProvider", this.accountProvider);
 
     const node = namehash(ensName);
 
@@ -345,19 +343,18 @@ export class AIAgentENSClient {
     let resolverAddr: `0x${string}` | null = null;
     try {
 
-      // @ts-ignore - viem version compatibility issue
-      resolverAddr = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
+      resolverAddr = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{
             name: 'resolver',
             type: 'function',
             stateMutability: 'view',
             inputs: [{ name: 'node', type: 'bytes32' }],
             outputs: [{ name: '', type: 'address' }]
-        }],
+        }] as any,
         functionName: 'resolver',
-        args: [node]
-      }) as `0x${string}` | null;
+        args: [node],
+      });
       // returns 0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5
     } catch (error) {
       console.info("++++++++++++++++++++ getAgentIdentityByName 1: error", error);
@@ -371,13 +368,12 @@ export class AIAgentENSClient {
     let agentId: bigint | null = null;
     try {
 
-      // @ts-ignore - viem version compatibility issue
-      const value = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      const value = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'text',
-        args: [node, 'agent-identity']
-      }).catch(() => null) as string | null;
+        args: [node, 'agent-identity'],
+      }).catch(() => null);
 
       console.info("################ getAgentIdentityByName: value", value);
       
@@ -410,12 +406,11 @@ export class AIAgentENSClient {
     const subnameNode = namehash(fullSubname);
 
     try {
-      // @ts-ignore - viem version compatibility issue
-      const existingOwner = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
-        abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [{ type: 'bytes32' }], outputs: [{ type: 'address' }] }],
+      const existingOwner = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
+        abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [{ type: 'bytes32' }], outputs: [{ type: 'address' }] }] as any,
         functionName: 'owner',
-        args: [subnameNode]
+        args: [subnameNode],
       });
       
       const hasOwner = Boolean(existingOwner && existingOwner !== '0x0000000000000000000000000000000000000000');
@@ -450,19 +445,18 @@ export class AIAgentENSClient {
       console.info("ensName: ", ensName);
       console.info("this.ensRegistryAddress: ", this.ensRegistryAddress);
 
-      // @ts-ignore - viem version compatibility issue
-      resolverAddr = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
+      resolverAddr = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{
             name: 'resolver',
             type: 'function',
             stateMutability: 'view',
             inputs: [{ name: 'node', type: 'bytes32' }],
             outputs: [{ name: '', type: 'address' }]
-        }],
+        }] as any,
         functionName: 'resolver',
-        args: [node]
-      }) as `0x${string}` | null;
+        args: [node],
+      });
 
 
       console.info("resolverAddr: ", resolverAddr);
@@ -476,13 +470,12 @@ export class AIAgentENSClient {
     try {
 
       console.info("try and get addr for node using resolver")
-      // @ts-ignore - viem version compatibility issue
-      const addr  = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      const addr = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'addr',
-        args: [node]
-      }).catch(() => null) as string | null;
+        args: [node],
+      }).catch(() => null);
 
       console.info("addr: ", addr);
       if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr) && addr !== '0x0000000000000000000000000000000000000000') {
@@ -512,19 +505,18 @@ export class AIAgentENSClient {
     // resolver
     let resolverAddr: `0x${string}` | null = null;
     try {
-      // @ts-ignore - viem version compatibility issue
-      resolverAddr = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
+      resolverAddr = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{
             name: 'resolver',
             type: 'function',
             stateMutability: 'view',
             inputs: [{ name: 'node', type: 'bytes32' }],
             outputs: [{ name: '', type: 'address' }]
-        }],
+        }] as any,
         functionName: 'resolver',
-        args: [node]
-      }) as `0x${string}` | null;
+        args: [node],
+      });
       // returns 0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5
     } catch {}
     if (!resolverAddr || resolverAddr === '0x0000000000000000000000000000000000000000') {
@@ -532,13 +524,12 @@ export class AIAgentENSClient {
     }
 
     try {
-      // @ts-ignore - viem version compatibility issue
-      const url = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      const url = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'text',
-        args: [node, 'url']
-      }).catch(() => null) as string | null;
+        args: [node, 'url'],
+      }).catch(() => null);
 
       const trimmed = (url || '').trim();
       return trimmed.length > 0 ? trimmed : null;
@@ -559,32 +550,30 @@ export class AIAgentENSClient {
     // resolver
     let resolverAddr: `0x${string}` | null = null;
     try {
-      // @ts-ignore - viem version compatibility issue
-      resolverAddr = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
+      resolverAddr = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{
             name: 'resolver',
             type: 'function',
             stateMutability: 'view',
             inputs: [{ name: 'node', type: 'bytes32' }],
             outputs: [{ name: '', type: 'address' }]
-        }],
+        }] as any,
         functionName: 'resolver',
-        args: [node]
-      }) as `0x${string}` | null;
+        args: [node],
+      });
     } catch {}
     if (!resolverAddr || resolverAddr === '0x0000000000000000000000000000000000000000') {
       return null;
     }
 
     try {
-      // @ts-ignore - viem version compatibility issue
-      const image = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      const image = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'text',
-        args: [node, 'avatar']
-      }).catch(() => null) as string | null;
+        args: [node, 'avatar'],
+      }).catch(() => null);
 
       const trimmed = (image || '').trim();
       return trimmed.length > 0 ? trimmed : null;
@@ -605,32 +594,30 @@ export class AIAgentENSClient {
     // resolver
     let resolverAddr: `0x${string}` | null = null;
     try {
-      // @ts-ignore - viem version compatibility issue
-      resolverAddr = await this.publicClient?.readContract({
-        address: this.ensRegistryAddress as `0x${string}`,
+      resolverAddr = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{
             name: 'resolver',
             type: 'function',
             stateMutability: 'view',
             inputs: [{ name: 'node', type: 'bytes32' }],
             outputs: [{ name: '', type: 'address' }]
-        }],
+        }] as any,
         functionName: 'resolver',
-        args: [node]
-      }) as `0x${string}` | null;
+        args: [node],
+      });
     } catch {}
     if (!resolverAddr || resolverAddr === '0x0000000000000000000000000000000000000000') {
       return null;
     }
 
     try {
-      // @ts-ignore - viem version compatibility issue
-      const description = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      const description = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'text',
-        args: [node, 'description']
-      }).catch(() => null) as string | null;
+        args: [node, 'description'],
+      }).catch(() => null);
 
       const trimmed = (description || '').trim();
       return trimmed.length > 0 ? trimmed : null;
@@ -680,13 +667,12 @@ export class AIAgentENSClient {
     }
 
     try {
-      // @ts-ignore - viem version compatibility issue
-      const ensName = await this.publicClient?.readContract({
-        address: resolverAddr,
-        abi: PublicResolverABI.abi,
+      const ensName = await this.accountProvider.call<string>({
+        to: resolverAddr,
+        abi: PublicResolverABI.abi as any,
         functionName: 'name',
-        args: [reverseNode]
-      }).catch(() => null) as string | null;
+        args: [reverseNode],
+      }).catch(() => null);
 
       const normalized = (ensName || '').trim().toLowerCase();
       return normalized.length > 0 ? normalized : null;
@@ -729,11 +715,10 @@ export class AIAgentENSClient {
     const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
     if (this.publicClient) {
 
-      const resolver = await this.// @ts-ignore - viem version compatibility issue
-    publicClient.readContract({
-        address: this.ensRegistryAddress,
+      const resolver = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
         abi: [{ name: "resolver", stateMutability: "view", type: "function",
-                inputs: [{ name: "node", type: "bytes32"}], outputs: [{ type: "address"}]}],
+                inputs: [{ name: "node", type: "bytes32"}], outputs: [{ type: "address"}]}] as any,
         functionName: "resolver",
         args: [childNode],
       });
@@ -774,30 +759,28 @@ export class AIAgentENSClient {
 
       const BASE_REVERSE_NODE = namehash("addr.reverse");
       const ENS_REGISTRY_ADDRESS = this.ensRegistryAddress
-      const reverseRegistrar = await this.// @ts-ignore - viem version compatibility issue
-    publicClient.readContract({
-          address: ENS_REGISTRY_ADDRESS as `0x${string}`,
-          abi: [{
-            name: "owner",
-            type: "function",
-            stateMutability: "view",
-            inputs: [{ name: "node", type: "bytes32" }],
-            outputs: [{ name: "", type: "address" }],
-          }],
-          functionName: "owner",
-          args: [BASE_REVERSE_NODE],
-        });
+      const reverseRegistrar = await this.accountProvider.call<`0x${string}`>({
+        to: ENS_REGISTRY_ADDRESS,
+        abi: [{
+          name: "owner",
+          type: "function",
+          stateMutability: "view",
+          inputs: [{ name: "node", type: "bytes32" }],
+          outputs: [{ name: "", type: "address" }],
+        }] as any,
+        functionName: "owner",
+        args: [BASE_REVERSE_NODE],
+      });
 
-      const ourReverseRegistrar = await this.// @ts-ignore - viem version compatibility issue
-    publicClient.readContract({
-        address: ENS_REGISTRY_ADDRESS as `0x${string}`,
+      const ourReverseRegistrar = await this.accountProvider.call<`0x${string}`>({
+        to: ENS_REGISTRY_ADDRESS,
         abi: [{
           name: "owner",
           type: "function",
           stateMutability: "view",  
           inputs: [{ name: "node", type: "bytes32" }],
           outputs: [{ name: "", type: "address" }],
-        }],
+        }] as any,
         functionName: "owner",
         args: [reverseNode],
       });

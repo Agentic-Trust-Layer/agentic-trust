@@ -44,7 +44,21 @@ export {
   type GiveFeedbackParams,
 } from '@erc8004/agentic-trust-sdk';
 
-// Export ViemAdapter from erc8004-sdk for convenience
+// Export AccountProvider types from erc8004-sdk for convenience
+export {
+  ViemAccountProvider,
+  type AccountProvider,
+  type ChainConfig,
+  type ReadClient,
+  type Signer,
+  type TxSender,
+  type TxRequest,
+  type GasPolicy,
+  type TxSendResult,
+  type PreparedCall,
+} from '@erc8004/sdk';
+
+// Legacy export for backward compatibility (deprecated - use ViemAccountProvider instead)
 export { ViemAdapter } from '@erc8004/sdk';
 
 // Export session package utilities

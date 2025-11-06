@@ -7,7 +7,7 @@
 
 
 import { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
-import { ViemAdapter } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
 import { getClientApp } from './clientApp';
 import { getProviderApp } from './providerApp';
 import { getAdminApp } from './adminApp';
@@ -61,15 +61,15 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
       const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1' || 
                          process.env.AGENTIC_TRUST_IS_ADMIN_APP?.trim() === 'true';
 
-      let agentAdapter: any;
-      let clientAdapter: any;
+      let agentAccountProvider: AccountProvider | undefined;
+      let clientAccountProvider: AccountProvider | undefined;
 
       if (isAdminApp) {
-        // Admin app: use AdminApp adapter (supports wallet providers and private key)
+        // Admin app: use AdminApp AccountProvider (supports wallet providers and private key)
         const adminApp = await getAdminApp();
-        if (adminApp && adminApp.adminAdapter) {
-          agentAdapter = adminApp.adminAdapter;
-          clientAdapter = adminApp.adminAdapter; // For admin, agent and client are the same
+        if (adminApp && adminApp.accountProvider) {
+          agentAccountProvider = adminApp.accountProvider;
+          clientAccountProvider = adminApp.accountProvider; // For admin, agent and client are the same
         } else {
           throw new Error('AdminApp not initialized. Connect wallet or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
         }
@@ -77,18 +77,25 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
         // Provider app: use ProviderApp for agent, ClientApp for client
         const providerApp = await getProviderApp();
         if (providerApp) {
-          agentAdapter = providerApp.agentAdapter;
+          agentAccountProvider = providerApp.accountProvider;
         }
       } else if (isClientApp) {
         // Client app: use ClientApp for both agent and client (same account)
         const clientApp = await getClientApp();
         if (clientApp) {
-          clientAdapter = clientApp.clientAdapter;
-          agentAdapter = new ViemAdapter(
-            clientApp.publicClient as any,
-            clientApp.walletClient as any,
-            clientApp.account
-          );
+          clientAccountProvider = clientApp.accountProvider;
+          // Create AccountProvider for agent (same as client)
+          agentAccountProvider = new ViemAccountProvider({
+            publicClient: clientApp.publicClient,
+            walletClient: clientApp.walletClient as any,
+            account: clientApp.account,
+            chainConfig: {
+              id: clientApp.publicClient.chain?.id || 11155111,
+              rpcUrl: (clientApp.publicClient.transport as any)?.url || '',
+              name: clientApp.publicClient.chain?.name || 'Unknown',
+              chain: clientApp.publicClient.chain || undefined,
+            },
+          });
         }
       } else {
         throw new Error(
@@ -96,9 +103,13 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
         );
       }
 
+      if (!agentAccountProvider || !clientAccountProvider) {
+        throw new Error('Failed to initialize AccountProviders for reputation client');
+      }
+
       reputationClientInstance = await AIAgentReputationClient.create(
-        agentAdapter,
-        clientAdapter,
+        agentAccountProvider,
+        clientAccountProvider,
         identityRegistry as `0x${string}`,
         reputationRegistry as `0x${string}`,
         (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}` // Default ENS registry on Sepolia

@@ -3,6 +3,8 @@
  * 
  * A TypeScript SDK for managing AI agents with ENS integration,
  * identity management, and reputation systems on Ethereum L1 and L2.
+ * 
+ * Uses AccountProvider (Ports & Adapters pattern) for chain I/O.
  */
 
 export { AIAgentENSClient } from './AIAgentENSClient';
@@ -20,3 +22,21 @@ export {
   type SearchAgentsResponse,
   type RefreshAgentResponse,
 } from './AIAgentGraphQLClient';
+
+// Re-export AccountProvider types from @erc8004/sdk for convenience
+export type {
+  AccountProvider,
+  ChainConfig,
+  ReadClient,
+  Signer,
+  TxSender,
+  TxRequest,
+  GasPolicy,
+  TxSendResult,
+  PreparedCall,
+} from '@erc8004/sdk';
+
+export {
+  ViemAccountProvider,
+  type ViemAccountProviderOptions,
+} from '@erc8004/sdk';

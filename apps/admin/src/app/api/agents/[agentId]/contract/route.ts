@@ -22,8 +22,7 @@ export async function GET(
 
     // Get tokenURI from contract
     // AIAgentIdentityClient extends BaseIdentityClient which has getTokenURI
-    // Access via base class method
-    const tokenURI = await (identityClient as any).getTokenURI(agentIdBigInt);
+    const tokenURI = await identityClient.getTokenURI(agentIdBigInt);
 
     console.log('********************* contract: tokenURI', tokenURI);
 

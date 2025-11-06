@@ -5,7 +5,7 @@
  * Provides access to admin account, wallet client, and admin adapter for agent administration
  */
 
-import { ViemAdapter } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
 
 // Admin app instance type
@@ -13,7 +13,7 @@ type AdminAppInstance = {
   account?: Account; // Optional - only needed for signing
   publicClient: PublicClient;
   walletClient?: WalletClient; // Optional - only needed for signing
-  adminAdapter: ViemAdapter;
+  accountProvider: AccountProvider;
   address: `0x${string}`;
   hasPrivateKey: boolean; // Whether this instance can sign transactions
 };
@@ -172,18 +172,24 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
         address = resolvedAddress as `0x${string}`;
       }
 
-      // Create admin adapter - walletClient is optional (null for read-only)
-      const adminAdapter = new ViemAdapter(
-        publicClient as any,
-        walletClient as any,
-        account
-      );
+      // Create AccountProvider - walletClient is optional (null for read-only)
+      const accountProvider = new ViemAccountProvider({
+        publicClient,
+        walletClient: (walletClient as any) ?? null,
+        account: account ?? undefined,
+        chainConfig: {
+          id: sepolia.id,
+          rpcUrl,
+          name: sepolia.name,
+          chain: sepolia,
+        },
+      });
 
       const instance: AdminAppInstance = {
         account,
         publicClient: publicClient as any,
         walletClient: walletClient as any,
-        adminAdapter,
+        accountProvider,
         address,
         hasPrivateKey,
       };

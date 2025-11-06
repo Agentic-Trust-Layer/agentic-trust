@@ -5,7 +5,7 @@
  * Provides access to client account, wallet client, and client address
  */
 
-import { ViemAdapter } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
 
 // Client app instance type
@@ -13,7 +13,7 @@ type ClientAppInstance = {
   account: Account;
   publicClient: PublicClient;
   walletClient: WalletClient;
-  clientAdapter: ViemAdapter;
+  accountProvider: AccountProvider;
   address: `0x${string}`;
 };
 
@@ -71,18 +71,24 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
         transport: httpTransport(rpcUrl),
       });
 
-      // Create client adapter
-      const clientAdapter = new ViemAdapter(
-        publicClient as any,
-        walletClient as any,
-        account
-      );
+      // Create AccountProvider
+      const accountProvider = new ViemAccountProvider({
+        publicClient,
+        walletClient,
+        account,
+        chainConfig: {
+          id: sepolia.id,
+          rpcUrl,
+          name: sepolia.name,
+          chain: sepolia,
+        },
+      });
 
       clientAppInstance = {
         account,
         publicClient: publicClient as any,
         walletClient: walletClient as any,
-        clientAdapter,
+        accountProvider,
         address,
       };
 

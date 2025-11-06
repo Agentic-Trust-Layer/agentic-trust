@@ -43,7 +43,7 @@ The architecture uses a singleton pattern for managing client and provider state
   - Provides agent provider account, delegation setup, and wallet client
   - Used for agent activities like reputation management
 
-- **`AdminApp`** - Singleton for provider-side operations
+- **`AdminApp`** - Singleton for agent admin operations
   - Provides agent admin account and setup
   - Used for agent administration like setting up agent
 

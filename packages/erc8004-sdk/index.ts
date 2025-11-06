@@ -16,6 +16,10 @@ export * from './adapters/types';
 export * from './adapters/ethers';
 export * from './adapters/viem'; // Re-enabled for reputation client support
 export * from './types';
+
+// Ports & Adapters architecture (new pattern)
+export * from './ports';
+export { BaseIdentityClient } from './ports/BaseIdentityClient';
 // IPFS utilities temporarily disabled due to TypeScript compatibility issues
 // export {
 //   cidToBytes32,

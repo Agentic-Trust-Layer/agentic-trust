@@ -1,25 +1,32 @@
 import { createPublicClient, http, type PublicClient } from 'viem';
 import { sepolia } from 'viem/chains';
-import type { BlockchainAdapter } from '@erc8004/sdk';
+import { AccountProvider } from '@erc8004/sdk';
 
 /**
  * Org Identity Client - ENS utilities for organizations
+ * Uses AccountProvider (Ports & Adapters pattern) for chain I/O.
  * Provides helpers to resolve an org's ENS name to its account address and URL text record.
  */
 export class OrgIdentityClient {
-  private adapter: BlockchainAdapter;
+  private accountProvider: AccountProvider;
   private ensRegistryAddress: `0x${string}`;
   private publicClient: PublicClient | null = null;
 
   constructor(
-    adapter: BlockchainAdapter,
+    accountProvider: AccountProvider,
     options?: { ensRegistry?: `0x${string}`; rpcUrl?: string }
   ) {
-    this.adapter = adapter;
+    this.accountProvider = accountProvider;
     this.ensRegistryAddress = (options?.ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}`;
     if (options?.rpcUrl) {
       // @ts-ignore - viem version compatibility issue
       this.publicClient = createPublicClient({ chain: sepolia, transport: http(options.rpcUrl) });
+    }
+    
+    // Try to extract publicClient from AccountProvider if it's a ViemAccountProvider
+    const viemProvider = accountProvider as any;
+    if (viemProvider.publicClient) {
+      this.publicClient = viemProvider.publicClient;
     }
   }
 
@@ -37,12 +44,12 @@ export class OrgIdentityClient {
     ] as any[];
 
     try {
-      const addr: `0x${string}` = await (this.adapter as any).call(
-        resolver,
-        RESOLVER_ABI,
-        'addr',
-        [node]
-      );
+      const addr = await this.accountProvider.call<`0x${string}`>({
+        to: resolver,
+        abi: RESOLVER_ABI,
+        functionName: 'addr',
+        args: [node],
+      });
       if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr) && !this.isZeroAddress(addr)) {
         return addr;
       }
@@ -78,12 +85,12 @@ export class OrgIdentityClient {
     ] as any[];
 
     try {
-      const value: string = await (this.adapter as any).call(
-        resolver,
-        RESOLVER_ABI,
-        'text',
-        [node, 'url']
-      );
+      const value = await this.accountProvider.call<string>({
+        to: resolver,
+        abi: RESOLVER_ABI,
+        functionName: 'text',
+        args: [node, 'url'],
+      });
       const trimmed = (value || '').trim();
       return trimmed.length > 0 ? trimmed : null;
     } catch {}
@@ -105,22 +112,22 @@ export class OrgIdentityClient {
 
     let resolver: `0x${string}` | null = null;
     try {
-      resolver = await (this.adapter as any).call(
-        this.ensRegistryAddress,
-        ENS_REGISTRY_ABI,
-        'resolver',
-        [reverseNode]
-      );
+      resolver = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
+        abi: ENS_REGISTRY_ABI,
+        functionName: 'resolver',
+        args: [reverseNode],
+      });
     } catch {}
     if (!resolver || this.isZeroAddress(resolver)) return null;
 
     try {
-      const name: string = await (this.adapter as any).call(
-        resolver,
-        RESOLVER_ABI,
-        'name',
-        [reverseNode]
-      );
+      const name = await this.accountProvider.call<string>({
+        to: resolver,
+        abi: RESOLVER_ABI,
+        functionName: 'name',
+        args: [reverseNode],
+      });
       const normalized = (name || '').trim().toLowerCase();
       return normalized.length > 0 ? normalized : null;
     } catch {
@@ -134,12 +141,12 @@ export class OrgIdentityClient {
       { name: 'resolver', type: 'function', stateMutability: 'view', inputs: [{ name: 'node', type: 'bytes32' }], outputs: [{ name: '', type: 'address' }] },
     ] as any[];
     try {
-      const resolver: `0x${string}` = await (this.adapter as any).call(
-        this.ensRegistryAddress,
-        ENS_REGISTRY_ABI,
-        'resolver',
-        [node]
-      );
+      const resolver = await this.accountProvider.call<`0x${string}`>({
+        to: this.ensRegistryAddress,
+        abi: ENS_REGISTRY_ABI,
+        functionName: 'resolver',
+        args: [node],
+      });
       if (resolver && !this.isZeroAddress(resolver)) return resolver;
     } catch {}
     return null;

@@ -5,7 +5,7 @@
  * Provides access to agent account, delegation setup, and wallet client for agent operations
  */
 
-import { ViemAdapter } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
 import type { SessionPackage, DelegationSetup } from './sessionPackage';
 
@@ -16,7 +16,7 @@ type ProviderAppInstance = {
   agentAccount: Account;
   publicClient: PublicClient;
   walletClient: WalletClient;
-  agentAdapter: ViemAdapter;
+  accountProvider: AccountProvider;
   agentId: bigint;
 };
 
@@ -64,12 +64,18 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
         transport: httpTransport(delegationSetup.rpcUrl),
       });
 
-      // Create agent adapter
-      const agentAdapter = new ViemAdapter(
-        delegationSetup.publicClient,
-        walletClient as any,
-        agentAccount.address as `0x${string}`
-      );
+      // Create AccountProvider
+      const accountProvider = new ViemAccountProvider({
+        publicClient: delegationSetup.publicClient,
+        walletClient,
+        account: agentAccount,
+        chainConfig: {
+          id: delegationSetup.chain.id,
+          rpcUrl: delegationSetup.rpcUrl,
+          name: delegationSetup.chain.name,
+          chain: delegationSetup.chain,
+        },
+      });
 
       providerAppInstance = {
         sessionPackage,
@@ -77,7 +83,7 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
         agentAccount,
         publicClient: delegationSetup.publicClient as any,
         walletClient: walletClient as any,
-        agentAdapter,
+        accountProvider,
         agentId: BigInt(sessionPackage.agentId),
       };
 

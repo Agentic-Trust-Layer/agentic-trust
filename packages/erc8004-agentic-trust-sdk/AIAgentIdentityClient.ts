@@ -2,7 +2,7 @@
  * Agentic Trust SDK - Identity Client
  * Extends the base ERC-8004 IdentityClient with AA-centric helpers.
  * 
- * Supports both viem-native usage (simple) and full adapter pattern (flexible).
+ * Uses AccountProvider (Ports & Adapters pattern) for chain I/O.
  */
 import { 
   createPublicClient, 
@@ -18,14 +18,20 @@ import {
   type Abi,
 } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
-import { IdentityClient as BaseIdentityClient, BlockchainAdapter, ViemAdapter } from '@erc8004/sdk';
+import { 
+  BaseIdentityClient,
+  AccountProvider,
+  ViemAccountProvider,
+  type ChainConfig,
+  type ViemAccountProviderOptions,
+} from '@erc8004/sdk';
 import IdentityRegistryABI from './abis/IdentityRegistry.json';
 import type { MetadataEntry } from '@erc8004/sdk';
 
 export type AIAgentIdentityClientOptions = 
   | {
-      // Option 1: Use adapter directly (flexible, supports any blockchain library)
-      adapter: BlockchainAdapter;
+      // Option 1: Use AccountProvider directly (recommended, supports all custody models)
+      accountProvider: AccountProvider;
       identityRegistryAddress: `0x${string}`;
     }
   | {
@@ -33,6 +39,7 @@ export type AIAgentIdentityClientOptions =
       publicClient: PublicClient;
       walletClient?: WalletClient<Transport, Chain, Account> | null;
       identityRegistryAddress: `0x${string}`;
+      chainConfig?: ChainConfig;
     }
   | {
       // Option 3: Legacy pattern - create clients from chainId/rpcUrl (backward compatible)
@@ -41,6 +48,8 @@ export type AIAgentIdentityClientOptions =
       identityRegistryAddress: `0x${string}`;
       walletClient?: WalletClient<Transport, Chain, Account> | null;
       account?: Account | ViemAddress;
+      bundlerUrl?: string;
+      paymasterUrl?: string;
     };
 
 function getChainById(chainId: number): Chain {
@@ -62,25 +71,31 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   private identityRegistryAddress: `0x${string}`;
   private publicClient: PublicClient | null = null;
   private walletClient: WalletClient<Transport, Chain, Account> | null = null;
+  // accountProvider is protected in BaseIdentityClient, so we need to keep it accessible
+  protected accountProvider: AccountProvider;
 
   constructor(options: AIAgentIdentityClientOptions) {
-    let adapter: BlockchainAdapter;
+    let accountProvider: AccountProvider;
     let chain: Chain | null = null;
     let publicClient: PublicClient | null = null;
     let walletClient: WalletClient<Transport, Chain, Account> | null = null;
     let identityRegistryAddress: `0x${string}`;
 
-    if ('adapter' in options) {
-      // Option 1: Use provided adapter
-      adapter = options.adapter;
+    if ('accountProvider' in options) {
+      // Option 1: Use provided AccountProvider (recommended)
+      accountProvider = options.accountProvider;
       identityRegistryAddress = options.identityRegistryAddress;
       
-      // Try to extract publicClient from adapter if it's a ViemAdapter
-      if ((adapter as any).publicClient) {
-        publicClient = (adapter as any).publicClient;
+      // Try to extract publicClient from AccountProvider if it's a ViemAccountProvider
+      const viemProvider = accountProvider as any;
+      if (viemProvider.publicClient) {
+        publicClient = viemProvider.publicClient;
       }
-      if ((adapter as any).walletClient) {
-        walletClient = (adapter as any).walletClient;
+      if (viemProvider.walletClient) {
+        walletClient = viemProvider.walletClient;
+      }
+      if (viemProvider.chainConfig?.chain) {
+        chain = viemProvider.chainConfig.chain;
       }
     } else if ('publicClient' in options) {
       // Option 2: Use viem clients directly (simplest, native viem)
@@ -88,10 +103,20 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       walletClient = options.walletClient ?? null;
       identityRegistryAddress = options.identityRegistryAddress;
       
-      // Create ViemAdapter from the clients
-      adapter = new ViemAdapter({
+      // Create ChainConfig
+      const chainConfig: ChainConfig = options.chainConfig || {
+        id: publicClient.chain?.id || 11155111,
+        rpcUrl: (publicClient.transport as any)?.url || '',
+        name: publicClient.chain?.name || 'Unknown',
+        chain: publicClient.chain || undefined,
+      };
+      
+      // Create ViemAccountProvider from the clients
+      accountProvider = new ViemAccountProvider({
         publicClient,
         walletClient: walletClient ?? null,
+        account: walletClient?.account,
+        chainConfig,
       });
     } else {
       // Option 3: Legacy pattern - create from chainId/rpcUrl
@@ -100,73 +125,63 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       publicClient = createPublicClient({ chain, transport: http(options.rpcUrl) });
       walletClient = options.walletClient ?? null;
       
-      // Create ViemAdapter
-      adapter = new ViemAdapter({
+      // Create ChainConfig
+      const chainConfig: ChainConfig = {
+        id: options.chainId,
+        rpcUrl: options.rpcUrl,
+        name: chain.name,
+        chain: chain,
+        bundlerUrl: options.bundlerUrl,
+        paymasterUrl: options.paymasterUrl,
+      };
+      
+      // Create ViemAccountProvider
+      accountProvider = new ViemAccountProvider({
         publicClient,
         walletClient: walletClient ?? null,
+        account: options.account || walletClient?.account,
+        chainConfig,
       });
       
       identityRegistryAddress = options.identityRegistryAddress;
     }
 
-    // Pass adapter to BaseIdentityClient
-    super(adapter, identityRegistryAddress);
+    // Pass accountProvider to BaseIdentityClient
+    super(accountProvider, identityRegistryAddress);
 
     this.chain = chain;
     this.publicClient = publicClient;
     this.walletClient = walletClient;
     this.identityRegistryAddress = identityRegistryAddress;
+    this.accountProvider = accountProvider;
   }
 
   /**
-   * Get metadata using viem's native readContract (if publicClient available)
-   * Falls back to adapter if needed
+   * Get metadata using AccountProvider
    */
   async getMetadata(agentId: bigint, key: string): Promise<string> {
-    if (this.publicClient) {
-      // Use viem's native readContract - simpler and direct
-      // @ts-ignore - viem version compatibility issue
-      const bytes = await this.publicClient.readContract({
-        address: this.identityRegistryAddress,
-        abi: IdentityRegistryABI as any,
-        functionName: 'getMetadata',
-        args: [agentId, key],
-      });
-      return hexToString(bytes as `0x${string}`);
-    }
-    
-    // Fallback to adapter
-    const adapterCall = (this as any).adapter.call as <T = unknown>(
-      contractAddress: any,
-      abi: any,
-      functionName: string,
-      args?: readonly unknown[]
-    ) => Promise<T>;
-    const bytes = await adapterCall<`0x${string}`>(
-      this.identityRegistryAddress,
-      IdentityRegistryABI as any,
-      'getMetadata',
-      [agentId, key] as any
-    );
-    return hexToString(bytes as `0x${string}`);
+    const bytes = await this.accountProvider.call<`0x${string}`>({
+      to: this.identityRegistryAddress,
+      abi: IdentityRegistryABI as any,
+      functionName: 'getMetadata',
+      args: [agentId, key],
+    });
+    return hexToString(bytes);
   }
 
   /**
-   * Encode function call data using viem's native encodeFunctionData (if available)
-   * Falls back to adapter if needed
+   * Encode function call data using AccountProvider
    */
   async encodeFunctionData(
     abi: any[],
     functionName: string,
     args: any[]
   ): Promise<string> {
-    // Use adapter's encodeFunctionData (which uses viem internally)
-    return await (this as any).adapter.encodeFunctionData(
-      this.identityRegistryAddress,
+    return await this.accountProvider.encodeFunctionData({
       abi,
       functionName,
-      args as any
-    );
+      args,
+    });
   }
 
   /**
@@ -206,13 +221,12 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       };
     });
     
-    // Use adapter's encodeFunctionData (which uses viem internally)
-    return await (this as any).adapter.encodeFunctionData(
-      this.identityRegistryAddress,
-      IdentityRegistryABI as any,
-      'register(string,(string,bytes)[])',
-      [tokenURI, metadataFormatted] as any
-    );
+    // Use AccountProvider's encodeFunctionData
+    return await this.accountProvider.encodeFunctionData({
+      abi: IdentityRegistryABI as any,
+      functionName: 'register',
+      args: [tokenURI, metadataFormatted],
+    });
   }
 
   async encodeRegister(name: string, agentAccount: `0x${string}`, tokenURI: string): Promise<string> {
@@ -233,12 +247,11 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   }
 
   async encodeSetRegistrationUri(agentId: bigint, uri: string): Promise<`0x${string}`>  {
-    const data = await (this as any).adapter.encodeFunctionData(
-      this.identityRegistryAddress,
-      IdentityRegistryABI as any,
-      'setAgentUri',
-      [agentId, uri] as any
-    );
+    const data = await this.accountProvider.encodeFunctionData({
+      abi: IdentityRegistryABI as any,
+      functionName: 'setAgentUri',
+      args: [agentId, uri],
+    });
     return data as `0x${string}`;
   }
 
@@ -283,19 +296,11 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     nonce?: number;
     chainId: number;
   }> {
-    // Ensure we have a publicClient (required for gas estimation and nonce)
-    if (!this.publicClient) {
-      throw new Error(
-        'AIAgentIdentityClient must be initialized with a publicClient or chainId/rpcUrl to prepare transactions. ' +
-        'Use a constructor that provides public client access (e.g., chainId/rpcUrl or publicClient option).'
-      );
-    }
-
     // Encode the transaction data
     const encodedData = await this.encodeRegisterWithMetadata(tokenURI, metadata);
 
-    // Get chain ID using internal publicClient
-    const chainId = await this.publicClient.getChainId();
+    // Get chain ID using AccountProvider
+    const chainId = await this.accountProvider.chainId();
 
     // Initialize gas estimation variables
     let gasEstimate: bigint | undefined;
@@ -306,7 +311,7 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
 
     try {
       // Get current block data to check for EIP-1559 support
-      const blockData = await this.publicClient.getBlock({ blockTag: 'latest' });
+      const blockData = await this.accountProvider.getBlock('latest');
 
       // Prefer EIP-1559 (maxFeePerGas/maxPriorityFeePerGas) if available
       // Otherwise fall back to legacy gasPrice
@@ -318,21 +323,18 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
         maxFeePerGas = (blockData.baseFeePerGas * 2n) + maxPriorityFeePerGas; // 2x base + priority (buffer for safety)
       } else {
         // Legacy: Use gasPrice
-        gasPrice = await this.publicClient.getGasPrice();
+        gasPrice = await this.accountProvider.getGasPrice();
       }
 
-      // Estimate gas using internal publicClient
-      gasEstimate = await this.publicClient.estimateGas({
+      // Estimate gas using AccountProvider
+      gasEstimate = await this.accountProvider.estimateGas({
         account: fromAddress,
         to: this.identityRegistryAddress,
         data: encodedData as `0x${string}`,
       });
 
-      // Get nonce using internal publicClient
-      nonce = await this.publicClient.getTransactionCount({
-        address: fromAddress,
-        blockTag: 'pending',
-      });
+      // Get nonce using AccountProvider
+      nonce = await this.accountProvider.getTransactionCount(fromAddress, 'pending');
     } catch (error) {
       console.warn('Could not estimate gas or get transaction parameters:', error);
       // Continue without gas estimates - client can estimate
@@ -362,15 +364,17 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   }
 
   async isValidAgentAccount(agentAccount: `0x${string}`): Promise<boolean | null> {
-    if (this.publicClient) {
-      const code = await this.publicClient.getBytecode({ address: agentAccount as `0x${string}` });
-      return code ? true : false;
-    }
-    // Fallback to adapter if no publicClient
     try {
-      // Try to get code via adapter (if it supports read operations)
-      const code = await ((this as any).adapter as any).publicClient?.getBytecode?.({ address: agentAccount });
-      return code ? true : false;
+      // Use AccountProvider's ReadClient interface - check if address has code
+      // We can use a simple call to check if it's a contract
+      // For now, we'll use publicClient if available, otherwise return null
+      if (this.publicClient) {
+        const code = await this.publicClient.getBytecode({ address: agentAccount });
+        return code ? true : false;
+      }
+      // AccountProvider doesn't expose getBytecode directly, so we check via isContractSigner
+      // This is a workaround - ideally AccountProvider would expose getBytecode
+      return null;
     } catch {
       return null;
     }
@@ -416,30 +420,13 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   }
 
   async getAgentEoaByAgentAccount(agentAccount: `0x${string}`): Promise<string | null> {
-    if (this.publicClient) {
-      // @ts-ignore - viem version compatibility issue
-      const eoa = await this.publicClient.readContract({
-        address: agentAccount as `0x${string}`,
-        abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }],
-        functionName: 'owner',
-      });
-      return eoa as string;
-    }
-    
-    // Fallback to adapter
     try {
-      const adapterCall = (this as any).adapter.call as <T = unknown>(
-        contractAddress: any,
-        abi: any,
-        functionName: string,
-        args?: readonly unknown[]
-      ) => Promise<T>;
-      const eoa = await adapterCall<string>(
-        agentAccount,
-        [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as any,
-        'owner',
-        [] as any
-      );
+      const eoa = await this.accountProvider.call<string>({
+        to: agentAccount,
+        abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as any,
+        functionName: 'owner',
+        args: [],
+      });
       return eoa;
     } catch {
       return null;
