@@ -7,7 +7,7 @@
  * The Veramo agent is used for both client operations and verification (DID resolution) in the A2A route.
  */
 
-import { AgenticTrustClient, type ApiClientConfig } from '@agentic-trust/core';
+import { AgenticTrustClient, type ApiClientConfig } from '@agentic-trust/core/server';
 
 // Singleton instance
 let agenticTrustClientInstance: AgenticTrustClient | null = null;

@@ -7,12 +7,10 @@
 
 import { keccak256, stringToHex, createPublicClient, http, createWalletClient, custom, type Address, type Account } from 'viem';
 import { sepolia } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
 import type { PublicClient, WalletClient } from 'viem';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { getENSClient } from '../server/singletons/ensClient';
-import type { SessionPackage, DelegationSetup } from './sessionPackage';
-import { buildDelegationSetup } from './sessionPackage';
+// buildAgentAccountFromSession moved to server/lib/sessionPackage.ts
 
 /**
  * Get MetaMask Delegation Toolkit imports
@@ -297,58 +295,5 @@ export async function getAAAddress(
   return computedAddress as `0x${string}`;
 }
 
-/**
- * Build agent account from session package
- * Uses MetaMask smart account implementation
- * 
- * @param sessionPackage - Optional session package (if not provided, will use DelegationSetup)
- * @param delegationSetup - Optional delegation setup (if not provided, will build from sessionPackage)
- * @returns The agent account (AA client)
- */
-export async function buildAgentAccountFromSession(
-  sessionPackage?: SessionPackage,
-  delegationSetup?: DelegationSetup
-): Promise<Account> {
-  // Build delegation setup if not provided
-  let sp: DelegationSetup;
-  if (delegationSetup) {
-    sp = delegationSetup;
-  } else if (sessionPackage) {
-    sp = buildDelegationSetup(sessionPackage);
-  } else {
-    throw new Error('Either sessionPackage or delegationSetup must be provided');
-  }
-  
-  // Create public client for the chain
-  const l1PublicClient = createPublicClient({ 
-    chain: sp.chain, 
-    transport: http(sp.rpcUrl) 
-  });
-
-  // Create EOA account from session key for signing
-  const agentOwnerEOA = privateKeyToAccount(sp.sessionKey.privateKey);
-
-  // Get MetaMask toolkit
-  const { toMetaMaskSmartAccount, Implementation } = await getMetaMaskToolkit();
-
-  // Use sessionAA address from session package, or fallback to aa address
-  const agentOwnerAddress = sp.sessionAA || sp.aa;
-
-  // Create smart account client
-  console.info("pK: ", sp.sessionKey.privateKey);
-  console.info("agentOwnerAddress: ", agentOwnerAddress);
-  console.info("agentOwnerEOA: ", agentOwnerEOA);
-
-  const agentAccountClient = await toMetaMaskSmartAccount({
-    address: agentOwnerAddress as `0x${string}`,
-    client: l1PublicClient,
-    implementation: Implementation.Hybrid,
-    signatory: { account: agentOwnerEOA },
-  } as any);
-
-  console.info("agentAccountClient.address: ", agentAccountClient.address);
-
-  // Return the account from the smart account client
-  return agentAccountClient as Account;
-}
+// buildAgentAccountFromSession moved to server/lib/sessionPackage.ts
 

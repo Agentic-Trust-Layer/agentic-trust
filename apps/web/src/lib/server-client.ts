@@ -3,7 +3,7 @@
  * All API routes should use this singleton instance
  */
 
-import { AgenticTrustClient } from '@agentic-trust/core';
+import { AgenticTrustClient } from '@agentic-trust/core/server';
 
 // Singleton instance
 let serverClient: AgenticTrustClient | null = null;

@@ -5,7 +5,7 @@
  * Stored on IPFS and referenced via Identity Token tokenURI
  */
 
-import { getIPFSStorage, type IPFSStorage } from '../storage/ipfs';
+import { getIPFSStorage, type IPFSStorage } from '../../storage/ipfs';
 
 /**
  * ERC-8004 Agent Registration JSON structure

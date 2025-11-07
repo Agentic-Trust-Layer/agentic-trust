@@ -17,6 +17,53 @@ export type { ResolveAccountRequestBody, ResolveAccountResponse } from '../api/a
 
 // Server singletons & utilities
 export {
+  AgenticTrustClient,
+} from './singletons/agenticTrustClient';
+
+export type {
+  ApiClientConfig,
+} from './lib/types';
+
+export {
+  fetchAgentCard,
+} from './lib/agentCard';
+
+export {
+  Agent,
+} from './lib/agent';
+
+export type {
+  AgentCard,
+  AgentSkill,
+  AgentCapabilities,
+  MessageRequest,
+  MessageResponse,
+} from './lib/agent';
+
+export {
+  AgentsAPI,
+} from './lib/agents';
+
+export type {
+  ListAgentsResponse,
+} from './lib/agents';
+
+export {
+  createFeedbackAuth,
+} from './lib/agentFeedback';
+
+export type {
+  RequestAuthParams,
+} from './lib/agentFeedback';
+
+export {
+  uploadRegistration,
+  getRegistration,
+  createRegistrationJSON,
+  type AgentRegistrationJSON,
+} from './lib/registration';
+
+export {
   getAdminApp,
   getAdminAddress,
   isAdminAppInitialized,
@@ -64,12 +111,12 @@ export {
 } from './singletons/reputationClient';
 
 // Session package utilities (Node.js fs access)
-export type { SessionPackage, DelegationSetup } from '../client/sessionPackage';
+export type { SessionPackage, DelegationSetup } from './lib/sessionPackage';
 export {
   loadSessionPackage,
   validateSessionPackage,
   buildDelegationSetup,
-} from '../client/sessionPackage';
+} from './lib/sessionPackage';
 
 // AA utilities that rely on server-side contexts
-export { buildAgentAccountFromSession } from '../client/aaClient';
+export { buildAgentAccountFromSession } from './lib/sessionPackage';

@@ -2,6 +2,7 @@
  * Agents API for AgenticTrust Client
  */
 
+import type { AgenticTrustClient } from '../singletons/agenticTrustClient';
 import {
   AIAgentIdentityClient,
   type AgentData,
@@ -12,11 +13,10 @@ import {
   BaseIdentityClient,
 } from '@erc8004/sdk';
 import { Agent } from './agent';
-import type { AgenticTrustClient } from './index';
 import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
-import { getDiscoveryClient } from '../server/singletons/discoveryClient';
+import { getDiscoveryClient } from '../singletons/discoveryClient';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
@@ -25,8 +25,8 @@ import {
   waitForUserOperationReceipt,
   deploySmartAccountIfNeeded,
   isSmartContract,
-} from './bundlerUtils';
-import { getAdminApp } from '../server/userApps/adminApp';
+} from '../../client/bundlerUtils';
+import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
 
 const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
@@ -61,11 +61,6 @@ export class AgentsAPI {
       const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
       return idB - idA;
     });
-
-    // Debug: Log the response data
-    if (typeof window !== 'undefined') {
-      console.log('[listAgents] total agents 123:', sortedAgents.length);
-    }
 
     // Convert AgentData to Agent instances
     const agentInstances = sortedAgents.map((data: AgentData) => new Agent(data, this.client));

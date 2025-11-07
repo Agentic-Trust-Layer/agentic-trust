@@ -207,17 +207,49 @@ export function buildDelegationSetup(
   };
 }
 
-/**
- * Build agent account from session package
- * Uses MetaMask smart account implementation
- * 
- * @deprecated This function has been moved to aaClient.ts
- * Use buildAgentAccountFromSession from './aaClient' instead
- */
+async function getMetaMaskToolkit() {
+  try {
+    const mod = await import('@metamask/delegation-toolkit');
+    const toMetaMaskSmartAccount = mod.toMetaMaskSmartAccount;
+    const Implementation = mod.Implementation;
+
+    if (!toMetaMaskSmartAccount || !Implementation) {
+      throw new Error('Invalid @metamask/delegation-toolkit export. Ensure the package is installed correctly.');
+    }
+
+    return { toMetaMaskSmartAccount, Implementation };
+  } catch (error: any) {
+    throw new Error(
+      '@metamask/delegation-toolkit package not installed. Install it with: pnpm add @metamask/delegation-toolkit ' +
+      `Error: ${error?.message || error}`
+    );
+  }
+}
+
 export async function buildAgentAccountFromSession(sessionPackage?: SessionPackage): Promise<Account> {
-  // Re-export from aaClient to maintain backward compatibility
-  const { buildAgentAccountFromSession: buildFromAA } = await import('./aaClient');
-  const sp = buildDelegationSetup(sessionPackage);
-  return buildFromAA(sessionPackage, sp);
+  if (!sessionPackage) {
+    throw new Error('sessionPackage is required to build agent account');
+  }
+
+  const delegationSetup = buildDelegationSetup(sessionPackage);
+
+  const publicClient = createPublicClient({
+    chain: delegationSetup.chain,
+    transport: http(delegationSetup.rpcUrl),
+  });
+
+  const agentOwnerEOA = privateKeyToAccount(delegationSetup.sessionKey.privateKey);
+  const { toMetaMaskSmartAccount, Implementation } = await getMetaMaskToolkit();
+
+  const agentOwnerAddress = delegationSetup.sessionAA || delegationSetup.aa;
+
+  const agentAccountClient = await toMetaMaskSmartAccount({
+    address: agentOwnerAddress as `0x${string}`,
+    client: publicClient,
+    implementation: Implementation.Hybrid,
+    signatory: { account: agentOwnerEOA },
+  } as any);
+
+  return agentAccountClient as Account;
 }
 

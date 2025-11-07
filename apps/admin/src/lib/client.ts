@@ -4,7 +4,7 @@
  * Initializes AgenticTrustClient with admin configuration for agent management
  */
 
-import { AgenticTrustClient, type ApiClientConfig } from '@agentic-trust/core';
+import { AgenticTrustClient, type ApiClientConfig } from '@agentic-trust/core/server';
 
 // Singleton instance
 let agenticTrustClientInstance: AgenticTrustClient | null = null;

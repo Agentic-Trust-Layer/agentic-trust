@@ -5,47 +5,17 @@
  */
 
 import { GraphQLClient } from 'graphql-request';
-import type { ApiClientConfig } from './types';
-import { AgentsAPI } from './agents';
-import { A2AProtocolProviderAPI } from './a2aProtocolProvider';
-import { VeramoAPI, type AuthChallenge, type ChallengeVerificationResult } from './veramo';
+import type { ApiClientConfig } from '../lib/types';
+import { AgentsAPI } from '../lib/agents';
+import { A2AProtocolProviderAPI } from '../lib/a2aProtocolProvider';
+import { VeramoAPI, type AuthChallenge, type ChallengeVerificationResult } from '../lib/veramo';
 
-import { getClientAddress } from '../server/userApps/clientApp';
-
-export type { ApiClientConfig } from './types';
-export type { AgentData } from './agents';
-export type { ListAgentsResponse } from './agents';
-export { Agent } from './agent';
-export type { 
-  MessageRequest, 
-  MessageResponse, 
-  AgentCard, 
-  AgentSkill, 
-  AgentCapabilities 
-} from './agent';
-export type {
-  AgentProvider,
-  A2ARequest,
-  A2AResponse,
-  ProviderEndpoint,
-} from './a2aProtocolProvider';
-export { A2AProtocolProvider } from './a2aProtocolProvider';
-export type {
-  AgentRegistration,
-} from './agentCard';
-export type { VeramoAgent, AuthChallenge, ChallengeVerificationResult } from './veramo';
-export { createVeramoAgentForClient } from './veramoFactory';
-export type {
-  Challenge,
-  ChallengeRequest,
-  SignedChallenge,
-  VerificationRequest,
-  VerificationResult,
-} from './verification';
-// Session package utilities are server-only and should be imported from '@agentic-trust/core/server'
-// They are NOT exported here to prevent browser bundling issues (uses Node.js 'fs' module)
-// Type exports are safe for client-side
-export type { SessionPackage, DelegationSetup } from './sessionPackage';
+import { getClientAddress } from '../userApps/clientApp';
+import { getENSClient } from './ensClient';
+import { getDiscoveryClient } from './discoveryClient';
+import { getReputationClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
+import { getAdminApp } from '../userApps/adminApp';
+import { createVeramoAgentForClient } from '../lib/veramoFactory';
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -69,7 +39,7 @@ export class AgenticTrustClient {
    * @returns The ENS client instance
    */
   async getENSClient(): Promise<any> {
-    const { getENSClient } = await import('../server/singletons/ensClient');
+    const { getENSClient } = await import('./ensClient');
     return await getENSClient();
   }
 
@@ -120,7 +90,7 @@ export class AgenticTrustClient {
     // Initialize discovery client singleton with this client's config
     // This ensures the singleton uses the same configuration as this client
     // Initialize lazily (will be initialized when first used)
-    import('../server/singletons/discoveryClient').then(({ getDiscoveryClient }) => {
+    import('./discoveryClient').then(({ getDiscoveryClient }) => {
       getDiscoveryClient({
         endpoint,
         apiKey: config.apiKey,
@@ -151,7 +121,6 @@ export class AgenticTrustClient {
     } else {
       console.log('🏭 initializeVeramoAgent: Creating agent internally...');
       // Import the factory function
-      const { createVeramoAgentForClient } = await import('./veramoFactory');
       console.log('✅ initializeVeramoAgent: Factory imported: ', config.rpcUrl, ', privateKey: ', config.privateKey);
       
       // Create agent internally
@@ -181,7 +150,7 @@ export class AgenticTrustClient {
     console.log('📋 AgenticTrustClient.create: Step 2 - Checking reputation configuration...');
     if (config.sessionPackage) {
       console.log('📋 AgenticTrustClient.create: Initializing reputation from sessionPackage...');
-      await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: import('./sessionPackage').SessionPackage; ensRegistry: `0x${string}` });
+      await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: import('../lib/sessionPackage').SessionPackage; ensRegistry: `0x${string}` });
       console.log('✅ AgenticTrustClient.create: Reputation initialized from sessionPackage');
     } else if (config.identityRegistry && config.reputationRegistry) {
       // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
@@ -208,10 +177,10 @@ export class AgenticTrustClient {
    */
   private async initializeReputationFromSessionPackage(config: {
     filePath?: string;
-    package?: import('./sessionPackage').SessionPackage;
+    package?: import('../lib/sessionPackage').SessionPackage;
     ensRegistry: `0x${string}`;
   }): Promise<void> {
-    const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('./sessionPackage');
+    const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('../lib/sessionPackage');
     
     // Load session package
     const sessionPackage = config.package || loadSessionPackage(config.filePath);
@@ -292,7 +261,7 @@ export class AgenticTrustClient {
     const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === 'true' || process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1';
     if (isAdminApp) {
       try {
-        const { getAdminApp } = await import('../server/userApps/adminApp');
+        const { getAdminApp } = await import('../userApps/adminApp');
         const adminApp = await getAdminApp();
         if (adminApp && adminApp.accountProvider) {
           // Use AdminApp's AccountProvider (works with private key OR wallet provider)
@@ -313,7 +282,7 @@ export class AgenticTrustClient {
     // Try ClientApp if AdminApp didn't work
     if (!agentAccountProvider) {
       try {
-        const { getClientApp } = await import('../server/userApps/clientApp');
+        const { getClientApp } = await import('../userApps/clientApp');
         const clientApp = await getClientApp();
         if (clientApp && clientApp.accountProvider) {
           // Use ClientApp's AccountProvider
@@ -416,7 +385,7 @@ export class AgenticTrustClient {
 
     // Store the reputation client in the singleton
     // Import the singleton module and set it directly
-    const reputationClientModule = await import('../server/singletons/reputationClient');
+    const reputationClientModule = await import('./reputationClient');
     // Access the singleton instance variable (we need to export a setter or access it)
     // For now, we'll use a workaround - the singleton will be initialized when getReputationClient is called
     // But we've created the client here, so future calls to getReputationClient should use the singleton's logic

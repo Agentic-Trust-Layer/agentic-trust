@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { handleCreateENS } from '@agentic-trust/core/server';
-import { getAdminClient } from '@/lib/client';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,7 +7,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     
-    const result = await handleCreateENS(body, getAdminClient);
+    const result = await handleCreateENS(body);
     
     if (!result.success) {
       return NextResponse.json(

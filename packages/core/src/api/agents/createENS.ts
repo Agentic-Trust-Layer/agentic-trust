@@ -3,7 +3,6 @@
  * Can be used by Next.js API routes
  */
 
-import type { AgenticTrustClient } from '../../client';
 
 export interface CreateENSRequestBody {
   agentName: string;
@@ -26,8 +25,7 @@ export interface CreateENSResponse {
  * @returns Response data
  */
 export async function handleCreateENS(
-  body: CreateENSRequestBody,
-  getClient: () => Promise<AgenticTrustClient>
+  body: CreateENSRequestBody
 ): Promise<CreateENSResponse> {
   try {
     const { agentName, orgName, agentAddress, agentUrl } = body;
@@ -51,7 +49,6 @@ export async function handleCreateENS(
     }
 
     // Get client and create ENS name
-    const client = await getClient();
     const { createENSName } = await import('../../server/singletons/ensClient');
     
     // Get AdminApp's accountProvider for ENS creation
