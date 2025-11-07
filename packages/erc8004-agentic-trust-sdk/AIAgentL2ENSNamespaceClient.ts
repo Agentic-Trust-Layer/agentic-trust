@@ -51,9 +51,9 @@ export class AIAgentL2ENSNamespaceClient extends AIAgentENSClient {
       const client = createMintClient({
         isTestnet: true, // Use testnet (sepolia)
         cursomRpcUrls: {
-          [sepolia.id]: process.env.NEXT_PUBLIC_ETH_SEPOLIA_RPC_URL || 'https://eth-sepolia.g.alchemy.com/v2/demo',
-          [baseSepolia.id]: process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL || 'https://base-sepolia.g.alchemy.com/v2/demo',
-          [optimismSepolia.id]: process.env.NEXT_PUBLIC_OP_SEPOLIA_RPC_URL || 'https://op-sepolia.g.alchemy.com/v2/demo',
+          [sepolia.id]: process.env.ETH_SEPOLIA_RPC_URL || '',
+          [baseSepolia.id]: process.env.BASE_SEPOLIA_RPC_URL || '',
+          [optimismSepolia.id]: process.env.OP_SEPOLIA_RPC_URL || '',
         }
       });
       

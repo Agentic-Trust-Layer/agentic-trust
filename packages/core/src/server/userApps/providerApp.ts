@@ -7,7 +7,7 @@
 
 import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
-import type { SessionPackage, DelegationSetup } from './sessionPackage';
+import type { SessionPackage, DelegationSetup } from '../../client/sessionPackage';
 
 // Provider app instance type
 type ProviderAppInstance = {
@@ -49,7 +49,7 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
       }
 
       // Load session package and build delegation setup
-      const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('./sessionPackage');
+      const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('../../client/sessionPackage');
       const sessionPackage = loadSessionPackage(sessionPackagePath);
       const delegationSetup = buildDelegationSetup(sessionPackage);
 
@@ -66,8 +66,8 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
 
       // Create AccountProvider
       const accountProvider = new ViemAccountProvider({
-        publicClient: delegationSetup.publicClient,
-        walletClient,
+        publicClient: delegationSetup.publicClient as any,
+        walletClient: walletClient as any,
         account: agentAccount,
         chainConfig: {
           id: delegationSetup.chain.id,

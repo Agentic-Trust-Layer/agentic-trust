@@ -828,16 +828,24 @@ export class AIAgentENSClient {
     const parent = clean(params.orgName);
     const label = clean(params.agentName).replace(/\s+/g, '-');
 
-    console.info("@@@@@@@@@@@@@@@@@@@ parent: ", parent);
-    console.info("@@@@@@@@@@@@@@@@@@@ label: ", label);
-    console.info("@@@@@@@@@@@@@@@@@@@ agentAddress: ", params.agentAddress);
-    console.info("@@@@@@@@@@@@@@@@@@@ NEXT_PUBLIC_ETH_SEPOLIA_ENS_PUBLIC_RESOLVER: ", process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_PUBLIC_RESOLVER);
-
-
     const parentNode = namehash(parent + ".eth");
 
     const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
 
+
+    // Use stored resolver address from client instance
+    const resolverAddress = this.getEnsResolverAddress();
+    if (!resolverAddress || resolverAddress === '0x' || resolverAddress.length !== 42) {
+      throw new Error(`Invalid ENS resolver address: ${resolverAddress}. Ensure ENS resolver is properly configured.`);
+    }
+
+    // Get identity wrapper address from environment or use a default
+    // TODO: Consider storing this in the client instance for consistency
+    const identityWrapperAddress = process.env.AGENTIC_TRUST_ENS_IDENTITY_WRAPPER as `0x${string}` | undefined;
+    
+    if (!identityWrapperAddress || identityWrapperAddress.length !== 42) {
+      throw new Error(`Invalid ENS identity wrapper address. Set AGENTIC_TRUST_ENS_IDENTITY_WRAPPER environment variable.`);
+    }
 
     const subdomainData = encodeFunctionData({
       abi: NameWrapperABI.abi,
@@ -846,14 +854,14 @@ export class AIAgentENSClient {
         parentNode,
         label,
         params.agentAddress,
-        process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_PUBLIC_RESOLVER as `0x${string}`,
+        resolverAddress,
         0,
         0,
         0
       ]
     });
     const call = {
-      to: process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_IDENTITY_WRAPPER as `0x${string}`,
+      to: identityWrapperAddress,
       data: subdomainData,
       value: 0n
     }

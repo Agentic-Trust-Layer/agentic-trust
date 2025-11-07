@@ -49,10 +49,14 @@
   },
   "peerDependencies": {
     "@metamask/delegation-toolkit": "*",
-    "@veramo/core": "^6.0.0"
+    "@veramo/core": "^6.0.0",
+    "permissionless": "*"
   },
   "peerDependenciesMeta": {
     "@metamask/delegation-toolkit": {
+      "optional": true
+    },
+    "permissionless": {
       "optional": true
     }
   },

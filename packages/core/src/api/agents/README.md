@@ -48,7 +48,7 @@ If you prefer to create routes manually, import and use the `handleCreateAgent` 
 ```typescript
 // apps/your-app/src/app/api/agents/create/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { handleCreateAgent } from '@agentic-trust/core';
+import { handleCreateAgent } from '@agentic-trust/core/server';
 import { getYourClient } from '@/lib/client'; // Your app-specific client getter
 
 export async function POST(request: NextRequest) {

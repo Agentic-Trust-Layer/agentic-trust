@@ -6,8 +6,6 @@ import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
 import { createAgentWithWallet } from '@agentic-trust/core/client';
-import { keccak256, stringToHex, createPublicClient, http, createWalletClient, custom } from 'viem';
-import { sepolia } from 'viem/chains';
 
 type Agent = {
   agentId?: number;
@@ -97,9 +95,18 @@ export default function AdminPage() {
   }, [eoaAddress, useAA]);
 
   // Compute AA address when useAA is enabled and agent name changes
+  // Uses getAAAccountClientByAgentName logic (ENS resolution -> deterministic)
   useEffect(() => {
     if (!useAA || !createForm.agentName || !eoaAddress) {
       setAaAddress(null);
+      setAaComputing(false);
+      // Clear agent account field if AA is disabled
+      if (!useAA && eoaAddress) {
+        setCreateForm(prev => ({
+          ...prev,
+          agentAccount: eoaAddress,
+        }));
+      }
       return;
     }
 
@@ -108,53 +115,37 @@ export default function AdminPage() {
 
     (async () => {
       try {
-        // Import toMetaMaskSmartAccount dynamically
-        const { toMetaMaskSmartAccount, Implementation } = await import('@metamask/delegation-toolkit') as any;
+        // Use the core package's getAAAccountClientByAgentName function
+        // This will try ENS resolution first, then fall back to deterministic computation
+        const { getAAAccountClientByAgentName } = await import('@agentic-trust/core') as any;
+        const agentAccountClient = await getAAAccountClientByAgentName(
+          createForm.agentName,
+          eoaAddress as `0x${string}`,
+          {
+            ethereumProvider: (window as any).ethereum,
+          }
+        );
         
-        // Use agent name as salt to generate deterministic AA address
-        const salt: `0x${string}` = keccak256(stringToHex(createForm.agentName.toLowerCase())) as `0x${string}`;
-        
-        // Get RPC URL from environment
-        const rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || 'https://sepolia.infura.io/v3/YOUR_KEY';
-        const publicClient = createPublicClient({
-          chain: sepolia,
-          transport: http(rpcUrl),
-        });
-
-        // Create a dummy wallet client for address computation (we only need the address, not signing)
-        const provider = (window as any).ethereum;
-        if (!provider) {
-          throw new Error('No wallet provider found');
-        }
-
-        const walletClient = createWalletClient({
-          chain: sepolia,
-          transport: custom(provider),
-          account: eoaAddress as Address,
-        });
-
-        // Compute AA address using salt
-        const agentAccountClient = await toMetaMaskSmartAccount({
-          client: publicClient,
-          implementation: Implementation.Hybrid,
-          deployParams: [eoaAddress as `0x${string}`, [], [], []],
-          signatory: { walletClient },
-          deploySalt: salt,
-        } as any);
-
-        const computedAddress = await agentAccountClient.getAddress();
-        
-        if (!cancelled) {
-          setAaAddress(computedAddress);
-          setCreateForm(prev => ({
-            ...prev,
-            agentAccount: computedAddress,
-          }));
+        if (!cancelled && agentAccountClient) {
+          const computedAddress = await agentAccountClient.getAddress();
+          if (computedAddress) {
+            setAaAddress(computedAddress);
+            // Update the Agent Account field with the computed address
+            setCreateForm(prev => ({
+              ...prev,
+              agentAccount: computedAddress,
+            }));
+          }
         }
       } catch (error) {
         console.error('Error computing AA address:', error);
         if (!cancelled) {
           setAaAddress(null);
+          // Clear agent account field on error
+          setCreateForm(prev => ({
+            ...prev,
+            agentAccount: '',
+          }));
         }
       } finally {
         if (!cancelled) {
@@ -169,8 +160,9 @@ export default function AdminPage() {
   }, [useAA, createForm.agentName, eoaAddress]);
 
   // Check ENS availability when createENS is enabled and agent name changes
+  // Only check if AA is enabled (ENS only makes sense for AA agents)
   useEffect(() => {
-    if (!createENS || !createForm.agentName || !ensOrgName) {
+    if (!useAA || !createENS || !createForm.agentName || !ensOrgName) {
       setEnsAvailable(null);
       return;
     }
@@ -180,49 +172,9 @@ export default function AdminPage() {
 
     (async () => {
       try {
-        const { getAdminApp } = await import('@agentic-trust/core') as any;
-        const adminApp = await getAdminApp();
-        if (!adminApp) {
-          return;
-        }
-
-        // Import through core package which re-exports these
-        // Using a try-catch to handle potential import issues
-        let AIAgentENSClient: any;
-        try {
-          const coreModule = await import('@agentic-trust/core') as any;
-          AIAgentENSClient = coreModule.AIAgentENSClient;
-          if (!AIAgentENSClient) {
-            throw new Error('AIAgentENSClient not found in core package');
-          }
-        } catch (error) {
-          console.error('Failed to import AIAgentENSClient from core:', error);
-          throw new Error('Failed to load ENS client. Please ensure @agentic-trust/core is properly installed.');
-        }
-        
-        // Create ENS client using admin app's account provider
-        const rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || 'https://sepolia.infura.io/v3/YOUR_KEY';
-        const ensRegistry = process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_REGISTRY || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
-        const ensResolver = process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_PUBLIC_RESOLVER || '0x8FADE66B79CAC9f7c46c1cbC0076E75B867D1c8f7';
-        const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY || '0x0000000000000000000000000000000000000000';
-
-        const ensClient = new AIAgentENSClient(
-          sepolia,
-          rpcUrl,
-          adminApp.accountProvider,
-          ensRegistry as `0x${string}`,
-          ensResolver as `0x${string}`,
-          identityRegistry as `0x${string}`,
-        );
-
-        // Format: agentName.orgName.eth
-        const agentNameLabel = createForm.agentName.toLowerCase().replace(/\s+/g, '-');
-        const orgName = ensOrgName.toLowerCase().replace(/\.eth$/, '');
-        const fullName = `${agentNameLabel}.${orgName}.eth`;
-        
-        // Check if agent name is available
-        const existingAccount = await ensClient.getAgentAccountByName(fullName);
-        const isAvailable = !existingAccount || existingAccount === '0x0000000000000000000000000000000000000000';
+        // Use the core package's isENSAvailable function which uses the ENS client singleton
+        const { isENSAvailable } = await import('@agentic-trust/core') as any;
+        const isAvailable = await isENSAvailable(createForm.agentName, ensOrgName);
         
         if (!cancelled) {
           setEnsAvailable(isAvailable);
@@ -242,7 +194,14 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [createENS, createForm.agentName, ensOrgName]);
+  }, [useAA, createENS, createForm.agentName, ensOrgName]);
+
+  // Reset ENS toggle when AA is disabled
+  useEffect(() => {
+    if (!useAA) {
+      setCreateENS(false);
+    }
+  }, [useAA]);
 
   // Filter agents based on search query
   useEffect(() => {
@@ -369,81 +328,51 @@ export default function AdminPage() {
       setError(null);
       setSuccess(null);
 
-      let agentAccountToUse = createForm.agentAccount as `0x${string}`;
+      // Use the agent account from the form (which should be populated with AA address if useAA is enabled)
+      const agentAccountToUse = createForm.agentAccount as `0x${string}`;
 
-      // If using AA and we have a computed address, use it
-      if (useAA && aaAddress) {
-        agentAccountToUse = aaAddress as `0x${string}`;
+      // If using AA, the agent account should already be populated by the useEffect
+      if (useAA) {
+        if (!agentAccountToUse || !agentAccountToUse.startsWith('0x')) {
+          throw new Error('AA address computation is in progress. Please wait for the address to be computed.');
+        }
         setSuccess('Using Account Abstraction address...');
       }
 
-      // If creating ENS, create the ENS record first
-      if (createENS && createForm.agentName && ensOrgName) {
+      // Validate agentAccountToUse before proceeding
+      if (!agentAccountToUse || agentAccountToUse.trim() === '' || !agentAccountToUse.startsWith('0x')) {
+        throw new Error('Agent account address is required. Please provide an agent account address or enable Account Abstraction.');
+      }
+
+      // If creating ENS, create the ENS record first (only when AA is enabled)
+      if (useAA && createENS && createForm.agentName && ensOrgName) {
         try {
           setSuccess('Creating ENS record...');
           
-          // Import getAdminApp - it's safe to import from main index as it doesn't use sessionPackage
-          const { getAdminApp } = await import('@agentic-trust/core') as any;
-          const adminApp = await getAdminApp();
-          if (!adminApp) {
-            throw new Error('AdminApp not initialized');
-          }
-
-          // Import through core package which re-exports these
-          // Using a try-catch to handle potential import issues
-          let AIAgentENSClient: any;
-          let ViemAccountProvider: any;
-          try {
-            const coreModule = await import('@agentic-trust/core') as any;
-            AIAgentENSClient = coreModule.AIAgentENSClient;
-            ViemAccountProvider = coreModule.ViemAccountProvider;
-            if (!AIAgentENSClient || !ViemAccountProvider) {
-              throw new Error('Required classes not found in core package');
-            }
-          } catch (error) {
-            console.error('Failed to import from core:', error);
-            throw new Error('Failed to load required modules. Please ensure @agentic-trust/core is properly installed.');
+          // Validate agentAccountToUse again before ENS creation
+          if (!agentAccountToUse || !agentAccountToUse.startsWith('0x') || agentAccountToUse.length !== 42) {
+            throw new Error(`Invalid agent account address: ${agentAccountToUse}. Must be a valid Ethereum address.`);
           }
           
-          const rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || 'https://sepolia.infura.io/v3/YOUR_KEY';
-          const ensRegistry = process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_REGISTRY || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
-          const ensResolver = process.env.NEXT_PUBLIC_ETH_SEPOLIA_ENS_PUBLIC_RESOLVER || '0x8FADE66B79CAC9f7c46c1cbC0076E75B867D1c8f7';
-          const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY || '0x0000000000000000000000000000000000000000';
-
-          const ensClient = new AIAgentENSClient(
-            sepolia,
-            rpcUrl,
-            adminApp.accountProvider,
-            ensRegistry as `0x${string}`,
-            ensResolver as `0x${string}`,
-            identityRegistry as `0x${string}`,
-          );
-
-          // Prepare ENS creation calls
-          const agentNameLabel = createForm.agentName.toLowerCase().replace(/\s+/g, '-');
-          const orgName = ensOrgName.toLowerCase().replace(/\.eth$/, '');
-          const fullOrgName = `${orgName}.eth`;
-          const agentUrl = createForm.agentUrl || '';
-
-          const { calls } = await ensClient.prepareAddAgentNameToOrgCalls({
-            orgName: fullOrgName,
-            agentName: agentNameLabel,
-            agentAddress: agentAccountToUse,
-            agentUrl: agentUrl || '',
+          // Call API route for ENS creation (server-side, can access AdminApp properly)
+          const ensResponse = await fetch('/api/agents/create-ens', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentName: createForm.agentName,
+              orgName: ensOrgName,
+              agentAddress: agentAccountToUse,
+              agentUrl: createForm.agentUrl || undefined,
+            }),
           });
 
-          // Send ENS creation transactions
-          for (const call of calls) {
-            const result = await adminApp.accountProvider.send({
-              to: call.to,
-              data: call.data as `0x${string}`,
-              value: call.value || 0n,
-            }, {
-              simulation: true,
-            });
-            console.log('ENS record created:', result.hash);
+          if (!ensResponse.ok) {
+            const errorData = await ensResponse.json();
+            throw new Error(errorData.error || 'Failed to create ENS record');
           }
 
+          const ensData = await ensResponse.json();
+          console.log('ENS record created with transactions:', ensData.txHashes);
           setSuccess('ENS record created successfully! Creating agent...');
         } catch (ensError) {
           console.error('Error creating ENS record:', ensError);
@@ -463,6 +392,8 @@ export default function AdminPage() {
         },
         account: eoaAddress as Address,
         onStatusUpdate: setSuccess,
+        // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
+        useAA: useAA || undefined,
       });
 
       // Handle result
@@ -658,35 +589,26 @@ export default function AdminPage() {
             </label>
             <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666' }}>
               {useAA 
-                ? 'Agent Account will be generated deterministically from Agent Name using keccak256 salt.'
+                ? 'Agent Account will be computed from Agent Name (tries ENS resolution first, then deterministic computation).'
                 : 'Use your connected wallet address as the Agent Account (EOA).'}
             </p>
-            {useAA && aaComputing && (
-              <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#007bff' }}>
-                Computing AA address...
-              </p>
-            )}
-            {useAA && aaAddress && (
-              <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#28a745', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                AA Address: {aaAddress}
-              </p>
-            )}
           </div>
 
-          {/* Create ENS Name Toggle */}
-          <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #e1e4e8' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={createENS}
-                onChange={(e) => setCreateENS(e.target.checked)}
-                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-              />
-              <span style={{ fontWeight: 'bold' }}>Create ENS Name</span>
-            </label>
-            <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666' }}>
-              Create an ENS subdomain record for this agent (e.g., agentname.orgname.eth)
-            </p>
+          {/* Create ENS Name Toggle - Only show when AA is enabled */}
+          {useAA && (
+            <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #e1e4e8' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={createENS}
+                  onChange={(e) => setCreateENS(e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                <span style={{ fontWeight: 'bold' }}>Create ENS Name</span>
+              </label>
+              <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666' }}>
+                Create an ENS subdomain record for this agent (e.g., agentname.orgname.eth). Only available for Account Abstraction agents.
+              </p>
             {createENS && (
               <div style={{ marginTop: '0.5rem', marginLeft: '1.75rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
@@ -719,7 +641,8 @@ export default function AdminPage() {
                 )}
               </div>
             )}
-          </div>
+            </div>
+          )}
 
           <form onSubmit={handleCreateAgent}>
             <div style={{ marginBottom: '1rem' }}>
@@ -741,9 +664,14 @@ export default function AdminPage() {
               <input
                 type="text"
                 value={createForm.agentAccount}
-                onChange={(e) => setCreateForm({ ...createForm, agentAccount: e.target.value })}
+                onChange={(e) => {
+                  // Allow manual editing only if AA is disabled
+                  if (!useAA) {
+                    setCreateForm({ ...createForm, agentAccount: e.target.value });
+                  }
+                }}
                 required={!useAA}
-                disabled={useAA && !!aaAddress}
+                disabled={useAA}
                 pattern="^0x[a-fA-F0-9]{40}$"
                 style={{ 
                   width: '100%', 
@@ -751,13 +679,18 @@ export default function AdminPage() {
                   border: '1px solid #ddd', 
                   borderRadius: '4px', 
                   fontFamily: 'monospace',
-                  backgroundColor: useAA && aaAddress ? '#f8f9fa' : '#fff',
-                  cursor: useAA && aaAddress ? 'not-allowed' : 'text'
+                  backgroundColor: useAA ? '#f8f9fa' : '#fff',
+                  cursor: useAA ? 'not-allowed' : 'text'
                 }}
               />
               {useAA && !aaAddress && !aaComputing && (
                 <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#dc3545' }}>
                   Enter an Agent Name above to generate the AA address
+                </p>
+              )}
+              {useAA && aaComputing && (
+                <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#007bff' }}>
+                  Computing AA address from agent name...
                 </p>
               )}
             </div>

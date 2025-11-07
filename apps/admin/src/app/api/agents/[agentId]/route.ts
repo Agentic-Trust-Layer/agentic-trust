@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleGetAgentInfo } from '@agentic-trust/core';
+import { handleGetAgentInfo } from '@agentic-trust/core/server';
 import { getAdminClient } from '@/lib/client';
 
 /**

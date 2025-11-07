@@ -1,7 +1,7 @@
 /**
- * AI Agent GraphQL Client
+ * AI Agent Discovery Client
  * 
- * Fronts for GraphQL requests to the indexer
+ * Fronts for discovery-index GraphQL requests to the indexer
  * Provides a clean interface for querying agent data
  */
 
@@ -20,7 +20,7 @@ export interface AgentData {
 }
 
 /**
- * GraphQL query response types
+ * Discovery query response types
  */
 export interface ListAgentsResponse {
   agents: AgentData[];
@@ -43,9 +43,9 @@ export interface RefreshAgentResponse {
 }
 
 /**
- * Configuration for AIAgentGraphQLClient
+ * Configuration for AIAgentDiscoveryClient
  */
-export interface AIAgentGraphQLClientConfig {
+export interface AIAgentDiscoveryClientConfig {
   /**
    * GraphQL endpoint URL
    */
@@ -68,15 +68,15 @@ export interface AIAgentGraphQLClientConfig {
 }
 
 /**
- * AI Agent GraphQL Client
+ * AI Agent Discovery Client
  * 
  * Provides methods for querying agent data from the indexer
  */
-export class AIAgentGraphQLClient {
+export class AIAgentDiscoveryClient {
   private client: GraphQLClient;
-  private config: AIAgentGraphQLClientConfig;
+  private config: AIAgentDiscoveryClientConfig;
 
-  constructor(config: AIAgentGraphQLClientConfig) {
+  constructor(config: AIAgentDiscoveryClientConfig) {
     this.config = config;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -136,7 +136,7 @@ export class AIAgentGraphQLClient {
           currentOffset += pageLimit;
           // Safety limit: prevent infinite loops
           if (currentOffset > 10000) {
-            console.warn('[AIAgentGraphQLClient.listAgents] Reached safety limit of 10000 agents');
+            console.warn('[AIAgentDiscoveryClient.listAgents] Reached safety limit of 10000 agents');
             hasMore = false;
           }
         }
@@ -157,7 +157,7 @@ export class AIAgentGraphQLClient {
           const data = await this.client.request<ListAgentsResponse>(fallbackQuery);
           allAgents = data.agents || [];
         } else {
-          console.warn('[AIAgentGraphQLClient.listAgents] Pagination error, using fetched agents so far:', error);
+          console.warn('[AIAgentDiscoveryClient.listAgents] Pagination error, using fetched agents so far:', error);
         }
         hasMore = false;
       }
@@ -193,7 +193,7 @@ export class AIAgentGraphQLClient {
 
       return data.agent || null;
     } catch (error) {
-      console.error('[AIAgentGraphQLClient.getAgent] Error fetching agent:', error);
+      console.error('[AIAgentDiscoveryClient.getAgent] Error fetching agent:', error);
       return null;
     }
   }
@@ -225,7 +225,7 @@ export class AIAgentGraphQLClient {
 
       return data.agents || [];
     } catch (error) {
-      console.error('[AIAgentGraphQLClient.searchAgents] Error searching agents:', error);
+      console.error('[AIAgentDiscoveryClient.searchAgents] Error searching agents:', error);
       // Fallback to client-side filtering if search isn't supported
       const allAgents = await this.listAgents();
       const searchLower = searchTerm.toLowerCase();
@@ -283,7 +283,7 @@ export class AIAgentGraphQLClient {
       const data = await clientToUse.request<RefreshAgentResponse>(mutation, variables);
       return data.indexAgent;
     } catch (error) {
-      console.error('[AIAgentGraphQLClient.refreshAgent] Error refreshing agent:', error);
+      console.error('[AIAgentDiscoveryClient.refreshAgent] Error refreshing agent:', error);
       throw new Error(
         `Failed to refresh agent: ${error instanceof Error ? error.message : 'Unknown error'}`
       );

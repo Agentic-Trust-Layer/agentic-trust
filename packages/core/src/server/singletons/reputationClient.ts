@@ -8,9 +8,9 @@
 
 import { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
-import { getClientApp } from './clientApp';
-import { getProviderApp } from './providerApp';
-import { getAdminApp } from './adminApp';
+import { getClientApp } from '../userApps/clientApp';
+import { getProviderApp } from '../userApps/providerApp';
+import { getAdminApp } from '../userApps/adminApp';
 
 // Singleton instance
 let reputationClientInstance: AIAgentReputationClient | null = null;
@@ -81,7 +81,7 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
           
           // Try to get ClientApp for client operations
           try {
-            const { getClientApp } = await import('./clientApp');
+            const { getClientApp } = await import('../userApps/clientApp');
             const clientApp = await getClientApp();
             if (clientApp && clientApp.accountProvider) {
               clientAccountProvider = clientApp.accountProvider;

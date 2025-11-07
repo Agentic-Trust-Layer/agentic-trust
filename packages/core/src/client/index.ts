@@ -10,7 +10,7 @@ import { AgentsAPI } from './agents';
 import { A2AProtocolProviderAPI } from './a2aProtocolProvider';
 import { VeramoAPI, type AuthChallenge, type ChallengeVerificationResult } from './veramo';
 
-import { getClientAddress } from './clientApp';
+import { getClientAddress } from '../server/userApps/clientApp';
 
 export type { ApiClientConfig } from './types';
 export type { AgentData } from './agents';
@@ -46,23 +46,6 @@ export type {
 // They are NOT exported here to prevent browser bundling issues (uses Node.js 'fs' module)
 // Type exports are safe for client-side
 export type { SessionPackage, DelegationSetup } from './sessionPackage';
-export {
-  getReputationClient,
-  isReputationClientInitialized,
-  resetReputationClient,
-} from './reputationClient';
-export {
-  getClientApp,
-  getClientAddress,
-  isClientAppInitialized,
-  resetClientApp,
-} from './clientApp';
-export {
-  getProviderApp,
-  getProviderAgentId,
-  isProviderAppInitialized,
-  resetProviderApp,
-} from './providerApp';
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -79,6 +62,15 @@ export class AgenticTrustClient {
   async getClientAddress(): Promise<`0x${string}`> {
     
     return await getClientAddress();
+  }
+
+  /**
+   * Get the ENS client singleton
+   * @returns The ENS client instance
+   */
+  async getENSClient(): Promise<any> {
+    const { getENSClient } = await import('../server/singletons/ensClient');
+    return await getENSClient();
   }
 
   /**
@@ -125,16 +117,16 @@ export class AgenticTrustClient {
       headers,
     });
 
-    // Initialize AgentsGraphQLClient singleton with this client's config
+    // Initialize discovery client singleton with this client's config
     // This ensures the singleton uses the same configuration as this client
     // Initialize lazily (will be initialized when first used)
-    import('./agentsGraphQLClient').then(({ getAgentsGraphQLClient }) => {
-      getAgentsGraphQLClient({
+    import('../server/singletons/discoveryClient').then(({ getDiscoveryClient }) => {
+      getDiscoveryClient({
         endpoint,
         apiKey: config.apiKey,
         headers: config.headers,
       }).catch((error) => {
-        console.warn('Failed to initialize AgentsGraphQLClient singleton:', error);
+        console.warn('Failed to initialize DiscoveryClient singleton:', error);
       });
     });
 
@@ -178,7 +170,7 @@ export class AgenticTrustClient {
    */
   static async create(config: ApiClientConfig): Promise<AgenticTrustClient> {
 
-    console.log('______________ AgenticTrustClient: ', config);
+
     const client = new AgenticTrustClient(config);
     
     // Step 1: Initialize Veramo agent (always happens - either provided or created from privateKey)
@@ -240,26 +232,17 @@ export class AgenticTrustClient {
     // Get client account (session key address)
     const clientAccount = sessionPackage.sessionKey.address as `0x${string}`;
 
-    /*
-    const rpcUrl = this.config.rpcUrl;
-    if (!rpcUrl) {
-      throw new Error(
-        'rpcUrl is required. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL environment variable.'
-      );
-    }
-      */
-
     const reputationRegistry = this.config.reputationRegistry;
     if (!reputationRegistry) {
       throw new Error(
-        'reputationRegistry is required. Set NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY environment variable.'
+        'reputationRegistry is required. Set AGENTIC_TRUST_REPUTATION_REGISTRY environment variable.'
       );
     }
 
     const identityRegistry = this.config.identityRegistry;
     if (!identityRegistry) {
       throw new Error(
-        'identityRegistry is required. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
+        'identityRegistry is required. Set AGENTIC_TRUST_IDENTITY_REGISTRY environment variable.'
       );
     }
 
@@ -278,7 +261,7 @@ export class AgenticTrustClient {
     
     if (!identityRegistry || !reputationRegistry) {
       throw new Error(
-        'identityRegistry and reputationRegistry are required. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY and NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY environment variables.'
+        'identityRegistry and reputationRegistry are required. Set AGENTIC_TRUST_IDENTITY_REGISTRY and AGENTIC_TRUST_REPUTATION_REGISTRY environment variables.'
       );
     }
 
@@ -286,13 +269,13 @@ export class AgenticTrustClient {
     const rpcUrl = config.rpcUrl;
     if (!rpcUrl) {
       throw new Error(
-        'RPC URL is required. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL environment variable.'
+        'RPC URL is required. Set AGENTIC_TRUST_RPC_URL environment variable.'
       );
     }
 
     // Get ENS registry (optional, but recommended)
     const ensRegistry = config.sessionPackage?.ensRegistry || 
-      (process.env.AGENTIC_TRUST_ENS_REGISTRY || process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_REGISTRY) as `0x${string}` | undefined;
+      (process.env.AGENTIC_TRUST_ENS_REGISTRY || process.env.AGENTIC_TRUST_ENS_REGISTRY) as `0x${string}` | undefined;
     
     if (!ensRegistry) {
       console.log('⚠️ ENS registry not provided. which might be ok.');
@@ -309,7 +292,7 @@ export class AgenticTrustClient {
     const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === 'true' || process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1';
     if (isAdminApp) {
       try {
-        const { getAdminApp } = await import('./adminApp');
+        const { getAdminApp } = await import('../server/userApps/adminApp');
         const adminApp = await getAdminApp();
         if (adminApp && adminApp.accountProvider) {
           // Use AdminApp's AccountProvider (works with private key OR wallet provider)
@@ -330,7 +313,7 @@ export class AgenticTrustClient {
     // Try ClientApp if AdminApp didn't work
     if (!agentAccountProvider) {
       try {
-        const { getClientApp } = await import('./clientApp');
+        const { getClientApp } = await import('../server/userApps/clientApp');
         const clientApp = await getClientApp();
         if (clientApp && clientApp.accountProvider) {
           // Use ClientApp's AccountProvider
@@ -433,7 +416,7 @@ export class AgenticTrustClient {
 
     // Store the reputation client in the singleton
     // Import the singleton module and set it directly
-    const reputationClientModule = await import('./reputationClient');
+    const reputationClientModule = await import('../server/singletons/reputationClient');
     // Access the singleton instance variable (we need to export a setter or access it)
     // For now, we'll use a workaround - the singleton will be initialized when getReputationClient is called
     // But we've created the client here, so future calls to getReputationClient should use the singleton's logic

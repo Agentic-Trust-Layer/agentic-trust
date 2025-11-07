@@ -41,60 +41,52 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
     
     const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
 
-      // Get identity registry from environment
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      const reputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
+    // Get identity registry from environment
+    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
 
-      const config: ApiClientConfig = {
-        timeout: 30000,
-        headers: {
-          Accept: 'application/json',
-        },
-      };
+    const config: ApiClientConfig = {
+      timeout: 30000,
+      headers: {
+        Accept: 'application/json',
+      },
+    };
 
-      // Set graphQLUrl if provided
-      if (graphQLUrl) {
-        config.graphQLUrl = graphQLUrl;
-      }
-
-      // Set apiKey if provided
-      if (apiKey) {
-        config.apiKey = apiKey;
-      }
-
-      // Set private key if provided (for AgenticTrustClient's internal Veramo agent)
-      if (privateKey) {
-        config.privateKey = privateKey;
-      }
-
-      // Set RPC URLs if provided (for AgenticTrustClient's internal Veramo agent)
-      if (rpcUrl) {
-        config.rpcUrl = rpcUrl;
-      }
-
-      // Set identity registry if provided
-      if (identityRegistry) {
-        config.identityRegistry = identityRegistry as `0x${string}`;
-      }
-
-      // Set reputation registry if provided AND private key is available
-      // Reputation client requires private key for signing operations
-      // For wallet-only connections (MetaMask/Web3Auth), omit reputation registry
-      if (reputationRegistry && privateKey) {
-        config.reputationRegistry = reputationRegistry as `0x${string}`;
-      } else if (reputationRegistry && !privateKey) {
-        console.warn('⚠️ Reputation registry provided but no private key available. Reputation client will not be initialized. Use Web3Auth social login or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY for reputation operations.');
-      }
-
-      // Create the client
-      console.info('Creating Admin AgenticTrustClient instance');
-      const client = await AgenticTrustClient.create(config);
-      console.log('✅ Admin AgenticTrustClient initialized');
-      return client;
-    } catch (error) {
-      console.error('❌ Failed to initialize admin AgenticTrustClient:', error);
-      throw error;
+    // Set graphQLUrl if provided
+    if (graphQLUrl) {
+      config.graphQLUrl = graphQLUrl;
     }
+
+    // Set apiKey if provided
+    if (apiKey) {
+      config.apiKey = apiKey;
+    }
+
+    // Set private key if provided
+    if (privateKey) {
+      config.privateKey = privateKey;
+    }
+
+    // Set RPC URLs if provided
+    if (rpcUrl) {
+      config.rpcUrl = rpcUrl;
+    }
+
+    // Set identity registry if provided
+    if (identityRegistry) {
+      config.identityRegistry = identityRegistry as `0x${string}`;
+    }
+
+
+
+    // Create the client
+    console.info('Creating Admin AgenticTrustClient instance');
+    const client = await AgenticTrustClient.create(config);
+    console.log('✅ Admin AgenticTrustClient initialized');
+    return client;
+  } catch (error) {
+    console.error('❌ Failed to initialize admin AgenticTrustClient:', error);
+    throw error;
+  }
 }
 
 /**

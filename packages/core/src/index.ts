@@ -10,10 +10,7 @@ export { fetchAgentCard } from './client/agentCard';
 export { Agent } from './client';
 
 // API route handlers (reusable across apps)
-export { handleCreateAgent } from './api/agents/create';
-export type { CreateAgentRequestBody } from './api/agents/create';
-export { handleGetAgentInfo } from './api/agents/getAgentInfo';
-export type { AgentInfoResponse } from './api/agents/getAgentInfo';
+
 export type { 
   MessageRequest, 
   MessageResponse, 
@@ -74,43 +71,13 @@ export { ViemAdapter } from '@erc8004/sdk';
 export { createFeedbackAuth } from './client/agentFeedback';
 export type { RequestAuthParams } from './client/agentFeedback';
 
-// Export reputation client singleton
+// Export bundler utilities
 export {
-  getReputationClient,
-  isReputationClientInitialized,
-  resetReputationClient,
-} from './client/reputationClient';
-
-// Export client app singleton
-export {
-  getClientApp,
-  getClientAddress,
-  isClientAppInitialized,
-  resetClientApp,
-} from './client/clientApp';
-
-// Export provider app singleton
-export {
-  getProviderApp,
-  getProviderAgentId,
-  isProviderAppInitialized,
-  resetProviderApp,
-} from './client/providerApp';
-
-// Export identity client singleton
-export {
-  getIdentityClient,
-  isIdentityClientInitialized,
-  resetIdentityClient,
-} from './client/identityClient';
-
-// Export admin app singleton
-export {
-  getAdminApp,
-  getAdminAddress,
-  isAdminAppInitialized,
-  resetAdminApp,
-} from './client/adminApp';
+  sendSponsoredUserOperation,
+  waitForUserOperationReceipt,
+  deploySmartAccountIfNeeded,
+  isSmartContract,
+} from './client/bundlerUtils';
 
 // Export IPFS storage
 export {
@@ -131,14 +98,15 @@ export {
   type AgentRegistrationJSON,
 } from './client/registration';
 
-// Note: getAgentsGraphQLClient is intentionally NOT exported
+
+// Note: discovery client singleton is intentionally NOT exported
 // Apps should use AgenticTrustClient.agents.getAgentFromGraphQL() instead
 // Internal singleton utilities remain internal
 
 // Re-export AI Agent GraphQL Client types from SDK
 export type {
-  AIAgentGraphQLClient,
-  AIAgentGraphQLClientConfig,
+  AIAgentDiscoveryClient,
+  AIAgentDiscoveryClientConfig,
   AgentData,
   ListAgentsResponse,
   GetAgentResponse,

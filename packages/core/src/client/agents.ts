@@ -2,10 +2,34 @@
  * Agents API for AgenticTrust Client
  */
 
-import type { AgentData } from '@erc8004/agentic-trust-sdk';
+import {
+  AIAgentIdentityClient,
+  type AgentData,
+  type GiveFeedbackParams,
+} from '@erc8004/agentic-trust-sdk';
+import {
+  ViemAccountProvider,
+  BaseIdentityClient,
+} from '@erc8004/sdk';
 import { Agent } from './agent';
 import type { AgenticTrustClient } from './index';
-import { getAgentsGraphQLClient } from './agentsGraphQLClient';
+import { A2AProtocolProvider } from './a2aProtocolProvider';
+import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
+import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
+import { getDiscoveryClient } from '../server/singletons/discoveryClient';
+import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { uploadRegistration, createRegistrationJSON } from './registration';
+import { createPublicClient, http } from 'viem';
+import {
+  sendSponsoredUserOperation,
+  waitForUserOperationReceipt,
+  deploySmartAccountIfNeeded,
+  isSmartContract,
+} from './bundlerUtils';
+import { getAdminApp } from '../server/userApps/adminApp';
+import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
+
+const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
 
 // Re-export AgentData for compatibility
 export type { AgentData };
@@ -27,7 +51,7 @@ export class AgentsAPI {
    * Fetches all agents using pagination if needed
    */
   async listAgents(): Promise<ListAgentsResponse> {
-    const graphQLClient = await getAgentsGraphQLClient();
+    const graphQLClient = await getDiscoveryClient();
     const allAgents = await graphQLClient.listAgents();
 
     // Sort all agents by agentId in descending order
@@ -58,7 +82,7 @@ export class AgentsAPI {
    * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
   async getAgent(agentId: string, chainId: number = 11155111): Promise<Agent | null> {
-    const graphQLClient = await getAgentsGraphQLClient();
+    const graphQLClient = await getDiscoveryClient();
     const agentData = await graphQLClient.getAgent(chainId, agentId);
     
     if (!agentData) {
@@ -73,7 +97,7 @@ export class AgentsAPI {
    * Returns the raw AgentData from the GraphQL indexer
    */
   async getAgentFromGraphQL(chainId: number, agentId: string): Promise<AgentData | null> {
-    const graphQLClient = await getAgentsGraphQLClient();
+    const graphQLClient = await getDiscoveryClient();
     return await graphQLClient.getAgent(chainId, agentId);
   }
 
@@ -84,7 +108,7 @@ export class AgentsAPI {
    * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
   async refreshAgent(agentId: string, chainId: number = 11155111): Promise<any> {
-    const graphQLClient = await getAgentsGraphQLClient();
+    const graphQLClient = await getDiscoveryClient();
     return await graphQLClient.refreshAgent(agentId, chainId);
   }
 
@@ -107,6 +131,10 @@ export class AgentsAPI {
       version?: string;
       capabilities?: Record<string, any>;
     }>;
+    // Account Abstraction options
+    useAA?: boolean; // If true, use bundler for AA account
+    agentAccountClient?: any; // AA account client (required if useAA is true)
+    bundlerUrl?: string; // Bundler URL (required if useAA is true)
   }): Promise<
     | { agentId: bigint; txHash: string }
     | {
@@ -126,9 +154,6 @@ export class AgentsAPI {
         metadata: Array<{ key: string; value: string }>;
       }
   > {
-    const { getAdminApp } = await import('./adminApp');
-    const { IdentityClient } = await import('@erc8004/sdk');
-
     const adminApp = await getAdminApp();
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
@@ -154,12 +179,10 @@ export class AgentsAPI {
 
       // Create registration JSON and upload to IPFS
       let tokenURI = '';
-      const { sepolia: sepoliaChain, baseSepolia, optimismSepolia } = await import('viem/chains');
+      const sepoliaChain = sepolia;
       const chainId: number = sepoliaChain.id;
       
       try {
-        const { uploadRegistration, createRegistrationJSON } = await import('./registration');
-        
         const registrationJSON = createRegistrationJSON({
           name: params.agentName,
           agentAccount: params.agentAccount,
@@ -180,9 +203,6 @@ export class AgentsAPI {
       }
 
       // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
-      const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
-      const { ViemAccountProvider } = await import('@erc8004/sdk');
-      const { createPublicClient, http } = await import('viem');
       
       // Get chain by ID
       let chain: typeof sepoliaChain | typeof baseSepolia | typeof optimismSepolia = sepoliaChain;
@@ -256,7 +276,6 @@ export class AgentsAPI {
       : `0x${identityRegistry}`;
 
     // Create write-capable IdentityClient using AdminApp AccountProvider
-    const { BaseIdentityClient } = await import('@erc8004/sdk');
     const identityClient = new BaseIdentityClient(
       adminApp.accountProvider,
       identityRegistryHex as `0x${string}`
@@ -275,16 +294,11 @@ export class AgentsAPI {
 
     // Always create registration JSON and upload to IPFS
     let tokenURI = '';
-    // Get chain ID (default to Sepolia) - defined outside try block so it's accessible later
-    const { sepolia } = await import('viem/chains');
-    const chainId = sepolia.id;
+    // Get chain ID (default to Sepolia)
+    const chainId: number = sepolia.id;
     
     try {
       // Import registration utilities
-      const { uploadRegistration, createRegistrationJSON } = await import('./registration');
-      
-      // Create registration JSON with ERC-8004 compliant structure
-      // Note: agentId will be set after registration, so we'll update it later if needed
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
@@ -305,12 +319,130 @@ export class AgentsAPI {
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    // Register agent with metadata and tokenURI
+    // Check if we should use Account Abstraction (bundler) mode
+    const useAA = params.useAA ?? false;
+    let isAAAccount = false;
+    
+    if (useAA) {
+      // If useAA is explicitly set, check if we have required parameters
+      if (!params.agentAccountClient) {
+        throw new Error('agentAccountClient is required when useAA is true');
+      }
+      if (!params.bundlerUrl) {
+        const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL;
+        if (!bundlerUrl) {
+          throw new Error('bundlerUrl is required when useAA is true. Provide it in params or set AGENTIC_TRUST_BUNDLER_URL');
+        }
+        params.bundlerUrl = bundlerUrl;
+      }
+      isAAAccount = true;
+    } else {
+      // Auto-detect if agentAccount is a smart contract
+      try {
+        const isSmart = await isSmartContract(adminApp.publicClient, params.agentAccount);
+        if (isSmart) {
+          console.log(`⚠️ Agent account ${params.agentAccount} appears to be a smart contract. Consider using useAA: true with agentAccountClient and bundlerUrl for Account Abstraction support.`);
+        }
+      } catch (error) {
+        console.warn('Could not check if agent account is a contract:', error);
+      }
+    }
+
+    // Use bundler path for AA accounts
+    if (isAAAccount && params.agentAccountClient && params.bundlerUrl) {
+      const sepoliaChain = sepolia;
+      
+      // Get chain by ID
+      let chain: typeof sepoliaChain | typeof baseSepolia | typeof optimismSepolia = sepoliaChain;
+      const baseSepoliaChainId = 84532;
+      const optimismSepoliaChainId = 11155420;
+      if (chainId === baseSepoliaChainId) {
+        chain = baseSepolia;
+      } else if (chainId === optimismSepoliaChainId) {
+        chain = optimismSepolia;
+      }
+
+      // Create AIAgentIdentityClient for preparing calls
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
+      });
+
+      const accountProvider = new ViemAccountProvider({
+        publicClient: publicClient as any,
+        walletClient: null, // Read-only for call preparation
+        chainConfig: {
+          id: chainId,
+          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+          name: chain.name,
+          chain: chain as any,
+        },
+      });
+
+      const aiIdentityClient = new AIAgentIdentityClient({
+        accountProvider,
+        identityRegistryAddress: identityRegistryHex as `0x${string}`,
+      });
+
+      // Deploy smart account if needed
+      await deploySmartAccountIfNeeded({
+        bundlerUrl: params.bundlerUrl,
+        chain: chain as any,
+        account: params.agentAccountClient,
+      });
+
+      // Prepare register calls
+      const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
+        params.agentName,
+        params.agentAccount,
+        tokenURI
+      );
+
+      console.log('📦 Registering agent via Account Abstraction (bundler)...');
+
+      // Send UserOperation via bundler
+      const userOpHash = await sendSponsoredUserOperation({
+        bundlerUrl: params.bundlerUrl,
+        chain: chain as any,
+        accountClient: params.agentAccountClient,
+        calls: registerCalls,
+      });
+
+      console.log('✅ UserOperation sent:', userOpHash);
+
+      // Wait for receipt
+      const receipt = await waitForUserOperationReceipt({
+        bundlerUrl: params.bundlerUrl,
+        chain: chain as any,
+        hash: userOpHash,
+      });
+
+      console.log('✅ UserOperation receipt:', receipt);
+
+      // Extract agentId from receipt
+      const agentId = aiIdentityClient.extractAgentIdFromReceiptPublic(receipt);
+
+      // Refresh the agent in the GraphQL indexer
+      try {
+        const graphQLClient = await getDiscoveryClient();
+        await graphQLClient.refreshAgent(agentId.toString(), chainId);
+        console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
+      } catch (refreshError) {
+        console.warn(`⚠️ Failed to refresh agent ${agentId} in GraphQL indexer:`, refreshError);
+      }
+
+      return {
+        agentId,
+        txHash: userOpHash,
+      };
+    }
+
+    // Use direct EOA transaction path (existing behavior)
     const result = await identityClient.registerWithMetadata(tokenURI, metadata);
 
     // Refresh the agent in the GraphQL indexer
     try {
-      const graphQLClient = await getAgentsGraphQLClient();
+      const graphQLClient = await getDiscoveryClient();
       // Use the same chainId that was used for registration
       await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
       console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
@@ -328,7 +460,7 @@ export class AgentsAPI {
    * Fetches all matching agents using pagination if needed
    */
   async searchAgents(query: string): Promise<ListAgentsResponse> {
-    const graphQLClient = await getAgentsGraphQLClient();
+    const graphQLClient = await getDiscoveryClient();
     const allAgents = await graphQLClient.searchAgents(query);
 
     // Sort all agents by agentId in descending order
@@ -393,9 +525,6 @@ export class AgentsAPI {
       tokenURI: string;
       metadata: Array<{ key: string; value: string }>;
     }> => {
-      const { getAdminApp } = await import('./adminApp');
-      const { IdentityClient } = await import('@erc8004/sdk');
-
       const adminApp = await getAdminApp();
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and connect via wallet');
@@ -415,7 +544,6 @@ export class AgentsAPI {
         : `0x${identityRegistry}`;
 
       // Create read-only IdentityClient using AdminApp's AccountProvider
-      const { BaseIdentityClient } = await import('@erc8004/sdk');
       const identityClient = new BaseIdentityClient(
         adminApp.accountProvider,
         identityRegistryHex as `0x${string}`
@@ -429,12 +557,9 @@ export class AgentsAPI {
 
       // Create registration JSON and upload to IPFS
       let tokenURI = '';
-      const { sepolia } = await import('viem/chains');
       const chainId = sepolia.id;
       
       try {
-        const { uploadRegistration, createRegistrationJSON } = await import('./registration');
-        
         const registrationJSON = createRegistrationJSON({
           name: params.agentName,
           agentAccount: params.agentAccount,
@@ -455,7 +580,6 @@ export class AgentsAPI {
       }
 
       // Encode the transaction data
-      const { AIAgentIdentityClient } = await import('@erc8004/agentic-trust-sdk');
       const aiIdentityClient = new AIAgentIdentityClient({
         chainId,
         rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
@@ -533,11 +657,9 @@ export class AgentsAPI {
       tokenURI?: string;
       metadata?: Array<{ key: string; value: string }>;
     }): Promise<{ txHash: string }> => {
-      const { getAdminApp } = await import('./adminApp');
-      const { getIdentityClient } = await import('./identityClient');
-      const { IdentityClient } = await import('@erc8004/sdk');
-
       const adminApp = await getAdminApp();
+
+
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
@@ -548,7 +670,6 @@ export class AgentsAPI {
       }
 
       // Create write-capable IdentityClient using AdminApp AccountProvider
-      const { BaseIdentityClient } = await import('@erc8004/sdk');
       const identityClient = new BaseIdentityClient(
         adminApp.accountProvider,
         identityRegistry as `0x${string}`
@@ -592,9 +713,8 @@ export class AgentsAPI {
     deleteAgent: async (params: {
       agentId: bigint | string;
     }): Promise<{ txHash: string }> => {
-      const { getAdminApp } = await import('./adminApp');
-
       const adminApp = await getAdminApp();
+
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
@@ -605,7 +725,7 @@ export class AgentsAPI {
       }
 
       // Import IdentityRegistry ABI for transferFrom
-      const IdentityRegistryABI = await import('@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json');
+      const IdentityRegistryABI = identityRegistryAbi;
       
       const agentId = BigInt(params.agentId);
       const from = adminApp.address;
@@ -613,7 +733,7 @@ export class AgentsAPI {
 
       // Transfer to zero address (burn)
       const data = await adminApp.accountProvider.encodeFunctionData({
-        abi: (IdentityRegistryABI.default || IdentityRegistryABI) as any,
+        abi: IdentityRegistryABI,
         functionName: 'transferFrom',
         args: [from, to, agentId],
       });
@@ -637,9 +757,8 @@ export class AgentsAPI {
       agentId: bigint | string;
       to: `0x${string}`;
     }): Promise<{ txHash: string }> => {
-      const { getAdminApp } = await import('./adminApp');
-
       const adminApp = await getAdminApp();
+
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
@@ -650,14 +769,14 @@ export class AgentsAPI {
       }
 
       // Import IdentityRegistry ABI for transferFrom
-      const IdentityRegistryABI = await import('@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json');
+      const IdentityRegistryABI = identityRegistryAbi;
       
       const agentId = BigInt(params.agentId);
       const from = adminApp.address;
 
       // Transfer to new owner
       const data = await adminApp.accountProvider.encodeFunctionData({
-        abi: (IdentityRegistryABI.default || IdentityRegistryABI) as any,
+        abi: IdentityRegistryABI,
         functionName: 'transferFrom',
         args: [from, params.to, agentId],
       });

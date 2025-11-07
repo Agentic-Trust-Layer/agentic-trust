@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleCreateAgent } from '@agentic-trust/core';
+import { handleCreateAgent } from '@agentic-trust/core/server';
 import { getAgenticTrustClient } from '@/lib/client'; // Replace with your app's client getter
 
 /**

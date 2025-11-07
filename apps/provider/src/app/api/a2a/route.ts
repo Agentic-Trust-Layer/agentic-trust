@@ -239,11 +239,7 @@ export async function GET() {
   const providerId = process.env.PROVIDER_ID || 'default-provider';
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   
-  // Base URL of the provider app (for constructing endpoint URL)
-  // Try PROVIDER_BASE_URL first, then NEXT_PUBLIC_BASE_URL, then fallback to localhost
-  const providerUrl = process.env.PROVIDER_BASE_URL || 
-                     process.env.NEXT_PUBLIC_BASE_URL || 
-                     'http://localhost:3001';
+  const providerUrl = process.env.PROVIDER_BASE_URL || '';
   
   return NextResponse.json({
     providerId,

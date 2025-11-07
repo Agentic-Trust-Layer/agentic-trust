@@ -74,7 +74,7 @@ export async function handleGetAgentInfo(
     const agentIdBigInt = BigInt(agentId);
 
     // Step 1: Get contract information (tokenURI and metadata)
-    const identityClient = await import('@agentic-trust/core').then(m => m.getIdentityClient());
+    const identityClient = await import('../../server/singletons/identityClient').then(m => m.getIdentityClient());
     
     const tokenURI = await identityClient.getTokenURI(agentIdBigInt);
     

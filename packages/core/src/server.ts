@@ -5,12 +5,5 @@
  * These should NOT be imported in client-side code (browser)
  */
 
-// Export session package utilities (server-only, uses Node.js 'fs')
-export type { SessionPackage, DelegationSetup } from './client/sessionPackage';
-export {
-  loadSessionPackage,
-  validateSessionPackage,
-  buildDelegationSetup,
-  buildAgentAccountFromSession,
-} from './client/sessionPackage';
+export * from './server/index';
 

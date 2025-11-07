@@ -11,7 +11,7 @@ import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import type { GiveFeedbackParams } from '@erc8004/agentic-trust-sdk';
-import { getProviderApp } from './providerApp';
+import { getProviderApp } from '../server/userApps/providerApp';
 
 // Re-export types
 export type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
@@ -304,7 +304,7 @@ export class Agent {
         : (this.data.agentId ? BigInt(this.data.agentId) : providerApp.agentId);
       
       // Get reputation client singleton
-      const { getReputationClient } = await import('./reputationClient');
+      const { getReputationClient } = await import('../server/singletons/reputationClient');
       const reputationClient = await getReputationClient();
       
       // Create feedback auth using provider app's wallet client
@@ -335,8 +335,8 @@ export class Agent {
      * @throws Error if reputation client is not initialized
      */
     giveFeedback: async (params: Omit<GiveFeedbackParams, 'agent' | 'agentId'> & { agentId?: string, clientAddress?: `0x${string}` }): Promise<{ txHash: string }> => {
-      const { getReputationClient } = await import('./reputationClient');
-      const { getClientApp } = await import('./clientApp');
+      const { getReputationClient } = await import('../server/singletons/reputationClient');
+      const { getClientApp } = await import('../server/userApps/clientApp');
       
       const reputationClient = await getReputationClient();
       const clientApp = await getClientApp();

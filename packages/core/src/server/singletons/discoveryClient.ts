@@ -1,29 +1,29 @@
 /**
- * Agents GraphQL Client Singleton
+ * Discovery Client Singleton
  *
- * Manages a singleton instance of AIAgentGraphQLClient
+ * Manages a singleton instance of AIAgentDiscoveryClient
  * Initialized from environment variables or AgenticTrustClient config
  */
 
 import {
-  AIAgentGraphQLClient,
-  type AIAgentGraphQLClientConfig,
+  AIAgentDiscoveryClient,
+  type AIAgentDiscoveryClientConfig,
 } from '@erc8004/agentic-trust-sdk';
 
 // Singleton instance
-let agentsGraphQLClientInstance: AIAgentGraphQLClient | null = null;
-let initializationPromise: Promise<AIAgentGraphQLClient> | null = null;
+let discoveryClientInstance: AIAgentDiscoveryClient | null = null;
+let initializationPromise: Promise<AIAgentDiscoveryClient> | null = null;
 
 /**
- * Get or create the AIAgentGraphQLClient singleton
+ * Get or create the AIAgentDiscoveryClient singleton
  * Initializes from environment variables or provided config
  */
-export async function getAgentsGraphQLClient(
-  config?: Partial<AIAgentGraphQLClientConfig>
-): Promise<AIAgentGraphQLClient> {
+export async function getDiscoveryClient(
+  config?: Partial<AIAgentDiscoveryClientConfig>
+): Promise<AIAgentDiscoveryClient> {
   // If already initialized and no config override, return immediately
-  if (agentsGraphQLClientInstance && !config) {
-    return agentsGraphQLClientInstance;
+  if (discoveryClientInstance && !config) {
+    return discoveryClientInstance;
   }
 
   // If initialization is in progress and no config override, wait for it
@@ -55,19 +55,19 @@ export async function getAgentsGraphQLClient(
       }
 
       // Build full config
-      const clientConfig: AIAgentGraphQLClientConfig = {
+      const clientConfig: AIAgentDiscoveryClientConfig = {
         endpoint: graphQLUrl,
         apiKey,
         timeout: config?.timeout,
         headers: config?.headers,
       };
 
-      agentsGraphQLClientInstance = new AIAgentGraphQLClient(clientConfig);
+      discoveryClientInstance = new AIAgentDiscoveryClient(clientConfig);
 
-      console.log('✅ AgentsGraphQLClient singleton initialized');
-      return agentsGraphQLClientInstance;
+      console.log('✅ DiscoveryClient singleton initialized');
+      return discoveryClientInstance;
     } catch (error) {
-      console.error('❌ Failed to initialize AgentsGraphQLClient singleton:', error);
+      console.error('❌ Failed to initialize DiscoveryClient singleton:', error);
       initializationPromise = null; // Reset on error so it can be retried
       throw error;
     }
@@ -77,17 +77,17 @@ export async function getAgentsGraphQLClient(
 }
 
 /**
- * Check if agents GraphQL client is initialized
+ * Check if discovery client is initialized
  */
-export function isAgentsGraphQLClientInitialized(): boolean {
-  return agentsGraphQLClientInstance !== null;
+export function isDiscoveryClientInitialized(): boolean {
+  return discoveryClientInstance !== null;
 }
 
 /**
  * Reset the singleton (useful for testing)
  */
-export function resetAgentsGraphQLClient(): void {
-  agentsGraphQLClientInstance = null;
+export function resetDiscoveryClient(): void {
+  discoveryClientInstance = null;
   initializationPromise = null;
 }
 

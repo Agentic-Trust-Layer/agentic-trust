@@ -1,0 +1,75 @@
+/**
+ * Server-only exports for @agentic-trust/core
+ *
+ * This entry point aggregates utilities that are safe to use in Node.js / server contexts only.
+ * Import from `@agentic-trust/core/server` instead of the base package when you need these helpers.
+ */
+
+// API route handlers (server-side only)
+export { handleCreateAgent } from '../api/agents/create';
+export type { CreateAgentRequestBody } from '../api/agents/create';
+export { handleCreateENS } from '../api/agents/createENS';
+export type { CreateENSRequestBody, CreateENSResponse } from '../api/agents/createENS';
+export { handleGetAgentInfo } from '../api/agents/getAgentInfo';
+export type { AgentInfoResponse } from '../api/agents/getAgentInfo';
+export { handleResolveAccount } from '../api/agents/resolveAccount';
+export type { ResolveAccountRequestBody, ResolveAccountResponse } from '../api/agents/resolveAccount';
+
+// Server singletons & utilities
+export {
+  getAdminApp,
+  getAdminAddress,
+  isAdminAppInitialized,
+  resetAdminApp,
+} from './userApps/adminApp';
+
+export {
+  getClientApp,
+  getClientAddress,
+  isClientAppInitialized,
+  resetClientApp,
+} from './userApps/clientApp';
+
+export {
+  getProviderApp,
+  getProviderAgentId,
+  isProviderAppInitialized,
+  resetProviderApp,
+} from './userApps/providerApp';
+
+export {
+  getDiscoveryClient,
+  isDiscoveryClientInitialized,
+  resetDiscoveryClient,
+} from './singletons/discoveryClient';
+
+export {
+  getIdentityClient,
+  isIdentityClientInitialized,
+  resetIdentityClient,
+} from './singletons/identityClient';
+
+export {
+  getENSClient,
+  isENSClientInitialized,
+  resetENSClient,
+  isENSAvailable,
+  createENSName,
+} from './singletons/ensClient';
+
+export {
+  getReputationClient,
+  isReputationClientInitialized,
+  resetReputationClient,
+} from './singletons/reputationClient';
+
+// Session package utilities (Node.js fs access)
+export type { SessionPackage, DelegationSetup } from '../client/sessionPackage';
+export {
+  loadSessionPackage,
+  validateSessionPackage,
+  buildDelegationSetup,
+} from '../client/sessionPackage';
+
+// AA utilities that rely on server-side contexts
+export { buildAgentAccountFromSession } from '../client/aaClient';

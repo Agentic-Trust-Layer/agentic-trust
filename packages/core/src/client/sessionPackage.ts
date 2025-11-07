@@ -70,8 +70,7 @@ export function loadSessionPackage(filePath?: string): SessionPackage {
     p = path.resolve(filePath);
   } else {
     // Try environment variable first
-    const envPath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH ||
-                   process.env.NEXT_PUBLIC_AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+    const envPath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
     if (envPath) {
       p = path.resolve(envPath);
     } else {
@@ -114,8 +113,7 @@ export function validateSessionPackage(pkg: SessionPackage): void {
   if (!pkg.entryPoint) throw new Error('sessionPackage.entryPoint is required');
   
   // Check if bundlerUrl is in package or env var
-  const envBundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL ||
-                        process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL;
+  const envBundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL;
   if (!pkg.bundlerUrl && !envBundlerUrl) {
     throw new Error('sessionPackage.bundlerUrl is required (or set AGENTIC_TRUST_BUNDLER_URL env var)');
   }
@@ -128,8 +126,7 @@ export function validateSessionPackage(pkg: SessionPackage): void {
   }
   
   // Check if reputationRegistry is in package or env var
-  const envReputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY ||
-                                process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY;
+  const envReputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
   if (!pkg.reputationRegistry && !envReputationRegistry) {
     throw new Error('sessionPackage.reputationRegistry is required (or set AGENTIC_TRUST_REPUTATION_REGISTRY env var)');
   }
@@ -160,23 +157,18 @@ export function buildDelegationSetup(
   validateSessionPackage(session);
   
   // RPC URL: env var or default, then session package
-  const envRpcUrl = process.env.AGENTIC_TRUST_RPC_URL ||
-                   process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL ||
-                   process.env.RPC_URL ||
-                   process.env.JSON_RPC_URL;
+  const envRpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
   const rpcUrl = envRpcUrl || defaultRpcUrlFor(session.chainId);
   if (!rpcUrl) {
     throw new Error(`RPC URL not provided and no default known for chainId ${session.chainId}`);
   }
 
   // Bundler URL: env var, then session package
-  const envBundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL ||
-                       process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL;
+  const envBundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL;
   const bundlerUrl = envBundlerUrl || session.bundlerUrl;
 
   // Reputation Registry: env var, then session package
-  const envReputationRegistry = (process.env.AGENTIC_TRUST_REPUTATION_REGISTRY ||
-                                 process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY) as `0x${string}` | undefined;
+  const envReputationRegistry = (process.env.AGENTIC_TRUST_REPUTATION_REGISTRY) as `0x${string}` | undefined;
   const reputationRegistry = envReputationRegistry || session.reputationRegistry;
 
   const chain = defineChain({
@@ -218,78 +210,14 @@ export function buildDelegationSetup(
 /**
  * Build agent account from session package
  * Uses MetaMask smart account implementation
+ * 
+ * @deprecated This function has been moved to aaClient.ts
+ * Use buildAgentAccountFromSession from './aaClient' instead
  */
 export async function buildAgentAccountFromSession(sessionPackage?: SessionPackage): Promise<Account> {
+  // Re-export from aaClient to maintain backward compatibility
+  const { buildAgentAccountFromSession: buildFromAA } = await import('./aaClient');
   const sp = buildDelegationSetup(sessionPackage);
-  
-  // Create public client for the chain
-  const l1PublicClient = createPublicClient({ 
-    chain: sp.chain, 
-    transport: http(sp.rpcUrl) 
-  });
-
-  // Create EOA account from session key for signing
-  const agentOwnerEOA = privateKeyToAccount(sp.sessionKey.privateKey);
-
-  // Try to import toMetaMaskSmartAccount and Implementation from @metamask/delegation-toolkit
-  // This is an optional dependency - users must install it if using session packages
-  let toMetaMaskSmartAccount: any;
-  let Implementation: any;
-  try {
-    // Use dynamic import to avoid build-time errors
-    const mod = await import('@metamask/delegation-toolkit');
-    toMetaMaskSmartAccount = mod.toMetaMaskSmartAccount;
-    Implementation = mod.Implementation;
-  } catch (e: any) {
-    throw new Error(
-      '@metamask/delegation-toolkit package not installed. ' +
-      'Install it with: pnpm add @metamask/delegation-toolkit ' +
-      'or provide agentAccount externally. ' +
-      `Error: ${e?.message || e}`
-    );
-  }
-
-  if (!toMetaMaskSmartAccount) {
-    throw new Error(
-      'toMetaMaskSmartAccount not found in @metamask/delegation-toolkit package. ' +
-      'Please ensure the package is correctly installed.'
-    );
-  }
-
-  if (!Implementation) {
-    throw new Error(
-      'Implementation not found in @metamask/delegation-toolkit package. ' +
-      'Please ensure the package is correctly installed.'
-    );
-  }
-
-  // Use sessionAA address from session package, or fallback to aa address
-  const agentOwnerAddress = sp.sessionAA || sp.aa;
-
-  // Create smart account client
-  console.info("pK: ", sp.sessionKey.privateKey)
-  console.info("agentOwnerAddress: ", agentOwnerAddress)
-  console.info("agentOwnerEOA: ", agentOwnerEOA)
-
-
-  const agentAccountClient = await toMetaMaskSmartAccount({
-    address: agentOwnerAddress as `0x${string}`,
-    client: l1PublicClient,
-    implementation: Implementation.Hybrid,
-    signatory: { account: agentOwnerEOA },
-  } as any);
-
-
-  console.info("agentAccountClient.address: ", agentAccountClient.address)
-
-  // Return the account from the smart account client
-  // The smart account client should have an account property that implements viem Account interface
-  //if (!agentAccountClient.account) {
-  //  throw new Error('Agent account not found');
-  //}
-  return agentAccountClient as Account;
-
-
-  
+  return buildFromAA(sessionPackage, sp);
 }
 

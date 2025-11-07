@@ -14,14 +14,14 @@ export { AIAgentIdentityClient } from './AIAgentIdentityClient';
 export { AIAgentReputationClient, type GiveFeedbackParams } from './AIAgentReputationClient';
 export { OrgIdentityClient } from './OrgIdentityClient';
 export {
-  AIAgentGraphQLClient,
-  type AIAgentGraphQLClientConfig,
+  AIAgentDiscoveryClient,
+  type AIAgentDiscoveryClientConfig,
   type AgentData,
   type ListAgentsResponse,
   type GetAgentResponse,
   type SearchAgentsResponse,
   type RefreshAgentResponse,
-} from './AIAgentGraphQLClient';
+} from './AIAgentDiscoveryClient';
 
 // Re-export AccountProvider types from @erc8004/sdk for convenience
 export type {
