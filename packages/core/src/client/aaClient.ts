@@ -19,26 +19,13 @@ export async function getAAAccountClientByAgentName(
 ): Promise<any> {
 
   console.info("*********** aaClient getAAAccountClientByAgentName: agentName", agentName);
-  const rpcUrl = options?.rpcUrl || process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || '';
   const resolvedChain = options?.chain || sepolia;
-
-  let publicClient: PublicClient;
-  if (options?.publicClient) {
-    publicClient = options.publicClient;
-  } else {
-    publicClient = createPublicClient({
-      chain: resolvedChain as any,
-      transport: http(rpcUrl),
-    }) as any;
-  }
-
 
   let walletClient: WalletClient;
   if (options?.walletClient) {
     walletClient = options.walletClient;
   } else {
-
-    const provider = options?.ethereumProvider || (window as any).ethereum;
+    const provider = options?.ethereumProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
     if (!provider) {
       throw new Error('No wallet provider found. Ensure MetaMask/Web3Auth is available or pass ethereumProvider.');
     }
@@ -48,6 +35,28 @@ export async function getAAAccountClientByAgentName(
       transport: custom(provider),
       account: eoaAddress as Address,
     });
+  }
+
+  let publicClient: PublicClient;
+  if (options?.publicClient) {
+    publicClient = options.publicClient;
+  } else if (options?.rpcUrl) {
+    publicClient = createPublicClient({
+      chain: resolvedChain as any,
+      transport: http(options.rpcUrl),
+    }) as any;
+  } else {
+    const provider = options?.ethereumProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
+    if (!provider) {
+      throw new Error(
+        'No RPC URL or wallet provider available. Provide rpcUrl, ethereumProvider, or publicClient in options.'
+      );
+    }
+
+    publicClient = createPublicClient({
+      chain: resolvedChain as any,
+      transport: custom(provider),
+    }) as any;
   }
 
   try {
@@ -73,6 +82,8 @@ export async function getAAAccountClientByAgentName(
   const trimmedName = agentName?.trim();
 
   if (trimmedName) {
+    console.info("*********** aaClient getAAAccountClientByAgentName: trimmedName", trimmedName);
+    console.info("*********** aaClient getAAAccountClientByAgentName: options?.walletClient", options?.walletClient);
     if (options?.walletClient) {
       try {
         console.info("*********** aaClient getAAAccountClientByAgentName: trimmedName", trimmedName);

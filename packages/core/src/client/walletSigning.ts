@@ -9,7 +9,6 @@ import {
   createWalletClient,
   custom,
   createPublicClient,
-  http,
   type Address,
   type Chain,
   type Hex,
@@ -73,7 +72,6 @@ export async function signAndSendTransaction(
     account,
     chain,
     ethereumProvider,
-    rpcUrl,
     onStatusUpdate,
     extractAgentId = false,
   } = options;
@@ -126,7 +124,7 @@ export async function signAndSendTransaction(
   // Wait for transaction receipt
   const publicClient = createPublicClient({
     chain,
-    transport: http(rpcUrl || chain.rpcUrls.default.http[0]),
+    transport: custom(ethereumProvider),
   });
 
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
@@ -405,12 +403,6 @@ export async function createAgentWithWalletForEOA(
         console.warn(`Unknown chainId ${chainId}, defaulting to Sepolia`);
     }
 
-    // Get RPC URL from environment or use default
-    const rpcUrl =
-      providedRpcUrl ||
-      (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL) ||
-      (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
-      undefined;
 
     // Sign and send transaction
     const result = await signAndSendTransaction({
@@ -418,7 +410,7 @@ export async function createAgentWithWalletForEOA(
       account,
       chain,
       ethereumProvider,
-      rpcUrl,
+
       onStatusUpdate,
       extractAgentId: true, // Extract agentId for agent creation
     });
@@ -524,23 +516,17 @@ export async function createAgentWithWalletForAA(
   // Build AA account client using client's EOA (MetaMask/Web3Auth)
 
 
-  // Get RPC URL
-  const rpcUrl =
-    providedRpcUrl ||
-    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL) ||
-    (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
-    '';
-
   // Get agent name from request
   const agentName = options.agentData.agentName;
 
   // Get Account Client by Agent Name, find if exists and if not the create it
+  console.log('Getting AA account client by agent name: ', agentName);
   const agentAccountClient = await getAAAccountClientByAgentName(
     agentName,
     account,
     {
       chain: chain as any,
-      rpcUrl,
+      rpcUrl: undefined,
       ethereumProvider,
     }
   );
@@ -557,25 +543,6 @@ export async function createAgentWithWalletForAA(
 
   // Deploy smart account if needed
   onStatusUpdate?.('Deploying smart account if needed...');
-  const envBundlerUrl =
-    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL) ||
-    (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_BUNDLER_URL) ||
-    '';
-
-  if (!envBundlerUrl) {
-    throw new Error('Bundler URL not configured for Account Abstraction');
-  }
-
-  await deploySmartAccountIfNeeded({
-    bundlerUrl: envBundlerUrl,
-    chain: chain as any,
-    account: agentAccountClient,
-  });
-
-
-  // 2.  Need to create the Agent ENS Name (NFT)
-
-
   // 2.  Need to create the Agent Identity (NFT)
   
   // Prepare request body with AA parameters if needed
@@ -601,14 +568,17 @@ export async function createAgentWithWalletForAA(
     throw new Error('Agent creation response missing register calls');
   }
 
-  const bundlerUrl =
-    data.bundlerUrl ||
-    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL) ||
-    (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_BUNDLER_URL) ||
-    '';
-  if (!bundlerUrl) {
+  const bundlerUrl = data.bundlerUrl;
+  if (typeof bundlerUrl !== 'string' || bundlerUrl.trim() === '') {
     throw new Error('Bundler URL not configured for Account Abstraction');
   }
+/*
+  await deploySmartAccountIfNeeded({
+    bundlerUrl,
+    chain: chain as any,
+    account: agentAccountClient,
+  });
+*/
 
   // Construct Agent Identity with agentAccount Client
   const createAgentIdentityCalls = data.calls.map((call: any) => ({
@@ -642,7 +612,9 @@ export async function createAgentWithWalletForAA(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        receipt,
+        receipt: JSON.parse(
+          JSON.stringify(receipt, (_, value) => (typeof value === 'bigint' ? value.toString() : value))
+        ),
         chainId: chain.id,
       }),
     });

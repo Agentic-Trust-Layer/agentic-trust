@@ -57,6 +57,7 @@ export default function AdminPage() {
   const [ensAvailable, setEnsAvailable] = useState<boolean | null>(null);
   const [aaAddress, setAaAddress] = useState<string | null>(null);
   const [aaComputing, setAaComputing] = useState(false);
+const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; method?: string } | null>(null);
 
   // Update agent form state
   const [updateForm, setUpdateForm] = useState({
@@ -100,6 +101,7 @@ export default function AdminPage() {
     if (!useAA || !createForm.agentName || !eoaAddress) {
       setAaAddress(null);
       setAaComputing(false);
+      setExistingAgentInfo(null);
       // Clear agent account field if AA is disabled
       if (!useAA && eoaAddress) {
         setCreateForm(prev => ({
@@ -115,6 +117,33 @@ export default function AdminPage() {
 
     (async () => {
       try {
+        const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+        let existingInfo: { account: string; method?: string } | null = null;
+
+        try {
+          const resolveResponse = await fetch('/api/agents/resolve-account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agentName: createForm.agentName }),
+          });
+
+          if (resolveResponse.ok) {
+            const resolveData = await resolveResponse.json();
+            if (resolveData?.account && resolveData.account !== ZERO_ADDRESS) {
+              existingInfo = {
+                account: resolveData.account,
+                method: resolveData.method,
+              };
+            }
+          }
+        } catch (resolveError) {
+          console.warn('resolve-account lookup failed:', resolveError);
+        }
+
+        if (!cancelled) {
+          setExistingAgentInfo(existingInfo);
+        }
+
         // Use the core package's getAAAccountClientByAgentName function
         // This will try ENS resolution first, then fall back to deterministic computation
         console.log('Computing AA address for agent name:', createForm.agentName);
@@ -142,6 +171,7 @@ export default function AdminPage() {
         console.error('Error computing AA address:', error);
         if (!cancelled) {
           setAaAddress(null);
+          setExistingAgentInfo(null);
           // Clear agent account field on error
           setCreateForm(prev => ({
             ...prev,
@@ -687,6 +717,12 @@ export default function AdminPage() {
               {useAA && aaComputing && (
                 <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#007bff' }}>
                   Computing AA address from agent name...
+                </p>
+              )}
+              {useAA && existingAgentInfo && (
+                <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#856404' }}>
+                  Existing agent detected at <span style={{ fontFamily: 'monospace' }}>{existingAgentInfo.account}</span>
+                  {existingAgentInfo.method ? ` (resolved via ${existingAgentInfo.method})` : ''}. Creating a new agent will overwrite on-chain metadata for this name.
                 </p>
               )}
             </div>
