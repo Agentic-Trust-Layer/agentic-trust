@@ -72,7 +72,7 @@ const credential = await credentialIssuer.createVerifiableCredential({
 import { createAgent } from '@veramo/core';
 import { AgentDidProvider } from '@agentic-trust/veramo-agent-extension';
 
-const agent = createAgent({
+const agent = createAgentForEOA({
   plugins: [
     new AgentDidProvider({
       // Provider config

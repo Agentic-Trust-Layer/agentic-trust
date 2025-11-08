@@ -15,8 +15,7 @@
     "lint": "turbo run lint",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
-    "type-check": "turbo run type-check",
-    "sync-routes": "pnpm --filter @agentic-trust/core sync-routes"
+    "type-check": "turbo run type-check"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

@@ -349,6 +349,140 @@ export async function createAgentWithWalletForEOA(
 
   const data = await response.json();
 
+  // Step 2: Check if client-side signing is required (regular EOA transaction)
+  if (data.requiresClientSigning && data.transaction) {
+    // Get chain from transaction chainId
+    const chainId = data.transaction.chainId;
+    let chain: Chain;
+    
+    // Import chains and find the matching one
+    const chainsModule = await import('viem/chains');
+    const { sepolia, baseSepolia, optimismSepolia } = chainsModule;
+    
+    // Map chainId to chain
+    switch (chainId) {
+      case 11155111: // ETH Sepolia
+        chain = sepolia;
+        break;
+      case 84532: // Base Sepolia
+        chain = baseSepolia;
+        break;
+      case 11155420: // Optimism Sepolia
+        chain = optimismSepolia;
+        break;
+      default:
+        // Fallback to sepolia if chain not found
+        chain = sepolia;
+        console.warn(`Unknown chainId ${chainId}, defaulting to Sepolia`);
+    }
+
+    // Get RPC URL from environment or use default
+    const rpcUrl = providedRpcUrl || 
+      (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
+      undefined;
+
+    // Sign and send transaction
+    const result = await signAndSendTransaction({
+      transaction: data.transaction,
+      account,
+      chain,
+      ethereumProvider,
+      rpcUrl,
+      onStatusUpdate,
+      extractAgentId: true, // Extract agentId for agent creation
+    });
+
+    // Step 3: Refresh GraphQL indexer if agentId was extracted
+    if (result.agentId) {
+      await refreshAgentInIndexer(result.agentId);
+    }
+
+    return {
+      agentId: result.agentId,
+      txHash: result.hash,
+      requiresClientSigning: true,
+    };
+  } else {
+    // Server-side signed transaction
+    // Ensure we have the required fields
+    if (!data.agentId || !data.txHash) {
+      throw new Error(`Invalid response from create agent API. Expected agentId and txHash, got: ${JSON.stringify(data)}`);
+    }
+    
+    const agentIdStr = data.agentId.toString();
+    
+    // Refresh GraphQL indexer for server-side signed transactions too
+    if (agentIdStr) {
+      try {
+        await refreshAgentInIndexer(agentIdStr);
+      } catch (error) {
+        // Don't fail the whole operation if refresh fails
+        console.warn('Failed to refresh agent in indexer:', error);
+      }
+    }
+    
+    return {
+      agentId: agentIdStr,
+      txHash: data.txHash,
+      requiresClientSigning: false,
+    };
+  }
+}
+
+
+export async function createAgentWithWalletForAA(
+  options: CreateAgentWithWalletOptions
+): Promise<CreateAgentResult> {
+  const {
+    agentData,
+    account: providedAccount,
+    ethereumProvider: providedProvider,
+    rpcUrl: providedRpcUrl,
+    onStatusUpdate,
+  } = options;
+
+
+  // Get wallet provider (default to window.ethereum)
+  const ethereumProvider = providedProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
+  
+  if (!ethereumProvider) {
+    throw new Error('No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.');
+  }
+
+  // Get account from provider if not provided
+  let account: Address;
+  if (providedAccount) {
+    account = providedAccount;
+  } else {
+    const accounts = await ethereumProvider.request({ method: 'eth_accounts' });
+    if (!accounts || accounts.length === 0) {
+      throw new Error('Wallet not connected. Please connect your wallet first.');
+    }
+    account = accounts[0] as Address;
+  }
+
+  // Step 1: Call API to create agent
+  onStatusUpdate?.('Creating agent...');
+  
+  // Prepare request body with AA parameters if needed
+  const requestBody: any = {
+    ...agentData,
+  };
+  
+  
+  const response = await fetch('/api/agents/create-for-aa', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.message || errorData.error || 'Failed to create agent');
+  }
+
+  const data = await response.json();
+
   // Step 2: Check if client-side AA account client creation is required
   console.info("*********** walletSigning createAgentWithWallet1: requiresClientSigning", data.requiresClientSigning);
   if (data.requiresClientSigning && data.requiresAAClient && data.calls) {
@@ -457,6 +591,7 @@ export async function createAgentWithWalletForEOA(
       }
     }
 
+    /*
 
     // 2. Set agent name info within ENS
     console.log('********************* prepareSetAgentNameInfoCalls');
@@ -494,6 +629,7 @@ export async function createAgentWithWalletForEOA(
         await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash3 });
       }
     }
+    */
 
 
     // Refresh GraphQL indexer
@@ -590,24 +726,14 @@ export async function createAgentWithWalletForEOA(
         console.warn('Failed to refresh agent in indexer:', error);
       }
     }
-    
+
     return {
-      agentId: agentIdStr,
-      txHash: data.txHash,
+      agentId: "",
+      txHash: "",
       requiresClientSigning: false,
     };
   }
 }
 
 
-export async function createAgentWithWalletForAA(
-  options: CreateAgentWithWalletOptions
-): Promise<CreateAgentResult> {
-
-  return {
-    agentId: "",
-    txHash: "",
-    requiresClientSigning: false,
-  };
-}
 

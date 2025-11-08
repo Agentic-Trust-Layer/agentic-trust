@@ -63,7 +63,7 @@ export type Agent = TAgent<
   IResolver
 >;
 
-export const agent: Agent = createAgent({
+export const agent: Agent = createAgentForEOA({
   plugins: [
     new AgentCredentialIssuerEIP1271(),
     new KeyManager({

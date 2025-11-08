@@ -6,10 +6,6 @@
  */
 
 // API route handlers (server-side only)
-export { handleCreateAgent } from '../api/agents/create-for-eoa';
-export type { CreateAgentRequestBody } from '../api/agents/create-for-eoa';
-export { handleGetAgentInfo } from '../api/agents/getAgentInfo';
-export type { AgentInfoResponse } from '../api/agents/getAgentInfo';
 export { handleResolveAccount } from '../api/agents/resolveAccount';
 export type { ResolveAccountRequestBody, ResolveAccountResponse } from '../api/agents/resolveAccount';
 
@@ -104,7 +100,6 @@ export {
   isENSClientInitialized,
   resetENSClient,
   isENSAvailable,
-  createENSName,
 } from './singletons/ensClient';
 
 export {

@@ -113,7 +113,7 @@ export class AgentsAPI {
    * @param params - Agent creation parameters
    * @returns Created agent ID and transaction hash, or prepared transaction for client-side signing
    */
-  async createAgent(params: {
+  async createAgentForEOA(params: {
     agentName: string;
     agentAccount: `0x${string}`;
     description?: string;
@@ -153,18 +153,45 @@ export class AgentsAPI {
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
+
+    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+    if (!identityRegistry || typeof identityRegistry !== 'string') {
+      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+    }
+
+    const identityRegistryHex = identityRegistry.startsWith('0x') 
+      ? identityRegistry 
+      : `0x${identityRegistry}`;
+
+    // Create registration JSON and upload to IPFS
+    let tokenURI = '';
+    const sepoliaChain = sepolia;
+    const chainId: number = sepoliaChain.id;
+    
+    try {
+      const registrationJSON = createRegistrationJSON({
+        name: params.agentName,
+        agentAccount: params.agentAccount,
+        description: params.description,
+        image: params.image,
+        agentUrl: params.agentUrl,
+        chainId,
+        identityRegistry: identityRegistryHex as `0x${string}`,
+        supportedTrust: params.supportedTrust,
+        endpoints: params.endpoints,
+      });
+      
+      const uploadResult = await uploadRegistration(registrationJSON);
+      tokenURI = uploadResult.tokenURI;
+    } catch (error) {
+      console.error('Failed to upload registration JSON to IPFS:', error);
+      throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
     
     // If no private key, prepare transaction for client-side signing
     if (!adminApp.hasPrivateKey) {
       // Prepare transaction for client-side signing
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      if (!identityRegistry || typeof identityRegistry !== 'string') {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
 
-      const identityRegistryHex = identityRegistry.startsWith('0x') 
-        ? identityRegistry 
-        : `0x${identityRegistry}`;
 
       // Build metadata array
       const metadata = [
@@ -172,30 +199,7 @@ export class AgentsAPI {
         { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
       ].filter(m => m.value !== '');
 
-      // Create registration JSON and upload to IPFS
-      let tokenURI = '';
-      const sepoliaChain = sepolia;
-      const chainId: number = sepoliaChain.id;
       
-      try {
-        const registrationJSON = createRegistrationJSON({
-          name: params.agentName,
-          agentAccount: params.agentAccount,
-          description: params.description,
-          image: params.image,
-          agentUrl: params.agentUrl,
-          chainId,
-          identityRegistry: identityRegistryHex as `0x${string}`,
-          supportedTrust: params.supportedTrust,
-          endpoints: params.endpoints,
-        });
-        
-        const uploadResult = await uploadRegistration(registrationJSON);
-        tokenURI = uploadResult.tokenURI;
-      } catch (error) {
-        console.error('Failed to upload registration JSON to IPFS:', error);
-        throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
 
       // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
       
@@ -260,15 +264,6 @@ export class AgentsAPI {
       console.warn('Could not check wallet balance:', balanceError.message);
     }
     
-    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-    if (!identityRegistry || typeof identityRegistry !== 'string') {
-      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-    }
-    
-    // Ensure identityRegistry is a valid hex string
-    const identityRegistryHex = identityRegistry.startsWith('0x') 
-      ? identityRegistry 
-      : `0x${identityRegistry}`;
 
     // Create write-capable IdentityClient using AdminApp AccountProvider
     const identityClient = new BaseIdentityClient(
@@ -287,13 +282,80 @@ export class AgentsAPI {
       { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
     ].filter(m => m.value !== ''); // Remove empty values
 
-    // Always create registration JSON and upload to IPFS
+
+    // Use direct EOA transaction path (existing behavior)
+    const result = await identityClient.registerWithMetadata(tokenURI, metadata);
+
+    // Refresh the agent in the GraphQL indexer
+    try {
+      const graphQLClient = await getDiscoveryClient();
+      // Use the same chainId that was used for registration
+      await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
+      console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
+    } catch (refreshError) {
+      // Log error but don't fail agent creation if refresh fails
+      console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
+    }
+
+    return result;
+  }
+
+  async createAgentForAA(params: {
+    agentName: string;
+    agentAccount: `0x${string}`;
+    description?: string;
+    image?: string;
+    agentUrl?: string;
+    supportedTrust?: string[];
+    endpoints?: Array<{
+      name: string;
+      endpoint: string;
+      version?: string;
+      capabilities?: Record<string, any>;
+    }>;
+    // Account Abstraction options
+    useAA?: boolean; // If true, use bundler for AA account
+    agentAccountClient?: any; // AA account client (required if useAA is true)
+    bundlerUrl?: string; // Bundler URL (required if useAA is true)
+  }): Promise<
+    | { agentId: bigint; txHash: string }
+    | {
+        requiresClientSigning: true;
+        transaction: {
+          to: `0x${string}`;
+          data: `0x${string}`;
+          value: string;
+          gas?: string;
+          gasPrice?: string;
+          maxFeePerGas?: string;
+          maxPriorityFeePerGas?: string;
+          nonce?: number;
+          chainId: number;
+        };
+        tokenURI: string;
+        metadata: Array<{ key: string; value: string }>;
+      }
+  > {
+    const adminApp = await getAdminApp();
+    if (!adminApp) {
+      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
+    }
+
+    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+    if (!identityRegistry || typeof identityRegistry !== 'string') {
+      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+    }
+
+    const identityRegistryHex = identityRegistry.startsWith('0x') 
+      ? identityRegistry 
+      : `0x${identityRegistry}`;
+
+    // Create registration JSON and upload to IPFS
     let tokenURI = '';
-    // Get chain ID (default to Sepolia)
-    const chainId: number = sepolia.id;
+    const sepoliaChain = sepolia;
+    const chainId: number = sepoliaChain.id;
     
     try {
-      // Import registration utilities
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
@@ -305,50 +367,17 @@ export class AgentsAPI {
         supportedTrust: params.supportedTrust,
         endpoints: params.endpoints,
       });
-      
-      // Upload to IPFS and get tokenURI
+
       const uploadResult = await uploadRegistration(registrationJSON);
       tokenURI = uploadResult.tokenURI;
     } catch (error) {
       console.error('Failed to upload registration JSON to IPFS:', error);
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    // Check if we should use Account Abstraction (bundler) mode
-    const useAA = params.useAA ?? false;
-    let isAAAccount = false;
-    
-    if (useAA) {
-      // If useAA is explicitly set, check if we have required parameters
-      if (!params.agentAccountClient) {
-        throw new Error('agentAccountClient is required when useAA is true');
-      }
-      if (!params.bundlerUrl) {
-        const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL;
-        if (!bundlerUrl) {
-          throw new Error('bundlerUrl is required when useAA is true. Provide it in params or set AGENTIC_TRUST_BUNDLER_URL');
-        }
-        params.bundlerUrl = bundlerUrl;
-      }
-      isAAAccount = true;
-    } else {
-      // Auto-detect if agentAccount is a smart contract
-      try {
-        const isSmart = await isSmartContract(adminApp.publicClient, params.agentAccount);
-        if (isSmart) {
-          console.log(`⚠️ Agent account ${params.agentAccount} appears to be a smart contract. Consider using useAA: true with agentAccountClient and bundlerUrl for Account Abstraction support.`);
-        }
-      } catch (error) {
-        console.warn('Could not check if agent account is a contract:', error);
-      }
-    }
-
-    // Use bundler path for AA accounts
-    if (isAAAccount && params.agentAccountClient && params.bundlerUrl) {
-      const sepoliaChain = sepolia;
+   
       
       // Get chain by ID
-      let chain: typeof sepoliaChain | typeof baseSepolia | typeof optimismSepolia = sepoliaChain;
+      let chain: typeof sepolia | typeof baseSepolia | typeof optimismSepolia = sepolia;
       const baseSepoliaChainId = 84532;
       const optimismSepoliaChainId = 11155420;
       if (chainId === baseSepoliaChainId) {
@@ -381,7 +410,7 @@ export class AgentsAPI {
 
       // Deploy smart account if needed
       await deploySmartAccountIfNeeded({
-        bundlerUrl: params.bundlerUrl,
+        bundlerUrl: params.bundlerUrl || '',
         chain: chain as any,
         account: params.agentAccountClient,
       });
@@ -397,7 +426,7 @@ export class AgentsAPI {
 
       // Send UserOperation via bundler
       const userOpHash = await sendSponsoredUserOperation({
-        bundlerUrl: params.bundlerUrl,
+        bundlerUrl: params.bundlerUrl || '',
         chain: chain as any,
         accountClient: params.agentAccountClient,
         calls: registerCalls,
@@ -407,7 +436,7 @@ export class AgentsAPI {
 
       // Wait for receipt
       const receipt = await waitForUserOperationReceipt({
-        bundlerUrl: params.bundlerUrl,
+        bundlerUrl: params.bundlerUrl || '',
         chain: chain as any,
         hash: userOpHash,
       });
@@ -426,28 +455,26 @@ export class AgentsAPI {
         console.warn(`⚠️ Failed to refresh agent ${agentId} in GraphQL indexer:`, refreshError);
       }
 
-      return {
-        agentId,
-        txHash: userOpHash,
-      };
-    }
-
-    // Use direct EOA transaction path (existing behavior)
-    const result = await identityClient.registerWithMetadata(tokenURI, metadata);
 
     // Refresh the agent in the GraphQL indexer
     try {
       const graphQLClient = await getDiscoveryClient();
       // Use the same chainId that was used for registration
-      await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
-      console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
+      await graphQLClient.refreshAgent(agentId.toString(), chainId);
+      console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
     } catch (refreshError) {
       // Log error but don't fail agent creation if refresh fails
-      console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
+      console.warn(`⚠️ Failed to refresh agent ${agentId} in GraphQL indexer:`, refreshError);
     }
 
-    return result;
+
+    return {
+      agentId,
+      txHash: userOpHash,
+    };
+ 
   }
+
 
   /**
    * Search agents by name

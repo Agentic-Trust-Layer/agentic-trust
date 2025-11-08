@@ -186,7 +186,7 @@ export async function isENSAvailable(
 
 export async function sendSponsoredUserOperation(params: {
   bundlerUrl: string,
-  chain: Chain,
+  chain: any,
   accountClient: any,
   calls: { to: `0x${string}`; data?: `0x${string}`; value?: bigint }[],
 }): Promise<`0x${string}`> {
@@ -219,6 +219,7 @@ export async function sendSponsoredUserOperation(params: {
  * @returns Array of transaction hashes for the ENS creation transactions
  * @throws Error if ENS creation fails
  */
+/*
 export async function createENSName(
   agentName: string,
   orgName: string,
@@ -397,4 +398,4 @@ export async function createENSName(
     throw new Error(`Failed to create ENS name: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
-
+*/

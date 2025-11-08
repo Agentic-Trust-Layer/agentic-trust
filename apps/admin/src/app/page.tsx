@@ -373,6 +373,27 @@ export default function AdminPage() {
       }
       else {
         // create Agent Identity for Account Abstraction (AA)
+        // create Agent Identity for Externally Owned Account (EOA)
+        const result = await createAgentWithWalletForAA({
+          agentData: {
+            agentName: createForm.agentName,
+            agentAccount: agentAccountToUse,
+            description: createForm.description || undefined,
+            image: createForm.image || undefined,
+            agentUrl: createForm.agentUrl || undefined,
+          },
+          account: eoaAddress as Address,
+          onStatusUpdate: setSuccess,
+          // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
+          useAA: useAA || undefined,
+        });
+
+        // Handle result
+        if (result.agentId) {
+          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+        } else {
+          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+        }
       }
       
 
