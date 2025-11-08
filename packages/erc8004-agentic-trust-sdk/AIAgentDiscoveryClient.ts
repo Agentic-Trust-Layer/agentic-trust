@@ -11,11 +11,23 @@ import { GraphQLClient } from 'graphql-request';
  * Agent data interface (raw data from GraphQL)
  */
 export interface AgentData {
-  agentId?: number;
+  agentId?: number | string;
   agentName?: string;
-  createdAtTime?: string;
-  updatedAtTime?: string;
-  a2aEndpoint?: string; // URL to agent-card.json
+  chainId?: number;
+  agentAddress?: string;
+  agentOwner?: string;
+  metadataURI?: string;
+  createdAtBlock?: number;
+  createdAtTime?: string | number;
+  updatedAtTime?: string | number;
+  type?: string | null;
+  description?: string | null;
+  image?: string | null;
+  a2aEndpoint?: string | null; // URL to agent-card.json
+  ensEndpoint?: string | null;
+  agentAccountEndpoint?: string | null;
+  supportedTrust?: string | null;
+  rawJson?: string | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -28,6 +40,10 @@ export interface ListAgentsResponse {
 
 export interface GetAgentResponse {
   agent: AgentData;
+}
+
+export interface GetAgentByNameResponse {
+  agentByName: AgentData | null;
 }
 
 export interface SearchAgentsResponse {
@@ -111,11 +127,23 @@ export class AIAgentDiscoveryClient {
       const query = `
         query ListAgents($limit: Int, $offset: Int) {
           agents(limit: $limit, offset: $offset) {
+            chainId
             agentId
+            agentAddress
+            agentOwner
             agentName
+            metadataURI
+            createdAtBlock
             createdAtTime
             updatedAtTime
+            type
+            description
+            image
             a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            supportedTrust
+            rawJson
           }
         }
       `;
@@ -146,11 +174,23 @@ export class AIAgentDiscoveryClient {
           const fallbackQuery = `
             query ListAgents {
               agents {
+                chainId
                 agentId
+                agentAddress
+                agentOwner
                 agentName
+                metadataURI
+                createdAtBlock
                 createdAtTime
                 updatedAtTime
+                type
+                description
+                image
                 a2aEndpoint
+                ensEndpoint
+                agentAccountEndpoint
+                supportedTrust
+                rawJson
               }
             }
           `;
@@ -176,11 +216,23 @@ export class AIAgentDiscoveryClient {
     const query = `
       query GetAgent($chainId: Int!, $agentId: String!) {
         agent(chainId: $chainId, agentId: $agentId) {
+          chainId
           agentId
+          agentAddress
+          agentOwner
           agentName
+          metadataURI
+          createdAtBlock
           createdAtTime
           updatedAtTime
+          type
+          description
+          image
           a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          supportedTrust
+          rawJson
         }
       }
     `;
@@ -198,6 +250,44 @@ export class AIAgentDiscoveryClient {
     }
   }
 
+  async getAgentByName(agentName: string): Promise<AgentData | null> {
+    const query = `
+      query GetAgentByName($agentName: String!) {
+        agentByName(agentName: $agentName) {
+          chainId
+          agentId
+          agentAddress
+          agentOwner
+          agentName
+          metadataURI
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          supportedTrust
+          rawJson
+        }
+      }
+    `;
+
+    try {
+      const data = await this.client.request<GetAgentByNameResponse>(query, {
+        agentName,
+      });
+      console.log("*********** AIAgentDiscoveryClient.getAgentByName: data", data);
+
+      return data.agentByName || null;
+    } catch (error) {
+      console.error('[AIAgentDiscoveryClient.getAgentByName] Error fetching agent:', error);
+      return null;
+    }
+  }
+
   /**
    * Search agents by name
    * @param searchTerm - Search term to match against agent names
@@ -208,11 +298,23 @@ export class AIAgentDiscoveryClient {
     const query = `
       query SearchAgents($searchTerm: String!, $limit: Int) {
         agents(searchTerm: $searchTerm, limit: $limit) {
+          chainId
           agentId
+          agentAddress
+          agentOwner
           agentName
+          metadataURI
+          createdAtBlock
           createdAtTime
           updatedAtTime
+          type
+          description
+          image
           a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          supportedTrust
+          rawJson
         }
       }
     `;

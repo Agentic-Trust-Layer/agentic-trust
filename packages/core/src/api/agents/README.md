@@ -23,7 +23,7 @@ pnpm --filter @agentic-trust/core sync-routes provider
 ### Route App Type Restrictions
 
 Some routes are only available for specific app types:
-- **`/api/agents/create`**: Only available for admin apps (requires admin privileges)
+- **`/api/agents/create-for-eoa`**: Only available for admin apps (requires admin privileges)
 
 ### Force Overwrite
 
@@ -35,18 +35,18 @@ pnpm sync-routes --force
 
 ### How It Works
 
-1. Route templates are stored in `packages/core/src/api/agents/create/route.template.ts`
+1. Route templates are stored in `packages/core/src/api/agents/create-for-eoa/route.template.ts`
 2. The sync script copies templates to apps, replacing placeholders with app-specific values:
    - `getClient` → `getAdminClient` (admin), `getAgentTrustClient` (web), etc.
    - Import paths are adjusted per app
-3. Generated files are placed in `apps/{app}/src/app/api/agents/create/route.ts`
+3. Generated files are placed in `apps/{app}/src/app/api/agents/create-for-eoa/route.ts`
 
 ## Manual Usage
 
 If you prefer to create routes manually, import and use the `handleCreateAgent` function:
 
 ```typescript
-// apps/your-app/src/app/api/agents/create/route.ts
+// apps/your-app/src/app/api/agents/create-for-eoa/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { handleCreateAgent } from '@agentic-trust/core/server';
 import { getYourClient } from '@/lib/client'; // Your app-specific client getter

@@ -5,7 +5,7 @@ import { useWeb3Auth } from '@/components/Web3AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
-import { createAgentWithWallet } from '@agentic-trust/core/client';
+import { createAgentWithWalletForEOA, createAgentWithWalletForAA } from '@agentic-trust/core/client';
 
 type Agent = {
   agentId?: number;
@@ -117,6 +117,7 @@ export default function AdminPage() {
       try {
         // Use the core package's getAAAccountClientByAgentName function
         // This will try ENS resolution first, then fall back to deterministic computation
+        console.log('Computing AA address for agent name:', createForm.agentName);
         const { getAAAccountClientByAgentName } = await import('@agentic-trust/core') as any;
         const agentAccountClient = await getAAAccountClientByAgentName(
           createForm.agentName,
@@ -173,7 +174,7 @@ export default function AdminPage() {
     (async () => {
       try {
         // Use the core package's isENSAvailable function which uses the ENS client singleton
-        const { isENSAvailable } = await import('@agentic-trust/core') as any;
+        const { isENSAvailable } = await import('@agentic-trust/core/server');
         const isAvailable = await isENSAvailable(createForm.agentName, ensOrgName);
         
         if (!cancelled) {
@@ -344,64 +345,38 @@ export default function AdminPage() {
         throw new Error('Agent account address is required. Please provide an agent account address or enable Account Abstraction.');
       }
 
-      // If creating ENS, create the ENS record first (only when AA is enabled)
-      if (useAA && createENS && createForm.agentName && ensOrgName) {
-        try {
-          setSuccess('Creating ENS record...');
-          
-          // Validate agentAccountToUse again before ENS creation
-          if (!agentAccountToUse || !agentAccountToUse.startsWith('0x') || agentAccountToUse.length !== 42) {
-            throw new Error(`Invalid agent account address: ${agentAccountToUse}. Must be a valid Ethereum address.`);
-          }
-          
-          // Call API route for ENS creation (server-side, can access AdminApp properly)
-          const ensResponse = await fetch('/api/agents/create-ens', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              agentName: createForm.agentName,
-              orgName: ensOrgName,
-              agentAddress: agentAccountToUse,
-              agentUrl: createForm.agentUrl || undefined,
-            }),
-          });
-
-          if (!ensResponse.ok) {
-            const errorData = await ensResponse.json();
-            throw new Error(errorData.error || 'Failed to create ENS record');
-          }
-
-          const ensData = await ensResponse.json();
-          console.log('ENS record created with transactions:', ensData.txHashes);
-          setSuccess('ENS record created successfully! Creating agent...');
-        } catch (ensError) {
-          console.error('Error creating ENS record:', ensError);
-          throw new Error(`Failed to create ENS record: ${ensError instanceof Error ? ensError.message : 'Unknown error'}`);
-        }
-      }
 
       // Use core utility to create agent (handles API call, signing, and refresh)
       // Only agentData is required - account, chain, and provider are auto-detected
-      const result = await createAgentWithWallet({
-        agentData: {
-          agentName: createForm.agentName,
-          agentAccount: agentAccountToUse,
-          description: createForm.description || undefined,
-          image: createForm.image || undefined,
-          agentUrl: createForm.agentUrl || undefined,
-        },
-        account: eoaAddress as Address,
-        onStatusUpdate: setSuccess,
-        // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
-        useAA: useAA || undefined,
-      });
+      if (useAA == false) {
+        // create Agent Identity for Externally Owned Account (EOA)
+        const result = await createAgentWithWalletForEOA({
+          agentData: {
+            agentName: createForm.agentName,
+            agentAccount: agentAccountToUse,
+            description: createForm.description || undefined,
+            image: createForm.image || undefined,
+            agentUrl: createForm.agentUrl || undefined,
+          },
+          account: eoaAddress as Address,
+          onStatusUpdate: setSuccess,
+          // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
+          useAA: useAA || undefined,
+        });
 
-      // Handle result
-      if (result.agentId) {
-        setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
-      } else {
-        setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+        // Handle result
+        if (result.agentId) {
+          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+        } else {
+          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+        }
       }
+      else {
+        // create Agent Identity for Account Abstraction (AA)
+      }
+      
+
+      
       
       setCreateForm({ agentName: '', agentAccount: '', description: '', image: '', agentUrl: '' });
       setUseAA(false);

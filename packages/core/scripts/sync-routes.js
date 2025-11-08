@@ -27,8 +27,8 @@ const ROOT_DIR = path.join(__dirname, '../../..');
 // Each route can specify which app types it should be synced to
 const ROUTES = [
   {
-    template: 'src/api/agents/create/route.template.ts',
-    target: 'src/app/api/agents/create/route.ts',
+    template: 'src/api/agents/create-for-eoa/route.template.ts',
+    target: 'src/app/api/agents/create-for-eoa/route.ts',
     // Only sync this route to admin apps
     allowedApps: ['admin'],
     replacements: {

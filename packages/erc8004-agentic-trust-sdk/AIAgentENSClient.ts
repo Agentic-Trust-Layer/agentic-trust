@@ -332,11 +332,6 @@ export class AIAgentENSClient {
     ] as any[];
 
 
-    console.info("++++++++++++++++++++ getAgentIdentityByName: ensName", ensName);
-    console.info("++++++++++++++++++++ getAgentIdentityByName: this.ensRegistryAddress", this.ensRegistryAddress);
-
-    console.info("++++++++++++++++++++ getAgentIdentityByName: accountProvider", this.accountProvider);
-
     const node = namehash(ensName);
 
     // resolver
@@ -375,8 +370,6 @@ export class AIAgentENSClient {
         args: [node, 'agent-identity'],
       }).catch(() => null);
 
-      console.info("################ getAgentIdentityByName: value", value);
-      
       // Handle empty response
       if (!value || value === '0x' || value === '') {
         console.info("++++++++++++++++++++ getAgentIdentityByName: empty agent-identity text record");
@@ -426,15 +419,12 @@ export class AIAgentENSClient {
    * Resolve account address for an ENS name via resolver.addr(namehash(name)).
    */
   async getAgentAccountByName(name: string): Promise<`0x${string}` | null> {
+
+    console.info("*********** getAgentAccountByName: name", name);
     const ensName = name.trim().toLowerCase();
     if (!ensName) return null;
 
-    const ENS_REGISTRY_ABI = [
-      { name: 'resolver', type: 'function', stateMutability: 'view', inputs: [{ name: 'node', type: 'bytes32' }], outputs: [{ name: '', type: 'address' }] },
-    ] as any[];
-    const RESOLVER_ABI = [
-      { name: 'addr', type: 'function', stateMutability: 'view', inputs: [{ name: 'node', type: 'bytes32' }], outputs: [{ name: '', type: 'address' }] },
-    ] as any[];
+
 
     const node = namehash(ensName);
 

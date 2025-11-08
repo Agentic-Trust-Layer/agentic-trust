@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineChain, http, createPublicClient, type Chain, type PublicClient } from 'viem';
 import { privateKeyToAccount, type Account } from 'viem/accounts';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 
 type Hex = `0x${string}`;
 
@@ -207,24 +208,6 @@ export function buildDelegationSetup(
   };
 }
 
-async function getMetaMaskToolkit() {
-  try {
-    const mod = await import('@metamask/delegation-toolkit');
-    const toMetaMaskSmartAccount = mod.toMetaMaskSmartAccount;
-    const Implementation = mod.Implementation;
-
-    if (!toMetaMaskSmartAccount || !Implementation) {
-      throw new Error('Invalid @metamask/delegation-toolkit export. Ensure the package is installed correctly.');
-    }
-
-    return { toMetaMaskSmartAccount, Implementation };
-  } catch (error: any) {
-    throw new Error(
-      '@metamask/delegation-toolkit package not installed. Install it with: pnpm add @metamask/delegation-toolkit ' +
-      `Error: ${error?.message || error}`
-    );
-  }
-}
 
 export async function buildAgentAccountFromSession(sessionPackage?: SessionPackage): Promise<Account> {
   if (!sessionPackage) {
@@ -239,7 +222,6 @@ export async function buildAgentAccountFromSession(sessionPackage?: SessionPacka
   });
 
   const agentOwnerEOA = privateKeyToAccount(delegationSetup.sessionKey.privateKey);
-  const { toMetaMaskSmartAccount, Implementation } = await getMetaMaskToolkit();
 
   const agentOwnerAddress = delegationSetup.sessionAA || delegationSetup.aa;
 

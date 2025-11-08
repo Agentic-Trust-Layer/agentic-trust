@@ -6,10 +6,8 @@
  */
 
 // API route handlers (server-side only)
-export { handleCreateAgent } from '../api/agents/create';
-export type { CreateAgentRequestBody } from '../api/agents/create';
-export { handleCreateENS } from '../api/agents/createENS';
-export type { CreateENSRequestBody, CreateENSResponse } from '../api/agents/createENS';
+export { handleCreateAgent } from '../api/agents/create-for-eoa';
+export type { CreateAgentRequestBody } from '../api/agents/create-for-eoa';
 export { handleGetAgentInfo } from '../api/agents/getAgentInfo';
 export type { AgentInfoResponse } from '../api/agents/getAgentInfo';
 export { handleResolveAccount } from '../api/agents/resolveAccount';
@@ -62,6 +60,11 @@ export {
   createRegistrationJSON,
   type AgentRegistrationJSON,
 } from './lib/registration';
+
+export {
+  getAgentAccountByAgentName,
+  type AgentAccountResolution,
+} from './lib/agentAccount';
 
 export {
   getAdminApp,

@@ -6,7 +6,9 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("*********** resolve-account route: request", request);
     const body = await request.json();
+    console.log("*********** resolve-account route: body", body);
     const result = await handleResolveAccount(body, getAdminClient);
 
     if (result.error) {

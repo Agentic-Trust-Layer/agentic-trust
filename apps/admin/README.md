@@ -81,7 +81,7 @@ After authentication, the private key (for social logins) or provider (for MetaM
 
 ## API Routes
 
-### POST /api/agents/create
+### POST /api/agents/create-for-eoa
 
 Create a new agent.
 

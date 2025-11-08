@@ -75,7 +75,7 @@ export async function handleCreateENS(
       txHashes,
     };
   } catch (error) {
-    console.error('Error creating ENS name:', error);
+    console.error('Error creating ENS name 1:', error);
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error occurred',

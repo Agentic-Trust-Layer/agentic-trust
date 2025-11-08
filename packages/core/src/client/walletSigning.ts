@@ -287,7 +287,7 @@ export interface CreateAgentResult {
  * Create an agent with automatic wallet signing if needed
  * 
  * This method handles the entire flow:
- * 1. Calls the API to create agent (endpoint: /api/agents/create)
+ * 1. Calls the API to create agent (endpoint: /api/agents/create-for-eoa)
  * 2. If client-side signing is required, signs and sends transaction
  * 3. Waits for receipt and extracts agentId
  * 4. Refreshes GraphQL indexer
@@ -297,7 +297,7 @@ export interface CreateAgentResult {
  * @param options - Creation options (only agentData required)
  * @returns Agent creation result
  */
-export async function createAgentWithWallet(
+export async function createAgentWithWalletForEOA(
   options: CreateAgentWithWalletOptions
 ): Promise<CreateAgentResult> {
   const {
@@ -335,13 +335,8 @@ export async function createAgentWithWallet(
     ...agentData,
   };
   
-  if (options.useAA) {
-    requestBody.useAA = true;
-    requestBody.eoaAddress = account; // The EOA that owns the AA account
-    // bundlerUrl is read from AGENTIC_TRUST_BUNDLER_URL env var on server
-  }
   
-  const response = await fetch('/api/agents/create', {
+  const response = await fetch('/api/agents/create-for-eoa', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
@@ -355,7 +350,9 @@ export async function createAgentWithWallet(
   const data = await response.json();
 
   // Step 2: Check if client-side AA account client creation is required
+  console.info("*********** walletSigning createAgentWithWallet1: requiresClientSigning", data.requiresClientSigning);
   if (data.requiresClientSigning && data.requiresAAClient && data.calls) {
+    console.info("*********** walletSigning createAgentWithWallet: data", data);
     onStatusUpdate?.('Building AA account client and sending UserOperation...');
     
     // Build AA account client using client's EOA (MetaMask/Web3Auth)
@@ -397,6 +394,10 @@ export async function createAgentWithWallet(
         ethereumProvider,
       }
     );
+
+    if (!agentAccountClient) {
+      throw new Error('Failed to build AA account client');
+    }
 
     // Verify the address matches
     const computedAddress = await agentAccountClient.getAddress();
@@ -455,6 +456,45 @@ export async function createAgentWithWallet(
         }
       }
     }
+
+
+    // 2. Set agent name info within ENS
+    console.log('********************* prepareSetAgentNameInfoCalls');
+    const { calls: agentCalls } = await agentENSClient.prepareSetAgentNameInfoCalls({
+      orgName: cleanOrgName,
+      agentName: cleanAgentName,
+      agentAddress: agentAccount,
+      agentUrl: agentUrl,
+      agentDescription: agentDescription
+    });
+
+    const userOpHash2 = await sendSponsoredUserOperation({
+      bundlerUrl,
+      chain,
+      accountClient: agentAccountClient,
+      calls: agentCalls,
+    });
+
+    const { receipt: agentReceipt } = await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash2 });
+    console.log('********************* agentReceipt', agentReceipt);
+
+    // 3. Set agent image if provided
+    if (agentImage && agentImage.trim() !== '') {
+      const ensFullName = `${cleanAgentName}.${cleanOrgName}.eth`;
+      const { calls: imageCalls } = await agentENSClient.prepareSetNameImageCalls(ensFullName, agentImage.trim());
+      
+      if (imageCalls.length > 0) {
+        const userOpHash3 = await sendSponsoredUserOperation({
+          bundlerUrl,
+          chain,
+          accountClient: agentAccountClient,
+          calls: imageCalls,
+        });
+
+        await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash3 });
+      }
+    }
+
 
     // Refresh GraphQL indexer
     if (agentId) {
@@ -557,5 +597,17 @@ export async function createAgentWithWallet(
       requiresClientSigning: false,
     };
   }
+}
+
+
+export async function createAgentWithWalletForAA(
+  options: CreateAgentWithWalletOptions
+): Promise<CreateAgentResult> {
+
+  return {
+    agentId: "",
+    txHash: "",
+    requiresClientSigning: false,
+  };
 }
 

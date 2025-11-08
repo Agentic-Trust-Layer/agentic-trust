@@ -102,3 +102,7 @@ export type {
   TransactionResult,
   SignTransactionOptions,
 } from './client/walletSigning';
+
+export {
+  getAAAccountClientByAgentName,
+} from './client/aaClient';

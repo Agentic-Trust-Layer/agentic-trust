@@ -11,7 +11,7 @@ import { getClient } from '@/lib/client'; // Replace with your app's client gett
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const result = await handleCreateAgent(body, getClient);
+    const result = await handleCreateAgentForEOA(body, getClient);
     
     // Check if result is an error
     if ('error' in result) {

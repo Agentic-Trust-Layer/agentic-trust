@@ -10,7 +10,10 @@ import type { AgenticTrustClient } from '../singletons/agenticTrustClient';
 import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
-import type { GiveFeedbackParams } from '@erc8004/agentic-trust-sdk';
+import type {
+  AgentData as DiscoveryAgentData,
+  GiveFeedbackParams,
+} from '@erc8004/agentic-trust-sdk';
 import { getProviderApp } from '../userApps/providerApp';
 
 // Re-export types
@@ -33,14 +36,7 @@ export interface MessageResponse {
 /**
  * Agent data from discovery (GraphQL)
  */
-export interface AgentData {
-  agentId?: number;
-  agentName?: string;
-  createdAtTime?: string;
-  updatedAtTime?: string;
-  a2aEndpoint?: string;
-  [key: string]: unknown;
-}
+export type AgentData = DiscoveryAgentData;
 
 /**
  * Agent class - represents a discovered agent with protocol support
@@ -65,7 +61,15 @@ export class Agent {
    * Get agent ID
    */
   get agentId(): number | undefined {
-    return this.data.agentId;
+    const { agentId } = this.data;
+    if (typeof agentId === 'number') {
+      return agentId;
+    }
+    if (typeof agentId === 'string') {
+      const parsed = Number(agentId);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    }
+    return undefined;
   }
 
   /**
@@ -79,7 +83,9 @@ export class Agent {
    * Get A2A endpoint URL
    */
   get a2aEndpoint(): string | undefined {
-    return this.data.a2aEndpoint;
+    return typeof this.data.a2aEndpoint === 'string'
+      ? this.data.a2aEndpoint
+      : undefined;
   }
 
 

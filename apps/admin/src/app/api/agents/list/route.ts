@@ -6,8 +6,12 @@ export async function GET(_request: NextRequest) {
     const client = await getAdminClient();
 
     // List all agents
+    const agentsData : any[] = []
+
+    /*
     const { agents } = await client.agents.listAgents();
 
+    
     // Convert to plain data for JSON serialization
     const agentsData = agents.map(agent => ({
       agentId: agent.agentId,
@@ -16,6 +20,9 @@ export async function GET(_request: NextRequest) {
       createdAtTime: agent.data?.createdAtTime,
       updatedAtTime: agent.data?.updatedAtTime,
     }));
+
+
+    */
 
     return NextResponse.json({
       success: true,

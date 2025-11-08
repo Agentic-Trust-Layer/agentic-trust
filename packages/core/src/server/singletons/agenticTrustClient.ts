@@ -43,6 +43,11 @@ export class AgenticTrustClient {
     return await getENSClient();
   }
 
+  async getDiscoveryClient(): Promise<any> {
+    const { getDiscoveryClient } = await import('./discoveryClient');
+    return await getDiscoveryClient();
+  }
+
   /**
    * Verify a signed challenge
    * Handles all Veramo agent logic internally - no Veramo exposure at app level

@@ -194,12 +194,12 @@ export class A2AProtocolProvider {
   constructor(a2aEndpoint: string, veramoAgent: VeramoAgent) {
     // Verify a2aEndpoint is an absolute URL
     if (!a2aEndpoint.startsWith('http://') && !a2aEndpoint.startsWith('https://')) {
-      console.log(`Warning: a2aEndpoint should be an absolute URL (starting with http:// or https://), got: ${a2aEndpoint}`);
+      //console.log(`Warning: a2aEndpoint should be an absolute URL (starting with http:// or https://), got: ${a2aEndpoint}`);
     }
     
     // Check if endpoint is a placeholder/example URL
     if (A2AProtocolProvider.isPlaceholderUrl(a2aEndpoint)) {
-      console.warn(`Warning: A2A endpoint appears to be a placeholder URL: ${a2aEndpoint}. This endpoint will not work for actual A2A communication.`);
+      //console.warn(`Warning: A2A endpoint appears to be a placeholder URL: ${a2aEndpoint}. This endpoint will not work for actual A2A communication.`);
     }
     
     this.providerUrl = a2aEndpoint.replace(/\/$/, ''); // Remove trailing slash

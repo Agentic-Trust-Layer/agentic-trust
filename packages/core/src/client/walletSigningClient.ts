@@ -10,7 +10,8 @@ export {
   refreshAgentInIndexer,
   isWalletProviderAvailable,
   getWalletAddress,
-  createAgentWithWallet,
+  createAgentWithWalletForEOA,
+  createAgentWithWalletForAA,
 } from './walletSigning';
 
 export type {

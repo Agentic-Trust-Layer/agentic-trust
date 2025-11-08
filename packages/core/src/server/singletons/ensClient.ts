@@ -12,6 +12,11 @@ import { createPublicClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
+import { privateKeyToAccount } from 'viem/accounts';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+
+import { createBundlerClient, createPaymasterClient } from 'viem/account-abstraction';
+import { createPimlicoClient } from 'permissionless/clients/pimlico';
 
 // Singleton instance
 let ensClientInstance: AIAgentENSClient | null = null;
@@ -178,6 +183,31 @@ export async function isENSAvailable(
   }
 }
 
+
+export async function sendSponsoredUserOperation(params: {
+  bundlerUrl: string,
+  chain: Chain,
+  accountClient: any,
+  calls: { to: `0x${string}`; data?: `0x${string}`; value?: bigint }[],
+}): Promise<`0x${string}`> {
+  const { bundlerUrl, chain, accountClient, calls } = params;
+  const pimlicoClient = createPimlicoClient({ transport: http(bundlerUrl) } as any);
+  const bundlerClient = createBundlerClient({ 
+    transport: http(bundlerUrl), 
+    paymaster: true as any,
+    chain: chain as any, 
+    paymasterContext: { mode: 'SPONSORED' } 
+  } as any);
+  const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
+  
+  const userOpHash = await (bundlerClient as any).sendUserOperation({ 
+    account: accountClient, 
+    calls,
+    ...fee
+  });
+  return userOpHash as `0x${string}`;
+}
+
 /**
  * Create an ENS subdomain name for an agent
  * 
@@ -272,30 +302,98 @@ export async function createENSName(
       agentUrl: agentUrl || '',
     });
 
-    const { calls } = await ensClient.prepareAddAgentNameToOrgCalls({
+    console.log("*********** zzz prepareAddAgentNameToOrgCalls: ensClient");
+
+    // ENS Owner AA: parent domain controller
+    const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL as string;
+    const l1RpcUrl = process.env.AGENTIC_TRUST_RPC_URL as string;
+    const l1PublicClient = createPublicClient({ chain: sepolia, transport: http(l1RpcUrl) });
+    const ensPrivateKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}`;
+    const orgOwnerEOA = privateKeyToAccount(ensPrivateKey);
+    const orgOwnerAddress = orgOwnerEOA.address;
+
+
+    const bundlerClient = createBundlerClient({
+      transport: http(bundlerUrl),
+      paymaster: true as any,
+      chain: sepolia as any,
+      paymasterContext: { mode: 'SPONSORED' },
+    } as any);
+                
+    const orgAccountClient = await toMetaMaskSmartAccount({
+      address: orgOwnerAddress as `0x${string}`,
+      client: l1PublicClient,
+      implementation: Implementation.Hybrid,
+      signatory: { account: orgOwnerEOA },
+    } as any);
+
+    const { calls: orgCalls } = await ensClient.prepareAddAgentNameToOrgCalls({
       orgName: fullOrgName,
       agentName: agentNameLabel,
       agentAddress: agentAddress,
       agentUrl: agentUrl || '',
     });
+
+    const userOpHash1 = await sendSponsoredUserOperation({
+      bundlerUrl,
+      chain: sepolia,
+      accountClient: orgAccountClient,
+      calls: orgCalls
+    });
+    const { receipt: orgReceipt } = await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash1 });
+    console.log('********************* orgReceipt', orgReceipt);
     
-    // Send ENS creation transactions
-    const txHashes: string[] = [];
-    for (const call of calls) {
-      const result = await providerToUse.send({
-        to: call.to,
-        data: call.data as `0x${string}`,
-        value: (call as any).value || 0n, // value is optional in some implementations
-      }, {
-        simulation: true,
-      });
-      txHashes.push(result.hash);
-      console.log('ENS record created:', result.hash);
+    const pimlicoClient = createPimlicoClient({ transport: http(bundlerUrl) } as any);
+    const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
+
+
+    // 2. Set agent name info within ENS
+      // Clean orgName: remove .eth suffix
+  const cleanOrgName = orgName.replace(/\.eth$/i, '');
+  
+  // Clean agentName: remove leading orgName + . and .eth suffix
+  const cleanAgentName = agentName
+    .replace(new RegExp(`^${cleanOrgName}\\.`, 'i'), '') // Remove leading orgName.
+    .replace(/\.eth$/i, ''); // Remove .eth suffix
+
+    console.log('********************* prepareSetAgentNameInfoCalls');
+    const { calls: agentCalls } = await ensClient.prepareSetAgentNameInfoCalls({
+      orgName: cleanOrgName,
+      agentName: cleanAgentName,
+      agentAddress: agentAccount,
+      agentUrl: agentUrl,
+      agentDescription: agentDescription
+    });
+
+    const userOpHash2 = await sendSponsoredUserOperation({
+      bundlerUrl,
+      chain: sepolia,
+      accountClient: agentAccountClient,
+      calls: agentCalls,
+    });
+
+    const { receipt: agentReceipt } = await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash2 });
+    console.log('********************* agentReceipt', agentReceipt);
+
+    if (agentImage && agentImage.trim() !== '') {
+      const ensFullName = `${cleanAgentName}.${cleanOrgName}.eth`;
+      const { calls: imageCalls } = await agentENSClient.prepareSetNameImageCalls(ensFullName, agentImage.trim());
+      
+      if (imageCalls.length > 0) {
+        const userOpHash3 = await sendSponsoredUserOperation({
+          bundlerUrl,
+          chain: sepolia,
+          accountClient: agentAccountClient,
+          calls: imageCalls,
+        });
+
+        await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash3 });
+      }
     }
     
-    return txHashes;
+    return [];
   } catch (error) {
-    console.error('Error creating ENS name:', error);
+    console.error('Error creating ENS name 2:', error);
     throw new Error(`Failed to create ENS name: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
