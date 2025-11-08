@@ -303,6 +303,10 @@ export interface CreateAgentWithWalletOptions {
   onStatusUpdate?: (message: string) => void;
   // Account Abstraction options
   useAA?: boolean; // If true, use bundler for AA account (bundlerUrl is read from AGENTIC_TRUST_BUNDLER_URL env var on server)
+  ensOptions?: {
+    enabled?: boolean;
+    orgName?: string;
+  };
 }
 
 /**
@@ -541,8 +545,7 @@ export async function createAgentWithWalletForAA(
     throw new Error(`AA address mismatch: computed ${computedAddress}, expected ${options.agentData.agentAccount}`);
   }
 
-  // Deploy smart account if needed
-  onStatusUpdate?.('Deploying smart account if needed...');
+
   // 2.  Need to create the Agent Identity (NFT)
   
   // Prepare request body with AA parameters if needed
@@ -630,6 +633,98 @@ export async function createAgentWithWalletForAA(
     }
   } catch (error) {
     console.warn('Unable to extract agentId via API:', error);
+  }
+
+  // 3.  Add ENS record associated with new agent
+  if (options.ensOptions?.enabled && options.ensOptions.orgName) {
+    try {
+      const ensAgentAccount = (typeof computedAddress === 'string' && computedAddress.startsWith('0x'))
+        ? computedAddress
+        : options.agentData.agentAccount;
+
+      onStatusUpdate?.('Creating ENS subdomain...');
+      const ensResponse = await fetch('/api/agents/ens/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentName: options.agentData.agentName,
+          agentAccount: ensAgentAccount,
+          orgName: options.ensOptions.orgName,
+          agentUrl: options.agentData.agentUrl,
+        }),
+      });
+
+      if (!ensResponse.ok) {
+        const errorData = await ensResponse.json().catch(() => ({}));
+        throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
+      }
+
+      onStatusUpdate?.('Preparing ENS metadata update...');
+      const infoResponse = await fetch('/api/agents/ens/set-info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentName: options.agentData.agentName,
+          orgName: options.ensOptions.orgName,
+          agentAddress: ensAgentAccount,
+          agentUrl: options.agentData.agentUrl,
+          agentDescription: options.agentData.description,
+        }),
+      });
+
+      if (infoResponse.ok) {
+        const infoData = await infoResponse.json();
+        const infoCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+
+        if (Array.isArray(infoData?.calls)) {
+          for (const rawCall of infoData.calls as Array<Record<string, unknown>>) {
+            const to = rawCall?.to as `0x${string}` | undefined;
+            const data = rawCall?.data as `0x${string}` | undefined;
+            if (!to || !data) {
+              continue;
+            }
+
+            let value: bigint | undefined;
+            if (rawCall?.value !== null && rawCall?.value !== undefined) {
+              try {
+                value = BigInt(rawCall.value as string | number | bigint);
+              } catch (error) {
+                console.warn('Unable to parse ENS info call value', rawCall.value, error);
+              }
+            }
+
+            infoCalls.push({
+              to,
+              data,
+              value,
+            });
+          }
+        }
+
+        if (infoCalls.length > 0) {
+          onStatusUpdate?.('Updating ENS agent info...');
+          const infoUserOpHash = await sendSponsoredUserOperation({
+            bundlerUrl,
+            chain: chain as any,
+            accountClient: agentAccountClient,
+            calls: infoCalls,
+          });
+
+          await waitForUserOperationReceipt({
+            bundlerUrl,
+            chain: chain as any,
+            hash: infoUserOpHash,
+          });
+        }
+      } else {
+        const errorPayload = await infoResponse.json().catch(() => ({}));
+        console.warn('Failed to prepare ENS metadata calls:', errorPayload);
+      }
+
+      console.log('Requested ENS record creation and metadata update for agent', options.agentData.agentName);
+    } catch (ensError) {
+      console.warn('Failed to create ENS record for agent:', ensError);
+    }
   }
 
   // Refresh GraphQL indexer

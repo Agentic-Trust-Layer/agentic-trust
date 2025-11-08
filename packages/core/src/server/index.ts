@@ -100,6 +100,15 @@ export {
   isENSClientInitialized,
   resetENSClient,
   isENSAvailable,
+  addAgentNameToOrgUsingEnsKey,
+  prepareAgentNameInfoCalls,
+} from './singletons/ensClient';
+
+export type {
+  AddAgentToOrgParams,
+  AddAgentToOrgResult,
+  PrepareAgentNameInfoParams,
+  PrepareAgentNameInfoResult,
 } from './singletons/ensClient';
 
 export {

@@ -1,0 +1,31 @@
+/**
+ * Server-only exports for @agentic-trust/core
+ *
+ * This entry point aggregates utilities that are safe to use in Node.js / server contexts only.
+ * Import from `@agentic-trust/core/server` instead of the base package when you need these helpers.
+ */
+export { handleResolveAccount } from '../api/agents/resolveAccount';
+export type { ResolveAccountRequestBody, ResolveAccountResponse } from '../api/agents/resolveAccount';
+export { AgenticTrustClient, } from './singletons/agenticTrustClient';
+export type { ApiClientConfig, } from './lib/types';
+export { fetchAgentCard, } from './lib/agentCard';
+export { Agent, } from './lib/agent';
+export type { AgentCard, AgentSkill, AgentCapabilities, MessageRequest, MessageResponse, } from './lib/agent';
+export { AgentsAPI, } from './lib/agents';
+export type { ListAgentsResponse, } from './lib/agents';
+export { createFeedbackAuth, } from './lib/agentFeedback';
+export type { RequestAuthParams, } from './lib/agentFeedback';
+export { uploadRegistration, getRegistration, createRegistrationJSON, type AgentRegistrationJSON, } from './lib/registration';
+export { getAgentAccountByAgentName, type AgentAccountResolution, } from './lib/agentAccount';
+export { getAdminApp, getAdminAddress, isAdminAppInitialized, resetAdminApp, } from './userApps/adminApp';
+export { getClientApp, getClientAddress, isClientAppInitialized, resetClientApp, } from './userApps/clientApp';
+export { getProviderApp, getProviderAgentId, isProviderAppInitialized, resetProviderApp, } from './userApps/providerApp';
+export { getDiscoveryClient, isDiscoveryClientInitialized, resetDiscoveryClient, } from './singletons/discoveryClient';
+export { getIdentityClient, isIdentityClientInitialized, resetIdentityClient, } from './singletons/identityClient';
+export { getENSClient, isENSClientInitialized, resetENSClient, isENSAvailable, addAgentNameToOrgUsingEnsKey, prepareAgentNameInfoCalls, } from './singletons/ensClient';
+export type { AddAgentToOrgParams, AddAgentToOrgResult, PrepareAgentNameInfoParams, PrepareAgentNameInfoResult, } from './singletons/ensClient';
+export { getReputationClient, isReputationClientInitialized, resetReputationClient, } from './singletons/reputationClient';
+export type { SessionPackage, DelegationSetup } from './lib/sessionPackage';
+export { loadSessionPackage, validateSessionPackage, buildDelegationSetup, } from './lib/sessionPackage';
+export { buildAgentAccountFromSession } from './lib/sessionPackage';
+//# sourceMappingURL=index.d.ts.map

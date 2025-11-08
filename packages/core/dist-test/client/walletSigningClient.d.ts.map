@@ -1,0 +1,1 @@
+{"version":3,"file":"walletSigningClient.d.ts","sourceRoot":"","sources":["../../src/client/walletSigningClient.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AAEH,OAAO,EACL,sBAAsB,EACtB,yBAAyB,EACzB,qBAAqB,EACrB,yBAAyB,EACzB,gBAAgB,EAChB,2BAA2B,EAC3B,0BAA0B,GAC3B,MAAM,iBAAiB,CAAC;AAEzB,YAAY,EACV,mBAAmB,EACnB,iBAAiB,EACjB,sBAAsB,EACtB,4BAA4B,EAC5B,iBAAiB,GAClB,MAAM,iBAAiB,CAAC"}

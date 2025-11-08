@@ -399,3 +399,133 @@ export async function createENSName(
   }
 }
 */
+
+export interface AddAgentToOrgParams {
+  agentName: string;
+  orgName: string;
+  agentAddress: `0x${string}`;
+  agentUrl?: string;
+}
+
+export interface AddAgentToOrgResult {
+  userOpHash: `0x${string}`;
+  receipt: any;
+}
+
+export interface PrepareAgentNameInfoParams {
+  agentName: string;
+  orgName: string;
+  agentAddress: `0x${string}`;
+  agentUrl?: string;
+  agentDescription?: string;
+}
+
+export interface PrepareAgentNameInfoResult {
+  calls: {
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value?: bigint;
+  }[];
+}
+
+export async function addAgentNameToOrgUsingEnsKey(params: AddAgentToOrgParams): Promise<AddAgentToOrgResult> {
+  const { agentName, orgName, agentAddress, agentUrl } = params;
+
+  if (!agentName || !orgName || !agentAddress) {
+    throw new Error('agentName, orgName, and agentAddress are required to add an agent name to an org');
+  }
+
+  const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL;
+  const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+  const ensPrivateKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}` | undefined;
+
+  if (!bundlerUrl) {
+    throw new Error('AGENTIC_TRUST_BUNDLER_URL environment variable is required to add ENS records');
+  }
+  if (!rpcUrl) {
+    throw new Error('AGENTIC_TRUST_RPC_URL environment variable is required to add ENS records');
+  }
+  if (!ensPrivateKey) {
+    throw new Error('AGENTIC_TRUST_ENS_PRIVATE_KEY environment variable is required to add ENS records');
+  }
+
+  const ensClient = await getENSClient();
+
+  const agentNameLabel = agentName.toLowerCase().replace(/\s+/g, '-');
+  const orgNameClean = orgName.toLowerCase().replace(/\.eth$/, '');
+  const fullOrgName = `${orgNameClean}.eth`;
+
+  const publicClient = createPublicClient({
+    chain: sepolia,
+    transport: http(rpcUrl),
+  });
+
+  const orgOwnerEOA = privateKeyToAccount(ensPrivateKey);
+
+  const bundlerClient = createBundlerClient({
+    transport: http(bundlerUrl),
+    paymaster: true as any,
+    chain: sepolia as any,
+    paymasterContext: { mode: 'SPONSORED' },
+  } as any);
+
+  const orgAccountClient = await toMetaMaskSmartAccount({
+    address: orgOwnerEOA.address as `0x${string}`,
+    client: publicClient,
+    implementation: Implementation.Hybrid,
+    signatory: { account: orgOwnerEOA },
+  } as any);
+
+  const { calls } = await ensClient.prepareAddAgentNameToOrgCalls({
+    orgName: fullOrgName,
+    agentName: agentNameLabel,
+    agentAddress,
+    agentUrl: agentUrl || '',
+  });
+
+  const userOpHash = await sendSponsoredUserOperation({
+    bundlerUrl,
+    chain: sepolia,
+    accountClient: orgAccountClient,
+    calls,
+  });
+
+  const { receipt } = await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash });
+
+  return {
+    userOpHash,
+    receipt,
+  };
+}
+
+export async function prepareAgentNameInfoCalls(
+  params: PrepareAgentNameInfoParams
+): Promise<PrepareAgentNameInfoResult> {
+  const { agentName, orgName, agentAddress, agentUrl, agentDescription } = params;
+
+  if (!agentName || !orgName || !agentAddress) {
+    throw new Error('agentName, orgName, and agentAddress are required to prepare ENS agent info calls');
+  }
+
+  const ensClient = await getENSClient();
+
+  const orgNameClean = orgName.replace(/\.eth$/i, '').toLowerCase();
+  const orgNamePattern = orgNameClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const agentNameTrimmed = agentName
+    .replace(new RegExp(`^${orgNamePattern}\\.`, 'i'), '')
+    .replace(/\.eth$/i, '')
+    .trim();
+  const agentNameLabel = agentNameTrimmed.toLowerCase().replace(/\s+/g, '-');
+
+  const { calls } = await ensClient.prepareSetAgentNameInfoCalls({
+    orgName: orgNameClean,
+    agentName: agentNameLabel,
+    agentAddress,
+    agentUrl: agentUrl || '',
+    agentDescription: agentDescription || '',
+  });
+
+  return {
+    calls,
+  };
+}
