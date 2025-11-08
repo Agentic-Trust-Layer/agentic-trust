@@ -62,28 +62,7 @@ export async function getAAAccountClientByAgentName(agentName, eoaAddress, optio
     if (trimmedName) {
         console.info("*********** aaClient getAAAccountClientByAgentName: trimmedName", trimmedName);
         console.info("*********** aaClient getAAAccountClientByAgentName: options?.walletClient", options?.walletClient);
-        if (options?.walletClient) {
-            try {
-                console.info("*********** aaClient getAAAccountClientByAgentName: trimmedName", trimmedName);
-                const resolution = await getAgentAccountByAgentName(trimmedName);
-                console.info("*********** aaClient getAAAccountClientByAgentName: resolution", resolution);
-                if (resolution.account) {
-                    const agentAccountClient = await toMetaMaskSmartAccount({
-                        address: resolution.account,
-                        client: publicClient,
-                        implementation: Implementation.Hybrid,
-                        signer: {
-                            walletClient,
-                        },
-                    });
-                    console.info(`ENS resolution found account via ${resolution.method}:`, resolution.account);
-                    return agentAccountClient;
-                }
-            }
-            catch (error) {
-                console.warn('Server-side ENS resolution failed, falling back to client or deterministic path:', error);
-            }
-        }
+        
         try {
             console.log("*********** aaClient getAAAccountClientByAgentName: try and call resolve-account API");
             const response = await fetch('/api/agents/resolve-account', {

@@ -6,16 +6,19 @@ import { getAgentAccountByAgentName } from '../server/lib/agentAccount';
 
 
 
+type GetAAAccountClientOptions = {
+  rpcUrl?: string;
+  chain?: typeof sepolia;
+  publicClient?: PublicClient;
+  walletClient?: WalletClient;
+  ethereumProvider?: any;
+  includeDeployParams?: boolean;
+};
+
 export async function getAAAccountClientByAgentName(
   agentName: string,
   eoaAddress: `0x${string}`,
-  options?: {
-    rpcUrl?: string;
-    chain?: typeof sepolia;
-    publicClient?: PublicClient;
-    walletClient?: WalletClient;
-    ethereumProvider?: any;
-  }
+  options?: GetAAAccountClientOptions
 ): Promise<any> {
 
   console.info("*********** aaClient getAAAccountClientByAgentName: agentName", agentName);
@@ -90,14 +93,20 @@ export async function getAAAccountClientByAgentName(
         const resolution = await getAgentAccountByAgentName(trimmedName);
         console.info("*********** aaClient getAAAccountClientByAgentName: resolution", resolution);
         if (resolution.account) {
-          const agentAccountClient = await toMetaMaskSmartAccount({
+          const baseClientConfig: Record<string, unknown> = {
             address: resolution.account,
             client: publicClient,
             implementation: Implementation.Hybrid,
             signer: {
               walletClient,
             },
-          } as any);
+          };
+
+          if (options?.includeDeployParams) {
+            baseClientConfig.deployParams = [eoaAddress as `0x${string}`, [], [], []];
+          }
+
+          const agentAccountClient = await toMetaMaskSmartAccount(baseClientConfig as any);
 
           console.info(`ENS resolution found account via ${resolution.method}:`, resolution.account);
           return agentAccountClient;
@@ -122,14 +131,19 @@ export async function getAAAccountClientByAgentName(
         if (data.account && data.account !== '0x0000000000000000000000000000000000000000') {
           console.log("*********** aaClient getAAAccountClientByAgentName: data.account", data.account);
           try {
-            const agentAccountClient = await toMetaMaskSmartAccount({
+            const apiClientConfig: Record<string, unknown> = {
               address: data.account as `0x${string}`,
               implementation: Implementation.Hybrid,
-              deployParams: [eoaAddress as `0x${string}`, [], [], []],
               signer: {
                 walletClient,
               },
-            } as any);
+            };
+
+            if (options?.includeDeployParams) {
+              apiClientConfig.deployParams = [eoaAddress as `0x${string}`, [], [], []];
+            }
+
+            const agentAccountClient = await toMetaMaskSmartAccount(apiClientConfig as any);
             return agentAccountClient;
           }
           catch (error) {
@@ -147,15 +161,20 @@ export async function getAAAccountClientByAgentName(
   }
 
   const salt: `0x${string}` = keccak256(stringToHex(agentName)) as `0x${string}`;
-  const agentAccountClient = await toMetaMaskSmartAccount({
+  const deterministicClientConfig: Record<string, unknown> = {
     client: publicClient,
     implementation: Implementation.Hybrid,
-    deployParams: [eoaAddress as `0x${string}`, [], [], []],
     signer: {
       walletClient,
     },
     deploySalt: salt,
-  } as any);
+  };
+
+  if (options?.includeDeployParams !== false) {
+    deterministicClientConfig.deployParams = [eoaAddress as `0x${string}`, [], [], []];
+  }
+
+  const agentAccountClient = await toMetaMaskSmartAccount(deterministicClientConfig as any);
 
   return agentAccountClient;
 }

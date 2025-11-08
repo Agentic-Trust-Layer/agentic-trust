@@ -16,7 +16,6 @@ import {
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { getAAAccountClientByAgentName } from './aaClient';
 import {
-  deploySmartAccountIfNeeded,
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
 } from './bundlerUtils';
@@ -525,13 +524,14 @@ export async function createAgentWithWalletForAA(
 
   // Get Account Client by Agent Name, find if exists and if not the create it
   console.log('Getting AA account client by agent name: ', agentName);
-  const agentAccountClient = await getAAAccountClientByAgentName(
+  let agentAccountClient = await getAAAccountClientByAgentName(
     agentName,
     account,
     {
       chain: chain as any,
       rpcUrl: undefined,
       ethereumProvider,
+      includeDeployParams: true,
     }
   );
 
@@ -575,13 +575,7 @@ export async function createAgentWithWalletForAA(
   if (typeof bundlerUrl !== 'string' || bundlerUrl.trim() === '') {
     throw new Error('Bundler URL not configured for Account Abstraction');
   }
-/*
-  await deploySmartAccountIfNeeded({
-    bundlerUrl,
-    chain: chain as any,
-    account: agentAccountClient,
-  });
-*/
+
 
   // Construct Agent Identity with agentAccount Client
   const createAgentIdentityCalls = data.calls.map((call: any) => ({
@@ -607,6 +601,19 @@ export async function createAgentWithWalletForAA(
     chain: chain as any,
     hash: userOpHash,
   });
+
+  // refresh the agent account with no deploy params
+  agentAccountClient = await getAAAccountClientByAgentName(
+    agentName,
+    account,
+    {
+      chain: chain as any,
+      rpcUrl: undefined,
+      ethereumProvider,
+      includeDeployParams: false,
+    }
+  );
+
 
   // Extract agentId from receipt logs
   let agentId: string | undefined;
@@ -655,6 +662,8 @@ export async function createAgentWithWalletForAA(
         }),
       });
 
+      console.log('*********** createAgentWithWalletForAA: ensResponse', ensResponse);
+
       if (!ensResponse.ok) {
         const errorData = await ensResponse.json().catch(() => ({}));
         throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
@@ -662,6 +671,8 @@ export async function createAgentWithWalletForAA(
 
       const ensData = await ensResponse.json();
       const ensCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+
+      console.log('*********** createAgentWithWalletForAA: ensData', ensData);
 
       if (Array.isArray(ensData?.calls)) {
         for (const rawCall of ensData.calls as Array<Record<string, unknown>>) {
@@ -679,6 +690,10 @@ export async function createAgentWithWalletForAA(
               console.warn('Unable to parse ENS creation call value', rawCall.value, error);
             }
           }
+
+          console.log('*********** createAgentWithWalletForAA: to', to);
+          console.log('*********** createAgentWithWalletForAA: data', data);
+          console.log('*********** createAgentWithWalletForAA: value', value);
 
           ensCalls.push({
             to,

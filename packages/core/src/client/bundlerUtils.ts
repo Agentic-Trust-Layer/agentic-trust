@@ -7,10 +7,19 @@
 
 import { createBundlerClient } from 'viem/account-abstraction';
 import { http, zeroAddress, type Chain } from 'viem';
-import { createPimlicoClient } from 'permissionless/clients/pimlico';
 
-function getPimlicoClient(bundlerUrl: string) {
-  return createPimlicoClient({ transport: http(bundlerUrl) } as any);
+// Dynamic import for permissionless (optional dependency)
+async function getPimlicoClient(bundlerUrl: string) {
+  try {
+    // @ts-ignore - permissionless is an optional dependency
+    const { createPimlicoClient } = await import('permissionless/clients/pimlico');
+    return createPimlicoClient({ transport: http(bundlerUrl) } as any);
+  } catch (error) {
+    throw new Error(
+      'permissionless package not installed. Install it with: pnpm add permissionless ' +
+      `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
 }
 
 /**
@@ -22,7 +31,7 @@ function getPimlicoClient(bundlerUrl: string) {
 export async function sendSponsoredUserOperation(params: {
   bundlerUrl: string;
   chain: Chain;
-  accountClient: any; // Smart account client (from toMetaMaskSmartAccount, etc.)
+  accountClient: any; 
   calls: { to: `0x${string}`; data?: `0x${string}`; value?: bigint }[];
 }): Promise<`0x${string}`> {
   const { bundlerUrl, chain, accountClient, calls } = params;
