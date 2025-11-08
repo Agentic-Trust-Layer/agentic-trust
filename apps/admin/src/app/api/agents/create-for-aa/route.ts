@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
     const {
       agentName,
       agentAccount,
+      account,
       description,
       image,
       agentUrl,
@@ -34,8 +35,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (!account || typeof account !== 'string' || !ADDRESS_REGEX.test(account)) {
+      return NextResponse.json(
+        {
+          error: 'Missing or invalid account address for agent AA creation',
+        },
+        { status: 400 }
+      );
+    }
+
     const client = await getAdminClient();
-    const result = await client.agents.createAgentForEOA({
+    const result = await client.agents.createAgentForAA({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
       description,
@@ -45,31 +55,13 @@ export async function POST(request: NextRequest) {
       endpoints,
     });
 
-    if ('requiresClientSigning' in result && result.requiresClientSigning) {
-      return NextResponse.json({
-        success: true as const,
-        requiresClientSigning: true,
-        transaction: result.transaction,
-        tokenURI: result.tokenURI,
-        metadata: result.metadata,
-      });
-    }
-
-    if ('agentId' in result && 'txHash' in result) {
-      return NextResponse.json({
-        success: true as const,
-        agentId: result.agentId.toString(),
-        txHash: result.txHash,
-      });
-    }
-
-    return NextResponse.json(
-      {
-        error: 'Failed to create agent',
-        message: 'Unexpected result type from createAgent',
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({
+      success: true as const,
+      bundlerUrl: result.bundlerUrl,
+      tokenURI: result.tokenURI,
+      chainId: result.chainId,
+      calls: result.calls,
+    });
   } catch (error) {
     console.error('Error in create agent route:', error);
     return NextResponse.json(

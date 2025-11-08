@@ -43,19 +43,16 @@
     "ethers": "^6.15.0",
     "ethr-did-resolver": "^11.0.5",
     "graphql-request": "^6.1.0",
+    "permissionless": "^0.2.4",
     "viem": "^2.38.6",
     "web3.storage": "^4.5.5"
   },
   "peerDependencies": {
     "@metamask/delegation-toolkit": "*",
-    "@veramo/core": "^6.0.0",
-    "permissionless": "*"
+    "@veramo/core": "^6.0.0"
   },
   "peerDependenciesMeta": {
     "@metamask/delegation-toolkit": {
-      "optional": true
-    },
-    "permissionless": {
       "optional": true
     }
   },

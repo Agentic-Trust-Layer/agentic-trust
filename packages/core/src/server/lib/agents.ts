@@ -20,12 +20,6 @@ import { getDiscoveryClient } from '../singletons/discoveryClient';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
-import {
-  sendSponsoredUserOperation,
-  waitForUserOperationReceipt,
-  deploySmartAccountIfNeeded,
-  isSmartContract,
-} from '../../client/bundlerUtils';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
 
@@ -126,10 +120,7 @@ export class AgentsAPI {
       version?: string;
       capabilities?: Record<string, any>;
     }>;
-    // Account Abstraction options
-    useAA?: boolean; // If true, use bundler for AA account
-    agentAccountClient?: any; // AA account client (required if useAA is true)
-    bundlerUrl?: string; // Bundler URL (required if useAA is true)
+
   }): Promise<
     | { agentId: bigint; txHash: string }
     | {
@@ -313,29 +304,15 @@ export class AgentsAPI {
       version?: string;
       capabilities?: Record<string, any>;
     }>;
-    // Account Abstraction options
-    useAA?: boolean; // If true, use bundler for AA account
-    agentAccountClient?: any; // AA account client (required if useAA is true)
-    bundlerUrl?: string; // Bundler URL (required if useAA is true)
-  }): Promise<
-    | { agentId: bigint; txHash: string }
-    | {
-        requiresClientSigning: true;
-        transaction: {
-          to: `0x${string}`;
-          data: `0x${string}`;
-          value: string;
-          gas?: string;
-          gasPrice?: string;
-          maxFeePerGas?: string;
-          maxPriorityFeePerGas?: string;
-          nonce?: number;
-          chainId: number;
-        };
-        tokenURI: string;
-        metadata: Array<{ key: string; value: string }>;
-      }
-  > {
+
+  }): Promise<{
+    success: true;
+    bundlerUrl: string;
+    tokenURI: string;
+    chainId: number;
+    calls: Array<{ to: `0x${string}`; data: `0x${string}` }>;
+  }> {
+    
     const adminApp = await getAdminApp();
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
@@ -374,107 +351,84 @@ export class AgentsAPI {
       console.error('Failed to upload registration JSON to IPFS:', error);
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-   
-      
-      // Get chain by ID
-      let chain: typeof sepolia | typeof baseSepolia | typeof optimismSepolia = sepolia;
-      const baseSepoliaChainId = 84532;
-      const optimismSepoliaChainId = 11155420;
-      if (chainId === baseSepoliaChainId) {
-        chain = baseSepolia;
-      } else if (chainId === optimismSepoliaChainId) {
-        chain = optimismSepolia;
-      }
 
-      // Create AIAgentIdentityClient for preparing calls
-      const publicClient = createPublicClient({
-        chain: chain as any,
-        transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
-      });
+    const publicClient = createPublicClient({
+      chain: sepolia as any,
+      transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
+    });
 
-      const accountProvider = new ViemAccountProvider({
-        publicClient: publicClient as any,
-        walletClient: null, // Read-only for call preparation
-        chainConfig: {
-          id: chainId,
-          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
-          name: chain.name,
-          chain: chain as any,
-        },
-      });
+    const accountProvider = new ViemAccountProvider({
+      publicClient: publicClient as any,
+      walletClient: null,
+      chainConfig: {
+        id: chainId,
+        rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+        name: sepolia.name,
+        chain: sepolia as any,
+      },
+    });
 
-      const aiIdentityClient = new AIAgentIdentityClient({
-        accountProvider,
-        identityRegistryAddress: identityRegistryHex as `0x${string}`,
-      });
+    const aiIdentityClient = new AIAgentIdentityClient({
+      accountProvider,
+      identityRegistryAddress: identityRegistryHex as `0x${string}`,
+    });
 
-      // Deploy smart account if needed
-      await deploySmartAccountIfNeeded({
-        bundlerUrl: params.bundlerUrl || '',
-        chain: chain as any,
-        account: params.agentAccountClient,
-      });
+    const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
+      params.agentName,
+      params.agentAccount,
+      tokenURI
+    );
 
-      // Prepare register calls
-      const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
-        params.agentName,
-        params.agentAccount,
-        tokenURI
-      );
-
-      console.log('📦 Registering agent via Account Abstraction (bundler)...');
-
-      // Send UserOperation via bundler
-      const userOpHash = await sendSponsoredUserOperation({
-        bundlerUrl: params.bundlerUrl || '',
-        chain: chain as any,
-        accountClient: params.agentAccountClient,
-        calls: registerCalls,
-      });
-
-      console.log('✅ UserOperation sent:', userOpHash);
-
-      // Wait for receipt
-      const receipt = await waitForUserOperationReceipt({
-        bundlerUrl: params.bundlerUrl || '',
-        chain: chain as any,
-        hash: userOpHash,
-      });
-
-      console.log('✅ UserOperation receipt:', receipt);
-
-      // Extract agentId from receipt
-      const agentId = aiIdentityClient.extractAgentIdFromReceiptPublic(receipt);
-
-      // Refresh the agent in the GraphQL indexer
-      try {
-        const graphQLClient = await getDiscoveryClient();
-        await graphQLClient.refreshAgent(agentId.toString(), chainId);
-        console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
-      } catch (refreshError) {
-        console.warn(`⚠️ Failed to refresh agent ${agentId} in GraphQL indexer:`, refreshError);
-      }
-
-
-    // Refresh the agent in the GraphQL indexer
-    try {
-      const graphQLClient = await getDiscoveryClient();
-      // Use the same chainId that was used for registration
-      await graphQLClient.refreshAgent(agentId.toString(), chainId);
-      console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
-    } catch (refreshError) {
-      // Log error but don't fail agent creation if refresh fails
-      console.warn(`⚠️ Failed to refresh agent ${agentId} in GraphQL indexer:`, refreshError);
-    }
-
+    const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL || '';
 
     return {
-      agentId,
-      txHash: userOpHash,
+      success: true as const,
+      bundlerUrl,
+      tokenURI,
+      chainId,
+      calls: registerCalls,
     };
- 
   }
 
+  async extractAgentIdFromReceipt(
+    receipt: any,
+    chainId: number = 11155111
+  ): Promise<string | null> {
+    if (!receipt) {
+      return null;
+    }
+
+    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+    if (!identityRegistry || typeof identityRegistry !== 'string') {
+      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+    }
+
+    const identityRegistryHex = identityRegistry.startsWith('0x')
+      ? identityRegistry
+      : `0x${identityRegistry}`;
+
+    let chain: typeof sepolia | typeof baseSepolia | typeof optimismSepolia = sepolia;
+    if (chainId === baseSepolia.id) {
+      chain = baseSepolia;
+    } else if (chainId === optimismSepolia.id) {
+      chain = optimismSepolia;
+    }
+
+    const aiIdentityClient = new AIAgentIdentityClient({
+      accountProvider: {
+        chainId: async () => chain.id,
+      } as any,
+      identityRegistryAddress: identityRegistryHex as `0x${string}`,
+    });
+
+    try {
+      const agentId = aiIdentityClient.extractAgentIdFromReceiptPublic(receipt);
+      return agentId ? agentId.toString() : null;
+    } catch (error) {
+      console.warn('extractAgentIdFromReceipt failed:', error);
+      return null;
+    }
+  }
 
   /**
    * Search agents by name

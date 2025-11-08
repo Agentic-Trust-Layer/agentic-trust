@@ -5,7 +5,22 @@
  * All Ethereum logic is handled server-side, client only needs to sign and send
  */
 
-import type { Address, Chain, Hex } from 'viem';
+import {
+  createWalletClient,
+  custom,
+  createPublicClient,
+  http,
+  type Address,
+  type Chain,
+  type Hex,
+} from 'viem';
+import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { getAAAccountClientByAgentName } from './aaClient';
+import {
+  deploySmartAccountIfNeeded,
+  sendSponsoredUserOperation,
+  waitForUserOperationReceipt,
+} from './bundlerUtils';
 
 /**
  * Transaction prepared by server for client-side signing
@@ -63,9 +78,6 @@ export async function signAndSendTransaction(
     extractAgentId = false,
   } = options;
 
-  // Dynamically import viem (client-side only)
-  const { createWalletClient, custom, createPublicClient, http } = await import('viem');
-
   // Get wallet provider
   const provider = ethereumProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
   
@@ -121,6 +133,27 @@ export async function signAndSendTransaction(
 
   // Extract agentId if requested (for agent creation transactions)
   let agentId: string | undefined;
+  if (receipt && Array.isArray(receipt.logs)) {
+    const zeroTopic = '0x0000000000000000000000000000000000000000000000000000000000000000';
+    const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+    const mintLog = receipt.logs.find(
+      (log: any) =>
+        log?.topics?.[0] === transferTopic &&
+        (log?.topics?.[1] === zeroTopic || log?.topics?.[1] === undefined)
+    );
+    if (mintLog) {
+      const tokenTopic = mintLog.topics?.[3];
+      const tokenData = mintLog.data;
+      const tokenHex = tokenTopic ?? tokenData;
+      if (tokenHex) {
+        try {
+          agentId = BigInt(tokenHex).toString();
+        } catch (error) {
+          console.warn('Unable to parse agentId from mint log:', error);
+        }
+      }
+    }
+  }
   if (extractAgentId) {
     try {
       agentId = extractAgentIdFromReceipt(receipt);
@@ -355,10 +388,6 @@ export async function createAgentWithWalletForEOA(
     const chainId = data.transaction.chainId;
     let chain: Chain;
     
-    // Import chains and find the matching one
-    const chainsModule = await import('viem/chains');
-    const { sepolia, baseSepolia, optimismSepolia } = chainsModule;
-    
     // Map chainId to chain
     switch (chainId) {
       case 11155111: // ETH Sepolia
@@ -377,7 +406,9 @@ export async function createAgentWithWalletForEOA(
     }
 
     // Get RPC URL from environment or use default
-    const rpcUrl = providedRpcUrl || 
+    const rpcUrl =
+      providedRpcUrl ||
+      (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL) ||
       (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
       undefined;
 
@@ -461,15 +492,98 @@ export async function createAgentWithWalletForAA(
     account = accounts[0] as Address;
   }
 
+  const chainId = ethereumProvider.chainId;
+
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
   
+
+
+  // 0.  Get on the correct chain get adapter for the chain
+
+  let chain: Chain;
+  switch (chainId) {
+    case 11155111: // ETH Sepolia
+      chain = sepolia;
+      break;
+    case 84532: // Base Sepolia
+      chain = baseSepolia;
+      break;
+    case 11155420: // Optimism Sepolia
+      chain = optimismSepolia;
+      break;
+    default:
+      chain = sepolia;
+      console.warn(`Unknown chainId ${chainId}, defaulting to Sepolia`);
+  }
+
+
+
+  // 1.  Need to create the Agent Account Abstraction (Account)
+
+  // Build AA account client using client's EOA (MetaMask/Web3Auth)
+
+
+  // Get RPC URL
+  const rpcUrl =
+    providedRpcUrl ||
+    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL) ||
+    (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
+    '';
+
+  // Get agent name from request
+  const agentName = options.agentData.agentName;
+
+  // Get Account Client by Agent Name, find if exists and if not the create it
+  const agentAccountClient = await getAAAccountClientByAgentName(
+    agentName,
+    account,
+    {
+      chain: chain as any,
+      rpcUrl,
+      ethereumProvider,
+    }
+  );
+
+  if (!agentAccountClient) {
+    throw new Error('Failed to build AA account client');
+  }
+
+  // Verify the address matches
+  const computedAddress = await agentAccountClient.getAddress();
+  if (computedAddress.toLowerCase() !== options.agentData.agentAccount.toLowerCase()) {
+    throw new Error(`AA address mismatch: computed ${computedAddress}, expected ${options.agentData.agentAccount}`);
+  }
+
+  // Deploy smart account if needed
+  onStatusUpdate?.('Deploying smart account if needed...');
+  const envBundlerUrl =
+    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL) ||
+    (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_BUNDLER_URL) ||
+    '';
+
+  if (!envBundlerUrl) {
+    throw new Error('Bundler URL not configured for Account Abstraction');
+  }
+
+  await deploySmartAccountIfNeeded({
+    bundlerUrl: envBundlerUrl,
+    chain: chain as any,
+    account: agentAccountClient,
+  });
+
+
+  // 2.  Need to create the Agent ENS Name (NFT)
+
+
+  // 2.  Need to create the Agent Identity (NFT)
+  
   // Prepare request body with AA parameters if needed
   const requestBody: any = {
+    account: computedAddress,
     ...agentData,
   };
-  
-  
+
   const response = await fetch('/api/agents/create-for-aa', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -483,256 +597,83 @@ export async function createAgentWithWalletForAA(
 
   const data = await response.json();
 
-  // Step 2: Check if client-side AA account client creation is required
-  console.info("*********** walletSigning createAgentWithWallet1: requiresClientSigning", data.requiresClientSigning);
-  if (data.requiresClientSigning && data.requiresAAClient && data.calls) {
-    console.info("*********** walletSigning createAgentWithWallet: data", data);
-    onStatusUpdate?.('Building AA account client and sending UserOperation...');
-    
-    // Build AA account client using client's EOA (MetaMask/Web3Auth)
-    const { getAAAccountClientByAgentName } = await import('./aaClient');
-    const { sepolia, baseSepolia, optimismSepolia } = await import('viem/chains');
-    
-    // Get chain from chainId
-    let chain: Chain;
-    switch (data.chainId) {
-      case 11155111: // ETH Sepolia
-        chain = sepolia;
-        break;
-      case 84532: // Base Sepolia
-        chain = baseSepolia;
-        break;
-      case 11155420: // Optimism Sepolia
-        chain = optimismSepolia;
-        break;
-      default:
-        chain = sepolia;
-        console.warn(`Unknown chainId ${data.chainId}, defaulting to Sepolia`);
-    }
+  if (!Array.isArray(data.calls) || data.calls.length === 0) {
+    throw new Error('Agent creation response missing register calls');
+  }
 
-    // Get RPC URL
-    const rpcUrl = providedRpcUrl || 
-      (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
-      '';
+  const bundlerUrl =
+    data.bundlerUrl ||
+    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL) ||
+    (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_BUNDLER_URL) ||
+    '';
+  if (!bundlerUrl) {
+    throw new Error('Bundler URL not configured for Account Abstraction');
+  }
 
-    // Get agent name from request
-    const agentName = options.agentData.agentName;
+  // Construct Agent Identity with agentAccount Client
+  const createAgentIdentityCalls = data.calls.map((call: any) => ({
+    to: call.to as `0x${string}`,
+    data: call.data as `0x${string}`,
+    value: BigInt(call.value || '0'),
+  }));
 
-    // Build AA account client using the new logic (tries ENS resolution first, then deterministic)
-    const agentAccountClient = await getAAAccountClientByAgentName(
-      agentName,
-      account,
-      {
-        chain: chain as any,
-        rpcUrl,
-        ethereumProvider,
+  // Send UserOperation via bundler
+  onStatusUpdate?.('Sending UserOperation via bundler...');
+  const userOpHash = await sendSponsoredUserOperation({
+    bundlerUrl,
+    chain: chain as any,
+    accountClient: agentAccountClient,
+    calls: createAgentIdentityCalls,
+  });
+
+  onStatusUpdate?.(`UserOperation sent! Hash: ${userOpHash}. Waiting for confirmation...`);
+
+  // Wait for receipt
+  const receipt = await waitForUserOperationReceipt({
+    bundlerUrl,
+    chain: chain as any,
+    hash: userOpHash,
+  });
+
+  // Extract agentId from receipt logs
+  let agentId: string | undefined;
+  try {
+    const extractResponse = await fetch('/api/agents/extract-agent-id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        receipt,
+        chainId: chain.id,
+      }),
+    });
+
+    if (extractResponse.ok) {
+      const extractData = await extractResponse.json();
+      if (extractData?.agentId) {
+        agentId = extractData.agentId;
       }
-    );
-
-    if (!agentAccountClient) {
-      throw new Error('Failed to build AA account client');
-    }
-
-    // Verify the address matches
-    const computedAddress = await agentAccountClient.getAddress();
-    if (computedAddress.toLowerCase() !== options.agentData.agentAccount.toLowerCase()) {
-      throw new Error(`AA address mismatch: computed ${computedAddress}, expected ${options.agentData.agentAccount}`);
-    }
-
-    // Deploy smart account if needed
-    onStatusUpdate?.('Deploying smart account if needed...');
-    const { deploySmartAccountIfNeeded, sendSponsoredUserOperation, waitForUserOperationReceipt } = await import('./bundlerUtils');
-    await deploySmartAccountIfNeeded({
-      bundlerUrl: data.bundlerUrl,
-      chain: chain as any,
-      account: agentAccountClient,
-    });
-
-    // Convert calls to the format expected by bundler
-    const calls = data.calls.map((call: any) => ({
-      to: call.to as `0x${string}`,
-      data: call.data as `0x${string}`,
-      value: BigInt(call.value || '0'),
-    }));
-
-    // Send UserOperation via bundler
-    onStatusUpdate?.('Sending UserOperation via bundler...');
-    const userOpHash = await sendSponsoredUserOperation({
-      bundlerUrl: data.bundlerUrl,
-      chain: chain as any,
-      accountClient: agentAccountClient,
-      calls,
-    });
-
-    onStatusUpdate?.(`UserOperation sent! Hash: ${userOpHash}. Waiting for confirmation...`);
-
-    // Wait for receipt
-    const receipt = await waitForUserOperationReceipt({
-      bundlerUrl: data.bundlerUrl,
-      chain: chain as any,
-      hash: userOpHash,
-    });
-
-    // Extract agentId from receipt logs
-    let agentId: string | undefined;
-    if (receipt.logs && receipt.logs.length > 0) {
-      // Look for IdentityRegistered event
-      const identityRegistry = process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY || 
-                               process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      if (identityRegistry) {
-        // Parse logs to find agentId (similar to regular transaction parsing)
-        // This is a simplified version - you may need to adjust based on your event structure
-        for (const log of receipt.logs) {
-          if (log.address.toLowerCase() === identityRegistry.toLowerCase()) {
-            // Extract agentId from log data (adjust based on your event structure)
-            // For now, we'll refresh the indexer and let it pick up the agent
-          }
-        }
-      }
-    }
-
-    /*
-
-    // 2. Set agent name info within ENS
-    console.log('********************* prepareSetAgentNameInfoCalls');
-    const { calls: agentCalls } = await agentENSClient.prepareSetAgentNameInfoCalls({
-      orgName: cleanOrgName,
-      agentName: cleanAgentName,
-      agentAddress: agentAccount,
-      agentUrl: agentUrl,
-      agentDescription: agentDescription
-    });
-
-    const userOpHash2 = await sendSponsoredUserOperation({
-      bundlerUrl,
-      chain,
-      accountClient: agentAccountClient,
-      calls: agentCalls,
-    });
-
-    const { receipt: agentReceipt } = await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash2 });
-    console.log('********************* agentReceipt', agentReceipt);
-
-    // 3. Set agent image if provided
-    if (agentImage && agentImage.trim() !== '') {
-      const ensFullName = `${cleanAgentName}.${cleanOrgName}.eth`;
-      const { calls: imageCalls } = await agentENSClient.prepareSetNameImageCalls(ensFullName, agentImage.trim());
-      
-      if (imageCalls.length > 0) {
-        const userOpHash3 = await sendSponsoredUserOperation({
-          bundlerUrl,
-          chain,
-          accountClient: agentAccountClient,
-          calls: imageCalls,
-        });
-
-        await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash3 });
-      }
-    }
-    */
-
-
-    // Refresh GraphQL indexer
-    if (agentId) {
-      await refreshAgentInIndexer(agentId);
     } else {
-      // If we can't extract agentId, refresh using the agent account address
-      // The indexer should be able to find it
-      onStatusUpdate?.('Refreshing GraphQL indexer...');
-      try {
-        // We'll need to call the refresh endpoint with the agent account
-        // For now, we'll just log that we need to refresh
-        console.log('UserOperation confirmed. Please refresh the agent list to see the new agent.');
-      } catch (error) {
-        console.warn('Could not refresh agent in indexer:', error);
-      }
+      const errorPayload = await extractResponse.json().catch(() => ({}));
+      console.warn('Failed to extract agentId via API:', errorPayload);
     }
-
-    return {
-      agentId,
-      txHash: userOpHash,
-      requiresClientSigning: true,
-    };
+  } catch (error) {
+    console.warn('Unable to extract agentId via API:', error);
   }
 
-  // Step 3: Check if client-side signing is required (regular EOA transaction)
-  if (data.requiresClientSigning && data.transaction) {
-    // Get chain from transaction chainId
-    const chainId = data.transaction.chainId;
-    let chain: Chain;
-    
-    // Import chains and find the matching one
-    const chainsModule = await import('viem/chains');
-    const { sepolia, baseSepolia, optimismSepolia } = chainsModule;
-    
-    // Map chainId to chain
-    switch (chainId) {
-      case 11155111: // ETH Sepolia
-        chain = sepolia;
-        break;
-      case 84532: // Base Sepolia
-        chain = baseSepolia;
-        break;
-      case 11155420: // Optimism Sepolia
-        chain = optimismSepolia;
-        break;
-      default:
-        // Fallback to sepolia if chain not found
-        chain = sepolia;
-        console.warn(`Unknown chainId ${chainId}, defaulting to Sepolia`);
-    }
-
-    // Get RPC URL from environment or use default
-    const rpcUrl = providedRpcUrl || 
-      (typeof process !== 'undefined' && process.env?.AGENTIC_TRUST_RPC_URL) ||
-      undefined;
-
-    // Sign and send transaction
-    const result = await signAndSendTransaction({
-      transaction: data.transaction,
-      account,
-      chain,
-      ethereumProvider,
-      rpcUrl,
-      onStatusUpdate,
-      extractAgentId: true, // Extract agentId for agent creation
-    });
-
-    // Step 3: Refresh GraphQL indexer if agentId was extracted
-    if (result.agentId) {
-      await refreshAgentInIndexer(result.agentId);
-    }
-
-    return {
-      agentId: result.agentId,
-      txHash: result.hash,
-      requiresClientSigning: true,
-    };
+  // Refresh GraphQL indexer
+  if (agentId) {
+    await refreshAgentInIndexer(agentId);
   } else {
-    // Server-side signed transaction
-    // Ensure we have the required fields
-    if (!data.agentId || !data.txHash) {
-      throw new Error(`Invalid response from create agent API. Expected agentId and txHash, got: ${JSON.stringify(data)}`);
-    }
-    
-    const agentIdStr = data.agentId.toString();
-    
-    // Refresh GraphQL indexer for server-side signed transactions too
-    if (agentIdStr) {
-      try {
-        await refreshAgentInIndexer(agentIdStr);
-      } catch (error) {
-        // Don't fail the whole operation if refresh fails
-        console.warn('Failed to refresh agent in indexer:', error);
-      }
-    }
-
-    return {
-      agentId: "",
-      txHash: "",
-      requiresClientSigning: false,
-    };
+    onStatusUpdate?.('Refreshing GraphQL indexer...');
+    console.log('UserOperation confirmed. Please refresh the agent list to see the new agent.');
   }
+
+  return {
+    agentId,
+    txHash: userOpHash,
+    requiresClientSigning: true,
+  };
+
 }
 
 

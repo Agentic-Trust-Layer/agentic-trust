@@ -7,19 +7,10 @@
 
 import { createBundlerClient } from 'viem/account-abstraction';
 import { http, zeroAddress, type Chain } from 'viem';
+import { createPimlicoClient } from 'permissionless/clients/pimlico';
 
-// Dynamic import for permissionless (optional dependency)
-async function getPimlicoClient(bundlerUrl: string) {
-  try {
-    // @ts-ignore - permissionless is an optional dependency
-    const { createPimlicoClient } = await import('permissionless/clients/pimlico');
-    return createPimlicoClient({ transport: http(bundlerUrl) } as any);
-  } catch (error) {
-    throw new Error(
-      'permissionless package not installed. Install it with: pnpm add permissionless ' +
-      `Error: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-  }
+function getPimlicoClient(bundlerUrl: string) {
+  return createPimlicoClient({ transport: http(bundlerUrl) } as any);
 }
 
 /**

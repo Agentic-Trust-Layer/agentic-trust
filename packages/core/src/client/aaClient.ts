@@ -19,7 +19,7 @@ export async function getAAAccountClientByAgentName(
 ): Promise<any> {
 
   console.info("*********** aaClient getAAAccountClientByAgentName: agentName", agentName);
-  const rpcUrl = options?.rpcUrl || process.env.AGENTIC_TRUST_RPC_URL || '';
+  const rpcUrl = options?.rpcUrl || process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || '';
   const resolvedChain = options?.chain || sepolia;
 
   let publicClient: PublicClient;
