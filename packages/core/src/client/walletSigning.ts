@@ -636,6 +636,7 @@ export async function createAgentWithWalletForAA(
   }
 
   // 3.  Add ENS record associated with new agent
+  console.log('*********** createAgentWithWalletForAA: options.ensOptions', options.ensOptions);
   if (options.ensOptions?.enabled && options.ensOptions.orgName) {
     try {
       const ensAgentAccount = (typeof computedAddress === 'string' && computedAddress.startsWith('0x'))
@@ -657,6 +658,50 @@ export async function createAgentWithWalletForAA(
       if (!ensResponse.ok) {
         const errorData = await ensResponse.json().catch(() => ({}));
         throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
+      }
+
+      const ensData = await ensResponse.json();
+      const ensCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+
+      if (Array.isArray(ensData?.calls)) {
+        for (const rawCall of ensData.calls as Array<Record<string, unknown>>) {
+          const to = rawCall?.to as `0x${string}` | undefined;
+          const data = rawCall?.data as `0x${string}` | undefined;
+          if (!to || !data) {
+            continue;
+          }
+
+          let value: bigint | undefined;
+          if (rawCall?.value !== null && rawCall?.value !== undefined) {
+            try {
+              value = BigInt(rawCall.value as string | number | bigint);
+            } catch (error) {
+              console.warn('Unable to parse ENS creation call value', rawCall.value, error);
+            }
+          }
+
+          ensCalls.push({
+            to,
+            data,
+            value,
+          });
+        }
+      }
+
+      if (ensCalls.length > 0) {
+        onStatusUpdate?.('Submitting ENS subdomain transaction...');
+        const ensUserOpHash = await sendSponsoredUserOperation({
+          bundlerUrl,
+          chain: chain as any,
+          accountClient: agentAccountClient,
+          calls: ensCalls,
+        });
+
+        await waitForUserOperationReceipt({
+          bundlerUrl,
+          chain: chain as any,
+          hash: ensUserOpHash,
+        });
       }
 
       onStatusUpdate?.('Preparing ENS metadata update...');

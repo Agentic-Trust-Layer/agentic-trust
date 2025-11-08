@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  addAgentNameToOrgUsingEnsKey,
-  type AddAgentToOrgResult,
-} from '@agentic-trust/core/server';
+import { addAgentNameToOrgUsingEnsKey } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -42,16 +39,28 @@ export async function POST(request: NextRequest) {
       agentUrl,
     });
 
-    const sanitize = (value: unknown): unknown =>
-      typeof value === 'bigint' ? value.toString() : value;
+    const rawCalls = Array.isArray((result as any)?.calls)
+      ? ((result as any).calls as Array<Record<string, unknown>>)
+      : [];
 
-    const responsePayload: AddAgentToOrgResult & { success: true } = {
+    const jsonSafeCalls = rawCalls
+      .map((call) => {
+      const to = call?.to as `0x${string}` | undefined;
+      const data = call?.data as `0x${string}` | undefined;
+      const value = call?.value as string | number | bigint | null | undefined;
+
+      return {
+        to,
+        data,
+        value: typeof value === 'bigint' ? value.toString() : value ?? null,
+      };
+    })
+      .filter((call) => typeof call.to === 'string' && typeof call.data === 'string');
+
+    return NextResponse.json({
       success: true,
-      userOpHash: result.userOpHash,
-      receipt: JSON.parse(JSON.stringify(result.receipt, (_, value) => sanitize(value))),
-    };
-
-    return NextResponse.json(responsePayload);
+      calls: jsonSafeCalls,
+    });
   } catch (error) {
     console.error('Error creating ENS record:', error);
     return NextResponse.json(
