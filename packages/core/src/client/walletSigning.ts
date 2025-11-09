@@ -421,6 +421,7 @@ export interface CreateAgentWithWalletOptions {
     enabled?: boolean;
     orgName?: string;
   };
+  chainId?: number; // Explicit chain selection from UI
 }
 
 /**
@@ -455,6 +456,7 @@ export async function createAgentWithWalletForEOA(
     ethereumProvider: providedProvider,
     rpcUrl: providedRpcUrl,
     onStatusUpdate,
+    chainId: requestedChainId,
   } = options;
 
   // Get wallet provider (default to window.ethereum)
@@ -478,6 +480,7 @@ export async function createAgentWithWalletForEOA(
   // Prepare request body with AA parameters if needed
   const requestBody: any = {
     ...agentData,
+    chainId: requestedChainId,
   };
   
   
@@ -559,6 +562,7 @@ export async function createAgentWithWalletForAA(
     ethereumProvider: providedProvider,
     rpcUrl: providedRpcUrl,
     onStatusUpdate,
+    chainId: providedChainId,
   } = options;
 
 
@@ -577,7 +581,9 @@ export async function createAgentWithWalletForAA(
     account = await ensureAuthorizedAccount(ethereumProvider);
   }
 
-  const chainId = await resolveChainId(ethereumProvider);
+  const chainId = typeof providedChainId === 'number'
+    ? providedChainId
+    : await resolveChainId(ethereumProvider);
 
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
@@ -781,6 +787,7 @@ export async function createAgentWithWalletForAA(
   const requestBody: any = {
     account: computedAddress,
     ...agentData,
+    chainId,
   };
 
   const response = await fetch('/api/agents/create-for-aa', {

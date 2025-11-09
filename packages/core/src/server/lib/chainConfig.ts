@@ -47,6 +47,18 @@ const CLIENT_CHAIN_RPC_ENV: Partial<Record<SupportedChainId, string | undefined>
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA,
 } as const;
 
+const SERVER_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  11155111: process.env.AGENTIC_TRUST_BUNDLER_URL_SEPOLIA,
+  84532: process.env.AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA,
+  11155420: process.env.AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
+} as const;
+
+const CLIENT_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA,
+  84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA,
+  11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
+} as const;
+
 /**
  * Get chain-specific environment variable
  * @param baseName - Base environment variable name (e.g., 'AGENTIC_TRUST_RPC_URL')
@@ -189,11 +201,27 @@ export function getChainRpcUrl(chainId: number): string {
 export function getChainBundlerUrl(chainId: number): string {
   const chainConfig = CHAIN_CONFIG[chainId as SupportedChainId];
   if (chainConfig) {
-    const chainSpecificKey = `NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_${chainConfig.suffix}`;
-    const fallbackKey = 'NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL';
-    return process.env[chainSpecificKey] || process.env[fallbackKey] || '';
+    const isBrowser = typeof window !== 'undefined';
+    if (isBrowser) {
+      const clientValue = CLIENT_CHAIN_BUNDLER_ENV[chainId as SupportedChainId];
+      if (clientValue) return clientValue;
+    } else {
+      const serverValue = SERVER_CHAIN_BUNDLER_ENV[chainId as SupportedChainId];
+      if (serverValue) return serverValue;
+
+      const clientValue = CLIENT_CHAIN_BUNDLER_ENV[chainId as SupportedChainId];
+      if (clientValue) return clientValue;
+    }
+
+    const expectedVar = isBrowser
+      ? `NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_${chainConfig.suffix}`
+      : `AGENTIC_TRUST_BUNDLER_URL_${chainConfig.suffix}`;
+    throw new Error(
+      `Missing required bundler URL for chain ${chainId} (${chainConfig.name}). ` +
+      `Set ${expectedVar} environment variable.`
+    );
   }
-  return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL || '';
+  throw new Error(`Unsupported chain ID: ${chainId}`);
 }
 
 /**

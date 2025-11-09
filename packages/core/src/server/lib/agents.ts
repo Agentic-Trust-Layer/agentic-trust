@@ -17,7 +17,7 @@ import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import { getDiscoveryClient } from '../singletons/discoveryClient';
-import { getChainEnvVar, getChainById, getChainRpcUrl, DEFAULT_CHAIN_ID } from './chainConfig';
+import { getChainEnvVar, getChainById, getChainRpcUrl, getChainBundlerUrl, DEFAULT_CHAIN_ID } from './chainConfig';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
@@ -142,12 +142,13 @@ export class AgentsAPI {
         metadata: Array<{ key: string; value: string }>;
       }
   > {
-    const adminApp = await getAdminApp();
+    const targetChainId = params.chainId || DEFAULT_CHAIN_ID;
+    const adminApp = await getAdminApp(undefined, targetChainId);
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
 
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', params.chainId || DEFAULT_CHAIN_ID);
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
       if (!identityRegistry || typeof identityRegistry !== 'string') {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
@@ -158,7 +159,8 @@ export class AgentsAPI {
 
       // Create registration JSON and upload to IPFS
       let tokenURI = '';
-      const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
+      const chainId: number = targetChainId;
+      console.log('[agents.createAgentForEOA] Using chainId', chainId);
       
       try {
         const registrationJSON = createRegistrationJSON({
@@ -198,7 +200,7 @@ export class AgentsAPI {
       // Get chain by ID
       const chain = getChainById(chainId);
 
-      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
+      const rpcUrl = getChainRpcUrl(chainId);
       const publicClient = createPublicClient({
         chain: chain as any,
         transport: http(rpcUrl),
@@ -308,13 +310,13 @@ export class AgentsAPI {
     chainId: number;
     calls: Array<{ to: `0x${string}`; data: `0x${string}` }>;
   }> {
-    
-    const adminApp = await getAdminApp();
+    const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
+    const adminApp = await getAdminApp(undefined, chainId);
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
 
-    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+    const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
     if (!identityRegistry || typeof identityRegistry !== 'string') {
       throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
     }
@@ -325,7 +327,7 @@ export class AgentsAPI {
 
     // Create registration JSON and upload to IPFS
     let tokenURI = '';
-    const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
+    console.log('[agents.createAgentForAA] Using chainId', chainId);
     
     try {
       const registrationJSON = createRegistrationJSON({
@@ -350,7 +352,7 @@ export class AgentsAPI {
       // Determine chain based on chainId
       const chain = getChainById(chainId);
 
-      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
+      const rpcUrl = getChainRpcUrl(chainId);
       const publicClient = createPublicClient({
         chain: chain as any,
         transport: http(rpcUrl),
@@ -378,7 +380,7 @@ export class AgentsAPI {
         tokenURI
       );
 
-    const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || DEFAULT_CHAIN_ID);
+    const bundlerUrl = getChainBundlerUrl(params.chainId || DEFAULT_CHAIN_ID);
 
     return {
       success: true as const,
@@ -496,7 +498,8 @@ export class AgentsAPI {
       tokenURI: string;
       metadata: Array<{ key: string; value: string }>;
     }> => {
-      const adminApp = await getAdminApp();
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const adminApp = await getAdminApp(undefined, chainId);
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and connect via wallet');
       }
@@ -505,7 +508,6 @@ export class AgentsAPI {
         throw new Error('prepareCreateAgentTransaction should only be used when no private key is available');
       }
 
-      const chainId = params.chainId || DEFAULT_CHAIN_ID;
       const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry || typeof identityRegistry !== 'string') {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
@@ -632,14 +634,14 @@ export class AgentsAPI {
       metadata?: Array<{ key: string; value: string }>;
       chainId?: number;
     }): Promise<{ txHash: string }> => {
-      const adminApp = await getAdminApp();
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const adminApp = await getAdminApp(undefined, chainId);
 
 
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const chainId = params.chainId || DEFAULT_CHAIN_ID;
       const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry) {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
@@ -690,12 +692,12 @@ export class AgentsAPI {
       agentId: bigint | string;
       chainId?: number;
     }): Promise<{ txHash: string }> => {
-      const adminApp = await getAdminApp();
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const adminApp = await getAdminApp(undefined, chainId);
 
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
-      const chainId = params.chainId || DEFAULT_CHAIN_ID;
 
       const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry) {
@@ -736,13 +738,13 @@ export class AgentsAPI {
       to: `0x${string}`;
       chainId?: number;
     }): Promise<{ txHash: string }> => {
-      const adminApp = await getAdminApp();
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const adminApp = await getAdminApp(undefined, chainId);
 
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const chainId = params.chainId || DEFAULT_CHAIN_ID;
       const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry) {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');

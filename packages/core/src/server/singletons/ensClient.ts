@@ -64,7 +64,7 @@ export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> 
       const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === 'true' || process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1';
       if (isAdminApp) {
         try {
-          const adminApp = await getAdminApp();
+          const adminApp = await getAdminApp(undefined, targetChainId);
           if (adminApp?.accountProvider) {
             accountProvider = adminApp.accountProvider;
           }
@@ -114,27 +114,24 @@ export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> 
           publicClient,
           walletClient: null,
           account: undefined,
-          chainConfig: {
+            chainConfig: {
             id: sepolia.id,
-            rpcUrl,
+              rpcUrl,
             name: sepolia.name,
             chain: sepolia,
-          },
+            },
         });
       }
 
-      // Determine chain based on targetChainId
-      const { baseSepolia } = await import('viem/chains');
-      let chain;
-      if (targetChainId === 11155111) {
-        chain = sepolia;
-      } else if (targetChainId === 84532) {
-        chain = baseSepolia;
-      } else {
-        throw new Error(`Unsupported chainId: ${targetChainId}. Supported chains: 11155111 (Sepolia), 84532 (Base Sepolia)`);
-      }
-
       // Create ENS client
+      const { baseSepolia } = await import('viem/chains');
+      const chain =
+        targetChainId === 11155111
+          ? sepolia
+          : targetChainId === 84532
+          ? baseSepolia
+          : sepolia;
+
       const ensClient = new AIAgentENSClient(
         chain,
         rpcUrl,
@@ -277,7 +274,7 @@ export async function createENSName(
       
       // Try AdminApp first
       try {
-        const adminApp = await getAdminApp();
+        const adminApp = await getAdminApp(undefined, targetChainId);
         if (adminApp?.accountProvider) {
           providerToUse = adminApp.accountProvider;
         }

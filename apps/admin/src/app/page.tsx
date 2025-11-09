@@ -524,6 +524,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           onStatusUpdate: setSuccess,
           // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
           useAA: useAA || undefined,
+          chainId: selectedChainId,
         });
 
         // Handle result
@@ -554,6 +555,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             enabled: !!createENS,
             orgName: createENS ? ensOrgName : undefined,
           },
+          chainId: selectedChainId,
         });
 
         // Handle result

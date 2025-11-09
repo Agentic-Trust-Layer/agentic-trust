@@ -17,6 +17,8 @@ export async function POST(request: NextRequest) {
       chainId,
     } = body ?? {};
 
+    console.log('[api/agents/create-for-eoa] Received chainId:', chainId);
+
     if (!agentName || !agentAccount) {
       return NextResponse.json(
         {

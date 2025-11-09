@@ -6,7 +6,8 @@
  */
 
 import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
-import type { Account, PublicClient, WalletClient } from 'viem';
+import type { Account, PublicClient, WalletClient, Chain } from 'viem';
+import { getChainById, getChainRpcUrl, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 
 // Admin app instance type
 type AdminAppInstance = {
@@ -30,7 +31,7 @@ const initializationPromises = new Map<string, Promise<AdminAppInstance>>();
  * 
  * @param privateKey - Optional private key. If not provided, will try cookies then env vars
  */
-export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance | undefined> {
+export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT_CHAIN_ID): Promise<AdminAppInstance | undefined> {
   // Resolve the private key first
   let resolvedPrivateKey: string | undefined = privateKey;
 
@@ -93,7 +94,7 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
   }
   
   // Determine instance key - use wallet address if available, otherwise use private key address
-  let instanceKey: string;
+  let instanceKeyBase: string;
   let resolvedAddress: string | undefined;
   
   if (resolvedPrivateKey) {
@@ -101,15 +102,17 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
     const { privateKeyToAccount } = await import('viem/accounts');
     const normalizedKey = resolvedPrivateKey.startsWith('0x') ? resolvedPrivateKey : `0x${resolvedPrivateKey}`;
     const tempAccount = privateKeyToAccount(normalizedKey as `0x${string}`);
-    instanceKey = tempAccount.address.toLowerCase();
+    instanceKeyBase = tempAccount.address.toLowerCase();
     resolvedAddress = tempAccount.address;
   } else if (walletAddress) {
     // Use wallet address directly (for read-only operations)
-    instanceKey = walletAddress.toLowerCase();
+    instanceKeyBase = walletAddress.toLowerCase();
     resolvedAddress = walletAddress;
   } else {
     throw new Error('Either private key or wallet address is required');
   }
+
+  const instanceKey = `${instanceKeyBase}:${chainId}`;
 
   // If already initialized for this key, return immediately
   const existingInstance = adminAppInstances.get(instanceKey);
@@ -135,20 +138,20 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
         throw new Error('AdminApp is only available when AGENTIC_TRUST_IS_ADMIN_APP is set to true or 1');
       }
 
-      // Get chain-specific RPC URL (defaults to Sepolia)
-      const { getChainRpcUrl, DEFAULT_CHAIN_ID } = await import('../lib/chainConfig');
-      const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
+      // Get chain-specific RPC URL and chain config
+      const targetChainId = chainId || DEFAULT_CHAIN_ID;
+      const rpcUrl = getChainRpcUrl(targetChainId);
 
       if (!rpcUrl) {
-        throw new Error('Missing required RPC URL. Set AGENTIC_TRUST_RPC_URL_SEPOLIA or AGENTIC_TRUST_RPC_URL environment variable');
+        throw new Error(`Missing required RPC URL. Configure AGENTIC_TRUST_RPC_URL_{CHAIN} for chainId ${targetChainId}`);
       }
 
       const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');
-      const { sepolia } = await import('viem/chains');
+      const chain = getChainById(targetChainId) as Chain;
 
       // Create public client (always needed)
       const publicClient = createPublicClient({
-        chain: sepolia,
+        chain,
         transport: httpTransport(rpcUrl),
       });
 
@@ -166,7 +169,7 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
 
         walletClient = createWalletClient({
           account,
-          chain: sepolia,
+          chain,
           transport: httpTransport(rpcUrl),
         });
       } else {
@@ -180,10 +183,10 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
         walletClient: (walletClient as any) ?? null,
         account: account ?? undefined,
         chainConfig: {
-          id: sepolia.id,
+          id: chain.id,
           rpcUrl,
-          name: sepolia.name,
-          chain: sepolia,
+          name: chain.name,
+          chain,
         },
       });
 
@@ -200,7 +203,7 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
       adminAppInstances.set(instanceKey, instance);
       initializationPromises.delete(instanceKey); // Remove from pending
 
-      console.log('✅ AdminApp initialized with address:', address);
+      console.log('✅ AdminApp initialized with address:', address, 'on chain', targetChainId);
       return instance;
     } catch (error) {
       console.error('❌ Failed to initialize AdminApp:', error);
@@ -219,7 +222,7 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
  * Get the admin address (convenience method)
  */
 export async function getAdminAddress(): Promise<`0x${string}`> {
-  const adminApp = await getAdminApp();
+  const adminApp = await getAdminApp(undefined, DEFAULT_CHAIN_ID);
   return adminApp?.address ?? '0x';
 }
 
@@ -228,7 +231,13 @@ export async function getAdminAddress(): Promise<`0x${string}`> {
  */
 export function isAdminAppInitialized(address?: string): boolean {
   if (address) {
-    return adminAppInstances.has(address.toLowerCase());
+    const keyPrefix = `${address.toLowerCase()}:`;
+    for (const key of adminAppInstances.keys()) {
+      if (key.startsWith(keyPrefix)) {
+        return true;
+      }
+    }
+    return false;
   }
   return adminAppInstances.size > 0;
 }
@@ -239,9 +248,13 @@ export function isAdminAppInitialized(address?: string): boolean {
  */
 export function resetAdminApp(address?: string): void {
   if (address) {
-    const key = address.toLowerCase();
-    adminAppInstances.delete(key);
-    initializationPromises.delete(key);
+    const keyPrefix = `${address.toLowerCase()}:`;
+    for (const key of Array.from(adminAppInstances.keys())) {
+      if (key.startsWith(keyPrefix)) {
+        adminAppInstances.delete(key);
+        initializationPromises.delete(key);
+      }
+    }
   } else {
     adminAppInstances.clear();
     initializationPromises.clear();
