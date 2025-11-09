@@ -1,4 +1,4 @@
-import { keccak256, stringToHex, createPublicClient, http, zeroAddress, createWalletClient, custom, type Address } from 'viem';
+import { keccak256, stringToHex, createPublicClient, http, zeroAddress, createWalletClient, custom, type Address, type Chain } from 'viem';
 import { sepolia } from 'viem/chains';
 import type { PublicClient, WalletClient } from 'viem';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
@@ -10,7 +10,7 @@ import { getChainRpcUrl } from '../server/lib/chainConfig';
 
 
 type GetAAAccountClientOptions = {
-  chain?: typeof sepolia;
+  chain?: Chain;
   publicClient?: PublicClient;
   walletClient?: WalletClient;
   ethereumProvider?: any;
@@ -24,8 +24,9 @@ export async function getCounterfactualAccountClientByAgentName(
   options?: GetAAAccountClientOptions
 ): Promise<any> {
 
-  console.info("*********** aaClient getCounterfactualAccountClientByAgentName: agentName", agentName);
   const chain = options?.chain || sepolia;
+  console.info('*********** aaClient getCounterfactualAccountClientByAgentName: agentName', agentName);
+  console.info('*********** aaClient getCounterfactualAccountClientByAgentName: chain.id', chain?.id);
 
 
   let walletClient: WalletClient;
@@ -34,7 +35,7 @@ export async function getCounterfactualAccountClientByAgentName(
   } 
   else if (options?.ethereumProvider) {
     walletClient = createWalletClient({
-      chain: sepolia as any,
+      chain: chain as any,
       transport: custom(options.ethereumProvider),
       account: eoaAddress as Address,
     });
@@ -71,7 +72,7 @@ export async function getCounterfactualAccountClientByAgentName(
 
   let counterfactualAccountClient  = await toMetaMaskSmartAccount(clientConfig as any);
 
-  console.log('*********** aaClient getCounterfactualAccountClientByAgentName: counterfactualAccountClient', counterfactualAccountClient.address);
+  console.info('*********** aaClient getCounterfactualAccountClientByAgentName: counterfactualAccountClient', counterfactualAccountClient.address);
   return counterfactualAccountClient;
 }
 
@@ -83,8 +84,10 @@ export async function getDeployedAccountClientByAgentName(
   options?: GetAAAccountClientOptions
 ): Promise<any> {
 
-  console.info("*********** aaClient getDeployedAccountClientByAgentName: agentName", agentName);
   const chain = options?.chain || sepolia;
+  console.info('*********** aaClient getDeployedAccountClientByAgentName: agentName', agentName);
+  console.info('*********** aaClient getDeployedAccountClientByAgentName: chain.id', chain?.id);
+  console.info('*********** aaClient getDeployedAccountClientByAgentName: bundlerUrl', bundlerUrl);
 
 
   let walletClient: WalletClient;
@@ -93,7 +96,7 @@ export async function getDeployedAccountClientByAgentName(
   } 
   else if (options?.ethereumProvider) {
     walletClient = createWalletClient({
-      chain: sepolia as any,
+      chain: chain as any,
       transport: custom(options.ethereumProvider),
       account: eoaAddress as Address,
     });
@@ -270,6 +273,7 @@ export async function getDeployedAccountClientByAgentName(
   if (!isDeployed) {
     try {
       const rpcUrl = getChainRpcUrl(chain.id);
+      console.info('*********** aaClient getDeployedAccountClientByAgentName: checking on RPC', rpcUrl);
       if (rpcUrl) {
         const httpClient = createPublicClient({ chain: chain as any, transport: http(rpcUrl) });
         const codeHttp = await httpClient.getBytecode({ address: counterfactualAccountClient.address });
@@ -278,22 +282,24 @@ export async function getDeployedAccountClientByAgentName(
     } catch {}
   }
 
-  console.log('*********** aaClient getDeployedAccountClientByAgentName: isDeployed', isDeployed);
+  console.info('*********** aaClient getDeployedAccountClientByAgentName: isDeployed', isDeployed);
   if (!isDeployed && bundlerUrl) {
-
+      console.info('*********** aaClient getDeployedAccountClientByAgentName: deploying via bundler');
       const pimlico = createPimlicoClient({ transport: http(bundlerUrl) });
       const bundlerClient = createBundlerClient({
         transport: http(bundlerUrl),
         paymaster: true as any,
-        chain: sepolia as any,
+        chain: chain as any,
         paymasterContext: { mode: 'SPONSORED' },
       } as any);
       const { fast: fee } = await pimlico.getUserOperationGasPrice();
+      console.info('*********** aaClient getDeployedAccountClientByAgentName: gas price', fee);
       const userOperationHash = await bundlerClient.sendUserOperation({
         account: counterfactualAccountClient as any,
         calls: [ { to: zeroAddress } ],
         ...fee,
       });
+      console.info('*********** aaClient getDeployedAccountClientByAgentName: userOperationHash', userOperationHash);
       await bundlerClient.waitForUserOperationReceipt({ hash: userOperationHash });
 
       // After deployment, mark as deployed so we rebuild below
@@ -302,7 +308,7 @@ export async function getDeployedAccountClientByAgentName(
 
   const addr = counterfactualAccountClient.address;
   if (isDeployed) {
-    console.log('*********** aaClient getDeployedAccountClientByAgentName: rebuilding deployed account client without deploy params');
+    console.info('*********** aaClient getDeployedAccountClientByAgentName: rebuilding deployed account client without deploy params');
     const deployedAccountClient = await toMetaMaskSmartAccount({
       client: publicClient,
       implementation: Implementation.Hybrid,
@@ -312,11 +318,11 @@ export async function getDeployedAccountClientByAgentName(
       address: addr,
     });
 
-    console.log('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', deployedAccountClient.address);
+    console.info('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', deployedAccountClient.address);
     return deployedAccountClient;
   }
 
-  console.log('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', counterfactualAccountClient.address);
+  console.info('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', counterfactualAccountClient.address);
   return counterfactualAccountClient;
 }
 

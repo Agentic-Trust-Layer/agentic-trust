@@ -16,16 +16,19 @@ export { sepolia, baseSepolia, optimismSepolia };
 export const CHAIN_CONFIG = {
   11155111: { // Ethereum Sepolia
     suffix: 'SEPOLIA',
-    name: 'sepolia'
+    name: 'sepolia',
+    displayName: 'Ethereum Sepolia',
   },
   84532: { // Base Sepolia
     suffix: 'BASE_SEPOLIA',
-    name: 'baseSepolia'
+    name: 'baseSepolia',
+    displayName: 'Base Sepolia',
   },
   11155420: { // Optimism Sepolia
     suffix: 'OPTIMISM_SEPOLIA',
-    name: 'optimismSepolia'
-  }
+    name: 'optimismSepolia',
+    displayName: 'Optimism Sepolia',
+  },
 } as const;
 
 export type SupportedChainId = keyof typeof CHAIN_CONFIG;
@@ -191,6 +194,98 @@ export function getChainRpcUrl(chainId: number): string {
     );
   }
   throw new Error(`Unsupported chain ID: ${chainId}`);
+}
+
+export interface ChainDisplayMetadata {
+  chainId: number;
+  chainIdHex: `0x${string}`;
+  chainName: string;
+  displayName: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+export function getChainIdHex(chainId: number): `0x${string}` {
+  return `0x${chainId.toString(16)}` as `0x${string}`;
+}
+
+export function getChainDisplayMetadata(chainId: number): ChainDisplayMetadata {
+  const chainConfig = CHAIN_CONFIG[chainId as SupportedChainId];
+  if (!chainConfig) {
+    throw new Error(`Unsupported chain ID: ${chainId}`);
+  }
+
+  const chain = getChainById(chainId);
+  const chainIdHex = getChainIdHex(chainId);
+  const rpcUrl = getChainRpcUrl(chainId);
+  const nativeCurrency = chain.nativeCurrency ?? {
+    name: 'Ether',
+    symbol: 'ETH',
+    decimals: 18,
+  };
+
+  const blockExplorerUrls: string[] = [];
+  const defaultExplorerUrl = chain.blockExplorers?.default?.url;
+  if (defaultExplorerUrl) {
+    blockExplorerUrls.push(defaultExplorerUrl);
+  }
+
+  return {
+    chainId,
+    chainIdHex,
+    chainName: chain.name,
+    displayName: chainConfig.displayName || chain.name,
+    nativeCurrency,
+    rpcUrls: [rpcUrl],
+    blockExplorerUrls,
+  };
+}
+
+export interface Web3AuthChainSettings {
+  chainNamespace: 'eip155';
+  chainId: `0x${string}`;
+  rpcTarget: string;
+  displayName: string;
+  blockExplorerUrl?: string;
+  ticker: string;
+  tickerName: string;
+  decimals: number;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls: string[];
+}
+
+export function getWeb3AuthChainSettings(chainId: number): Web3AuthChainSettings {
+  const metadata = getChainDisplayMetadata(chainId);
+  const nativeCurrency = metadata.nativeCurrency;
+  const rpcTarget = metadata.rpcUrls[0];
+
+  if (!rpcTarget) {
+    throw new Error(`Missing RPC URL for Web3Auth chain ${chainId}`);
+  }
+
+  return {
+    chainNamespace: 'eip155',
+    chainId: metadata.chainIdHex,
+    rpcTarget,
+    displayName: metadata.displayName,
+    blockExplorerUrl: metadata.blockExplorerUrls[0],
+    ticker: nativeCurrency.symbol ?? 'ETH',
+    tickerName: nativeCurrency.name ?? 'Ether',
+    decimals: nativeCurrency.decimals ?? 18,
+    nativeCurrency,
+    rpcUrls: metadata.rpcUrls,
+    blockExplorerUrls: metadata.blockExplorerUrls,
+  };
 }
 
 /**

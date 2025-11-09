@@ -9,7 +9,7 @@
 type Web3Auth = any;
 type WALLET_ADAPTERS = any;
 
-import { getWeb3AuthClientId, getWeb3AuthNetwork, getChainRpcUrl } from '@agentic-trust/core/server';
+import { getWeb3AuthClientId, getChainRpcUrl, getWeb3AuthChainSettings } from '@agentic-trust/core/server';
 
 // Lazy-loaded Web3Auth instance (client-side only)
 let web3AuthInstance: Web3Auth | null = null;
@@ -317,5 +317,97 @@ export async function getPrivateKey(): Promise<string | null> {
   } catch (error) {
     console.error('Error getting private key:', error);
     return null;
+  }
+}
+
+export async function ensureWeb3AuthChain(chainId: number): Promise<boolean> {
+  try {
+    const web3Auth = await getWeb3Auth();
+    if (!web3Auth || !web3Auth.connected) {
+      console.info('[web3auth] ensureWeb3AuthChain: Web3Auth not connected');
+      return false;
+    }
+
+    const settings = getWeb3AuthChainSettings(chainId);
+    if (!settings.rpcTarget) {
+      console.warn('[web3auth] ensureWeb3AuthChain: missing rpcTarget for chain', chainId);
+      return false;
+    }
+
+    const { CHAIN_NAMESPACES } = await import('@web3auth/base');
+
+    if (typeof web3Auth.addChain === 'function') {
+      try {
+        await web3Auth.addChain({
+          chainNamespace: CHAIN_NAMESPACES.EIP155,
+          chainId: settings.chainId,
+          rpcTarget: settings.rpcTarget,
+          displayName: settings.displayName,
+          blockExplorerUrl: settings.blockExplorerUrl,
+          ticker: settings.ticker,
+          tickerName: settings.tickerName,
+          decimals: settings.decimals,
+        });
+        console.info('[web3auth] ensureWeb3AuthChain: registered chain config', chainId);
+      } catch (addErr: any) {
+        const message = addErr?.message?.toString().toLowerCase() ?? '';
+        if (!message.includes('already added') && !message.includes('already exists')) {
+          console.warn('[web3auth] ensureWeb3AuthChain: addChain failed', addErr);
+          return false;
+        }
+      }
+    }
+
+    if (typeof web3Auth.switchChain === 'function') {
+      try {
+        await web3Auth.switchChain({ chainId: settings.chainId });
+        console.info('[web3auth] ensureWeb3AuthChain: switched via Web3Auth API', chainId);
+        return true;
+      } catch (switchErr) {
+        console.warn('[web3auth] ensureWeb3AuthChain: switchChain failed, falling back to provider request', switchErr);
+      }
+    }
+
+    const provider = web3Auth.provider;
+    if (!provider?.request) {
+      console.warn('[web3auth] ensureWeb3AuthChain: provider does not support request');
+      return false;
+    }
+
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: settings.chainId }],
+      });
+      console.info('[web3auth] ensureWeb3AuthChain: switched via wallet_switchEthereumChain', chainId);
+      return true;
+    } catch (switchErr: any) {
+      const errorCode = switchErr?.code ?? switchErr?.data?.originalError?.code;
+      if (errorCode !== 4902) {
+        console.warn('[web3auth] ensureWeb3AuthChain: wallet_switchEthereumChain failed', switchErr);
+        return false;
+      }
+
+      try {
+        await provider.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: settings.chainId,
+            chainName: settings.displayName,
+            nativeCurrency: settings.nativeCurrency,
+            rpcUrls: settings.rpcUrls,
+            blockExplorerUrls: settings.blockExplorerUrls,
+          }],
+        });
+        console.info('[web3auth] ensureWeb3AuthChain: added chain via wallet_addEthereumChain', chainId);
+        return true;
+      } catch (addErr) {
+        console.warn('[web3auth] ensureWeb3AuthChain: wallet_addEthereumChain failed', addErr);
+        return false;
+      }
+    }
+  } catch (error) {
+    console.warn('[web3auth] ensureWeb3AuthChain: unexpected error', error);
+    return false;
   }
 }

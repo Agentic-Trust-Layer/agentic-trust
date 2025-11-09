@@ -6,7 +6,17 @@ import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
 import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAccountClientByAgentName } from '@agentic-trust/core/client';
-import { isPrivateKeyMode, getEnsOrgName } from '@agentic-trust/core/server';
+import type { Chain } from 'viem';
+import {
+  isPrivateKeyMode,
+  getEnsOrgName,
+  getSupportedChainIds,
+  getChainDisplayMetadata,
+  getChainById,
+  getChainIdHex as getChainIdHexUtil,
+  DEFAULT_CHAIN_ID,
+} from '@agentic-trust/core/server';
+import { ensureWeb3AuthChain } from '@/lib/web3auth';
 
 
 type Agent = {
@@ -84,12 +94,137 @@ export default function AdminPage() {
   const usePrivateKey = isPrivateKeyMode();
 
   // Chain selection for Create Agent
-  const [selectedChainId, setSelectedChainId] = useState<number>(11155111); // Default to Sepolia
+  const [selectedChainId, setSelectedChainId] = useState<number>(DEFAULT_CHAIN_ID);
 
-  // Helper function to convert chainId to hex
-  const getChainIdHex = (chainId: number): string => {
-    return `0x${chainId.toString(16)}`;
-  };
+  const supportedChainIds = React.useMemo(() => getSupportedChainIds(), []);
+
+  const CHAIN_METADATA = React.useMemo((): Record<number, ReturnType<typeof getChainDisplayMetadata>> => {
+    const entries: Record<number, ReturnType<typeof getChainDisplayMetadata>> = {};
+    supportedChainIds.forEach(chainId => {
+      try {
+        entries[chainId] = getChainDisplayMetadata(chainId);
+      } catch (error) {
+        console.warn('[chain] Unable to load metadata for chain', chainId, error);
+      }
+    });
+    return entries;
+  }, [supportedChainIds]);
+
+  const CHAIN_OBJECTS: Record<number, Chain> = React.useMemo(() => {
+    const map: Record<number, Chain> = {};
+    supportedChainIds.forEach(chainId => {
+      try {
+        map[chainId] = getChainById(chainId) as Chain;
+      } catch (error) {
+        console.warn('[chain] Unable to load chain object', chainId, error);
+      }
+    });
+    return map;
+  }, [supportedChainIds]);
+
+  const getChainIdHex = React.useCallback(
+    (chainId: number): string => CHAIN_METADATA[chainId]?.chainIdHex ?? getChainIdHexUtil(chainId),
+    [CHAIN_METADATA],
+  );
+
+  const ensureProviderOnChain = React.useCallback(
+    async (provider: any, chainId: number, label: string): Promise<boolean> => {
+      if (!provider?.request) return false;
+      const metadata = CHAIN_METADATA[chainId];
+      if (!metadata) {
+        console.warn(`[chain] ensureProviderOnChain(${label}) → missing metadata for chain ${chainId}`);
+        return false;
+      }
+
+      const chainLabel = metadata.displayName || metadata.chainName || `chain ${chainId}`;
+      console.info(`[chain] ensureProviderOnChain(${label}) → requesting ${chainLabel}`);
+
+      try {
+        const currentChain = await provider.request({ method: 'eth_chainId' }).catch(() => null);
+        if (typeof currentChain === 'string' && currentChain.toLowerCase() === metadata.chainIdHex.toLowerCase()) {
+          console.info(`[chain] ${label} already on ${chainLabel}`);
+          return true;
+        }
+
+        await provider.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: metadata.chainIdHex }],
+        });
+        console.info(`[chain] ${label} switched to ${chainLabel}`);
+      } catch (switchErr: any) {
+        const errorCode = switchErr?.code ?? switchErr?.data?.originalError?.code;
+        if (errorCode !== 4902) {
+          console.warn(`Unable to switch provider chain (${chainLabel})`, switchErr);
+          return false;
+        }
+
+        try {
+          await provider.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: metadata.chainIdHex,
+              chainName: chainLabel,
+              nativeCurrency: metadata.nativeCurrency,
+              rpcUrls: metadata.rpcUrls,
+              blockExplorerUrls: metadata.blockExplorerUrls,
+            }],
+          });
+          console.info(`[chain] ${label} added ${chainLabel}`);
+        } catch (addErr) {
+          console.warn(`Unable to add provider chain (${chainLabel})`, addErr);
+          return false;
+        }
+      }
+
+      const finalChain = await provider.request({ method: 'eth_chainId' }).catch(() => null);
+      if (typeof finalChain === 'string' && finalChain.toLowerCase() === metadata.chainIdHex.toLowerCase()) {
+        console.info(`[chain] ${label} final chain ${chainLabel}`);
+        return true;
+      }
+      console.warn(
+        `[chain] ${label} chain mismatch after switch. Expected ${metadata.chainIdHex}, got ${finalChain ?? 'unknown'}`,
+      );
+      return false;
+    },
+    [CHAIN_METADATA],
+  );
+
+  const synchronizeProvidersWithChain = React.useCallback(
+    async (chainId: number): Promise<boolean> => {
+      const chainLabel = CHAIN_METADATA[chainId]?.displayName || CHAIN_METADATA[chainId]?.chainName || `chain ${chainId}`;
+      console.info('[chain] synchronizeProvidersWithChain', chainId, chainLabel);
+      const results: boolean[] = [];
+
+      if (web3AuthProvider) {
+        if (web3AuthConnected) {
+          const switched = await ensureWeb3AuthChain(chainId);
+          if (!switched) {
+            console.info('[chain] ensureWeb3AuthChain returned false; falling back to provider request');
+          }
+        } else {
+          console.info('[chain] skipping Web3Auth auto-switch (not connected)');
+        }
+        results.push(await ensureProviderOnChain(web3AuthProvider, chainId, 'web3auth'));
+      } else if (effectiveEip1193 && (effectiveEip1193 as any).isMetaMask && walletConnected) {
+        results.push(await ensureProviderOnChain(effectiveEip1193, chainId, 'metamask'));
+      } else if (effectiveEip1193 && (effectiveEip1193 as any).isMetaMask && !walletConnected) {
+        console.info('[chain] skipping MetaMask auto-switch (not connected)');
+      }
+
+      if (aaEip1193 && aaEip1193 !== web3AuthProvider) {
+        const isMetaMask = Boolean((aaEip1193 as any)?.isMetaMask);
+        if (isMetaMask && !walletConnected) {
+          console.info('[chain] skipping AA MetaMask auto-switch (not connected)');
+        } else {
+          const label = isMetaMask ? 'aa-metamask' : 'aa-provider';
+          results.push(await ensureProviderOnChain(aaEip1193, chainId, label));
+        }
+      }
+
+      return results.length === 0 || results.every(Boolean);
+    },
+    [aaEip1193, effectiveEip1193, ensureProviderOnChain, walletConnected, web3AuthProvider, web3AuthConnected, CHAIN_METADATA],
+  );
 
   // Toggle states for Create Agent
   const [useAA, setUseAA] = useState(false);
@@ -126,6 +261,19 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       fetchAgents();
     }
   }, [eoaConnected, loading]);
+
+  useEffect(() => {
+    if (!web3AuthProvider && !walletConnected) {
+      console.info('[chain] skip auto-sync (no connected provider)');
+      return;
+    }
+    (async () => {
+      const ready = await synchronizeProvidersWithChain(selectedChainId);
+      if (!ready) {
+        setError('Unable to switch wallet provider to the selected chain. Please switch manually in Web3Auth.');
+      }
+    })();
+  }, [selectedChainId, synchronizeProvidersWithChain, web3AuthProvider, walletConnected]);
 
   // Set agent account in EOA mode (when AA is not enabled)
   useEffect(() => {
@@ -180,6 +328,14 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
     (async () => {
       try {
+        const ready = await synchronizeProvidersWithChain(selectedChainId);
+        if (!ready) {
+          if (!cancelled) {
+            setError('Unable to switch wallet provider to the selected chain. Please switch manually in Web3Auth and retry.');
+            setAaComputing(false);
+          }
+          return;
+        }
         const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
         let existingInfo: { account: string; method?: string } | null = null;
 
@@ -231,7 +387,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           createForm.agentName,
           eoaAddress as `0x${string}`,
           {
-            ethereumProvider: aaEip1193 as any
+            ethereumProvider: aaEip1193 as any,
+            chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
           },
           
         );
@@ -268,7 +425,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     return () => {
       cancelled = true;
     };
-  }, [useAA, createForm.agentName, eoaAddress]);
+  }, [useAA, createForm.agentName, eoaAddress, selectedChainId, aaEip1193, synchronizeProvidersWithChain, CHAIN_OBJECTS, getChainIdHex]);
 
   // Check ENS availability when createENS is enabled and agent name changes
   // Only check if AA is enabled (ENS only makes sense for AA agents)
@@ -321,7 +478,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     return () => {
       cancelled = true;
     };
-  }, [useAA, createENS, createForm.agentName, ensOrgName]);
+  }, [useAA, createENS, createForm.agentName, ensOrgName, selectedChainId]);
 
   // Reset ENS toggle when AA is disabled
   useEffect(() => {
@@ -467,6 +624,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     try {
       setError(null);
       setSuccess(null);
+
+      const ready = await synchronizeProvidersWithChain(selectedChainId);
+      if (!ready) {
+        setError('Unable to switch wallet provider to the selected chain. Please switch manually in Web3Auth and retry.');
+        return;
+      }
       // Ensure provider is authorized before any core calls
       try {
         const prefProvider = (useAA ? aaEip1193 : effectiveEip1193) as any;
@@ -754,15 +917,30 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             <select
               value={selectedChainId}
               onChange={(e) => {
-                setSelectedChainId(Number(e.target.value));
+                const nextChainId = Number(e.target.value);
+                const nextMetadata = CHAIN_METADATA[nextChainId];
+                console.info(
+                  '[chain] UI selected chain',
+                  nextChainId,
+                  nextMetadata?.displayName || nextMetadata?.chainName || '',
+                );
+                setSelectedChainId(nextChainId);
                 // Clear ENS availability when chain changes
                 setEnsAvailable(null);
                 setAaAddress(null);
+                synchronizeProvidersWithChain(nextChainId);
               }}
               style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
             >
-              <option value={11155111}>Ethereum Sepolia</option>
-              <option value={84532}>Base Sepolia</option>
+              {supportedChainIds.map(chainId => {
+                const metadata = CHAIN_METADATA[chainId];
+                const label = metadata?.displayName || metadata?.chainName || `Chain ${chainId}`;
+                return (
+                  <option key={chainId} value={chainId}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
           </div>
 
