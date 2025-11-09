@@ -31,9 +31,10 @@ export async function getAgentTrustClient(): Promise<AgenticTrustClient> {
         const apiKey = process.env.AGENTIC_TRUST_API_KEY;
         const graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
         const privateKey = process.env.AGENTIC_TRUST_PRIVATE_KEY;
-        const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
-        const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-        const reputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
+        const { getChainRpcUrl, getChainEnvVar, DEFAULT_CHAIN_ID } = await import('@agentic-trust/core/server');
+        const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
+        const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', DEFAULT_CHAIN_ID);
+        const reputationRegistry = getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', DEFAULT_CHAIN_ID);
 
         if (!graphQLUrl) {
           throw new Error('Missing required environment variable: GRAPHQL_URL');

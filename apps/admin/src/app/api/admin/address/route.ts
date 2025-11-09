@@ -3,8 +3,8 @@ import { getAdminClient } from '@/lib/client';
 
 export async function GET() {
   try {
-    // Check if private key mode is enabled
-    const usePrivateKey = process.env.NEXT_PUBLIC_AGENTIC_TRUST_ADMIN_USE_PRIVATE_KEY === 'true';
+  // Check if private key mode is enabled (server-side check)
+  const usePrivateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY ? true : false;
 
     if (!usePrivateKey) {
       return NextResponse.json(

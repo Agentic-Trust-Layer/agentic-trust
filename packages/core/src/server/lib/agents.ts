@@ -17,13 +17,14 @@ import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import { getDiscoveryClient } from '../singletons/discoveryClient';
-import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { getChainEnvVar, getChainById, getChainRpcUrl, DEFAULT_CHAIN_ID } from './chainConfig';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
 
 const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
+
 
 // Re-export AgentData for compatibility
 export type { AgentData };
@@ -120,6 +121,7 @@ export class AgentsAPI {
       version?: string;
       capabilities?: Record<string, any>;
     }>;
+    chainId?: number;
 
   }): Promise<
     | { agentId: bigint; txHash: string }
@@ -144,8 +146,8 @@ export class AgentsAPI {
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
-    
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', params.chainId || DEFAULT_CHAIN_ID);
       if (!identityRegistry || typeof identityRegistry !== 'string') {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
@@ -156,8 +158,7 @@ export class AgentsAPI {
 
       // Create registration JSON and upload to IPFS
       let tokenURI = '';
-      const sepoliaChain = sepolia;
-      const chainId: number = sepoliaChain.id;
+      const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
       
       try {
         const registrationJSON = createRegistrationJSON({
@@ -193,20 +194,14 @@ export class AgentsAPI {
       
 
       // Prepare transaction using AIAgentIdentityClient (all Ethereum logic server-side)
-      
+
       // Get chain by ID
-      let chain: typeof sepoliaChain | typeof baseSepolia | typeof optimismSepolia = sepoliaChain;
-      const baseSepoliaChainId = 84532;
-      const optimismSepoliaChainId = 11155420;
-      if (chainId === baseSepoliaChainId) {
-        chain = baseSepolia;
-      } else if (chainId === optimismSepoliaChainId) {
-        chain = optimismSepolia;
-      }
-      
+      const chain = getChainById(chainId);
+
+      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
       const publicClient = createPublicClient({
         chain: chain as any,
-        transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
+        transport: http(rpcUrl),
       });
 
       const accountProvider = new ViemAccountProvider({
@@ -214,7 +209,7 @@ export class AgentsAPI {
         walletClient: null, // Read-only for transaction preparation
         chainConfig: {
           id: chainId,
-          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+          rpcUrl: rpcUrl,
           name: chain.name,
           chain: chain as any,
         },
@@ -304,6 +299,7 @@ export class AgentsAPI {
       version?: string;
       capabilities?: Record<string, any>;
     }>;
+    chainId?: number;
 
   }): Promise<{
     success: true;
@@ -329,8 +325,7 @@ export class AgentsAPI {
 
     // Create registration JSON and upload to IPFS
     let tokenURI = '';
-    const sepoliaChain = sepolia;
-    const chainId: number = sepoliaChain.id;
+    const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
     
     try {
       const registrationJSON = createRegistrationJSON({
@@ -352,19 +347,23 @@ export class AgentsAPI {
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
+      // Determine chain based on chainId
+      const chain = getChainById(chainId);
+
+      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
       const publicClient = createPublicClient({
-      chain: sepolia as any,
-        transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
+        chain: chain as any,
+        transport: http(rpcUrl),
       });
 
       const accountProvider = new ViemAccountProvider({
         publicClient: publicClient as any,
-      walletClient: null,
+        walletClient: null,
         chainConfig: {
           id: chainId,
-          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
-        name: sepolia.name,
-        chain: sepolia as any,
+          rpcUrl: rpcUrl,
+          name: chain.name,
+          chain: chain as any,
         },
       });
 
@@ -379,7 +378,7 @@ export class AgentsAPI {
         tokenURI
       );
 
-    const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL || '';
+    const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || DEFAULT_CHAIN_ID);
 
     return {
       success: true as const,
@@ -407,12 +406,7 @@ export class AgentsAPI {
       ? identityRegistry
       : `0x${identityRegistry}`;
 
-    let chain: typeof sepolia | typeof baseSepolia | typeof optimismSepolia = sepolia;
-    if (chainId === baseSepolia.id) {
-      chain = baseSepolia;
-    } else if (chainId === optimismSepolia.id) {
-      chain = optimismSepolia;
-    }
+    const chain = getChainById(chainId);
 
     const aiIdentityClient = new AIAgentIdentityClient({
       accountProvider: {
@@ -485,6 +479,7 @@ export class AgentsAPI {
         version?: string;
         capabilities?: Record<string, any>;
       }>;
+      chainId?: number;
     }): Promise<{
       requiresClientSigning: true;
       transaction: {
@@ -510,7 +505,8 @@ export class AgentsAPI {
         throw new Error('prepareCreateAgentTransaction should only be used when no private key is available');
       }
 
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry || typeof identityRegistry !== 'string') {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
@@ -533,7 +529,6 @@ export class AgentsAPI {
 
       // Create registration JSON and upload to IPFS
       let tokenURI = '';
-      const chainId = sepolia.id;
       
       try {
         const registrationJSON = createRegistrationJSON({
@@ -555,10 +550,13 @@ export class AgentsAPI {
         throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
 
+      // Get chain-specific RPC URL
+      const rpcUrl = getChainRpcUrl(chainId);
+
       // Encode the transaction data
       const aiIdentityClient = new AIAgentIdentityClient({
         chainId,
-        rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+        rpcUrl,
         identityRegistryAddress: identityRegistryHex as `0x${string}`,
       });
 
@@ -632,6 +630,7 @@ export class AgentsAPI {
       agentId: bigint | string;
       tokenURI?: string;
       metadata?: Array<{ key: string; value: string }>;
+      chainId?: number;
     }): Promise<{ txHash: string }> => {
       const adminApp = await getAdminApp();
 
@@ -640,7 +639,8 @@ export class AgentsAPI {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry) {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
@@ -688,14 +688,16 @@ export class AgentsAPI {
      */
     deleteAgent: async (params: {
       agentId: bigint | string;
+      chainId?: number;
     }): Promise<{ txHash: string }> => {
       const adminApp = await getAdminApp();
 
       if (!adminApp) {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
 
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry) {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }
@@ -732,6 +734,7 @@ export class AgentsAPI {
     transferAgent: async (params: {
       agentId: bigint | string;
       to: `0x${string}`;
+      chainId?: number;
     }): Promise<{ txHash: string }> => {
       const adminApp = await getAdminApp();
 
@@ -739,7 +742,8 @@ export class AgentsAPI {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
       if (!identityRegistry) {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
       }

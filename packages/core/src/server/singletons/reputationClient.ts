@@ -11,36 +11,39 @@ import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
 import { getAdminApp } from '../userApps/adminApp';
+import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 
-// Singleton instance
-let reputationClientInstance: AIAgentReputationClient | null = null;
-let initializationPromise: Promise<AIAgentReputationClient> | null = null;
+// Singleton instances by chainId
+let reputationClientInstances: Map<number, AIAgentReputationClient> = new Map();
+let initializationPromises: Map<number, Promise<AIAgentReputationClient>> = new Map();
 
 /**
  * Get or create the AIAgentReputationClient singleton
  * Initializes from session package if available, otherwise uses environment variables
  */
-export async function getReputationClient(): Promise<AIAgentReputationClient> {
-  // If already initialized, return immediately
-  if (reputationClientInstance) {
-    return reputationClientInstance;
+export async function getReputationClient(chainId?: number): Promise<AIAgentReputationClient> {
+  // Default to configured chain if no chainId provided
+  const targetChainId: number = chainId || DEFAULT_CHAIN_ID;
+
+  // If already initialized for this chain, return immediately
+  if (reputationClientInstances.has(targetChainId)) {
+    return reputationClientInstances.get(targetChainId)!;
   }
 
-  // If initialization is in progress, wait for it
-  if (initializationPromise) {
-    return initializationPromise;
+  // If initialization is in progress for this chain, wait for it
+  if (initializationPromises.has(targetChainId)) {
+    return initializationPromises.get(targetChainId)!;
   }
 
   // Start initialization
-  initializationPromise = (async () => {
+  let initPromise: Promise<AIAgentReputationClient>;
+
+  const executeInit = async (): Promise<AIAgentReputationClient> => {
     try {
-      
-
-
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      const reputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
-      const ensRegistry = process.env.AGENTIC_TRUST_ENS_REGISTRY;
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
+      const reputationRegistry = getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', targetChainId);
+      const ensRegistry = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId);
+      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
 
       if (!identityRegistry || !reputationRegistry) {
@@ -141,7 +144,7 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
         throw new Error('Failed to initialize AccountProviders for reputation client');
       }
 
-      reputationClientInstance = await AIAgentReputationClient.create(
+      const reputationClient = await AIAgentReputationClient.create(
         agentAccountProvider,
         clientAccountProvider,
         identityRegistry as `0x${string}`,
@@ -149,30 +152,43 @@ export async function getReputationClient(): Promise<AIAgentReputationClient> {
         (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}` // Default ENS registry on Sepolia
       );
 
-
-      return reputationClientInstance;
+      return reputationClient;
     } catch (error) {
       console.error('❌ Failed to initialize reputation client singleton:', error);
-      initializationPromise = null; // Reset on error so it can be retried
       throw error;
     }
-  })();
+  };
 
-  return initializationPromise;
+  initPromise = executeInit().then((client) => {
+    // Store in map and clean up initialization promise
+    reputationClientInstances.set(targetChainId, client);
+    initializationPromises.delete(targetChainId);
+    return client;
+  }).catch((error) => {
+    // Clean up on error
+    initializationPromises.delete(targetChainId);
+    throw error;
+  });
+
+  initializationPromises.set(targetChainId, initPromise);
+
+  return initPromise;
 }
 
 /**
- * Check if reputation client is initialized
+ * Check if reputation client is initialized for a specific chain
  */
-export function isReputationClientInitialized(): boolean {
-  return reputationClientInstance !== null;
+export function isReputationClientInitialized(chainId?: number): boolean {
+  const targetChainId = chainId || DEFAULT_CHAIN_ID;
+  return reputationClientInstances.has(targetChainId);
 }
 
 /**
- * Reset the singleton (useful for testing)
+ * Reset the reputation client instance for a specific chain (useful for testing)
  */
-export function resetReputationClient(): void {
-  reputationClientInstance = null;
-  initializationPromise = null;
+export function resetReputationClient(chainId?: number): void {
+  const targetChainId = chainId || DEFAULT_CHAIN_ID;
+  reputationClientInstances.delete(targetChainId);
+  initializationPromises.delete(targetChainId);
 }
 

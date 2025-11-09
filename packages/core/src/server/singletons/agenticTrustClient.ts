@@ -16,6 +16,7 @@ import { getDiscoveryClient } from './discoveryClient';
 import { getReputationClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
 import { getAdminApp } from '../userApps/adminApp';
 import { createVeramoAgentForClient } from '../lib/veramoFactory';
+import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -267,8 +268,8 @@ export class AgenticTrustClient {
     }
 
     // Get ENS registry (optional, but recommended)
-    const ensRegistry = config.sessionPackage?.ensRegistry || 
-      (process.env.AGENTIC_TRUST_ENS_REGISTRY || process.env.AGENTIC_TRUST_ENS_REGISTRY) as `0x${string}` | undefined;
+    const ensRegistry = config.sessionPackage?.ensRegistry ||
+      (getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', DEFAULT_CHAIN_ID) || undefined) as `0x${string}` | undefined;
     
     if (!ensRegistry) {
       console.log('⚠️ ENS registry not provided. which might be ok.');

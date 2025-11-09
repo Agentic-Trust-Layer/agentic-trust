@@ -5,8 +5,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      agentName,
       orgName,
+      agentName,
+      chainId,
     } = body ?? {};
 
     if (!agentName || typeof agentName !== 'string') {
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const isAvailable = await isENSAvailable(agentName, orgName);
+    const isAvailable = await isENSAvailable(orgName, agentName, chainId);
 
     return NextResponse.json({
       available: isAvailable,

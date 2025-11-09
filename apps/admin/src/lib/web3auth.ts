@@ -9,6 +9,8 @@
 type Web3Auth = any;
 type WALLET_ADAPTERS = any;
 
+import { getWeb3AuthClientId, getWeb3AuthNetwork, getChainRpcUrl } from '@agentic-trust/core/server';
+
 // Lazy-loaded Web3Auth instance (client-side only)
 let web3AuthInstance: Web3Auth | null = null;
 let initializationPromise: Promise<Web3Auth> | null = null;
@@ -41,20 +43,16 @@ async function getWeb3Auth(): Promise<Web3Auth> {
     const { OpenloginAdapter } = await import('@web3auth/openlogin-adapter');
 
     // Get client ID from environment variable (available on client via NEXT_PUBLIC_)
-    const clientId = process.env.NEXT_PUBLIC_WEB3AUTH_CLIENT_ID || '';
-    
+    const clientId = getWeb3AuthClientId();
+
     if (!clientId) {
-      throw new Error('NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is not set');
+      throw new Error('Web3Auth client ID is not set');
     }
 
     // Chain configuration
     const chainIdHex = process.env.NEXT_PUBLIC_CHAIN_ID || '0xaa36a7'; // default Sepolia
-    const rpcUrl =
-      process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL ||
-      '';
-    if (!rpcUrl) {
-      throw new Error('RPC URL is not set. Configure NEXT_PUBLIC_ETH_SEPOLIA_RPC_URL or NEXT_PUBLIC_RPC_URL');
-    }
+    const chainId = parseInt(chainIdHex, 16);
+    const rpcUrl = getChainRpcUrl(chainId);
 
     // Derive display/explorer by chain
     const displayName =

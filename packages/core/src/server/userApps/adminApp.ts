@@ -135,10 +135,12 @@ export async function getAdminApp(privateKey?: string): Promise<AdminAppInstance
         throw new Error('AdminApp is only available when AGENTIC_TRUST_IS_ADMIN_APP is set to true or 1');
       }
 
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+      // Get chain-specific RPC URL (defaults to Sepolia)
+      const { getChainRpcUrl, DEFAULT_CHAIN_ID } = await import('../lib/chainConfig');
+      const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
       if (!rpcUrl) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_RPC_URL');
+        throw new Error('Missing required RPC URL. Set AGENTIC_TRUST_RPC_URL_SEPOLIA or AGENTIC_TRUST_RPC_URL environment variable');
       }
 
       const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');

@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
       agentUrl,
       supportedTrust,
       endpoints,
+      chainId,
     } = body ?? {};
 
     if (!agentName || !agentAccount) {
@@ -53,6 +54,7 @@ export async function POST(request: NextRequest) {
       agentUrl,
       supportedTrust,
       endpoints,
+      chainId: chainId ? Number(chainId) : undefined,
     });
 
       return NextResponse.json({

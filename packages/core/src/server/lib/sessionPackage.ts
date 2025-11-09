@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { defineChain, http, createPublicClient, type Chain, type PublicClient } from 'viem';
 import { privateKeyToAccount, type Account } from 'viem/accounts';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { getChainEnvVar } from './chainConfig';
 
 type Hex = `0x${string}`;
 
@@ -127,7 +128,7 @@ export function validateSessionPackage(pkg: SessionPackage): void {
   }
   
   // Check if reputationRegistry is in package or env var
-  const envReputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
+  const envReputationRegistry = getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', pkg.chainId);
   if (!pkg.reputationRegistry && !envReputationRegistry) {
     throw new Error('sessionPackage.reputationRegistry is required (or set AGENTIC_TRUST_REPUTATION_REGISTRY env var)');
   }
@@ -158,18 +159,18 @@ export function buildDelegationSetup(
   validateSessionPackage(session);
   
   // RPC URL: env var or default, then session package
-  const envRpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+  const envRpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', session.chainId);
   const rpcUrl = envRpcUrl || defaultRpcUrlFor(session.chainId);
   if (!rpcUrl) {
     throw new Error(`RPC URL not provided and no default known for chainId ${session.chainId}`);
   }
 
   // Bundler URL: env var, then session package
-  const envBundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL;
+  const envBundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', session.chainId);
   const bundlerUrl = envBundlerUrl || session.bundlerUrl;
 
   // Reputation Registry: env var, then session package
-  const envReputationRegistry = (process.env.AGENTIC_TRUST_REPUTATION_REGISTRY) as `0x${string}` | undefined;
+  const envReputationRegistry = (getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', session.chainId) || undefined) as `0x${string}` | undefined;
   const reputationRegistry = envReputationRegistry || session.reputationRegistry;
 
   const chain = defineChain({

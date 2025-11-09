@@ -5,6 +5,7 @@
  */
 
 import { AgenticTrustClient, type ApiClientConfig } from '@agentic-trust/core/server';
+import { getChainRpcUrl, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
 
 // Singleton instance
 let agenticTrustClientInstance: AgenticTrustClient | null = null;
@@ -39,7 +40,7 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
       privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
     }
     
-    const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+    const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
     // Get identity registry from environment
     const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;

@@ -39,19 +39,20 @@ export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
       const graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
       const apiKey = process.env.AGENTIC_TRUST_API_KEY;
       const privateKey = process.env.AGENTIC_TRUST_PRIVATE_KEY;
-      
+
       // Session package configuration
       const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
-      const ensRegistry = process.env.AGENTIC_TRUST_ENS_REGISTRY;
+      const { getChainEnvVar, getChainRpcUrl, DEFAULT_CHAIN_ID } = await import('@agentic-trust/core/server');
+      const ensRegistry = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', DEFAULT_CHAIN_ID);
 
       // RPC URLs for DID resolution
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+      const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
       // Get identity registry from environment
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', DEFAULT_CHAIN_ID);
 
       // Get reputation registry from environment
-      const reputationRegistry = process.env.AGENTIC_TRUST_REPUTATION_REGISTRY;
+      const reputationRegistry = getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', DEFAULT_CHAIN_ID);
 
       // Note: AgenticTrustClient creates its own Veramo agent internally via veramoFactory
       // This agent includes all necessary resolvers (AA, Agent, ethr) for DID resolution

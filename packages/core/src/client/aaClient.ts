@@ -6,6 +6,7 @@ import { getAgentAccountByAgentName } from '../server/lib/agentAccount';
 
 import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
+import { getChainRpcUrl } from '../server/lib/chainConfig';
 
 
 type GetAAAccountClientOptions = {
@@ -268,7 +269,7 @@ export async function getDeployedAccountClientByAgentName(
   } catch {}
   if (!isDeployed) {
     try {
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL || process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL || '';
+      const rpcUrl = getChainRpcUrl(chain.id);
       if (rpcUrl) {
         const httpClient = createPublicClient({ chain: chain as any, transport: http(rpcUrl) });
         const codeHttp = await httpClient.getBytecode({ address: counterfactualAccountClient.address });

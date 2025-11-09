@@ -7,7 +7,7 @@
 
 import { AIAgentENSClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
-import { sepolia } from 'viem/chains';
+import { sepolia } from '../lib/chainConfig';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
@@ -16,38 +16,45 @@ import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { getChainEnvVar } from '../lib/chainConfig';
 
-// Singleton instance
-let ensClientInstance: AIAgentENSClient | null = null;
-let initializationPromise: Promise<AIAgentENSClient> | null = null;
+
+// Singleton instances by chainId
+let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
+let initializationPromises: Map<number, Promise<AIAgentENSClient>> = new Map();
 
 /**
  * Get or create the AIAgentENSClient singleton
  * Initializes from environment variables using AccountProvider from AdminApp, ClientApp, or ProviderApp
  */
-export async function getENSClient(): Promise<AIAgentENSClient> {
-  // If already initialized, return immediately
-  if (ensClientInstance) {
-    return ensClientInstance;
+export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> {
+  // Default to Sepolia if no chainId provided
+  const targetChainId = chainId || 11155111;
+
+  // If already initialized for this chain, return immediately
+  if (ensClientInstances.has(targetChainId)) {
+    return ensClientInstances.get(targetChainId)!;
   }
 
-  // If initialization is in progress, wait for it
-  if (initializationPromise) {
-    return initializationPromise;
+  // If initialization is in progress for this chain, wait for it
+  if (initializationPromises.has(targetChainId)) {
+    return initializationPromises.get(targetChainId)!;
   }
 
-  // Start initialization
-  initializationPromise = (async () => {
+  // Start initialization for this chain
+  let initPromise: Promise<AIAgentENSClient>;
+
+  const executeInit = async (): Promise<AIAgentENSClient> => {
     try {
       // Get RPC URL from environment
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL || '';
+      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
       // Get ENS registry addresses from environment
-      const ensRegistry = (process.env.AGENTIC_TRUST_ENS_REGISTRY || '') as `0x${string}`;
-      
-      const ensResolver = (process.env.AGENTIC_TRUST_ENS_RESOLVER || '') as `0x${string}`;
-      
-      const identityRegistry = (process.env.AGENTIC_TRUST_IDENTITY_REGISTRY || 
+      const ensRegistry = (getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || '') as `0x${string}`;
+
+      const ensResolver = (getChainEnvVar('AGENTIC_TRUST_ENS_RESOLVER', targetChainId) || '') as `0x${string}`;
+
+      const identityRegistry = (getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId) ||
                                '0x0000000000000000000000000000000000000000') as `0x${string}`;
 
       // Try to get AccountProvider from AdminApp, ClientApp, or ProviderApp
@@ -116,9 +123,20 @@ export async function getENSClient(): Promise<AIAgentENSClient> {
         });
       }
 
+      // Determine chain based on targetChainId
+      const { baseSepolia } = await import('viem/chains');
+      let chain;
+      if (targetChainId === 11155111) {
+        chain = sepolia;
+      } else if (targetChainId === 84532) {
+        chain = baseSepolia;
+      } else {
+        throw new Error(`Unsupported chainId: ${targetChainId}. Supported chains: 11155111 (Sepolia), 84532 (Base Sepolia)`);
+      }
+
       // Create ENS client
-      ensClientInstance = new AIAgentENSClient(
-        sepolia,
+      const ensClient = new AIAgentENSClient(
+        chain,
         rpcUrl,
         accountProvider,
         ensRegistry,
@@ -126,30 +144,39 @@ export async function getENSClient(): Promise<AIAgentENSClient> {
         identityRegistry,
       );
 
-      return ensClientInstance;
+      // Store in map and clean up initialization promise
+      ensClientInstances.set(targetChainId, ensClient);
+      initializationPromises.delete(targetChainId);
+
+      return ensClient;
     } catch (error) {
       console.error('❌ Failed to initialize ENS client singleton:', error);
-      initializationPromise = null; // Reset on error so it can be retried
+      initializationPromises.delete(targetChainId); // Reset on error so it can be retried
       throw error;
     }
-  })();
+  };
 
-  return initializationPromise;
+  initPromise = executeInit();
+  initializationPromises.set(targetChainId, initPromise);
+
+  return initPromise;
 }
 
 /**
- * Check if ENS client is initialized
+ * Check if ENS client is initialized for a specific chain
  */
-export function isENSClientInitialized(): boolean {
-  return ensClientInstance !== null;
+export function isENSClientInitialized(chainId?: number): boolean {
+  const targetChainId = chainId || 11155111;
+  return ensClientInstances.has(targetChainId);
 }
 
 /**
- * Reset the ENS client instance (useful for testing)
+ * Reset the ENS client instance for a specific chain (useful for testing)
  */
-export function resetENSClient(): void {
-  ensClientInstance = null;
-  initializationPromise = null;
+export function resetENSClient(chainId?: number): void {
+  const targetChainId = chainId || 11155111;
+  ensClientInstances.delete(targetChainId);
+  initializationPromises.delete(targetChainId);
 }
 
 /**
@@ -161,20 +188,21 @@ export function resetENSClient(): void {
  */
 export async function isENSAvailable(
   agentName: string,
-  orgName: string
+  orgName: string,
+  chainId?: number
 ): Promise<boolean | null> {
   try {
-    const ensClient = await getENSClient();
-    
+    const ensClient = await getENSClient(chainId);
+
     // Format: agentName.orgName.eth
     const agentNameLabel = agentName.toLowerCase().replace(/\s+/g, '-');
     const orgNameClean = orgName.toLowerCase().replace(/\.eth$/, '');
     const fullName = `${agentNameLabel}.${orgNameClean}.eth`;
-    
+
     // Check if agent name is available
     const existingAccount = await ensClient.getAgentAccountByName(fullName);
     const isAvailable = !existingAccount || existingAccount === '0x0000000000000000000000000000000000000000';
-    
+
     return isAvailable;
   } catch (error) {
     console.error('Error checking ENS availability:', error);
@@ -305,8 +333,8 @@ export async function createENSName(
     console.log("*********** zzz prepareAddAgentNameToOrgCalls: ensClient");
 
     // ENS Owner AA: parent domain controller
-    const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL as string;
-    const l1RpcUrl = process.env.AGENTIC_TRUST_RPC_URL as string;
+    const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || 11155111) as string;
+    const l1RpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', params.chainId || 11155111) as string;
     const l1PublicClient = createPublicClient({ chain: sepolia, transport: http(l1RpcUrl) });
     const ensPrivateKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}`;
     const orgOwnerEOA = privateKeyToAccount(ensPrivateKey);
@@ -404,6 +432,7 @@ export interface AddAgentToOrgParams {
   orgName: string;
   agentAddress: `0x${string}`;
   agentUrl?: string;
+  chainId?: number;
 }
 
 export interface AddAgentToOrgResult {
@@ -454,8 +483,8 @@ export async function addAgentNameToOrg(params: AddAgentToOrgParams): Promise<st
 
   // Optionally submit server-side if configured (no breaking change: still returns calls)
   try {
-    const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL || process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL || '';
-    const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL || '';
+    const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || 11155111);
+    const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', params.chainId || 11155111);
     const ensPrivKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}` | undefined;
 
     if (ensPrivKey && bundlerUrl && rpcUrl) {

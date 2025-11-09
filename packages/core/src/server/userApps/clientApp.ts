@@ -40,14 +40,15 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
   initializationPromise = (async () => {
     try {
       const privateKey = process.env.AGENTIC_TRUST_PRIVATE_KEY;
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
+      const { getChainRpcUrl, DEFAULT_CHAIN_ID } = await import('../lib/chainConfig');
+      const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
       if (!privateKey) {
         throw new Error('Missing required environment variable: AGENTIC_TRUST_PRIVATE_KEY');
       }
 
       if (!rpcUrl) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_RPC_URL');
+        throw new Error('Missing required RPC URL. Set AGENTIC_TRUST_RPC_URL_SEPOLIA or AGENTIC_TRUST_RPC_URL environment variable');
       }
 
       const { privateKeyToAccount } = await import('viem/accounts');

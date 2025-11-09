@@ -35,11 +35,15 @@ NEXT_PUBLIC_WEB3AUTH_CLIENT_ID=your-web3auth-client-id
 # Optional: Web3Auth Network (testnet or mainnet, defaults to mainnet)
 NEXT_PUBLIC_WEB3AUTH_NETWORK=testnet
 
-# Required: RPC URL
-AGENTIC_TRUST_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/...
+# Required: RPC URLs (chain-specific)
+AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA=https://sepolia.base.org
+AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA=https://sepolia.optimism.io
 
-# Required: Identity Registry contract address
-AGENTIC_TRUST_IDENTITY_REGISTRY=0x...
+# Required: Contract addresses (chain-specific)
+AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x...
+AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x...
+AGENTIC_TRUST_ENS_REGISTRY_SEPOLIA=0x...
 
 # Optional: GraphQL URL (for agent discovery)
 AGENTIC_TRUST_GRAPHQL_URL=https://api.example.com

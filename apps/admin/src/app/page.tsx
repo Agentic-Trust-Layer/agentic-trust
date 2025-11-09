@@ -6,6 +6,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
 import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAccountClientByAgentName } from '@agentic-trust/core/client';
+import { isPrivateKeyMode, getEnsOrgName } from '@agentic-trust/core/server';
 
 
 type Agent = {
@@ -79,13 +80,21 @@ export default function AdminPage() {
     agentUrl: '',
   });
 
-  // Check if private key mode is enabled (no wallet connection needed)
-  const usePrivateKey = process.env.NEXT_PUBLIC_AGENTIC_TRUST_ADMIN_USE_PRIVATE_KEY === 'true';
+  // Check if private key mode is enabled
+  const usePrivateKey = isPrivateKeyMode();
+
+  // Chain selection for Create Agent
+  const [selectedChainId, setSelectedChainId] = useState<number>(11155111); // Default to Sepolia
+
+  // Helper function to convert chainId to hex
+  const getChainIdHex = (chainId: number): string => {
+    return `0x${chainId.toString(16)}`;
+  };
 
   // Toggle states for Create Agent
   const [useAA, setUseAA] = useState(false);
   const [createENS, setCreateENS] = useState(false);
-  const [ensOrgName, setEnsOrgName] = useState(process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME || '8004-agent'); // Default org name
+  const [ensOrgName, setEnsOrgName] = useState(getEnsOrgName()); // Default org name
   const [ensChecking, setEnsChecking] = useState(false);
   const [ensAvailable, setEnsAvailable] = useState<boolean | null>(null);
   const [aaAddress, setAaAddress] = useState<string | null>(null);
@@ -203,7 +212,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         
         const aaProvider = aaEip1193 as any;
         if (aaProvider?.request) {
-          const chainIdHex = '0xaa36a7';
+          const chainIdHex = getChainIdHex(selectedChainId);
           try {
             const current = await aaProvider.request({ method: 'eth_chainId' }).catch(() => null);
             if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
@@ -281,8 +290,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            agentName: createForm.agentName,
             orgName: ensOrgName,
+            agentName: createForm.agentName,
+            chainId: selectedChainId,
           }),
         });
 
@@ -461,8 +471,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       try {
         const prefProvider = (useAA ? aaEip1193 : effectiveEip1193) as any;
         if (prefProvider && typeof prefProvider.request === 'function') {
-          // Switch to Sepolia (default) first (if wallet supports it)
-          const chainIdHex = '0xaa36a7';
+          // Switch to selected chain (if wallet supports it)
+          const chainIdHex = getChainIdHex(selectedChainId);
           try {
             const current = await prefProvider.request({ method: 'eth_chainId' }).catch(() => null);
             if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
@@ -733,7 +743,27 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         {/* Create Agent */}
         <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Create Agent</h2>
-          
+
+          {/* Chain Selection */}
+          <div style={{ marginBottom: '1rem' }}>
+            <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+              Chain
+            </label>
+            <select
+              value={selectedChainId}
+              onChange={(e) => {
+                setSelectedChainId(Number(e.target.value));
+                // Clear ENS availability when chain changes
+                setEnsAvailable(null);
+                setAaAddress(null);
+              }}
+              style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+            >
+              <option value={11155111}>Ethereum Sepolia</option>
+              <option value={84532}>Base Sepolia</option>
+            </select>
+          </div>
+
           {/* EOA/AA Toggle */}
           <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #e1e4e8' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>

@@ -7,34 +7,37 @@
 
 import { AIAgentIdentityClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAccountProvider } from '@erc8004/sdk';
+import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 
-// Singleton instance
-let identityClientInstance: AIAgentIdentityClient | null = null;
-let initializationPromise: Promise<AIAgentIdentityClient> | null = null;
+// Singleton instances by chainId
+let identityClientInstances: Map<number, AIAgentIdentityClient> = new Map();
+let initializationPromises: Map<number, Promise<AIAgentIdentityClient>> = new Map();
 
 /**
  * Get or create the AIAgentIdentityClient singleton
  * Initializes from environment variables using AccountProvider
  */
-export async function getIdentityClient(): Promise<AIAgentIdentityClient> {
-  // If already initialized, return immediately
-  if (identityClientInstance) {
-    return identityClientInstance;
+export async function getIdentityClient(chainId?: number): Promise<AIAgentIdentityClient> {
+  // Default to configured chain if no chainId provided
+  const targetChainId: number = chainId || DEFAULT_CHAIN_ID;
+
+  // If already initialized for this chain, return immediately
+  if (identityClientInstances.has(targetChainId)) {
+    return identityClientInstances.get(targetChainId)!;
   }
 
-  // If initialization is in progress, wait for it
-  if (initializationPromise) {
-    return initializationPromise;
+  // If initialization is in progress for this chain, wait for it
+  if (initializationPromises.has(targetChainId)) {
+    return initializationPromises.get(targetChainId)!;
   }
 
   // Start initialization
-  initializationPromise = (async () => {
+  let initPromise: Promise<AIAgentIdentityClient>;
+
+  const executeInit = async (): Promise<AIAgentIdentityClient> => {
     try {
-      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-      const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL;
-      const chainId = process.env.AGENTIC_TRUST_CHAIN_ID 
-        ? parseInt(process.env.AGENTIC_TRUST_CHAIN_ID, 10)
-        : 11155111; // Default to Sepolia
+      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
+      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
       if (!identityRegistry) {
         throw new Error(
@@ -67,7 +70,7 @@ export async function getIdentityClient(): Promise<AIAgentIdentityClient> {
         publicClient: publicClient as any,
         walletClient: null, // Read-only, no wallet
         chainConfig: {
-          id: chainId,
+          id: targetChainId,
           rpcUrl,
           name: chain.name,
           chain: chain as any,
@@ -75,35 +78,49 @@ export async function getIdentityClient(): Promise<AIAgentIdentityClient> {
       });
 
       // Create identity client using AccountProvider
-      identityClientInstance = new AIAgentIdentityClient({
+      const identityClient = new AIAgentIdentityClient({
         accountProvider,
         identityRegistryAddress: identityRegistry as `0x${string}`,
       });
 
       console.log('✅ IdentityClient singleton initialized');
-      return identityClientInstance;
+      return identityClient;
     } catch (error) {
       console.error('❌ Failed to initialize identity client singleton:', error);
-      initializationPromise = null; // Reset on error so it can be retried
       throw error;
     }
-  })();
+  };
 
-  return initializationPromise;
+  initPromise = executeInit().then((client) => {
+    // Store in map and clean up initialization promise
+    identityClientInstances.set(targetChainId, client);
+    initializationPromises.delete(targetChainId);
+    return client;
+  }).catch((error) => {
+    // Clean up on error
+    initializationPromises.delete(targetChainId);
+    throw error;
+  });
+
+  initializationPromises.set(targetChainId, initPromise);
+
+  return initPromise;
 }
 
 /**
- * Check if identity client is initialized
+ * Check if identity client is initialized for a specific chain
  */
-export function isIdentityClientInitialized(): boolean {
-  return identityClientInstance !== null;
+export function isIdentityClientInitialized(chainId?: number): boolean {
+  const targetChainId = chainId || DEFAULT_CHAIN_ID;
+  return identityClientInstances.has(targetChainId);
 }
 
 /**
- * Reset the singleton (useful for testing)
+ * Reset the identity client instance for a specific chain (useful for testing)
  */
-export function resetIdentityClient(): void {
-  identityClientInstance = null;
-  initializationPromise = null;
+export function resetIdentityClient(chainId?: number): void {
+  const targetChainId = chainId || DEFAULT_CHAIN_ID;
+  identityClientInstances.delete(targetChainId);
+  initializationPromises.delete(targetChainId);
 }
 

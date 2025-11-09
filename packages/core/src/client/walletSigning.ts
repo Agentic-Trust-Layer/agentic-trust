@@ -13,7 +13,7 @@ import {
   type Chain,
   type Hex,
 } from 'viem';
-import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { getChainById, DEFAULT_CHAIN_ID, getChainRpcUrl, getChainBundlerUrl, sepolia, baseSepolia, optimismSepolia } from '../server/lib/chainConfig';
 import { getDeployedAccountClientByAgentName } from './aaClient';
 import {
   sendSponsoredUserOperation,
@@ -44,8 +44,8 @@ async function resolveChainId(ethereumProvider: any): Promise<number> {
   } catch {
     // ignore; fallback below
   }
-  // Fallback to sepolia id
-  return sepolia.id;
+  // Fallback to default chain id
+  return DEFAULT_CHAIN_ID;
 }
 
 /**
@@ -105,36 +105,18 @@ async function ensureChainSelected(ethereumProvider: any, chain: Chain): Promise
       throw switchErr;
     }
   }
-  // Try to add chain (supporting common testnets used here)
-  const addParamsMap: Record<number, any> = {
-    [sepolia.id]: {
-      chainId: `0x${sepolia.id.toString(16)}`,
-      chainName: 'Ethereum Sepolia',
-      nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
-      rpcUrls: ['https://rpc.sepolia.org'],
-      blockExplorerUrls: ['https://sepolia.etherscan.io'],
-    },
-    [baseSepolia.id]: {
-      chainId: `0x${baseSepolia.id.toString(16)}`,
-      chainName: 'Base Sepolia',
-      nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
-      rpcUrls: ['https://sepolia.base.org'],
-      blockExplorerUrls: ['https://sepolia.basescan.org'],
-    },
-    [optimismSepolia.id]: {
-      chainId: `0x${optimismSepolia.id.toString(16)}`,
-      chainName: 'OP Sepolia',
-      nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
-      rpcUrls: ['https://sepolia.optimism.io'],
-      blockExplorerUrls: ['https://sepolia-optimism.etherscan.io'],
-    },
-  };
-  const addParams = addParamsMap[chain.id] || {
+  // Try to add chain using centralized configuration
+  const chainConfig = getChainById(chain.id);
+  const addParams = {
     chainId: hexId,
-    chainName: chain.name,
-    nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-    rpcUrls: [],
-    blockExplorerUrls: [],
+    chainName: chainConfig.name,
+    nativeCurrency: {
+      name: 'ETH',
+      symbol: 'ETH',
+      decimals: 18
+    },
+    rpcUrls: [getChainRpcUrl(chain.id)],
+    blockExplorerUrls: chainConfig.blockExplorers?.default ? [chainConfig.blockExplorers.default.url] : [],
   };
   await ethereumProvider.request?.({
     method: 'wallet_addEthereumChain',
@@ -516,24 +498,7 @@ export async function createAgentWithWalletForEOA(
   if (data.requiresClientSigning && data.transaction) {
     // Get chain from transaction chainId
     const chainId = data.transaction.chainId;
-    let chain: Chain;
-    
-    // Map chainId to chain
-    switch (chainId) {
-      case 11155111: // ETH Sepolia
-        chain = sepolia;
-        break;
-      case 84532: // Base Sepolia
-        chain = baseSepolia;
-        break;
-      case 11155420: // Optimism Sepolia
-        chain = optimismSepolia;
-        break;
-      default:
-        // Fallback to sepolia if chain not found
-        chain = sepolia;
-        console.warn(`Unknown chainId ${chainId}, defaulting to Sepolia`);
-    }
+    const chain = getChainById(chainId);
 
 
     // Sign and send transaction
@@ -664,7 +629,7 @@ export async function createAgentWithWalletForAA(
   const agentName = options.agentData.agentName;
 
   // Get Account Client by Agent Name, find if exists and if not then create it
-  const bundlerUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL || '';
+  const bundlerUrl = getChainBundlerUrl(chainId);
   console.log('Getting AA account client by agent name: ', agentName);
   let agentAccountClient = await getDeployedAccountClientByAgentName(
     bundlerUrl,

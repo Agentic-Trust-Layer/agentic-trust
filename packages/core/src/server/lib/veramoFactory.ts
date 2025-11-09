@@ -23,6 +23,7 @@ import { getResolver as ethrDidResolver } from 'ethr-did-resolver';
 import { EthrDIDProvider } from '@veramo/did-provider-ethr';
 import { generatePrivateKey } from 'viem/accounts';
 import type { VeramoAgent } from './veramo';
+import Web3 from 'web3';
 import {
   getAAResolver as aaDidResolver,
   getAgentResolver as agentDidResolver,
@@ -60,18 +61,17 @@ export async function createVeramoAgentForClient(
 
   // Get Ethereum RPC URLs from parameters or defaults
   console.warn('🏭 createVeramoAgentForClient: Setting up RPC URLs...');
-  const rpc = rpcUrl
+  const rpc = rpcUrl || 'https://sepolia.drpc.org';
 
+  // Create Web3 providers for ethr-did-resolver
+  console.warn('🏭 createVeramoAgentForClient: Creating Web3 providers...');
+  const web3SepoliaProvider = new Web3.providers.HttpProvider(rpc);
 
   // Create ethr DID provider for client DIDs
   console.warn('🏭 createVeramoAgentForClient: Creating ethr DID provider...');
   const ethrDidProvider = new EthrDIDProvider({
     defaultKms: 'local',
     networks: [
-      //{
-      //  name: 'mainnet',
-      //  rpcUrl: rpc,
-      //},
       {
         name: 'sepolia',
         rpcUrl: rpc,
@@ -116,13 +116,9 @@ export async function createVeramoAgentForClient(
           ...agentDidResolver(),
           ...ethrDidResolver({
             networks: [
-              //{
-              //  name: 'mainnet',
-              //  rpcUrl: rpcUrl,
-              //},
               {
                 name: 'sepolia',
-                rpcUrl: rpcUrl,
+                provider: web3SepoliaProvider as any,
               },
             ],
           }),

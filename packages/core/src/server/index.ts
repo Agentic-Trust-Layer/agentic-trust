@@ -117,6 +117,25 @@ export {
   resetReputationClient,
 } from './singletons/reputationClient';
 
+export {
+  getChainEnvVar,
+  getChainById,
+  getSupportedChainIds,
+  isChainSupported,
+  getChainConfig,
+  getChainRpcUrl,
+  getChainBundlerUrl,
+  isPrivateKeyMode,
+  getEnsOrgName,
+  getWeb3AuthClientId,
+  getWeb3AuthNetwork,
+  DEFAULT_CHAIN_ID,
+  sepolia,
+  baseSepolia,
+  optimismSepolia,
+  type SupportedChainId,
+} from './lib/chainConfig';
+
 // Session package utilities (Node.js fs access)
 export type { SessionPackage, DelegationSetup } from './lib/sessionPackage';
 export {
