@@ -30,8 +30,27 @@ export class AgenticTrustClient {
    * @throws Error if ClientApp is not initialized
    */
   async getClientAddress(): Promise<`0x${string}`> {
-    
+
     return await getClientAddress();
+  }
+
+  /**
+   * Get the admin EOA address derived from AGENTIC_TRUST_ADMIN_PRIVATE_KEY
+   * @returns The admin's Ethereum address
+   * @throws Error if AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set or invalid
+   */
+  async getAdminEOAAddress(): Promise<`0x${string}`> {
+    const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+
+    if (!privateKey) {
+      throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY environment variable is required');
+    }
+
+    const { privateKeyToAccount } = await import('viem/accounts');
+    const normalizedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    const account = privateKeyToAccount(normalizedKey as `0x${string}`);
+
+    return account.address as `0x${string}`;
   }
 
   /**

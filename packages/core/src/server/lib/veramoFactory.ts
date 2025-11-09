@@ -135,7 +135,6 @@ export async function createVeramoAgentForClient(
   // Otherwise, generate a key for this session
   console.warn('🏭 createVeramoAgentForClient: Setting up private key...');
   let finalPrivateKey = privateKey;
-  console.warn('🔍 DEBUG: finalPrivateKey 123', privateKey, 'type:', typeof privateKey, 'length:', privateKey?.length);
   if (!finalPrivateKey) {
     // Generate a new private key for this session
     console.warn('🏭 createVeramoAgentForClient: Generating new private key...');

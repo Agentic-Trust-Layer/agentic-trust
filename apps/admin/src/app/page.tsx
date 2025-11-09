@@ -79,6 +79,9 @@ export default function AdminPage() {
     agentUrl: '',
   });
 
+  // Check if private key mode is enabled (no wallet connection needed)
+  const usePrivateKey = process.env.NEXT_PUBLIC_AGENTIC_TRUST_ADMIN_USE_PRIVATE_KEY === 'true';
+
   // Toggle states for Create Agent
   const [useAA, setUseAA] = useState(false);
   const [createENS, setCreateENS] = useState(false);
@@ -115,15 +118,37 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   }, [eoaConnected, loading]);
 
-  // Set agent account from logged in user address (only if not using AA)
+  // Set agent account in EOA mode (when AA is not enabled)
   useEffect(() => {
-    if (eoaAddress && !useAA) {
-      setCreateForm(prev => ({
-        ...prev,
-        agentAccount: eoaAddress,
-      }));
+    if (!useAA) {
+      // Priority: use wallet address if available, otherwise fetch admin EOA address in private key mode
+      if (eoaAddress) {
+        // Use connected wallet address
+        setCreateForm(prev => ({
+          ...prev,
+          agentAccount: eoaAddress,
+        }));
+      } else if (usePrivateKey) {
+        // Fetch admin EOA address from API
+        (async () => {
+          try {
+            const response = await fetch('/api/admin/address');
+            if (response.ok) {
+              const data = await response.json();
+              setCreateForm(prev => ({
+                ...prev,
+                agentAccount: data.address,
+              }));
+            } else {
+              console.error('Failed to fetch admin address:', response.status);
+            }
+          } catch (error) {
+            console.error('Error fetching admin address:', error);
+          }
+        })();
+      }
     }
-  }, [eoaAddress, useAA]);
+  }, [eoaAddress, useAA, usePrivateKey]);
 
   // Compute AA address when useAA is enabled and agent name changes
   useEffect(() => {
@@ -249,9 +274,24 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
     (async () => {
       try {
-        // Use the core package's isENSAvailable function which uses the ENS client singleton
-        const { isENSAvailable } = await import('@agentic-trust/core/server');
-        const isAvailable = await isENSAvailable(createForm.agentName, ensOrgName);
+        // Check ENS availability via API
+        const response = await fetch('/api/agents/ens/availability', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            agentName: createForm.agentName,
+            orgName: ensOrgName,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API request failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const isAvailable = data.available;
         
         if (!cancelled) {
           setEnsAvailable(isAvailable);
@@ -361,11 +401,24 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     if (walletConnected) {
       await walletDisconnect();
     }
+
+    // In private key mode, clear any session data
+    if (usePrivateKey) {
+      try {
+        await fetch('/api/auth/session', {
+          method: 'DELETE',
+        });
+        // Force page reload to reset state
+        window.location.reload();
+      } catch (error) {
+        console.error('Error clearing session:', error);
+      }
+    }
   };
 
   // Show login page if not connected via Web3Auth
   // But allow wallet connection even if Web3Auth is not connected
-  if (authLoading && !walletConnected) {
+  if (authLoading && !walletConnected && !usePrivateKey) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
         <div>Loading...</div>
@@ -373,8 +426,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     );
   }
 
-  // Only show login page if neither Web3Auth nor wallet is connected
-  if (!web3AuthConnected && !walletConnected && !authLoading) {
+  // Only show login page if neither Web3Auth nor wallet is connected, and private key mode is not enabled
+  if (!web3AuthConnected && !walletConnected && !authLoading && !usePrivateKey) {
     return <LoginPage />;
   }
 
@@ -620,20 +673,33 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               {eoaAddress.slice(0, 6)}...{eoaAddress.slice(-4)}
             </div>
           )}
-          <button
-            onClick={handleDisconnect}
-            style={{
+          {usePrivateKey ? (
+            <div style={{
               padding: '0.5rem 1rem',
-              backgroundColor: '#dc3545',
+              backgroundColor: '#17a2b8',
               color: '#fff',
-              border: 'none',
               borderRadius: '4px',
-              cursor: 'pointer',
               fontSize: '0.9rem',
-            }}
-          >
-            Logout
-          </button>
+              fontWeight: 'bold',
+            }}>
+              Using Private Key
+            </div>
+          ) : (
+            <button
+              onClick={handleDisconnect}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: '#dc3545',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '0.9rem',
+              }}
+            >
+              Logout
+            </button>
+          )}
         </div>
       </div>
 
