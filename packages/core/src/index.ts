@@ -96,6 +96,8 @@ export {
   refreshAgentInIndexer,
   isWalletProviderAvailable,
   getWalletAddress,
+  getDeployedAccountClientByAgentName,
+  getCounterfactualAccountClientByAgentName
 } from './client/walletSigning';
 export type {
   PreparedTransaction,
@@ -103,6 +105,4 @@ export type {
   SignTransactionOptions,
 } from './client/walletSigning';
 
-export {
-  getAAAccountClientByAgentName,
-} from './client/aaClient';
+

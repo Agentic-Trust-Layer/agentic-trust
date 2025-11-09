@@ -15,5 +15,5 @@ export type { ApiClientConfig } from './server/lib/types';
 export { createIPFSStorage, getIPFSStorage, isIPFSStorageInitialized, resetIPFSStorage, type IPFSStorage, type IPFSConfig, type UploadResult, } from './storage/ipfs';
 export { signAndSendTransaction, extractAgentIdFromReceipt, refreshAgentInIndexer, isWalletProviderAvailable, getWalletAddress, } from './client/walletSigning';
 export type { PreparedTransaction, TransactionResult, SignTransactionOptions, } from './client/walletSigning';
-export { getAAAccountClientByAgentName, } from './client/aaClient';
+export { getDeployedAccountClientByAgentName, getCounterfactualAccountClientByAgentName, } from './client/aaClient';
 //# sourceMappingURL=index.d.ts.map

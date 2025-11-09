@@ -14,11 +14,137 @@ import {
   type Hex,
 } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
-import { getAAAccountClientByAgentName } from './aaClient';
+import { getDeployedAccountClientByAgentName } from './aaClient';
 import {
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
 } from './bundlerUtils';
+export {
+  getDeployedAccountClientByAgentName,
+  getCounterfactualAccountClientByAgentName,
+} from './aaClient';
+
+function resolveEthereumProvider(providedProvider?: any): any {
+  if (providedProvider) return providedProvider;
+  if (typeof window !== 'undefined') {
+    const web3authProvider = (window as any)?.web3auth?.provider;
+    if (web3authProvider) return web3authProvider;
+    const injected = (window as any).ethereum;
+    if (injected) return injected;
+  }
+  return null;
+}
+
+async function resolveChainId(ethereumProvider: any): Promise<number> {
+  try {
+    const chainHex = await ethereumProvider.request?.({ method: 'eth_chainId' });
+    if (typeof chainHex === 'string') {
+      return parseInt(chainHex, 16);
+    }
+  } catch {
+    // ignore; fallback below
+  }
+  // Fallback to sepolia id
+  return sepolia.id;
+}
+
+/**
+ * Ensure the provider has an authorized account and return it.
+ * Tries eth_accounts first; if empty, requests eth_requestAccounts.
+ */
+async function ensureAuthorizedAccount(ethereumProvider: any): Promise<Address> {
+  try {
+    const existing = await ethereumProvider.request({ method: 'eth_accounts' });
+    if (Array.isArray(existing) && existing.length > 0) {
+      return existing[0] as Address;
+    }
+  } catch {
+    // ignore and fall through to request
+  }
+  try {
+    const granted = await ethereumProvider.request({ method: 'eth_requestAccounts' });
+    if (Array.isArray(granted) && granted.length > 0) {
+      return granted[0] as Address;
+    }
+  } catch {
+    // fallthrough to permissions flow
+  }
+  try {
+    await ethereumProvider.request?.({
+      method: 'wallet_requestPermissions',
+      params: [{ eth_accounts: {} }],
+    });
+    const afterPerm = await ethereumProvider.request({ method: 'eth_accounts' });
+    if (Array.isArray(afterPerm) && afterPerm.length > 0) {
+      return afterPerm[0] as Address;
+    }
+  } catch {
+    // ignore
+  }
+  throw new Error('Wallet not authorized. Please connect your wallet.');
+}
+
+async function ensureChainSelected(ethereumProvider: any, chain: Chain): Promise<void> {
+  try {
+    const currentHex = await ethereumProvider.request?.({ method: 'eth_chainId' });
+    const current = typeof currentHex === 'string' ? parseInt(currentHex, 16) : undefined;
+    if (current === chain.id) return;
+  } catch {
+    // continue to switch
+  }
+  const hexId = `0x${chain.id.toString(16)}`;
+  try {
+    await ethereumProvider.request?.({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: hexId }],
+    });
+    return;
+  } catch (switchErr: any) {
+    // 4902 = unknown chain, try add then switch
+    if (switchErr?.code !== 4902) {
+      throw switchErr;
+    }
+  }
+  // Try to add chain (supporting common testnets used here)
+  const addParamsMap: Record<number, any> = {
+    [sepolia.id]: {
+      chainId: `0x${sepolia.id.toString(16)}`,
+      chainName: 'Ethereum Sepolia',
+      nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
+      rpcUrls: ['https://rpc.sepolia.org'],
+      blockExplorerUrls: ['https://sepolia.etherscan.io'],
+    },
+    [baseSepolia.id]: {
+      chainId: `0x${baseSepolia.id.toString(16)}`,
+      chainName: 'Base Sepolia',
+      nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
+      rpcUrls: ['https://sepolia.base.org'],
+      blockExplorerUrls: ['https://sepolia.basescan.org'],
+    },
+    [optimismSepolia.id]: {
+      chainId: `0x${optimismSepolia.id.toString(16)}`,
+      chainName: 'OP Sepolia',
+      nativeCurrency: { name: 'Sepolia ETH', symbol: 'SEP', decimals: 18 },
+      rpcUrls: ['https://sepolia.optimism.io'],
+      blockExplorerUrls: ['https://sepolia-optimism.etherscan.io'],
+    },
+  };
+  const addParams = addParamsMap[chain.id] || {
+    chainId: hexId,
+    chainName: chain.name,
+    nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+    rpcUrls: [],
+    blockExplorerUrls: [],
+  };
+  await ethereumProvider.request?.({
+    method: 'wallet_addEthereumChain',
+    params: [addParams],
+  });
+  await ethereumProvider.request?.({
+    method: 'wallet_switchEthereumChain',
+    params: [{ chainId: hexId }],
+  });
+}
 
 /**
  * Transaction prepared by server for client-side signing
@@ -76,7 +202,7 @@ export async function signAndSendTransaction(
   } = options;
 
   // Get wallet provider
-  const provider = ethereumProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
+  const provider = resolveEthereumProvider(ethereumProvider);
   
   if (!provider) {
     throw new Error('No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.');
@@ -86,6 +212,13 @@ export async function signAndSendTransaction(
   onStatusUpdate?.('Connecting to wallet...');
 
   // Create wallet client
+  try {
+    // Ensure correct chain & account permission before sending
+    await ensureChainSelected(provider, chain);
+    await ensureAuthorizedAccount(provider);
+  } catch {
+    // Non-fatal; some providers may not require this here
+  }
   const walletClient = createWalletClient({
     account,
     chain,
@@ -354,11 +487,7 @@ export async function createAgentWithWalletForEOA(
   if (providedAccount) {
     account = providedAccount;
   } else {
-    const accounts = await ethereumProvider.request({ method: 'eth_accounts' });
-    if (!accounts || accounts.length === 0) {
-      throw new Error('Wallet not connected. Please connect your wallet first.');
-    }
-    account = accounts[0] as Address;
+    account = await ensureAuthorizedAccount(ethereumProvider);
   }
 
   // Step 1: Call API to create agent
@@ -469,7 +598,7 @@ export async function createAgentWithWalletForAA(
 
 
   // Get wallet provider (default to window.ethereum)
-  const ethereumProvider = providedProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
+  const ethereumProvider = resolveEthereumProvider(providedProvider);
   
   if (!ethereumProvider) {
     throw new Error('No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.');
@@ -480,14 +609,10 @@ export async function createAgentWithWalletForAA(
   if (providedAccount) {
     account = providedAccount;
   } else {
-    const accounts = await ethereumProvider.request({ method: 'eth_accounts' });
-    if (!accounts || accounts.length === 0) {
-      throw new Error('Wallet not connected. Please connect your wallet first.');
-    }
-    account = accounts[0] as Address;
+    account = await ensureAuthorizedAccount(ethereumProvider);
   }
 
-  const chainId = ethereumProvider.chainId;
+  const chainId = await resolveChainId(ethereumProvider);
 
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
@@ -512,7 +637,23 @@ export async function createAgentWithWalletForAA(
       console.warn(`Unknown chainId ${chainId}, defaulting to Sepolia`);
   }
 
+  // Ensure provider is on the required chain before building clients
+  try {
+    await ensureChainSelected(ethereumProvider, chain);
+  } catch (switchErr) {
+    console.warn('Unable to switch chain on provider for AA flow:', switchErr);
+  }
 
+  // Build viem clients bound to the user's Web3Auth provider
+  const viemWalletClient = createWalletClient({
+    account,
+    chain,
+    transport: custom(ethereumProvider),
+  });
+  const viemPublicClient = createPublicClient({
+    chain,
+    transport: custom(ethereumProvider),
+  });
 
   // 1.  Need to create the Agent Account Abstraction (Account)
 
@@ -522,18 +663,22 @@ export async function createAgentWithWalletForAA(
   // Get agent name from request
   const agentName = options.agentData.agentName;
 
-  // Get Account Client by Agent Name, find if exists and if not the create it
+  // Get Account Client by Agent Name, find if exists and if not then create it
+  const bundlerUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL || '';
   console.log('Getting AA account client by agent name: ', agentName);
-  let agentAccountClient = await getAAAccountClientByAgentName(
+  let agentAccountClient = await getDeployedAccountClientByAgentName(
+    bundlerUrl,
     agentName,
     account,
     {
       chain: chain as any,
-      rpcUrl: undefined,
-      ethereumProvider,
-      includeDeployParams: true,
+      walletClient: viemWalletClient as any,
+      publicClient: viemPublicClient as any,
     }
   );
+
+
+
 
   if (!agentAccountClient) {
     throw new Error('Failed to build AA account client');
@@ -546,7 +691,190 @@ export async function createAgentWithWalletForAA(
   }
 
 
+    // 2.  Add ENS record associated with new agent
+
+    console.log('*********** createAgentWithWalletForAA: options.ensOptions', options.ensOptions);
+    
+    if (options.ensOptions?.enabled && options.ensOptions.orgName) {
+      try {
+        const ensAgentAccount = (typeof computedAddress === 'string' && computedAddress.startsWith('0x'))
+          ? computedAddress
+          : options.agentData.agentAccount;
+  
+        onStatusUpdate?.('Creating ENS subdomain...');
+        const ensResponse = await fetch('/api/agents/ens/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentName: options.agentData.agentName,
+            agentAccount: ensAgentAccount,
+            orgName: options.ensOptions.orgName,
+            agentUrl: options.agentData.agentUrl,
+          }),
+        });
+  
+        console.log('*********** createAgentWithWalletForAA: ensResponse', ensResponse);
+  
+        /*
+        if (!ensResponse.ok) {
+          const errorData = await ensResponse.json().catch(() => ({}));
+          throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
+        }
+  
+        const ensData = await ensResponse.json();
+        const ensCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+  
+        console.log('*********** createAgentWithWalletForAA: ensData', ensData);
+  
+        if (Array.isArray(ensData?.calls)) {
+          for (const rawCall of ensData.calls as Array<Record<string, unknown>>) {
+            const to = rawCall?.to as `0x${string}` | undefined;
+            const data = rawCall?.data as `0x${string}` | undefined;
+            if (!to || !data) {
+              continue;
+            }
+  
+            let value: bigint | undefined;
+            if (rawCall?.value !== null && rawCall?.value !== undefined) {
+              try {
+                value = BigInt(rawCall.value as string | number | bigint);
+              } catch (error) {
+                console.warn('Unable to parse ENS creation call value', rawCall.value, error);
+              }
+            }
+  
+            console.log('*********** createAgentWithWalletForAA: to', to);
+            console.log('*********** createAgentWithWalletForAA: data', data);
+            console.log('*********** createAgentWithWalletForAA: value', value);
+  
+            ensCalls.push({
+              to,
+              data,
+              value,
+            });
+          }
+        }
+
+        if ((ensData as any)?.userOpHash) {
+          console.log('*********** createAgentWithWalletForAA: ENS userOpHash (server-submitted)', (ensData as any).userOpHash);
+        } else if (ensCalls.length > 0) {
+  
+          console.log('*********** createAgentWithWalletForAA: ensCalls', ensCalls);
+          onStatusUpdate?.('Submitting ENS subdomain transaction...');
+          // Ensure we are using a deployed-only AA client (no factory/factoryData)
+          agentAccountClient = await getDeployedAccountClientByAgentName(
+            bundlerUrl,
+            agentName,
+            account,
+            {
+              chain: chain as any,
+              walletClient: viemWalletClient as any,
+              publicClient: viemPublicClient as any,
+            }
+          );
+          const ensUserOpHash = await sendSponsoredUserOperation({
+            bundlerUrl,
+            chain: sepolia as any,
+            accountClient: agentAccountClient,
+            calls: ensCalls,
+          });
+  
+          await waitForUserOperationReceipt({
+            bundlerUrl,
+            chain: sepolia as any,
+            hash: ensUserOpHash,
+          });
+          console.log('*********** createAgentWithWalletForAA: ensUserOpHash', ensUserOpHash);
+        }
+        */
+  
+        console.log('*********** createAgentWithWalletForAA: preparing ENS metadata update...');
+        onStatusUpdate?.('Preparing ENS metadata update...');
+        const infoResponse = await fetch('/api/agents/ens/set-info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentName: options.agentData.agentName,
+            orgName: options.ensOptions.orgName,
+            agentAddress: ensAgentAccount,
+            agentUrl: options.agentData.agentUrl,
+            agentDescription: options.agentData.description,
+          }),
+        });
+  
+        if (infoResponse.ok) {
+          const infoData = await infoResponse.json();
+          const infoCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+  
+          if (Array.isArray(infoData?.calls)) {
+            for (const rawCall of infoData.calls as Array<Record<string, unknown>>) {
+              const to = rawCall?.to as `0x${string}` | undefined;
+              const data = rawCall?.data as `0x${string}` | undefined;
+              if (!to || !data) {
+                continue;
+              }
+  
+              let value: bigint | undefined;
+              if (rawCall?.value !== null && rawCall?.value !== undefined) {
+                try {
+                  value = BigInt(rawCall.value as string | number | bigint);
+                } catch (error) {
+                  console.warn('Unable to parse ENS info call value', rawCall.value, error);
+                }
+              }
+  
+              infoCalls.push({
+                to,
+                data,
+                value,
+              });
+            }
+          }
+  
+          if (infoCalls.length > 0) {
+            onStatusUpdate?.('Updating ENS agent info...');
+            // Ensure we are using a deployed-only AA client (no factory/factoryData)
+            agentAccountClient = await getDeployedAccountClientByAgentName(
+              bundlerUrl,
+              agentName,
+              account,
+              {
+                chain: chain as any,
+                walletClient: viemWalletClient as any,
+                publicClient: viemPublicClient as any,
+              }
+            );
+            const infoUserOpHash = await sendSponsoredUserOperation({
+              bundlerUrl,
+              chain: chain as any,
+              accountClient: agentAccountClient,
+              calls: infoCalls,
+            });
+  
+            await waitForUserOperationReceipt({
+              bundlerUrl,
+              chain: chain as any,
+              hash: infoUserOpHash,
+            });
+          }
+        } else {
+          const errorPayload = await infoResponse.json().catch(() => ({}));
+          console.warn('Failed to prepare ENS metadata calls:', errorPayload);
+        }
+  
+        console.log('Requested ENS record creation and metadata update for agent', options.agentData.agentName);
+      } catch (ensError) {
+        console.warn('Failed to create ENS record for agent:', ensError);
+      }
+    }
+
+
+
+
+
   // 2.  Need to create the Agent Identity (NFT)
+
+  console.log('*********** createAgentWithWalletForAA: creating agent identity...');
   
   // Prepare request body with AA parameters if needed
   const requestBody: any = {
@@ -571,11 +899,6 @@ export async function createAgentWithWalletForAA(
     throw new Error('Agent creation response missing register calls');
   }
 
-  const bundlerUrl = data.bundlerUrl;
-  if (typeof bundlerUrl !== 'string' || bundlerUrl.trim() === '') {
-    throw new Error('Bundler URL not configured for Account Abstraction');
-  }
-
 
   // Construct Agent Identity with agentAccount Client
   const createAgentIdentityCalls = data.calls.map((call: any) => ({
@@ -585,6 +908,7 @@ export async function createAgentWithWalletForAA(
   }));
 
   // Send UserOperation via bundler
+  
   onStatusUpdate?.('Sending UserOperation via bundler...');
   const userOpHash = await sendSponsoredUserOperation({
     bundlerUrl,
@@ -602,17 +926,6 @@ export async function createAgentWithWalletForAA(
     hash: userOpHash,
   });
 
-  // refresh the agent account with no deploy params
-  agentAccountClient = await getAAAccountClientByAgentName(
-    agentName,
-    account,
-    {
-      chain: chain as any,
-      rpcUrl: undefined,
-      ethereumProvider,
-      includeDeployParams: false,
-    }
-  );
 
 
   // Extract agentId from receipt logs
@@ -642,150 +955,8 @@ export async function createAgentWithWalletForAA(
     console.warn('Unable to extract agentId via API:', error);
   }
 
-  // 3.  Add ENS record associated with new agent
-  console.log('*********** createAgentWithWalletForAA: options.ensOptions', options.ensOptions);
-  if (options.ensOptions?.enabled && options.ensOptions.orgName) {
-    try {
-      const ensAgentAccount = (typeof computedAddress === 'string' && computedAddress.startsWith('0x'))
-        ? computedAddress
-        : options.agentData.agentAccount;
 
-      onStatusUpdate?.('Creating ENS subdomain...');
-      const ensResponse = await fetch('/api/agents/ens/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentName: options.agentData.agentName,
-          agentAccount: ensAgentAccount,
-          orgName: options.ensOptions.orgName,
-          agentUrl: options.agentData.agentUrl,
-        }),
-      });
 
-      console.log('*********** createAgentWithWalletForAA: ensResponse', ensResponse);
-
-      if (!ensResponse.ok) {
-        const errorData = await ensResponse.json().catch(() => ({}));
-        throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
-      }
-
-      const ensData = await ensResponse.json();
-      const ensCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
-
-      console.log('*********** createAgentWithWalletForAA: ensData', ensData);
-
-      if (Array.isArray(ensData?.calls)) {
-        for (const rawCall of ensData.calls as Array<Record<string, unknown>>) {
-          const to = rawCall?.to as `0x${string}` | undefined;
-          const data = rawCall?.data as `0x${string}` | undefined;
-          if (!to || !data) {
-            continue;
-          }
-
-          let value: bigint | undefined;
-          if (rawCall?.value !== null && rawCall?.value !== undefined) {
-            try {
-              value = BigInt(rawCall.value as string | number | bigint);
-            } catch (error) {
-              console.warn('Unable to parse ENS creation call value', rawCall.value, error);
-            }
-          }
-
-          console.log('*********** createAgentWithWalletForAA: to', to);
-          console.log('*********** createAgentWithWalletForAA: data', data);
-          console.log('*********** createAgentWithWalletForAA: value', value);
-
-          ensCalls.push({
-            to,
-            data,
-            value,
-          });
-        }
-      }
-
-      if (ensCalls.length > 0) {
-        onStatusUpdate?.('Submitting ENS subdomain transaction...');
-        const ensUserOpHash = await sendSponsoredUserOperation({
-          bundlerUrl,
-          chain: chain as any,
-          accountClient: agentAccountClient,
-          calls: ensCalls,
-        });
-
-        await waitForUserOperationReceipt({
-          bundlerUrl,
-          chain: chain as any,
-          hash: ensUserOpHash,
-        });
-      }
-
-      onStatusUpdate?.('Preparing ENS metadata update...');
-      const infoResponse = await fetch('/api/agents/ens/set-info', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agentName: options.agentData.agentName,
-          orgName: options.ensOptions.orgName,
-          agentAddress: ensAgentAccount,
-          agentUrl: options.agentData.agentUrl,
-          agentDescription: options.agentData.description,
-        }),
-      });
-
-      if (infoResponse.ok) {
-        const infoData = await infoResponse.json();
-        const infoCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
-
-        if (Array.isArray(infoData?.calls)) {
-          for (const rawCall of infoData.calls as Array<Record<string, unknown>>) {
-            const to = rawCall?.to as `0x${string}` | undefined;
-            const data = rawCall?.data as `0x${string}` | undefined;
-            if (!to || !data) {
-              continue;
-            }
-
-            let value: bigint | undefined;
-            if (rawCall?.value !== null && rawCall?.value !== undefined) {
-              try {
-                value = BigInt(rawCall.value as string | number | bigint);
-              } catch (error) {
-                console.warn('Unable to parse ENS info call value', rawCall.value, error);
-              }
-            }
-
-            infoCalls.push({
-              to,
-              data,
-              value,
-            });
-          }
-        }
-
-        if (infoCalls.length > 0) {
-          onStatusUpdate?.('Updating ENS agent info...');
-          const infoUserOpHash = await sendSponsoredUserOperation({
-            bundlerUrl,
-            chain: chain as any,
-            accountClient: agentAccountClient,
-            calls: infoCalls,
-          });
-
-          await waitForUserOperationReceipt({
-            bundlerUrl,
-            chain: chain as any,
-            hash: infoUserOpHash,
-          });
-        }
-      } else {
-        const errorPayload = await infoResponse.json().catch(() => ({}));
-        console.warn('Failed to prepare ENS metadata calls:', errorPayload);
-      }
-
-      console.log('Requested ENS record creation and metadata update for agent', options.agentData.agentName);
-    } catch (ensError) {
-      console.warn('Failed to create ENS record for agent:', ensError);
-    }
-  }
 
   // Refresh GraphQL indexer
   if (agentId) {

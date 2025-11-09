@@ -55,13 +55,13 @@ export async function POST(request: NextRequest) {
       endpoints,
     });
 
-    return NextResponse.json({
-      success: true as const,
+      return NextResponse.json({
+        success: true as const,
       bundlerUrl: result.bundlerUrl,
-      tokenURI: result.tokenURI,
+        tokenURI: result.tokenURI,
       chainId: result.chainId,
       calls: result.calls,
-    });
+      });
   } catch (error) {
     console.error('Error in create agent route:', error);
     return NextResponse.json(

@@ -144,40 +144,40 @@ export class AgentsAPI {
     if (!adminApp) {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
-
-    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-    if (!identityRegistry || typeof identityRegistry !== 'string') {
-      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-    }
-
-    const identityRegistryHex = identityRegistry.startsWith('0x') 
-      ? identityRegistry 
-      : `0x${identityRegistry}`;
-
-    // Create registration JSON and upload to IPFS
-    let tokenURI = '';
-    const sepoliaChain = sepolia;
-    const chainId: number = sepoliaChain.id;
     
-    try {
-      const registrationJSON = createRegistrationJSON({
-        name: params.agentName,
-        agentAccount: params.agentAccount,
-        description: params.description,
-        image: params.image,
-        agentUrl: params.agentUrl,
-        chainId,
-        identityRegistry: identityRegistryHex as `0x${string}`,
-        supportedTrust: params.supportedTrust,
-        endpoints: params.endpoints,
-      });
+      const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+      if (!identityRegistry || typeof identityRegistry !== 'string') {
+        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+      }
+
+      const identityRegistryHex = identityRegistry.startsWith('0x') 
+        ? identityRegistry 
+        : `0x${identityRegistry}`;
+
+      // Create registration JSON and upload to IPFS
+      let tokenURI = '';
+      const sepoliaChain = sepolia;
+      const chainId: number = sepoliaChain.id;
       
-      const uploadResult = await uploadRegistration(registrationJSON);
-      tokenURI = uploadResult.tokenURI;
-    } catch (error) {
-      console.error('Failed to upload registration JSON to IPFS:', error);
-      throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+      try {
+        const registrationJSON = createRegistrationJSON({
+          name: params.agentName,
+          agentAccount: params.agentAccount,
+          description: params.description,
+          image: params.image,
+          agentUrl: params.agentUrl,
+          chainId,
+          identityRegistry: identityRegistryHex as `0x${string}`,
+          supportedTrust: params.supportedTrust,
+          endpoints: params.endpoints,
+        });
+        
+        const uploadResult = await uploadRegistration(registrationJSON);
+        tokenURI = uploadResult.tokenURI;
+      } catch (error) {
+        console.error('Failed to upload registration JSON to IPFS:', error);
+        throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     
     // If no private key, prepare transaction for client-side signing
     if (!adminApp.hasPrivateKey) {
@@ -344,7 +344,7 @@ export class AgentsAPI {
         supportedTrust: params.supportedTrust,
         endpoints: params.endpoints,
       });
-
+      
       const uploadResult = await uploadRegistration(registrationJSON);
       tokenURI = uploadResult.tokenURI;
     } catch (error) {
@@ -352,32 +352,32 @@ export class AgentsAPI {
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-    const publicClient = createPublicClient({
+      const publicClient = createPublicClient({
       chain: sepolia as any,
-      transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
-    });
+        transport: http(process.env.AGENTIC_TRUST_RPC_URL || ''),
+      });
 
-    const accountProvider = new ViemAccountProvider({
-      publicClient: publicClient as any,
+      const accountProvider = new ViemAccountProvider({
+        publicClient: publicClient as any,
       walletClient: null,
-      chainConfig: {
-        id: chainId,
-        rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
+        chainConfig: {
+          id: chainId,
+          rpcUrl: process.env.AGENTIC_TRUST_RPC_URL || '',
         name: sepolia.name,
         chain: sepolia as any,
-      },
-    });
+        },
+      });
 
-    const aiIdentityClient = new AIAgentIdentityClient({
-      accountProvider,
-      identityRegistryAddress: identityRegistryHex as `0x${string}`,
-    });
+      const aiIdentityClient = new AIAgentIdentityClient({
+        accountProvider,
+        identityRegistryAddress: identityRegistryHex as `0x${string}`,
+      });
 
-    const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
-      params.agentName,
-      params.agentAccount,
-      tokenURI
-    );
+      const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
+        params.agentName,
+        params.agentAccount,
+        tokenURI
+      );
 
     const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL || '';
 
@@ -386,7 +386,7 @@ export class AgentsAPI {
       bundlerUrl,
       tokenURI,
       chainId,
-      calls: registerCalls,
+        calls: registerCalls,
     };
   }
 

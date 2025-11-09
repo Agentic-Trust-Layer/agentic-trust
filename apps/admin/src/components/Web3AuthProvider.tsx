@@ -8,6 +8,7 @@ interface Web3AuthContextType {
   connected: boolean;
   userInfo: any;
   address: string | null;
+  provider: any;
   loading: boolean;
   connect: (method: 'social' | 'metamask', provider?: 'google' | 'facebook' | 'twitter' | 'github') => Promise<void>;
   disconnect: () => Promise<void>;
@@ -27,6 +28,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(false);
   const [userInfo, setUserInfo] = useState<any>(null);
   const [address, setAddress] = useState<string | null>(null);
+  const [provider, setProvider] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
 
@@ -45,8 +47,9 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         // Check if already connected
         const connected = await isConnected();
         if (connected) {
-          const provider = await getProvider();
-          if (provider) {
+      const providerInstance = await getProvider();
+      if (providerInstance) {
+        setProvider(providerInstance);
             await handleConnected();
           }
         }
@@ -76,6 +79,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       // Web3Auth stores the private key and we need to get it from the provider
       const provider = await getProvider();
       if (provider) {
+        setProvider(provider);
         // For Web3Auth, we can get the private key from the provider
         // Note: This is only available server-side or through Web3Auth's SDK
         // We'll use the provider to get the address first
@@ -182,6 +186,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
       setConnected(false);
       setUserInfo(null);
       setAddress(null);
+      setProvider(null);
     } catch (error) {
       console.error('Error disconnecting:', error);
     } finally {
@@ -190,7 +195,7 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <Web3AuthContext.Provider value={{ connected, userInfo, address, loading, connect, disconnect }}>
+    <Web3AuthContext.Provider value={{ connected, userInfo, address, provider, loading, connect, disconnect }}>
       {children}
     </Web3AuthContext.Provider>
   );

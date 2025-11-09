@@ -1,11 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useWeb3Auth } from '@/components/Web3AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
-import { createAgentWithWalletForEOA, createAgentWithWalletForAA } from '@agentic-trust/core/client';
+import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAccountClientByAgentName } from '@agentic-trust/core/client';
+
 
 type Agent = {
   agentId?: number;
@@ -16,13 +17,42 @@ type Agent = {
 };
 
 export default function AdminPage() {
-  const { connected: web3AuthConnected, address: web3AuthAddress, userInfo, disconnect: web3AuthDisconnect, loading: authLoading } = useWeb3Auth();
+  const web3AuthCtx = useWeb3Auth() as any;
+  const {
+    connected: web3AuthConnected,
+    address: web3AuthAddress,
+    userInfo,
+    disconnect: web3AuthDisconnect,
+    loading: authLoading,
+  } = web3AuthCtx;
+  const web3AuthProvider = web3AuthCtx?.provider ?? null;
   const { connected: walletConnected, address: walletAddress, connect: walletConnect, disconnect: walletDisconnect, loading: walletLoading } = useWallet();
   
   // Use either Web3Auth or direct wallet connection
   const eoaConnected = web3AuthConnected || walletConnected;
   const eoaAddress = web3AuthAddress || walletAddress;
   const loading = authLoading || walletLoading;
+
+  // Pick the matching provider for the selected EOA: Web3Auth if that address is active, otherwise MetaMask
+  const effectiveEip1193 = React.useMemo(() => {
+    const metamaskProvider = typeof window !== 'undefined' ? (window as any)?.ethereum : null;
+    if (web3AuthConnected && web3AuthProvider) {
+      return web3AuthProvider;
+    }
+    if (walletConnected && metamaskProvider) {
+      return metamaskProvider;
+    }
+    return web3AuthProvider ?? metamaskProvider ?? null;
+  }, [web3AuthConnected, web3AuthProvider, walletConnected]);
+
+  // For AA flow, strongly prefer Web3Auth to avoid MetaMask prompts when available
+  const aaEip1193 = React.useMemo(() => {
+    const metamaskProvider = typeof window !== 'undefined' ? (window as any)?.ethereum : null;
+    if (web3AuthProvider) {
+      return web3AuthProvider;
+    }
+    return effectiveEip1193 ?? metamaskProvider ?? null;
+  }, [web3AuthProvider, effectiveEip1193]);
   
   const [agents, setAgents] = useState<Agent[]>([]);
   const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
@@ -96,7 +126,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   }, [eoaAddress, useAA]);
 
   // Compute AA address when useAA is enabled and agent name changes
-  // Uses getAAAccountClientByAgentName logic (ENS resolution -> deterministic)
   useEffect(() => {
     if (!useAA || !createForm.agentName || !eoaAddress) {
       setAaAddress(null);
@@ -144,16 +173,33 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           setExistingAgentInfo(existingInfo);
         }
 
-        // Use the core package's getAAAccountClientByAgentName function
         // This will try ENS resolution first, then fall back to deterministic computation
         console.log('Computing AA address for agent name:', createForm.agentName);
-        const { getAAAccountClientByAgentName } = await import('@agentic-trust/core') as any;
-        const agentAccountClient = await getAAAccountClientByAgentName(
+        
+        const aaProvider = aaEip1193 as any;
+        if (aaProvider?.request) {
+          const chainIdHex = '0xaa36a7';
+          try {
+            const current = await aaProvider.request({ method: 'eth_chainId' }).catch(() => null);
+            if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
+              await aaProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
+            }
+          } catch {
+            // ignore
+          }
+          const accounts = await aaProvider.request({ method: 'eth_accounts' }).catch(() => []);
+          if (!Array.isArray(accounts) || accounts.length === 0) {
+            await aaProvider.request({ method: 'eth_requestAccounts' }).catch(() => null);
+          }
+        }
+
+        const agentAccountClient = await getCounterfactualAccountClientByAgentName(
           createForm.agentName,
           eoaAddress as `0x${string}`,
           {
-            ethereumProvider: (window as any).ethereum,
-          }
+            ethereumProvider: aaEip1193 as any
+          },
+          
         );
         
         if (!cancelled && agentAccountClient) {
@@ -358,6 +404,28 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     try {
       setError(null);
       setSuccess(null);
+      // Ensure provider is authorized before any core calls
+      try {
+        const prefProvider = (useAA ? aaEip1193 : effectiveEip1193) as any;
+        if (prefProvider && typeof prefProvider.request === 'function') {
+          // Switch to Sepolia (default) first (if wallet supports it)
+          const chainIdHex = '0xaa36a7';
+          try {
+            const current = await prefProvider.request({ method: 'eth_chainId' }).catch(() => null);
+            if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
+              await prefProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
+            }
+          } catch {
+            // ignore; core will also attempt chain selection
+          }
+          const accs = await prefProvider.request({ method: 'eth_accounts' }).catch(() => []);
+          if (!Array.isArray(accs) || accs.length === 0) {
+            await prefProvider.request({ method: 'eth_requestAccounts' });
+          }
+        }
+      } catch {
+        // ignore; core will also attempt authorization
+      }
 
       // Use the agent account from the form (which should be populated with AA address if useAA is enabled)
       const agentAccountToUse = createForm.agentAccount as `0x${string}`;
@@ -389,6 +457,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             agentUrl: createForm.agentUrl || undefined,
           },
           account: eoaAddress as Address,
+          ethereumProvider: effectiveEip1193 as any,
           onStatusUpdate: setSuccess,
           // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
           useAA: useAA || undefined,
@@ -404,6 +473,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       else {
         // create Agent Identity for Account Abstraction (AA)
         // create Agent Identity for Externally Owned Account (EOA)
+        console.log('*********** handleCreateAgent: createAgentWithWalletForAA: createForm.agentName', createForm.agentName);
         const result = await createAgentWithWalletForAA({
           agentData: {
             agentName: createForm.agentName,
@@ -413,6 +483,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             agentUrl: createForm.agentUrl || undefined,
           },
           account: eoaAddress as Address,
+          ethereumProvider: aaEip1193 as any,
           onStatusUpdate: setSuccess,
           // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
           useAA: useAA || undefined,

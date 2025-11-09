@@ -102,6 +102,7 @@ export {
   isENSAvailable,
   addAgentNameToOrgUsingEnsKey,
   prepareAgentNameInfoCalls,
+  addAgentNameToOrgServerSubmit,
 } from './singletons/ensClient';
 
 export type {

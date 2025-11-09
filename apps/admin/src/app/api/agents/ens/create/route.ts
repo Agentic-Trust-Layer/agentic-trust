@@ -45,16 +45,15 @@ export async function POST(request: NextRequest) {
 
     const jsonSafeCalls = rawCalls
       .map((call) => {
-      const to = call?.to as `0x${string}` | undefined;
-      const data = call?.data as `0x${string}` | undefined;
-      const value = call?.value as string | number | bigint | null | undefined;
-
-      return {
-        to,
-        data,
-        value: typeof value === 'bigint' ? value.toString() : value ?? null,
-      };
-    })
+        const to = call?.to as `0x${string}` | undefined;
+        const data = call?.data as `0x${string}` | undefined;
+        const value = call?.value as string | number | bigint | null | undefined;
+        return {
+          to,
+          data,
+          value: typeof value === 'bigint' ? value.toString() : value ?? null,
+        };
+      })
       .filter((call) => typeof call.to === 'string' && typeof call.data === 'string');
 
     return NextResponse.json({

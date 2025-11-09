@@ -19,5 +19,5 @@ export { createIPFSStorage, getIPFSStorage, isIPFSStorageInitialized, resetIPFSS
 // Note: Server-only functionality is exported from '@agentic-trust/core/server'
 // Export client-side wallet signing utilities
 export { signAndSendTransaction, extractAgentIdFromReceipt, refreshAgentInIndexer, isWalletProviderAvailable, getWalletAddress, } from './client/walletSigning';
-export { getAAAccountClientByAgentName, } from './client/aaClient';
+export { getDeployedAccountClientByAgentName, getCounterfactualAccountClientByAgentName, } from './client/aaClient';
 //# sourceMappingURL=index.js.map

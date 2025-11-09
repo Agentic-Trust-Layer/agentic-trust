@@ -6,8 +6,9 @@
  */
 import { createWalletClient, custom, createPublicClient, } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
-import { getAAAccountClientByAgentName } from './aaClient';
+import { getDeployedAccountClientByAgentName } from './aaClient';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt, } from './bundlerUtils';
+import { env } from 'process';
 /**
  * Sign and send a transaction using MetaMask/EIP-1193 wallet
  *
@@ -354,11 +355,14 @@ export async function createAgentWithWalletForAA(options) {
     // Get agent name from request
     const agentName = options.agentData.agentName;
     // Get Account Client by Agent Name, find if exists and if not the create it
-    console.log('Getting AA account client by agent name: ', agentName);
-    const agentAccountClient = await getAAAccountClientByAgentName(agentName, account, {
+    console.log('Getting deployed account client by agent name: ', agentName);
+    const bundlerUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL;
+    const agentAccountClient = await getDeployedAccountClientByAgentName(bundlerUrl, agentName, account, {
         chain: chain,
         rpcUrl: undefined,
         ethereumProvider,
+        includeDeployParams: true,
+        
     });
     if (!agentAccountClient) {
         throw new Error('Failed to build AA account client');
@@ -387,10 +391,7 @@ export async function createAgentWithWalletForAA(options) {
     if (!Array.isArray(data.calls) || data.calls.length === 0) {
         throw new Error('Agent creation response missing register calls');
     }
-    const bundlerUrl = data.bundlerUrl;
-    if (typeof bundlerUrl !== 'string' || bundlerUrl.trim() === '') {
-        throw new Error('Bundler URL not configured for Account Abstraction');
-    }
+
     /*
       await deploySmartAccountIfNeeded({
         bundlerUrl,

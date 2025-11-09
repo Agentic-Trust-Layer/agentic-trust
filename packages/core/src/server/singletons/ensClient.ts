@@ -14,6 +14,8 @@ import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
+import { privateKeyToAccount } from 'viem/accounts';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 
 // Singleton instance
 let ensClientInstance: AIAgentENSClient | null = null;
@@ -331,7 +333,7 @@ export async function createENSName(
       agentAddress: agentAddress,
       agentUrl: agentUrl || '',
     });
-
+    
     const userOpHash1 = await sendSponsoredUserOperation({
       bundlerUrl,
       chain: sepolia,
@@ -448,8 +450,137 @@ export async function addAgentNameToOrgUsingEnsKey(params: AddAgentToOrgParams):
     agentUrl: agentUrl || '',
   });
 
+  // Optionally submit server-side if configured (no breaking change: still returns calls)
+  try {
+    const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL || process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL || '';
+    const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL || '';
+    const ensPrivKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}` | undefined;
+
+    if (ensPrivKey && bundlerUrl && rpcUrl) {
+      const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
+      const orgEOA = privateKeyToAccount(ensPrivKey);
+      const orgAccountClient = await toMetaMaskSmartAccount({
+        address: orgEOA.address,
+        client: publicClient,
+        implementation: Implementation.Hybrid,
+        signatory: { account: orgEOA },
+      } as any);
+
+      const bundlerClient = createBundlerClient({
+        transport: http(bundlerUrl),
+        paymaster: true as any,
+        chain: sepolia as any,
+        paymasterContext: { mode: 'SPONSORED' },
+      } as any);
+
+      await (bundlerClient as any).sendUserOperation({
+        account: orgAccountClient,
+        calls: (calls || []).map((c) => ({
+          to: c.to,
+          data: c.data,
+        })),
+      });
+    }
+  } catch (ignored) {
+    // If server-side submission fails, just return prepared calls
+  }
+
   return {
     calls,
+  };
+}
+
+export interface AddAgentToOrgServerSubmitParams {
+  agentName: string;
+  orgName: string;
+  agentAddress: `0x${string}`;
+  agentUrl?: string;
+}
+
+export interface AddAgentToOrgServerSubmitResult {
+  success: boolean;
+  userOpHash?: `0x${string}`;
+  calls: {
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value: string | null;
+  }[];
+}
+
+/**
+ * Prepare ENS create subdomain calls and, if configured, submit them server-side
+ * using the org ENS private key via the bundler.
+ *
+ * Falls back to returning prepared calls if server-side submission is not configured.
+ */
+export async function addAgentNameToOrgServerSubmit(
+  params: AddAgentToOrgServerSubmitParams
+): Promise<AddAgentToOrgServerSubmitResult> {
+  const { agentName, orgName, agentAddress, agentUrl } = params;
+
+  // Prepare calls first (JSON-safe mapping)
+  const prepared = await addAgentNameToOrgUsingEnsKey({
+    agentName,
+    orgName,
+    agentAddress,
+    agentUrl,
+  });
+
+  const jsonSafeCalls = (prepared.calls || []).map((call) => {
+    const to = call?.to as `0x${string}`;
+    const data = call?.data as `0x${string}`;
+    const value = call?.value;
+    return {
+      to,
+      data,
+      value: typeof value === 'bigint' ? value.toString() : value ? String(value) : null,
+    };
+  }).filter((c) => typeof c.to === 'string' && typeof c.data === 'string');
+
+  // Check server-side submission configuration
+  const bundlerUrl = process.env.AGENTIC_TRUST_BUNDLER_URL || process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL || '';
+  const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL || '';
+  const ensPrivKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}` | undefined;
+
+  if (!ensPrivKey || !bundlerUrl || !rpcUrl) {
+    // Not configured to submit; return prepared calls
+    return {
+      success: true,
+      calls: jsonSafeCalls,
+    };
+  }
+
+  // Submit on server using org ENS key
+  const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
+  const orgEOA = privateKeyToAccount(ensPrivKey);
+
+  const orgAccountClient = await toMetaMaskSmartAccount({
+    address: orgEOA.address,
+    client: publicClient,
+    implementation: Implementation.Hybrid,
+    signatory: { account: orgEOA },
+  } as any);
+
+  const bundlerClient = createBundlerClient({
+    transport: http(bundlerUrl),
+    paymaster: true as any,
+    chain: sepolia as any,
+    paymasterContext: { mode: 'SPONSORED' },
+  } as any);
+
+  const userOpHash = await (bundlerClient as any).sendUserOperation({
+    account: orgAccountClient,
+    calls: jsonSafeCalls.map((c) => ({
+      to: c.to,
+      data: c.data,
+      value: c.value ? BigInt(c.value) : undefined,
+    })),
+  });
+
+  return {
+    success: true,
+    userOpHash,
+    calls: jsonSafeCalls,
   };
 }
 

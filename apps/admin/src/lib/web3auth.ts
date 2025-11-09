@@ -47,16 +47,35 @@ async function getWeb3Auth(): Promise<Web3Auth> {
       throw new Error('NEXT_PUBLIC_WEB3AUTH_CLIENT_ID is not set');
     }
 
-    // Chain configuration (defaults to Sepolia testnet)
-    const chainIdHex = process.env.NEXT_PUBLIC_CHAIN_ID || '0xaa36a7'; // Sepolia: 0xaa36a7 (11155111)
-    const rpcUrl = process.env.NEXT_PUBLIC_RPC_URL || 'https://eth-sepolia.g.alchemy.com/v2/demo';
-    
+    // Chain configuration
+    const chainIdHex = process.env.NEXT_PUBLIC_CHAIN_ID || '0xaa36a7'; // default Sepolia
+    const rpcUrl =
+      process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL ||
+      '';
+    if (!rpcUrl) {
+      throw new Error('RPC URL is not set. Configure NEXT_PUBLIC_ETH_SEPOLIA_RPC_URL or NEXT_PUBLIC_RPC_URL');
+    }
+
+    // Derive display/explorer by chain
+    const displayName =
+      chainIdHex.toLowerCase() === '0xaa36a7'
+        ? 'Ethereum Sepolia'
+        : chainIdHex.toLowerCase() === '0x14a34'
+        ? 'Base Sepolia'
+        : 'EVM Chain';
+    const blockExplorerUrl =
+      chainIdHex.toLowerCase() === '0xaa36a7'
+        ? 'https://sepolia.etherscan.io'
+        : chainIdHex.toLowerCase() === '0x14a34'
+        ? 'https://sepolia.basescan.org'
+        : undefined;
+
     const chainConfig = {
       chainNamespace: CHAIN_NAMESPACES.EIP155,
       chainId: chainIdHex,
       rpcTarget: rpcUrl,
-      displayName: 'Sepolia Testnet',
-      blockExplorerUrl: 'https://sepolia.etherscan.io',
+      displayName,
+      blockExplorerUrl,
       ticker: 'ETH',
       tickerName: 'Ethereum',
       decimals: 18,
