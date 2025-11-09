@@ -712,82 +712,15 @@ export async function createAgentWithWalletForAA(
             agentUrl: options.agentData.agentUrl,
           }),
         });
-  
+ 
         console.log('*********** createAgentWithWalletForAA: ensResponse', ensResponse);
-  
-        /*
+ 
         if (!ensResponse.ok) {
           const errorData = await ensResponse.json().catch(() => ({}));
           throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
         }
-  
-        const ensData = await ensResponse.json();
-        const ensCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
-  
-        console.log('*********** createAgentWithWalletForAA: ensData', ensData);
-  
-        if (Array.isArray(ensData?.calls)) {
-          for (const rawCall of ensData.calls as Array<Record<string, unknown>>) {
-            const to = rawCall?.to as `0x${string}` | undefined;
-            const data = rawCall?.data as `0x${string}` | undefined;
-            if (!to || !data) {
-              continue;
-            }
-  
-            let value: bigint | undefined;
-            if (rawCall?.value !== null && rawCall?.value !== undefined) {
-              try {
-                value = BigInt(rawCall.value as string | number | bigint);
-              } catch (error) {
-                console.warn('Unable to parse ENS creation call value', rawCall.value, error);
-              }
-            }
-  
-            console.log('*********** createAgentWithWalletForAA: to', to);
-            console.log('*********** createAgentWithWalletForAA: data', data);
-            console.log('*********** createAgentWithWalletForAA: value', value);
-  
-            ensCalls.push({
-              to,
-              data,
-              value,
-            });
-          }
-        }
-
-        if ((ensData as any)?.userOpHash) {
-          console.log('*********** createAgentWithWalletForAA: ENS userOpHash (server-submitted)', (ensData as any).userOpHash);
-        } else if (ensCalls.length > 0) {
-  
-          console.log('*********** createAgentWithWalletForAA: ensCalls', ensCalls);
-          onStatusUpdate?.('Submitting ENS subdomain transaction...');
-          // Ensure we are using a deployed-only AA client (no factory/factoryData)
-          agentAccountClient = await getDeployedAccountClientByAgentName(
-            bundlerUrl,
-            agentName,
-            account,
-            {
-              chain: chain as any,
-              walletClient: viemWalletClient as any,
-              publicClient: viemPublicClient as any,
-            }
-          );
-          const ensUserOpHash = await sendSponsoredUserOperation({
-            bundlerUrl,
-            chain: sepolia as any,
-            accountClient: agentAccountClient,
-            calls: ensCalls,
-          });
-  
-          await waitForUserOperationReceipt({
-            bundlerUrl,
-            chain: sepolia as any,
-            hash: ensUserOpHash,
-          });
-          console.log('*********** createAgentWithWalletForAA: ensUserOpHash', ensUserOpHash);
-        }
-        */
-  
+        console.log('*********** createAgentWithWalletForAA: ENS subdomain handled server-side');
+ 
         console.log('*********** createAgentWithWalletForAA: preparing ENS metadata update...');
         onStatusUpdate?.('Preparing ENS metadata update...');
         const infoResponse = await fetch('/api/agents/ens/set-info', {
@@ -801,61 +734,67 @@ export async function createAgentWithWalletForAA(
             agentDescription: options.agentData.description,
           }),
         });
-  
+ 
         if (infoResponse.ok) {
+          console.log('*********** createAgentWithWalletForAA: ENS metadata response received');
           const infoData = await infoResponse.json();
-          const infoCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
-  
-          if (Array.isArray(infoData?.calls)) {
-            for (const rawCall of infoData.calls as Array<Record<string, unknown>>) {
-              const to = rawCall?.to as `0x${string}` | undefined;
-              const data = rawCall?.data as `0x${string}` | undefined;
-              if (!to || !data) {
-                continue;
-              }
-  
-              let value: bigint | undefined;
-              if (rawCall?.value !== null && rawCall?.value !== undefined) {
-                try {
-                  value = BigInt(rawCall.value as string | number | bigint);
-                } catch (error) {
-                  console.warn('Unable to parse ENS info call value', rawCall.value, error);
+          const serverInfoUserOpHash = (infoData as any)?.userOpHash as string | undefined;
+          if (serverInfoUserOpHash) {
+            console.log('*********** createAgentWithWalletForAA: ENS info userOpHash (server-submitted)', serverInfoUserOpHash);
+          } else {
+            const infoCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+
+            if (Array.isArray(infoData?.calls)) {
+              for (const rawCall of infoData.calls as Array<Record<string, unknown>>) {
+                const to = rawCall?.to as `0x${string}` | undefined;
+                const data = rawCall?.data as `0x${string}` | undefined;
+                if (!to || !data) {
+                  continue;
                 }
+
+                let value: bigint | undefined;
+                if (rawCall?.value !== null && rawCall?.value !== undefined) {
+                  try {
+                    value = BigInt(rawCall.value as string | number | bigint);
+                  } catch (error) {
+                    console.warn('Unable to parse ENS info call value', rawCall.value, error);
+                  }
+                }
+
+                infoCalls.push({
+                  to,
+                  data,
+                  value,
+                });
               }
-  
-              infoCalls.push({
-                to,
-                data,
-                value,
+            }
+
+            if (infoCalls.length > 0) {
+              onStatusUpdate?.('Updating ENS agent info...');
+              // Ensure we are using a deployed-only AA client (no factory/factoryData)
+              agentAccountClient = await getDeployedAccountClientByAgentName(
+                bundlerUrl,
+                agentName,
+                account,
+                {
+                  chain: chain as any,
+                  walletClient: viemWalletClient as any,
+                  publicClient: viemPublicClient as any,
+                }
+              );
+              const infoUserOpHash = await sendSponsoredUserOperation({
+                bundlerUrl,
+                chain: chain as any,
+                accountClient: agentAccountClient,
+                calls: infoCalls,
+              });
+
+              await waitForUserOperationReceipt({
+                bundlerUrl,
+                chain: chain as any,
+                hash: infoUserOpHash,
               });
             }
-          }
-  
-          if (infoCalls.length > 0) {
-            onStatusUpdate?.('Updating ENS agent info...');
-            // Ensure we are using a deployed-only AA client (no factory/factoryData)
-            agentAccountClient = await getDeployedAccountClientByAgentName(
-              bundlerUrl,
-              agentName,
-              account,
-              {
-                chain: chain as any,
-                walletClient: viemWalletClient as any,
-                publicClient: viemPublicClient as any,
-              }
-            );
-            const infoUserOpHash = await sendSponsoredUserOperation({
-              bundlerUrl,
-              chain: chain as any,
-              accountClient: agentAccountClient,
-              calls: infoCalls,
-            });
-  
-            await waitForUserOperationReceipt({
-              bundlerUrl,
-              chain: chain as any,
-              hash: infoUserOpHash,
-            });
           }
         } else {
           const errorPayload = await infoResponse.json().catch(() => ({}));

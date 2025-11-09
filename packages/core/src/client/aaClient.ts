@@ -294,25 +294,26 @@ export async function getDeployedAccountClientByAgentName(
         ...fee,
       });
       await bundlerClient.waitForUserOperationReceipt({ hash: userOperationHash });
+
+      // After deployment, mark as deployed so we rebuild below
+      isDeployed = true;
   }
 
-  /*
   const addr = counterfactualAccountClient.address;
-  const code2 = await publicClient.getBytecode({ address: addr });
-  const isDeployed2 = !!code2 && code2   !== "0x";
-  console.log('*********** aaClient getDeployedAccountClientByAgentName: isDeployed2', isDeployed2);
+  if (isDeployed) {
+    console.log('*********** aaClient getDeployedAccountClientByAgentName: rebuilding deployed account client without deploy params');
+    const deployedAccountClient = await toMetaMaskSmartAccount({
+      client: publicClient,
+      implementation: Implementation.Hybrid,
+      signer: {
+        walletClient: walletClient as any,
+      },
+      address: addr,
+    });
 
-  console.log('*********** aaClient getDeployedAccountClientByAgentName: account is deployed, rebuilding without deploy params');
-  const deployedAccountClient = await toMetaMaskSmartAccount({
-    client: publicClient,
-    implementation: Implementation.Hybrid,
-    signer: {
-      walletClient: walletClient as any,
-    },
-    address: addr,
-  });
-  */
-
+    console.log('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', deployedAccountClient.address);
+    return deployedAccountClient;
+  }
 
   console.log('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', counterfactualAccountClient.address);
   return counterfactualAccountClient;
