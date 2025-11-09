@@ -306,20 +306,27 @@ export async function getDeployedAccountClientByAgentName(
       isDeployed = true;
   }
 
-  const addr = counterfactualAccountClient.address;
   if (isDeployed) {
-    console.info('*********** aaClient getDeployedAccountClientByAgentName: rebuilding deployed account client without deploy params');
-    const deployedAccountClient = await toMetaMaskSmartAccount({
-      client: publicClient,
-      implementation: Implementation.Hybrid,
-      signer: {
-        walletClient: walletClient as any,
-      },
-      address: addr,
-    });
-
-    console.info('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', deployedAccountClient.address);
-    return deployedAccountClient;
+    // Rebuild a "clean" smart account client with address only (no factory/deploy params)
+    // using an HTTP public client to avoid provider quirks.
+    try {
+      const rpcUrl = getChainRpcUrl(chain.id);
+      const httpClient = createPublicClient({ chain: chain as any, transport: http(rpcUrl) }) as any;
+      console.info('*********** aaClient getDeployedAccountClientByAgentName: rebuilding deployed account client (address-only)');
+      const deployedAccountClient = await toMetaMaskSmartAccount({
+        client: httpClient,
+        implementation: Implementation.Hybrid,
+        signer: {
+          walletClient: walletClient as any,
+        },
+        address: counterfactualAccountClient.address,
+      });
+      console.info('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', deployedAccountClient.address);
+      return deployedAccountClient;
+    } catch (rebuildErr) {
+      console.warn('*********** aaClient getDeployedAccountClientByAgentName: rebuild failed, falling back to existing client', rebuildErr);
+      return counterfactualAccountClient;
+    }
   }
 
   console.info('*********** aaClient getDeployedAccountClientByAgentName: agentAccountClient', counterfactualAccountClient.address);

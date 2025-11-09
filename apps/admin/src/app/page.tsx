@@ -195,20 +195,24 @@ export default function AdminPage() {
       console.info('[chain] synchronizeProvidersWithChain', chainId, chainLabel);
       const results: boolean[] = [];
 
-      if (web3AuthProvider) {
-        if (web3AuthConnected) {
-          const switched = await ensureWeb3AuthChain(chainId);
-          if (!switched) {
-            console.info('[chain] ensureWeb3AuthChain returned false; falling back to provider request');
-          }
+      // Prefer MetaMask when it's the actively connected wallet
+      if (walletConnected && effectiveEip1193 && (effectiveEip1193 as any).isMetaMask) {
+        results.push(await ensureProviderOnChain(effectiveEip1193, chainId, 'metamask'));
+      } else if (web3AuthConnected && web3AuthProvider) {
+        const switched = await ensureWeb3AuthChain(chainId);
+        if (!switched) {
+          console.info('[chain] ensureWeb3AuthChain returned false; falling back to provider request');
+          results.push(await ensureProviderOnChain(web3AuthProvider, chainId, 'web3auth'));
         } else {
+          results.push(true);
+        }
+      } else {
+        if (effectiveEip1193 && (effectiveEip1193 as any).isMetaMask) {
+          console.info('[chain] skipping MetaMask auto-switch (not connected)');
+        }
+        if (web3AuthProvider && !web3AuthConnected) {
           console.info('[chain] skipping Web3Auth auto-switch (not connected)');
         }
-        results.push(await ensureProviderOnChain(web3AuthProvider, chainId, 'web3auth'));
-      } else if (effectiveEip1193 && (effectiveEip1193 as any).isMetaMask && walletConnected) {
-        results.push(await ensureProviderOnChain(effectiveEip1193, chainId, 'metamask'));
-      } else if (effectiveEip1193 && (effectiveEip1193 as any).isMetaMask && !walletConnected) {
-        console.info('[chain] skipping MetaMask auto-switch (not connected)');
       }
 
       if (aaEip1193 && aaEip1193 !== web3AuthProvider) {
@@ -270,7 +274,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     (async () => {
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
-        setError('Unable to switch wallet provider to the selected chain. Please switch manually in Web3Auth.');
+        setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet.');
       }
     })();
   }, [selectedChainId, synchronizeProvidersWithChain, web3AuthProvider, walletConnected]);
@@ -331,7 +335,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         const ready = await synchronizeProvidersWithChain(selectedChainId);
         if (!ready) {
           if (!cancelled) {
-            setError('Unable to switch wallet provider to the selected chain. Please switch manually in Web3Auth and retry.');
+            setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
             setAaComputing(false);
           }
           return;
@@ -627,7 +631,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
-        setError('Unable to switch wallet provider to the selected chain. Please switch manually in Web3Auth and retry.');
+        setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
         return;
       }
       // Ensure provider is authorized before any core calls

@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const cookieStore = await cookies();
+    const cookieStore = cookies();
     
     // Store wallet address in cookie (for direct wallet connection)
     cookieStore.set('wallet_address', address, {
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET() {
   try {
-    const cookieStore = await cookies();
+    const cookieStore = cookies();
     const walletAddress = cookieStore.get('wallet_address')?.value;
 
     if (!walletAddress) {
@@ -71,7 +71,7 @@ export async function GET() {
  */
 export async function DELETE() {
   try {
-    const cookieStore = await cookies();
+    const cookieStore = cookies();
     cookieStore.delete('wallet_address');
 
     return NextResponse.json({ success: true });
