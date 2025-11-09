@@ -415,6 +415,7 @@ export class AIAgentENSClient {
     }
   }
 
+
   /**
    * Resolve account address for an ENS name via resolver.addr(namehash(name)).
    */
@@ -454,6 +455,7 @@ export class AIAgentENSClient {
 
     } catch {}
     if (!resolverAddr || resolverAddr === '0x0000000000000000000000000000000000000000') {
+      console.error("Error getting agent account by name: resolverAddr is null or zero address");
       return null;
     }
 
@@ -471,7 +473,9 @@ export class AIAgentENSClient {
       if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr) && addr !== '0x0000000000000000000000000000000000000000') {
         return addr as `0x${string}`;
       }
-    } catch {}
+    } catch (error) {
+      console.error("Error getting agent account by name: ", error);
+    }
 
     return null;
   }
@@ -815,19 +819,23 @@ export class AIAgentENSClient {
 
 
     const clean = (s: string) => (s || '').trim().toLowerCase();
-    const parent = clean(params.orgName);
+    
+    let parent = clean(params.orgName);
+    parent = parent.endsWith('.eth') ? parent.slice(0, -4) : parent;
+    const parentNode = namehash(parent + ".eth");
+
     const label = clean(params.agentName).replace(/\s+/g, '-');
 
-    const parentNode = namehash(parent + ".eth");
+    
 
     const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
 
 
     // Use stored resolver address from client instance
-    const resolverAddress = this.getEnsResolverAddress();
-    if (!resolverAddress || resolverAddress === '0x' || resolverAddress.length !== 42) {
-      throw new Error(`Invalid ENS resolver address: ${resolverAddress}. Ensure ENS resolver is properly configured.`);
-    }
+    //const resolverAddress = this.getEnsResolverAddress();
+    //if (!resolverAddress || resolverAddress === '0x' || resolverAddress.length !== 42) {
+    //  throw new Error(`Invalid ENS resolver address: ${resolverAddress}. Ensure ENS resolver is properly configured.`);
+    //}
 
     // Get identity wrapper address from environment or use a default
     // TODO: Consider storing this in the client instance for consistency
@@ -844,7 +852,7 @@ export class AIAgentENSClient {
         parentNode,
         label,
         params.agentAddress,
-        resolverAddress,
+        process.env.AGENTIC_TRUST_ENS_PUBLIC_RESOLVER as `0x${string}`,
         0,
         0,
         0
@@ -860,7 +868,39 @@ export class AIAgentENSClient {
     return { calls };
   }
 
+  private isZeroAddress(addr: string): boolean {
+    return /^0x0{40}$/i.test(addr);
+  }
 
+  async getAddressFromENSName(ensName: string): Promise<`0x${string}` | null> {
+
+    const clean = (s: string) => (s || '').trim().toLowerCase();
+    let parent = clean(ensName);
+    parent = parent.endsWith('.eth') ? parent.slice(0, -4) : parent;
+    const fullname = `${parent}.eth`;
+    const nameNode = namehash(fullname);
+
+    console.info("ensRegistryAddress: ", this.ensRegistryAddress);
+    console.info("fullname: ", fullname);
+
+    try {
+
+      const existingOwner = await this.publicClient?.readContract({
+        address: this.ensRegistryAddress as `0x${string}`,
+        abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [{ type: 'bytes32' }], outputs: [{ type: 'address' }] }] as any,
+        functionName: 'owner',
+        args: [nameNode]
+      }) as `0x${string}` | null;
+      
+      const hasOwner = Boolean(existingOwner && existingOwner !== '0x0000000000000000000000000000000000000000');
+      console.info(`hasAgentNameOwner: "${nameNode}" ${hasOwner ? 'HAS owner' : 'has NO owner'}${hasOwner ? `: ${existingOwner}` : ''}`);
+      return existingOwner;
+    } catch (error) {
+      console.error('Error checking agent name owner:', error);
+      return null;
+    }
+
+  }
 
 
   /** Decode ERC-7930-like agent identity hex string */

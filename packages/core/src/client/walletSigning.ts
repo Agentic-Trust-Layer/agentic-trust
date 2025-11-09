@@ -715,10 +715,7 @@ export async function createAgentWithWalletForAA(
  
         console.log('*********** createAgentWithWalletForAA: ensResponse', ensResponse);
  
-        if (!ensResponse.ok) {
-          const errorData = await ensResponse.json().catch(() => ({}));
-          throw new Error(errorData?.message || errorData?.error || 'Failed to create ENS record');
-        }
+
         console.log('*********** createAgentWithWalletForAA: ENS subdomain handled server-side');
  
         console.log('*********** createAgentWithWalletForAA: preparing ENS metadata update...');

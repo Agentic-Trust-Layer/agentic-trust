@@ -82,7 +82,7 @@ export default function AdminPage() {
   // Toggle states for Create Agent
   const [useAA, setUseAA] = useState(false);
   const [createENS, setCreateENS] = useState(false);
-  const [ensOrgName, setEnsOrgName] = useState('8004-agent'); // Default org name
+  const [ensOrgName, setEnsOrgName] = useState(process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME || '8004-agent'); // Default org name
   const [ensChecking, setEnsChecking] = useState(false);
   const [ensAvailable, setEnsAvailable] = useState<boolean | null>(null);
   const [aaAddress, setAaAddress] = useState<string | null>(null);

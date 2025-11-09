@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addAgentNameToOrgUsingEnsKey } from '@agentic-trust/core/server';
+import { addAgentNameToOrg } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -32,33 +32,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await addAgentNameToOrgUsingEnsKey({
+    const result = await addAgentNameToOrg({
       agentName,
       orgName,
       agentAddress: agentAccount as `0x${string}`,
       agentUrl,
     });
 
-    const rawCalls = Array.isArray((result as any)?.calls)
-      ? ((result as any).calls as Array<Record<string, unknown>>)
-      : [];
-
-    const jsonSafeCalls = rawCalls
-      .map((call) => {
-        const to = call?.to as `0x${string}` | undefined;
-        const data = call?.data as `0x${string}` | undefined;
-        const value = call?.value as string | number | bigint | null | undefined;
-        return {
-          to,
-          data,
-          value: typeof value === 'bigint' ? value.toString() : value ?? null,
-        };
-      })
-      .filter((call) => typeof call.to === 'string' && typeof call.data === 'string');
-
     return NextResponse.json({
       success: true,
-      calls: jsonSafeCalls,
+      message: result,
     });
   } catch (error) {
     console.error('Error creating ENS record:', error);

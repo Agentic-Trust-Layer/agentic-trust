@@ -1,1 +1,0 @@
-{"version":3,"file":"identityClient.d.ts","sourceRoot":"","sources":["../../../src/server/singletons/identityClient.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AAEH,OAAO,EAAE,qBAAqB,EAAE,MAAM,4BAA4B,CAAC;AAOnE;;;GAGG;AACH,wBAAsB,iBAAiB,IAAI,OAAO,CAAC,qBAAqB,CAAC,CA0ExE;AAED;;GAEG;AACH,wBAAgB,2BAA2B,IAAI,OAAO,CAErD;AAED;;GAEG;AACH,wBAAgB,mBAAmB,IAAI,IAAI,CAG1C"}
