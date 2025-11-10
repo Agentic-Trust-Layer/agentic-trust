@@ -1,26 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prepareAgentNameInfoCalls } from '@agentic-trust/core/server';
+import { prepareL2AgentEnsCalls } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { agentName, orgName, agentAddress, agentUrl, agentDescription, chainId } = await request.json();
-
-    if (!agentName || !orgName || !agentAddress) {
-      return NextResponse.json(
-        { error: 'Missing required fields: agentName, orgName, and agentAddress' },
-        { status: 400 }
-      );
-    }
-
-    const params: any = {
+    const body = await request.json();
+    const {
       agentAddress,
       orgName,
       agentName,
       agentUrl,
       agentDescription,
-    };
-    if (typeof chainId === 'number') params.chainId = chainId;
-    const result = await prepareAgentNameInfoCalls(params);
+      agentImage,
+      chainId,
+    } = body ?? {};
+
+    if (!agentAddress || !orgName || !agentName) {
+      return NextResponse.json(
+        { error: 'Missing required fields: agentAddress, orgName, and agentName' },
+        { status: 400 }
+      );
+    }
+
+    const result = await prepareL2AgentEnsCalls({
+      agentAddress,
+      orgName,
+      agentName,
+      agentUrl,
+      agentDescription,
+      agentImage,
+      chainId,
+    });
 
     const jsonSafeCalls = result.calls.map((call) => ({
       to: call.to,
@@ -33,14 +42,15 @@ export async function POST(request: NextRequest) {
       calls: jsonSafeCalls,
     });
   } catch (error) {
-    console.error('Error preparing ENS agent info calls:', error);
+    console.error('Error preparing L2 ENS calls:', error);
     return NextResponse.json(
       {
-        error: 'Failed to prepare ENS agent info calls',
+        error: 'Failed to prepare L2 ENS calls',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
   }
 }
+
 

@@ -7,7 +7,7 @@
 
 import { AIAgentENSClient, AIAgentL2ENSDurenClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
-import { sepolia, baseSepolia, optimismSepolia } from '../lib/chainConfig';
+import { sepolia, baseSepolia, optimismSepolia, getEnsOrgName } from '../lib/chainConfig';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
@@ -16,8 +16,7 @@ import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
-import { getChainEnvVar } from '../lib/chainConfig';
-import { getEnsOrgAddress } from '../lib/chainConfig';
+import { getChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
 
 // Singleton instances by chainId
 let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
@@ -338,7 +337,7 @@ export async function createENSName(
     const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || 11155111) as string;
     const l1RpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', params.chainId || 11155111) as string;
     const l1PublicClient = createPublicClient({ chain: sepolia, transport: http(l1RpcUrl) });
-    const ensPrivateKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}`;
+    const ensPrivateKey = getEnsPrivateKey(params.chainId || 11155111) as `0x${string}`;
     const orgOwnerEOA = privateKeyToAccount(ensPrivateKey);
     const orgOwnerAddress = orgOwnerEOA.address;
 
@@ -452,6 +451,7 @@ export interface PrepareAgentNameInfoParams {
   agentName: string;
   agentUrl?: string;
   agentDescription?: string;
+  chainId?: number;
 }
 
 export interface PrepareAgentNameInfoResult {
@@ -462,13 +462,32 @@ export interface PrepareAgentNameInfoResult {
   }[];
 }
 
-export async function addAgentNameToOrg(params: AddAgentToOrgParams): Promise<string> {
+export interface PrepareL2AgentEnsParams {
+  agentAddress: `0x${string}`;
+  orgName: string;
+  agentName: string;
+  agentUrl?: string;
+  agentDescription?: string;
+  agentImage?: string;
+  chainId?: number;
+}
+
+export interface PrepareL2AgentEnsResult {
+  calls: {
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value?: bigint;
+  }[];
+}
+
+export async function addAgentNameToL1Org(params: AddAgentToOrgParams): Promise<string> {
   const { agentAddress, orgName, agentName, agentUrl } = params;
 
   if (!agentName || !orgName || !agentAddress) {
     throw new Error('agentName, orgName, and agentAddress are required to add an agent name to an org');
   }
 
+  console.log("ensClient get ens for chain: ", params.chainId);
   const targetChainId = params.chainId || 11155111;
   const ensClient = await getENSClient(targetChainId);
 
@@ -485,52 +504,61 @@ export async function addAgentNameToOrg(params: AddAgentToOrgParams): Promise<st
     agentUrl: agentUrl || '',
   });
 
-  // Optionally submit server-side if configured (no breaking change: still returns calls)
-  try {
-    const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || 11155111);
-    const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', params.chainId || 11155111);
-    const ensPrivKey = process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY as `0x${string}` | undefined;
+  if (ensClient.isL1()) {
 
-    if (ensPrivKey && bundlerUrl && rpcUrl) {
+    // Optionally submit server-side if configured (no breaking change: still returns calls)
+    try {
+      const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', params.chainId || 11155111);
+      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', params.chainId || 11155111);
+      let ensPrivKey: `0x${string}` | undefined;
+      try {
+        ensPrivKey = getEnsPrivateKey(targetChainId) as `0x${string}`;
+      } catch {
+        ensPrivKey = undefined;
+      }
 
-      const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
-      const orgEOA = privateKeyToAccount(ensPrivKey);
-      const walletClient = createWalletClient({
-        account: orgEOA,
-        chain: sepolia,
-        transport: http(rpcUrl),
-      });
+      if (ensPrivKey && bundlerUrl && rpcUrl) {
 
-      const orgAccountClient = await toMetaMaskSmartAccount({
-        address: orgAddress as `0x${string}`,
-        client: publicClient,
-        implementation: Implementation.Hybrid,
-        signatory: { walletClient: walletClient as any },
-      } as any);
+        const publicClient = createPublicClient({ chain: sepolia, transport: http(rpcUrl) });
+        const orgEOA = privateKeyToAccount(ensPrivKey);
+        const walletClient = createWalletClient({
+          account: orgEOA,
+          chain: sepolia,
+          transport: http(rpcUrl),
+        });
 
-      const pimlicoClient = createPimlicoClient({ transport: http(bundlerUrl) } as any);
-  
-      const bundlerClient = createBundlerClient({
-        transport: http(bundlerUrl),
-        paymaster: true as any,
-        chain: sepolia as any,
-        paymasterContext: { mode: 'SPONSORED' },
-      } as any);
+        const orgAccountClient = await toMetaMaskSmartAccount({
+          address: orgAddress as `0x${string}`,
+          client: publicClient,
+          implementation: Implementation.Hybrid,
+          signatory: { walletClient: walletClient as any },
+        } as any);
 
-      const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
-  
-      const userOpHash = await (bundlerClient as any).sendUserOperation({
-        account: orgAccountClient,
-        calls: orgCalls,
-        ...fee,
-      });
-      await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash });
+        const pimlicoClient = createPimlicoClient({ transport: http(bundlerUrl) } as any);
+    
+        const bundlerClient = createBundlerClient({
+          transport: http(bundlerUrl),
+          paymaster: true as any,
+          chain: sepolia as any,
+          paymasterContext: { mode: 'SPONSORED' },
+        } as any);
+
+        const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
+    
+        const userOpHash = await (bundlerClient as any).sendUserOperation({
+          account: orgAccountClient,
+          calls: orgCalls,
+          ...fee,
+        });
+        await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOpHash });
+      }
+    } catch (error) {
+      // If server-side submission fails, just return prepared calls
+      console.error('Error adding agent name to org:', error);
+      throw new Error(`Failed to add agent name to org: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  } catch (error) {
-    // If server-side submission fails, just return prepared calls
-    console.error('Error adding agent name to org:', error);
-    throw new Error(`Failed to add agent name to org: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
+  
 
   return "success";
 }
@@ -545,7 +573,8 @@ export async function prepareAgentNameInfoCalls(
     throw new Error('agentName, orgName, and agentAddress are required to prepare ENS agent info calls');
   }
 
-  const ensClient = await getENSClient();
+  const targetChainId = params.chainId || 11155111;
+  const ensClient = await getENSClient(targetChainId);
 
   const orgNameClean = orgName.replace(/\.eth$/i, '').toLowerCase();
   const orgNamePattern = orgNameClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -566,4 +595,69 @@ export async function prepareAgentNameInfoCalls(
   return {
     calls,
   };
+}
+
+export async function prepareL2AgentEnsCalls(
+  params: PrepareL2AgentEnsParams
+): Promise<PrepareL2AgentEnsResult> {
+  const { agentAddress, orgName, agentName, agentUrl, agentDescription, agentImage } = params;
+  if (!agentName || !orgName || !agentAddress) {
+    throw new Error('agentName, orgName, and agentAddress are required to prepare L2 ENS calls');
+  }
+
+  console.info("inside prepareL2AgentEnsCalls: ", params);
+
+  const targetChainId = params.chainId || 11155111;
+  const ensClient = await getENSClient(targetChainId);
+
+  const orgNameClean = orgName.replace(/\.eth$/i, '').toLowerCase();
+  const orgNamePattern = orgNameClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const agentNameTrimmed = agentName
+    .replace(new RegExp(`^${orgNamePattern}\\.`, 'i'), '')
+    .replace(/\.eth$/i, '')
+    .trim();
+  const agentNameLabel = agentNameTrimmed.toLowerCase().replace(/\s+/g, '-');
+
+  const calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+
+  // Create subdomain if missing
+  console.info("see if agent name is available: ", orgNameClean, agentNameLabel);
+  const hasOwner = await ensClient.hasAgentNameOwner(orgNameClean, agentNameLabel);
+
+  console.info("hasOwner: ", hasOwner);
+  if (!hasOwner) {
+    console.info("agent name is not available, prepare add agent name to org calls");
+    const { calls: orgCalls } = await ensClient.prepareAddAgentNameToOrgCalls({
+      orgName: orgNameClean,
+      agentName: agentNameLabel,
+      agentAddress,
+      agentUrl: agentUrl || '',
+    });
+    calls.push(...orgCalls);
+  }
+
+  /*
+  // Metadata (text records)
+  console.info("prepare set agent name info calls");
+  const { calls: infoCalls } = await ensClient.prepareSetAgentNameInfoCalls({
+    orgName: orgNameClean,
+    agentName: agentNameLabel,
+    agentAddress,
+    agentUrl: agentUrl || '',
+    agentDescription: agentDescription || '',
+  });
+  calls.push(...infoCalls);
+
+  // Optional avatar/image
+  console.info("prepare set name image calls");
+  if (agentImage && agentImage.trim() !== '') {
+    const fullSubname = `${agentNameLabel}.${orgNameClean}.eth`;
+    const { calls: imageCalls } = await (ensClient as any).prepareSetNameImageCalls(fullSubname, agentImage.trim());
+    calls.push(...imageCalls);
+  }
+  */
+
+  console.info("prepareL2AgentEnsCalls: calls", calls);
+
+  return { calls };
 }

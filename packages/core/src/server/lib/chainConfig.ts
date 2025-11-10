@@ -18,20 +18,38 @@ export const CHAIN_CONFIG = {
     suffix: 'SEPOLIA',
     name: 'sepolia',
     displayName: 'Ethereum Sepolia',
+    layer: 'L1' as const,
   },
   84532: { // Base Sepolia
     suffix: 'BASE_SEPOLIA',
     name: 'baseSepolia',
     displayName: 'Base Sepolia',
+    layer: 'L2' as const,
   },
   11155420: { // Optimism Sepolia
     suffix: 'OPTIMISM_SEPOLIA',
     name: 'optimismSepolia',
     displayName: 'Optimism Sepolia',
+    layer: 'L2' as const,
   },
 } as const;
 
 export type SupportedChainId = keyof typeof CHAIN_CONFIG;
+export type ChainLayer = 'L1' | 'L2';
+
+export function getChainLayer(chainId: number): ChainLayer {
+  const cfg = CHAIN_CONFIG[chainId as SupportedChainId];
+  if (!cfg) throw new Error(`Unsupported chainId: ${chainId}`);
+  return cfg.layer;
+}
+
+export function isL1(chainId: number): boolean {
+  return getChainLayer(chainId) === 'L1';
+}
+
+export function isL2(chainId: number): boolean {
+  return getChainLayer(chainId) === 'L2';
+}
 
 /**
  * Default chain ID used when no chain is specified

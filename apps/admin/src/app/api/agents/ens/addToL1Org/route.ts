@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { addAgentNameToOrg } from '@agentic-trust/core/server';
+import { addAgentNameToL1Org } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -9,6 +9,7 @@ export async function POST(request: NextRequest) {
       orgName,
       agentName,
       agentUrl,
+      chainId,
     } = body ?? {};
 
     if (!agentName || typeof agentName !== 'string') {
@@ -32,11 +33,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const result = await addAgentNameToOrg({
+    const result = await addAgentNameToL1Org({
       agentAddress: agentAccount as `0x${string}`,
       orgName,
       agentName,
       agentUrl,
+      chainId,
     });
 
 

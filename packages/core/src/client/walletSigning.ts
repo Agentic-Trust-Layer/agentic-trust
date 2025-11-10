@@ -13,7 +13,7 @@ import {
   type Chain,
   type Hex,
 } from 'viem';
-import { getChainById, DEFAULT_CHAIN_ID, getChainRpcUrl, getChainBundlerUrl, sepolia, baseSepolia, optimismSepolia } from '../server/lib/chainConfig';
+import { getChainById, DEFAULT_CHAIN_ID, getChainRpcUrl, getChainBundlerUrl, sepolia, baseSepolia, optimismSepolia, isL1, isL2 } from '../server/lib/chainConfig';
 import { getDeployedAccountClientByAgentName } from './aaClient';
 import {
   sendSponsoredUserOperation,
@@ -671,14 +671,14 @@ export async function createAgentWithWalletForAA(
 
     console.log('*********** createAgentWithWalletForAA: options.ensOptions', options.ensOptions);
     
-    if (options.ensOptions?.enabled && options.ensOptions.orgName) {
+    if (options.ensOptions?.enabled && options.ensOptions.orgName && isL1(chainId)) {
       try {
         const ensAgentAccount = (typeof computedAddress === 'string' && computedAddress.startsWith('0x'))
           ? computedAddress
           : options.agentData.agentAccount;
   
         onStatusUpdate?.('Creating ENS subdomain for agent: ' + options.agentData.agentName);
-        const ensResponse = await fetch('/api/agents/ens/create', {
+        const ensResponse = await fetch('/api/agents/ens/addToL1Org', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -686,6 +686,7 @@ export async function createAgentWithWalletForAA(
             orgName: options.ensOptions.orgName,
             agentName: options.agentData.agentName,
             agentUrl: options.agentData.agentUrl,
+            chainId,
           }),
         });
  
@@ -705,6 +706,7 @@ export async function createAgentWithWalletForAA(
             agentName: options.agentData.agentName,
             agentUrl: options.agentData.agentUrl,
             agentDescription: options.agentData.description,
+            chainId,
           }),
         });
  
@@ -779,6 +781,62 @@ export async function createAgentWithWalletForAA(
         console.log('Requested ENS record creation and metadata update for agent', options.agentData.agentName);
       } catch (ensError) {
         console.warn('Failed to create ENS record for agent:', ensError);
+      }
+    }
+    else if (options.ensOptions?.enabled && options.ensOptions.orgName && isL2(chainId)) {
+      const rawOrg = options.ensOptions.orgName || '';
+      const rawAgent = options.agentData.agentName || '';
+      const cleanOrgName = rawOrg.replace(/\.eth$/i, '').toLowerCase();
+      const orgPattern = cleanOrgName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const cleanAgentName = rawAgent
+        .replace(new RegExp(`^${orgPattern}\\.`, 'i'), '')
+        .replace(/\.eth$/i, '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '-');
+      const agentUrl = options.agentData.agentUrl;
+      const agentDescription = options.agentData.description;
+      const agentImage = options.agentData.image;
+      // Prepare all necessary L2 ENS calls server-side, then send them as one user operation
+      const prepareResp = await fetch('/api/agents/ens/prepare-l2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentAddress: agentAccountClient.address,
+          orgName: cleanOrgName,
+          agentName: cleanAgentName,
+          agentUrl,
+          agentDescription,
+          agentImage,
+          chainId,
+        }),
+      });
+      if (!prepareResp.ok) {
+        const errorPayload = await prepareResp.json().catch(() => ({}));
+        console.warn('Failed to prepare L2 ENS calls:', errorPayload);
+      } else {
+        const { calls: rawCalls } = await prepareResp.json();
+        const l2EnsCalls = (rawCalls || []).map((call: any) => ({
+          to: call.to as `0x${string}`,
+          data: call.data as `0x${string}`,
+          value: BigInt(call.value || '0'),
+        }));
+        if (l2EnsCalls.length > 0) {
+          for (const call of l2EnsCalls) {
+            console.log('********************* send sponsored user operation for L2 ENS call');
+            const userOpHash = await sendSponsoredUserOperation({
+              bundlerUrl,
+              chain,
+              accountClient: agentAccountClient,
+              calls: [call],
+            });
+            await waitForUserOperationReceipt({
+              bundlerUrl,
+              chain,
+              hash: userOpHash,
+            });
+          }
+        }
       }
     }
 

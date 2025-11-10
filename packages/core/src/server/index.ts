@@ -100,8 +100,9 @@ export {
   isENSClientInitialized,
   resetENSClient,
   isENSAvailable,
-  addAgentNameToOrg,
+  addAgentNameToL1Org,
   prepareAgentNameInfoCalls,
+  prepareL2AgentEnsCalls,
 } from './singletons/ensClient';
 
 export type {
@@ -109,6 +110,8 @@ export type {
   AddAgentToOrgResult,
   PrepareAgentNameInfoParams,
   PrepareAgentNameInfoResult,
+  PrepareL2AgentEnsParams,
+  PrepareL2AgentEnsResult,
 } from './singletons/ensClient';
 
 export {

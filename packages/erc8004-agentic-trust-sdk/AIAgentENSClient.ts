@@ -808,6 +808,7 @@ export class AIAgentENSClient {
     const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
     if (this.publicClient) {
 
+
       const resolver = await this.accountProvider.call<`0x${string}`>({
         to: this.ensRegistryAddress,
         abi: [{ name: "resolver", stateMutability: "view", type: "function",
@@ -848,7 +849,7 @@ export class AIAgentENSClient {
       }
 
       // 3) Set reverse record
-      const reverseNode = namehash(params.agentAddress.slice(2).toLowerCase() + '.addr.reverse');
+      //const reverseNode = namehash(params.agentAddress.slice(2).toLowerCase() + '.addr.reverse');
 
       const BASE_REVERSE_NODE = namehash("addr.reverse");
       const ENS_REGISTRY_ADDRESS = this.ensRegistryAddress
@@ -865,6 +866,7 @@ export class AIAgentENSClient {
         args: [BASE_REVERSE_NODE],
       });
 
+      /*
       const ourReverseRegistrar = await this.accountProvider.call<`0x${string}`>({
         to: ENS_REGISTRY_ADDRESS,
         abi: [{
@@ -877,6 +879,7 @@ export class AIAgentENSClient {
         functionName: "owner",
         args: [reverseNode],
       });
+      */
 
 
       const setNameData = encodeFunctionData({
