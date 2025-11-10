@@ -1,3 +1,50 @@
+async function getAccountNonce(accountClient: any): Promise<bigint | undefined> {
+  if (typeof accountClient?.getNonce === 'function') {
+    try {
+      const value = await accountClient.getNonce();
+      if (typeof value === 'bigint') {
+        (accountClient as any).nonce = value;
+        return value;
+      }
+    } catch {}
+  }
+  if (typeof accountClient?.nonce === 'bigint') {
+    return accountClient.nonce;
+  }
+  return undefined;
+}
+
+async function sendUserOpWithTimeout(params: {
+  bundlerUrl: string;
+  chain: Chain;
+  accountClient: any;
+  calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[];
+  nonce?: bigint;
+  timeoutMs?: number;
+}): Promise<{ hash: `0x${string}`; receipt?: any }> {
+  const { timeoutMs = 20000, nonce, ...rest } = params;
+
+  if (typeof nonce === 'bigint') {
+    (rest.accountClient as any).nonce = nonce;
+  }
+
+  const sendPromise = (async () => {
+    const hash = await sendSponsoredUserOperation(rest);
+    const receipt = await waitForUserOperationReceipt({
+      bundlerUrl: rest.bundlerUrl,
+      chain: rest.chain,
+      hash,
+    });
+    return { hash, receipt };
+  })();
+
+  return await Promise.race([
+    sendPromise,
+    new Promise<{ hash: `0x${string}`; receipt?: any }>((_, reject) =>
+      setTimeout(() => reject(new Error('Timeout waiting for UserOperation')), timeoutMs),
+    ),
+  ]);
+}
 /**
  * Agents API for AgenticTrust Client
  */
@@ -17,7 +64,14 @@ import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import { getDiscoveryClient } from '../singletons/discoveryClient';
-import { getChainEnvVar, getChainById, getChainRpcUrl, getChainBundlerUrl, DEFAULT_CHAIN_ID } from './chainConfig';
+import {
+  getChainEnvVar,
+  getChainById,
+  getChainRpcUrl,
+  getChainBundlerUrl,
+  DEFAULT_CHAIN_ID,
+  isL1,
+} from './chainConfig';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
@@ -26,6 +80,7 @@ import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-too
 import { createBundlerClient } from 'viem/account-abstraction';
 import { addToL1OrgPK } from './ensActions';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/bundlerUtils';
+import type { Chain } from 'viem';
 import { getENSClient } from '../singletons/ensClient';
 
 const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
@@ -562,42 +617,106 @@ export class AgentsAPI {
 
     if (params.ensOptions?.enabled && params.ensOptions.orgName) {
       try {
-        await addToL1OrgPK({
-          orgName: params.ensOptions.orgName,
-          agentName: params.agentName,
-          agentAddress: params.agentAccount,
-          agentUrl: params.agentUrl,
-          chainId,
-        });
-
         const ensClient = await getENSClient(chainId);
-        const { calls: infoCalls } = await ensClient.prepareSetAgentNameInfoCalls({
-          orgName: params.ensOptions.orgName,
-          agentName: params.agentName,
-          agentAddress: params.agentAccount,
-          agentUrl: params.agentUrl,
-          agentDescription: params.description,
-        });
-
-        if (infoCalls.length > 0) {
-        const formattedCalls = infoCalls.map((call) => ({
-            to: call.to,
-            data: call.data,
-          value: 0n,
-          }));
-
-          const infoUserOpHash = await sendSponsoredUserOperation({
-            bundlerUrl,
-            chain,
-          accountClient,
-            calls: formattedCalls,
+        if (isL1(chainId)) {
+          await addToL1OrgPK({
+            orgName: params.ensOptions.orgName,
+            agentName: params.agentName,
+            agentAddress: params.agentAccount,
+            agentUrl: params.agentUrl,
+            chainId,
           });
 
-          await waitForUserOperationReceipt({
-            bundlerUrl,
-            chain,
-            hash: infoUserOpHash,
+          const { calls: infoCalls } = await ensClient.prepareSetAgentNameInfoCalls({
+            orgName: params.ensOptions.orgName,
+            agentName: params.agentName,
+            agentAddress: params.agentAccount,
+            agentUrl: params.agentUrl,
+            agentDescription: params.description,
           });
+
+          let nextNonce = await getAccountNonce(accountClient);
+
+          if (infoCalls.length > 0) {
+            const formattedCalls = infoCalls.map((call) => ({
+              to: call.to,
+              data: call.data,
+              value: (call as any).value ?? 0n,
+            }));
+
+            console.info('[createAgentForAAPK] Submitting L1 ENS metadata calls');
+            await sendUserOpWithTimeout({
+              bundlerUrl,
+              chain,
+              accountClient,
+              calls: formattedCalls,
+              nonce: nextNonce,
+            });
+
+            if (typeof nextNonce === 'bigint') {
+              nextNonce += 1n;
+            }
+          }
+        } else {
+          console.info('[createAgentForAAPK] Running L2 ENS setup via agent account');
+          const { calls: addCalls } = await ensClient.prepareAddAgentNameToOrgCalls({
+            orgName: params.ensOptions.orgName,
+            agentName: params.agentName,
+            agentAddress: params.agentAccount,
+            agentUrl: params.agentUrl || '',
+          });
+
+          let nextNonce = await getAccountNonce(accountClient);
+
+          if (addCalls.length > 0) {
+            const formattedAddCalls = addCalls.map((call) => ({
+              to: call.to,
+              data: call.data,
+              value: 'value' in call && typeof call.value === 'bigint' ? call.value : 0n,
+            }));
+
+            console.info('[createAgentForAAPK] Submitting L2 ENS subdomain registration');
+            await sendUserOpWithTimeout({
+              bundlerUrl,
+              chain,
+              accountClient,
+              calls: formattedAddCalls,
+              nonce: nextNonce,
+            });
+
+            if (typeof nextNonce === 'bigint') {
+              nextNonce += 1n;
+            }
+          }
+
+          const { calls: infoCalls } = await ensClient.prepareAddAgentInfoCalls({
+            orgName: params.ensOptions.orgName,
+            agentName: params.agentName,
+            agentAddress: params.agentAccount,
+            agentUrl: params.agentUrl || '',
+            agentDescription: params.description,
+          });
+
+          if (infoCalls.length > 0) {
+            const formattedInfoCalls = infoCalls.map((call) => ({
+              to: call.to,
+              data: call.data,
+              value: (call as any).value ?? 0n,
+            }));
+
+            console.info('[createAgentForAAPK] Submitting L2 ENS metadata calls');
+            await sendUserOpWithTimeout({
+              bundlerUrl,
+              chain,
+              accountClient,
+              calls: formattedInfoCalls,
+              nonce: nextNonce,
+            });
+
+            if (typeof nextNonce === 'bigint') {
+              nextNonce += 1n;
+            }
+          }
         }
       } catch (ensError) {
         console.warn('[createAgentForAAPK] ENS setup failed:', ensError);
