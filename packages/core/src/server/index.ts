@@ -62,6 +62,8 @@ export {
   type AgentAccountResolution,
 } from './lib/agentAccount';
 
+export { getServerCounterfactualAAAddressByAgentName } from './lib/aaAccount';
+
 export {
   getAdminApp,
   getAdminAddress,

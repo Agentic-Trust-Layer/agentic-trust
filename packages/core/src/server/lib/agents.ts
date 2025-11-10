@@ -288,6 +288,83 @@ export class AgentsAPI {
     return result;
   }
 
+  /**
+   * Create a new agent for EOA using the server admin private key.
+   * Same interface as createAgentForEOA, but always executes the transaction server-side.
+   */
+  async createAgentForEOAPK(params: {
+    agentName: string;
+    agentAccount: `0x${string}`;
+    description?: string;
+    image?: string;
+    agentUrl?: string;
+    supportedTrust?: string[];
+    endpoints?: Array<{
+      name: string;
+      endpoint: string;
+      version?: string;
+      capabilities?: Record<string, any>;
+    }>;
+    chainId?: number;
+  }): Promise<{ agentId: bigint; txHash: string }> {
+    const targetChainId = params.chainId || DEFAULT_CHAIN_ID;
+    const adminApp = await getAdminApp(undefined, targetChainId);
+    if (!adminApp) {
+      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+    }
+    if (!adminApp.hasPrivateKey) {
+      throw new Error('Admin private key not available on server. Cannot execute server-side transaction.');
+    }
+
+    const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
+    if (!identityRegistry || typeof identityRegistry !== 'string') {
+      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
+    }
+    const identityRegistryHex = identityRegistry.startsWith('0x') ? identityRegistry : `0x${identityRegistry}`;
+
+    // Create registration JSON and upload to IPFS
+    let tokenURI = '';
+    try {
+      const registrationJSON = createRegistrationJSON({
+        name: params.agentName,
+        agentAccount: params.agentAccount,
+        description: params.description,
+        image: params.image,
+        agentUrl: params.agentUrl,
+        chainId: targetChainId,
+        identityRegistry: identityRegistryHex as `0x${string}`,
+        supportedTrust: params.supportedTrust,
+        endpoints: params.endpoints,
+      });
+      const uploadResult = await uploadRegistration(registrationJSON);
+      tokenURI = uploadResult.tokenURI;
+    } catch (error) {
+      console.error('Failed to upload registration JSON to IPFS:', error);
+      throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Create write-capable IdentityClient using AdminApp AccountProvider
+    const identityClient = new BaseIdentityClient(adminApp.accountProvider, identityRegistryHex as `0x${string}`);
+
+    // Build metadata
+    const metadata = [
+      { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
+      { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+    ].filter(m => m.value !== '');
+
+    // Execute registration
+    const result = await identityClient.registerWithMetadata(tokenURI, metadata);
+
+    // Refresh in indexer (best-effort)
+    try {
+      const graphQLClient = await getDiscoveryClient();
+      await graphQLClient.refreshAgent(result.agentId.toString(), targetChainId);
+    } catch (refreshError) {
+      console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
+    }
+
+    return result;
+  }
   async createAgentForAA(params: {
     agentName: string;
     agentAccount: `0x${string}`;
@@ -349,36 +426,36 @@ export class AgentsAPI {
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 
-      // Determine chain based on chainId
-      const chain = getChainById(chainId);
+    // Determine chain based on chainId
+    const chain = getChainById(chainId);
 
-      const rpcUrl = getChainRpcUrl(chainId);
-      const publicClient = createPublicClient({
+    const rpcUrl = getChainRpcUrl(chainId);
+    const publicClient = createPublicClient({
+      chain: chain as any,
+      transport: http(rpcUrl),
+    });
+
+    const accountProvider = new ViemAccountProvider({
+      publicClient: publicClient as any,
+      walletClient: null,
+      chainConfig: {
+        id: chainId,
+        rpcUrl: rpcUrl,
+        name: chain.name,
         chain: chain as any,
-        transport: http(rpcUrl),
-      });
+      },
+    });
 
-      const accountProvider = new ViemAccountProvider({
-        publicClient: publicClient as any,
-        walletClient: null,
-        chainConfig: {
-          id: chainId,
-          rpcUrl: rpcUrl,
-          name: chain.name,
-          chain: chain as any,
-        },
-      });
+    const aiIdentityClient = new AIAgentIdentityClient({
+      accountProvider,
+      identityRegistryAddress: identityRegistryHex as `0x${string}`,
+    });
 
-      const aiIdentityClient = new AIAgentIdentityClient({
-        accountProvider,
-        identityRegistryAddress: identityRegistryHex as `0x${string}`,
-      });
-
-      const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
-        params.agentName,
-        params.agentAccount,
-        tokenURI
-      );
+    const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
+      params.agentName,
+      params.agentAccount,
+      tokenURI
+    );
 
     const bundlerUrl = getChainBundlerUrl(params.chainId || DEFAULT_CHAIN_ID);
 
