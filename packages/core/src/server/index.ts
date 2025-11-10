@@ -101,8 +101,10 @@ export {
   resetENSClient,
   isENSAvailable,
   addAgentNameToL1Org,
-  prepareL1AgentNameInfoCalls,
   addAgentNameToL2Org,
+  prepareL1AgentNameInfoCalls,
+  prepareL2AgentNameInfoCalls,
+  
 } from './singletons/ensClient';
 
 export type {

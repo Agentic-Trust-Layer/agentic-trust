@@ -791,7 +791,7 @@ export async function createAgentWithWalletForAA(
       const agentUrl = options.agentData.agentUrl;
       const agentDescription = options.agentData.description;
       const agentImage = options.agentData.image;
-      
+
       // Prepare all necessary L2 ENS calls server-side, then send them as one user operation
       const prepareResp = await fetch('/api/agents/ens/addToL2Org', {
         method: 'POST',
@@ -833,6 +833,51 @@ export async function createAgentWithWalletForAA(
           }
         }
       }
+
+
+      /*  TODO:  Need to resolve this to set ens url and description
+      onStatusUpdate?.('Set ENS metadata update...');
+      const infoResponse = await fetch('/api/agents/ens/setL2NameInfo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentAddress: agentAccountClient.address,
+          orgName: options.ensOptions.orgName,
+          agentName: options.agentData.agentName,
+          agentUrl: options.agentData.agentUrl,
+          agentDescription: options.agentData.description,
+          chainId,
+        }),
+      });
+
+      if (!infoResponse.ok) {
+        const errorPayload = await infoResponse.json().catch(() => ({}));
+        console.warn('Failed to prepare L2 ENS calls:', errorPayload);
+      } else {
+        const { calls: rawCalls } = await infoResponse.json();
+        const l2EnsCalls = (rawCalls || []).map((call: any) => ({
+          to: call.to as `0x${string}`,
+          data: call.data as `0x${string}`,
+          value: BigInt(call.value || '0'),
+        }));
+        if (l2EnsCalls.length > 0) {
+          for (const call of l2EnsCalls) {
+            console.log('********************* send sponsored user operation for L2 ENS call');
+            const userOpHash = await sendSponsoredUserOperation({
+              bundlerUrl,
+              chain,
+              accountClient: agentAccountClient,
+              calls: [call],
+            });
+            await waitForUserOperationReceipt({
+              bundlerUrl,
+              chain,
+              hash: userOpHash,
+            });
+          }
+        }
+      }
+        */
     }
 
 
