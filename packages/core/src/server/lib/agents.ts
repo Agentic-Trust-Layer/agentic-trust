@@ -22,6 +22,8 @@ import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { createBundlerClient } from 'viem/account-abstraction';
 
 const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
 
@@ -468,6 +470,91 @@ export class AgentsAPI {
     };
   }
 
+  /**
+   * Create a new agent for AA and execute via server admin private key (no client prompts).
+   * Same input interface as createAgentForAA, but performs the UserOperation using the server key.
+   */
+  async createAgentForAAPK(params: {
+    agentName: string;
+    agentAccount: `0x${string}`;
+    description?: string;
+    image?: string;
+    agentUrl?: string;
+    supportedTrust?: string[];
+    endpoints?: Array<{
+      name: string;
+      endpoint: string;
+      version?: string;
+      capabilities?: Record<string, any>;
+    }>;
+    chainId?: number;
+  }): Promise<{ txHash: string; agentId?: string }> {
+    const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
+    const adminApp = await getAdminApp(undefined, chainId);
+    if (!adminApp) {
+      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+    }
+
+    // First reuse existing preparation to get register calls
+    const prepared = await this.createAgentForAA({
+      ...params,
+      chainId,
+    });
+
+    // Build AA account client using admin signatory
+    const chain = getChainById(chainId);
+
+    // Deterministic salt based on agentName (matches client computation)
+    const { keccak256, stringToHex } = await import('viem');
+    const deploySalt = keccak256(stringToHex(params.agentName)) as `0x${string}`;
+
+    const accountClient = await toMetaMaskSmartAccount({
+      client: adminApp.publicClient as any,
+      implementation: Implementation.Hybrid,
+      signatory: adminApp.walletClient
+        ? { walletClient: adminApp.walletClient as any }
+        : (adminApp.account ? { account: adminApp.account } : {}),
+      deployParams: [adminApp.address as `0x${string}`, [], [], []],
+      deploySalt,
+    } as any);
+
+    // Send UserOperation via bundler
+    const bundlerUrl = prepared.bundlerUrl;
+    const bundlerClient = createBundlerClient({
+      transport: http(bundlerUrl),
+      paymaster: true as any,
+      chain: chain as any,
+      paymasterContext: { mode: 'SPONSORED' },
+    } as any);
+
+    // permissionless gas price (optional)
+    let fee: any = {};
+    try {
+      const { createPimlicoClient } = await import('permissionless/clients/pimlico');
+      const pimlico = createPimlicoClient({ transport: http(bundlerUrl) } as any);
+      const gas = await (pimlico as any).getUserOperationGasPrice();
+      fee = gas.fast || {};
+    } catch {
+      // optional
+    }
+
+    const userOperationHash = await (bundlerClient as any).sendUserOperation({
+      account: accountClient as any,
+      calls: prepared.calls,
+      ...fee,
+    });
+
+    const receipt = await (bundlerClient as any).waitForUserOperationReceipt({ hash: userOperationHash });
+
+    // Try to extract agentId (best-effort)
+    let agentId: string | undefined;
+    try {
+      const id = await this.extractAgentIdFromReceipt(receipt, chainId);
+      if (id) agentId = id;
+    } catch {}
+
+    return { txHash: userOperationHash as string, agentId };
+  }
   async extractAgentIdFromReceipt(
     receipt: any,
     chainId: number = 11155111

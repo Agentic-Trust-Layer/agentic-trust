@@ -331,6 +331,59 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   }, [eoaAddress, useAA, effectivePrivateKeyMode]);
 
+  // Auto-compute AA address in private key mode as the agent name changes
+  useEffect(() => {
+    if (!useAA || !effectivePrivateKeyMode) {
+      return;
+    }
+    const name = (createForm.agentName || '').trim();
+    if (!name) {
+      setAaAddress(null);
+      setCreateForm(prev => ({ ...prev, agentAccount: '' }));
+      return;
+    }
+
+    let cancelled = false;
+    setAaComputing(true);
+
+    (async () => {
+      try {
+        const resp = await fetch('/api/agents/aa/address', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agentName: name, chainId: selectedChainId }),
+        });
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({}));
+          console.warn('AA address compute (server) failed:', err);
+          if (!cancelled) {
+            setAaAddress(null);
+            setCreateForm(prev => ({ ...prev, agentAccount: '' }));
+          }
+          return;
+        }
+        const data = await resp.json();
+        const computed = (data?.address as string) || '';
+        if (!cancelled && computed && computed.startsWith('0x')) {
+          setAaAddress(computed);
+          setCreateForm(prev => ({ ...prev, agentAccount: computed }));
+        }
+      } catch (error) {
+        console.warn('AA address compute (server) error:', error);
+        if (!cancelled) {
+          setAaAddress(null);
+          setCreateForm(prev => ({ ...prev, agentAccount: '' }));
+        }
+      } finally {
+        if (!cancelled) setAaComputing(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [useAA, effectivePrivateKeyMode, createForm.agentName, selectedChainId]);
+
   // Check ENS availability when createENS is enabled and agent name changes
   // Only check if AA is enabled (ENS only makes sense for AA agents)
   useEffect(() => {
@@ -676,33 +729,59 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         }
       }
       else {
-        // create Agent Identity for Account Abstraction (AA)
-        // create Agent Identity for Externally Owned Account (EOA)
-        const result = await createAgentWithWalletForAA({
-          agentData: {
-            agentName: createForm.agentName,
-            agentAccount: agentAccountToUse,
-            description: createForm.description || undefined,
-            image: createForm.image || undefined,
-            agentUrl: createForm.agentUrl || undefined,
-          },
-          account: eoaAddress as Address,
-          ethereumProvider: aaEip1193 as any,
-          onStatusUpdate: setSuccess,
-          // Pass AA parameter if enabled (bundlerUrl is read from env var on server)
-          useAA: useAA || undefined,
-          ensOptions: {
-            enabled: !!createENS,
-            orgName: createENS ? ensOrgName : undefined,
-          },
-          chainId: selectedChainId,
-        });
-
-        // Handle result
-        if (result.agentId) {
-          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+        // Account Abstraction (AA) creation
+        if (effectivePrivateKeyMode) {
+          // Server-only path (admin private key signs on server)
+          const resp = await fetch('/api/agents/create-for-aa-pk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentName: createForm.agentName,
+              agentAccount: agentAccountToUse,
+              description: createForm.description || undefined,
+              image: createForm.image || undefined,
+              agentUrl: createForm.agentUrl || undefined,
+              chainId: selectedChainId,
+            }),
+          });
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err?.message || err?.error || 'Server AA agent creation failed');
+          }
+          const data = await resp.json();
+          if (data?.agentId) {
+            setSuccess(`Agent created successfully! Agent ID: ${data.agentId}, TX: ${data.txHash}`);
+          } else if (data?.txHash) {
+            setSuccess(`Agent creation transaction confirmed! TX: ${data.txHash} (Agent ID will be available after indexing)`);
+          } else {
+            setSuccess('Agent AA creation requested. Check server logs for details.');
+          }
         } else {
-          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+          // Client path (requires connected wallet/provider)
+          const result = await createAgentWithWalletForAA({
+            agentData: {
+              agentName: createForm.agentName,
+              agentAccount: agentAccountToUse,
+              description: createForm.description || undefined,
+              image: createForm.image || undefined,
+              agentUrl: createForm.agentUrl || undefined,
+            },
+            account: eoaAddress as Address,
+            ethereumProvider: aaEip1193 as any,
+            onStatusUpdate: setSuccess,
+            useAA: useAA || undefined,
+            ensOptions: {
+              enabled: !!createENS,
+              orgName: createENS ? ensOrgName : undefined,
+            },
+            chainId: selectedChainId,
+          });
+
+          if (result.agentId) {
+            setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+          } else {
+            setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+          }
         }
       }
       

@@ -29,9 +29,10 @@ export async function getServerCounterfactualAAAddressByAgentName(
   const clientConfig: Record<string, unknown> = {
     client: publicClient,
     implementation: Implementation.Hybrid,
-    signer: {
-      walletClient: adminApp.walletClient as any,
-    },
+    // Use signatory (server-side) instead of signer (client-side)
+    signatory: adminApp.walletClient
+      ? { walletClient: adminApp.walletClient as any }
+      : (adminApp.account ? { account: adminApp.account } : {}),
     deployParams: [adminApp.address as `0x${string}`, [], [], []],
     deploySalt: salt,
   };
