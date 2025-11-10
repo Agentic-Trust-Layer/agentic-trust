@@ -146,6 +146,14 @@ export {
   type SupportedChainId,
 } from './lib/chainConfig';
 
+export {
+  addToL1OrgPK,
+  setL1NameInfoPK,
+  type AddToL1OrgPKParams,
+  type SetL1NameInfoPKParams,
+  type ExecuteEnsTxResult,
+} from './lib/ensActions';
+
 // Session package utilities (Node.js fs access)
 export type { SessionPackage, DelegationSetup } from './lib/sessionPackage';
 export {

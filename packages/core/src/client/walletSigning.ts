@@ -1,6 +1,6 @@
 /**
  * Client-side wallet signing utilities
- * 
+ *
  * Handles MetaMask/EIP-1193 wallet integration for signing and sending transactions
  * All Ethereum logic is handled server-side, client only needs to sign and send
  */
@@ -13,7 +13,18 @@ import {
   type Chain,
   type Hex,
 } from 'viem';
-import { getChainById, DEFAULT_CHAIN_ID, getChainRpcUrl, getChainBundlerUrl, sepolia, baseSepolia, optimismSepolia, isL1, isL2 } from '../server/lib/chainConfig';
+import {
+  getChainById,
+  DEFAULT_CHAIN_ID,
+  getChainRpcUrl,
+  getChainBundlerUrl,
+  sepolia,
+  baseSepolia,
+  optimismSepolia,
+  isL1,
+  isL2,
+  isPrivateKeyMode,
+} from '../server/lib/chainConfig';
 import { getDeployedAccountClientByAgentName } from './aaClient';
 import {
   sendSponsoredUserOperation,
@@ -23,6 +34,15 @@ export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
 } from './aaClient';
+
+async function detectServerPrivateKeyMode(): Promise<boolean> {
+  try {
+    const res = await fetch('/api/admin/address', { method: 'GET' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 function resolveEthereumProvider(providedProvider?: any): any {
   if (providedProvider) return providedProvider;
@@ -37,7 +57,9 @@ function resolveEthereumProvider(providedProvider?: any): any {
 
 async function resolveChainId(ethereumProvider: any): Promise<number> {
   try {
-    const chainHex = await ethereumProvider.request?.({ method: 'eth_chainId' });
+    const chainHex = await ethereumProvider.request?.({
+      method: 'eth_chainId',
+    });
     if (typeof chainHex === 'string') {
       return parseInt(chainHex, 16);
     }
@@ -52,7 +74,9 @@ async function resolveChainId(ethereumProvider: any): Promise<number> {
  * Ensure the provider has an authorized account and return it.
  * Tries eth_accounts first; if empty, requests eth_requestAccounts.
  */
-async function ensureAuthorizedAccount(ethereumProvider: any): Promise<Address> {
+async function ensureAuthorizedAccount(
+  ethereumProvider: any
+): Promise<Address> {
   try {
     const existing = await ethereumProvider.request({ method: 'eth_accounts' });
     if (Array.isArray(existing) && existing.length > 0) {
@@ -62,7 +86,9 @@ async function ensureAuthorizedAccount(ethereumProvider: any): Promise<Address> 
     // ignore and fall through to request
   }
   try {
-    const granted = await ethereumProvider.request({ method: 'eth_requestAccounts' });
+    const granted = await ethereumProvider.request({
+      method: 'eth_requestAccounts',
+    });
     if (Array.isArray(granted) && granted.length > 0) {
       return granted[0] as Address;
     }
@@ -74,7 +100,9 @@ async function ensureAuthorizedAccount(ethereumProvider: any): Promise<Address> 
       method: 'wallet_requestPermissions',
       params: [{ eth_accounts: {} }],
     });
-    const afterPerm = await ethereumProvider.request({ method: 'eth_accounts' });
+    const afterPerm = await ethereumProvider.request({
+      method: 'eth_accounts',
+    });
     if (Array.isArray(afterPerm) && afterPerm.length > 0) {
       return afterPerm[0] as Address;
     }
@@ -84,10 +112,16 @@ async function ensureAuthorizedAccount(ethereumProvider: any): Promise<Address> 
   throw new Error('Wallet not authorized. Please connect your wallet.');
 }
 
-async function ensureChainSelected(ethereumProvider: any, chain: Chain): Promise<void> {
+async function ensureChainSelected(
+  ethereumProvider: any,
+  chain: Chain
+): Promise<void> {
   try {
-    const currentHex = await ethereumProvider.request?.({ method: 'eth_chainId' });
-    const current = typeof currentHex === 'string' ? parseInt(currentHex, 16) : undefined;
+    const currentHex = await ethereumProvider.request?.({
+      method: 'eth_chainId',
+    });
+    const current =
+      typeof currentHex === 'string' ? parseInt(currentHex, 16) : undefined;
     if (current === chain.id) return;
   } catch {
     // continue to switch
@@ -113,10 +147,12 @@ async function ensureChainSelected(ethereumProvider: any, chain: Chain): Promise
     nativeCurrency: {
       name: 'ETH',
       symbol: 'ETH',
-      decimals: 18
+      decimals: 18,
     },
     rpcUrls: [getChainRpcUrl(chain.id)],
-    blockExplorerUrls: chainConfig.blockExplorers?.default ? [chainConfig.blockExplorers.default.url] : [],
+    blockExplorerUrls: chainConfig.blockExplorers?.default
+      ? [chainConfig.blockExplorers.default.url]
+      : [],
   };
   await ethereumProvider.request?.({
     method: 'wallet_addEthereumChain',
@@ -167,7 +203,7 @@ export interface SignTransactionOptions {
 
 /**
  * Sign and send a transaction using MetaMask/EIP-1193 wallet
- * 
+ *
  * @param options - Signing options including transaction, account, chain, and provider
  * @returns Transaction hash, receipt, and optionally extracted agentId
  */
@@ -185,9 +221,11 @@ export async function signAndSendTransaction(
 
   // Get wallet provider
   const provider = resolveEthereumProvider(ethereumProvider);
-  
+
   if (!provider) {
-    throw new Error('No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.');
+    throw new Error(
+      'No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.'
+    );
   }
 
   // Update status
@@ -215,7 +253,7 @@ export async function signAndSendTransaction(
     ...transaction,
     value: BigInt(transaction.value),
   };
-  
+
   if (transaction.gas) {
     txParams.gas = BigInt(transaction.gas);
   }
@@ -233,7 +271,9 @@ export async function signAndSendTransaction(
   const hash = await walletClient.sendTransaction(txParams);
 
   // Update status
-  onStatusUpdate?.(`Transaction submitted! Hash: ${hash}. Waiting for confirmation...`);
+  onStatusUpdate?.(
+    `Transaction submitted! Hash: ${hash}. Waiting for confirmation...`
+  );
 
   // Wait for transaction receipt
   const publicClient = createPublicClient({
@@ -246,8 +286,10 @@ export async function signAndSendTransaction(
   // Extract agentId if requested (for agent creation transactions)
   let agentId: string | undefined;
   if (receipt && Array.isArray(receipt.logs)) {
-    const zeroTopic = '0x0000000000000000000000000000000000000000000000000000000000000000';
-    const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+    const zeroTopic =
+      '0x0000000000000000000000000000000000000000000000000000000000000000';
+    const transferTopic =
+      '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
     const mintLog = receipt.logs.find(
       (log: any) =>
         log?.topics?.[0] === transferTopic &&
@@ -284,23 +326,29 @@ export async function signAndSendTransaction(
 /**
  * Extract agentId from a transaction receipt (for agent creation)
  * Looks for ERC-721 Transfer event from zero address
- * 
+ *
  * @param receipt - Transaction receipt
  * @returns Extracted agentId as string, or undefined if not found
  */
 export function extractAgentIdFromReceipt(receipt: any): string | undefined {
   try {
     // ERC-721 Transfer event signature
-    const transferTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
+    const transferTopic =
+      '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
     // Zero address topic (from address)
-    const zeroAddress = '0x0000000000000000000000000000000000000000000000000000000000000000';
-    
+    const zeroAddress =
+      '0x0000000000000000000000000000000000000000000000000000000000000000';
+
     if (!receipt.logs || !Array.isArray(receipt.logs)) {
       return undefined;
     }
 
     for (const log of receipt.logs) {
-      if (log.topics && log.topics[0] === transferTopic && log.topics[1] === zeroAddress) {
+      if (
+        log.topics &&
+        log.topics[0] === transferTopic &&
+        log.topics[1] === zeroAddress
+      ) {
         // Extract tokenId (agentId) from topics[3]
         if (log.topics[3]) {
           return BigInt(log.topics[3]).toString();
@@ -317,7 +365,7 @@ export function extractAgentIdFromReceipt(receipt: any): string | undefined {
 
 /**
  * Refresh agent in GraphQL indexer
- * 
+ *
  * @param agentId - Agent ID to refresh
  * @param refreshEndpoint - Optional custom refresh endpoint (defaults to `/api/agents/${agentId}/refresh`)
  * @returns Promise that resolves when refresh is complete
@@ -327,7 +375,7 @@ export async function refreshAgentInIndexer(
   refreshEndpoint?: string
 ): Promise<void> {
   const endpoint = refreshEndpoint || `/api/agents/${agentId}/refresh`;
-  
+
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
@@ -336,13 +384,16 @@ export async function refreshAgentInIndexer(
       },
       body: JSON.stringify({}), // Send empty body to avoid JSON parsing errors
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
-      console.warn(`Failed to refresh agent ${agentId} in GraphQL indexer: ${response.status} ${response.statusText}`, errorText);
+      console.warn(
+        `Failed to refresh agent ${agentId} in GraphQL indexer: ${response.status} ${response.statusText}`,
+        errorText
+      );
       return;
     }
-    
+
     // Try to parse response, but don't fail if it's empty
     try {
       const data = await response.json();
@@ -352,13 +403,16 @@ export async function refreshAgentInIndexer(
       console.log(`✅ Refreshed agent ${agentId} in GraphQL indexer`);
     }
   } catch (error) {
-    console.warn(`Error refreshing agent ${agentId} in GraphQL indexer:`, error);
+    console.warn(
+      `Error refreshing agent ${agentId} in GraphQL indexer:`,
+      error
+    );
   }
 }
 
 /**
  * Check if wallet provider is available
- * 
+ *
  * @param ethereumProvider - Optional provider (defaults to window.ethereum)
  * @returns true if provider is available
  */
@@ -366,23 +420,27 @@ export function isWalletProviderAvailable(ethereumProvider?: any): boolean {
   if (ethereumProvider) {
     return true;
   }
-  
+
   if (typeof window === 'undefined') {
     return false;
   }
-  
+
   return !!(window as any).ethereum;
 }
 
 /**
  * Get the connected wallet address from provider
- * 
+ *
  * @param ethereumProvider - Optional provider (defaults to window.ethereum)
  * @returns Connected wallet address, or null if not connected
  */
-export async function getWalletAddress(ethereumProvider?: any): Promise<Address | null> {
-  const provider = ethereumProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
-  
+export async function getWalletAddress(
+  ethereumProvider?: any
+): Promise<Address | null> {
+  const provider =
+    ethereumProvider ||
+    (typeof window !== 'undefined' ? (window as any).ethereum : null);
+
   if (!provider) {
     return null;
   }
@@ -435,15 +493,15 @@ export interface CreateAgentResult {
 
 /**
  * Create an agent with automatic wallet signing if needed
- * 
+ *
  * This method handles the entire flow:
  * 1. Calls the API to create agent (endpoint: /api/agents/create-for-eoa)
  * 2. If client-side signing is required, signs and sends transaction
  * 3. Waits for receipt and extracts agentId
  * 4. Refreshes GraphQL indexer
- * 
+ *
  * Only agentData is required - account, chain, and provider are auto-detected
- * 
+ *
  * @param options - Creation options (only agentData required)
  * @returns Agent creation result
  */
@@ -460,10 +518,14 @@ export async function createAgentWithWalletForEOA(
   } = options;
 
   // Get wallet provider (default to window.ethereum)
-  const ethereumProvider = providedProvider || (typeof window !== 'undefined' ? (window as any).ethereum : null);
-  
+  const ethereumProvider =
+    providedProvider ||
+    (typeof window !== 'undefined' ? (window as any).ethereum : null);
+
   if (!ethereumProvider) {
-    throw new Error('No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.');
+    throw new Error(
+      'No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.'
+    );
   }
 
   // Get account from provider if not provided
@@ -476,14 +538,13 @@ export async function createAgentWithWalletForEOA(
 
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
-  
+
   // Prepare request body with AA parameters if needed
   const requestBody: any = {
     ...agentData,
     chainId: requestedChainId,
   };
-  
-  
+
   const response = await fetch('/api/agents/create-for-eoa', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -492,7 +553,9 @@ export async function createAgentWithWalletForEOA(
 
   if (!response.ok) {
     const errorData = await response.json();
-    throw new Error(errorData.message || errorData.error || 'Failed to create agent');
+    throw new Error(
+      errorData.message || errorData.error || 'Failed to create agent'
+    );
   }
 
   const data = await response.json();
@@ -502,7 +565,6 @@ export async function createAgentWithWalletForEOA(
     // Get chain from transaction chainId
     const chainId = data.transaction.chainId;
     const chain = getChainById(chainId);
-
 
     // Sign and send transaction
     const result = await signAndSendTransaction({
@@ -529,11 +591,13 @@ export async function createAgentWithWalletForEOA(
     // Server-side signed transaction
     // Ensure we have the required fields
     if (!data.agentId || !data.txHash) {
-      throw new Error(`Invalid response from create agent API. Expected agentId and txHash, got: ${JSON.stringify(data)}`);
+      throw new Error(
+        `Invalid response from create agent API. Expected agentId and txHash, got: ${JSON.stringify(data)}`
+      );
     }
-    
+
     const agentIdStr = data.agentId.toString();
-    
+
     // Refresh GraphQL indexer for server-side signed transactions too
     if (agentIdStr) {
       try {
@@ -543,7 +607,7 @@ export async function createAgentWithWalletForEOA(
         console.warn('Failed to refresh agent in indexer:', error);
       }
     }
-    
+
     return {
       agentId: agentIdStr,
       txHash: data.txHash,
@@ -551,7 +615,6 @@ export async function createAgentWithWalletForEOA(
     };
   }
 }
-
 
 export async function createAgentWithWalletForAA(
   options: CreateAgentWithWalletOptions
@@ -565,12 +628,13 @@ export async function createAgentWithWalletForAA(
     chainId: providedChainId,
   } = options;
 
-
   // Get wallet provider (default to window.ethereum)
   const ethereumProvider = resolveEthereumProvider(providedProvider);
-  
+
   if (!ethereumProvider) {
-    throw new Error('No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.');
+    throw new Error(
+      'No wallet provider found. Please connect MetaMask or use an EIP-1193 compatible wallet.'
+    );
   }
 
   // Get account from provider if not provided
@@ -581,14 +645,13 @@ export async function createAgentWithWalletForAA(
     account = await ensureAuthorizedAccount(ethereumProvider);
   }
 
-  const chainId = typeof providedChainId === 'number'
-    ? providedChainId
-    : await resolveChainId(ethereumProvider);
+  const chainId =
+    typeof providedChainId === 'number'
+      ? providedChainId
+      : await resolveChainId(ethereumProvider);
 
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
-  
-
 
   // 0.  Get on the correct chain get adapter for the chain
 
@@ -630,14 +693,11 @@ export async function createAgentWithWalletForAA(
 
   // Build AA account client using client's EOA (MetaMask/Web3Auth)
 
-
   // Get agent name from request
   //let agentFullName = options.agentData.agentName;
   //if (options.ensOptions?.orgName) {
   //  agentFullName = options.agentData.agentName + '.' + options.ensOptions?.orgName + ".eth";
   //}
-
-  
 
   // Get Account Client by Agent Name, find if exists and if not then create it
   const bundlerUrl = getChainBundlerUrl(chainId);
@@ -653,189 +713,247 @@ export async function createAgentWithWalletForAA(
     }
   );
 
-
-
-
   if (!agentAccountClient) {
     throw new Error('Failed to build AA account client');
   }
 
   // Verify the address matches
   const computedAddress = await agentAccountClient.getAddress();
-  if (computedAddress.toLowerCase() !== options.agentData.agentAccount.toLowerCase()) {
-    throw new Error(`AA address mismatch: computed ${computedAddress}, expected ${options.agentData.agentAccount}`);
+  if (
+    computedAddress.toLowerCase() !==
+    options.agentData.agentAccount.toLowerCase()
+  ) {
+    throw new Error(
+      `AA address mismatch: computed ${computedAddress}, expected ${options.agentData.agentAccount}`
+    );
   }
 
+  // 2.  Add ENS record associated with new agent
 
-    // 2.  Add ENS record associated with new agent
+  console.log(
+    '*********** createAgentWithWalletForAA: options.ensOptions',
+    options.ensOptions
+  );
 
-    console.log('*********** createAgentWithWalletForAA: options.ensOptions', options.ensOptions);
-    
-    if (options.ensOptions?.enabled && options.ensOptions.orgName && isL1(chainId)) {
-      try {
-        const ensAgentAccount = (typeof computedAddress === 'string' && computedAddress.startsWith('0x'))
+  if (
+    options.ensOptions?.enabled &&
+    options.ensOptions.orgName &&
+    isL1(chainId)
+  ) {
+    try {
+      const ensAgentAccount =
+        typeof computedAddress === 'string' && computedAddress.startsWith('0x')
           ? computedAddress
           : options.agentData.agentAccount;
-  
-        onStatusUpdate?.('Creating ENS subdomain for agent: ' + options.agentData.agentName);
-        const ensResponse = await fetch('/api/agents/ens/addToL1Org', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentAccount: ensAgentAccount,
-            orgName: options.ensOptions.orgName,
-            agentName: options.agentData.agentName,
-            agentUrl: options.agentData.agentUrl,
-            chainId,
-          }),
-        });
 
-        onStatusUpdate?.('Preparing ENS metadata update...');
-        const infoResponse = await fetch('/api/agents/ens/setL1NameInfo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            agentAddress: ensAgentAccount,
-            orgName: options.ensOptions.orgName,
-            agentName: options.agentData.agentName,
-            agentUrl: options.agentData.agentUrl,
-            agentDescription: options.agentData.description,
-            chainId,
-          }),
-        });
- 
-        if (infoResponse.ok) {
-          console.log('*********** createAgentWithWalletForAA: ENS metadata response received');
-          const infoData = await infoResponse.json();
-          const serverInfoUserOpHash = (infoData as any)?.userOpHash as string | undefined;
-          if (serverInfoUserOpHash) {
-            console.log('*********** createAgentWithWalletForAA: ENS info userOpHash (server-submitted)', serverInfoUserOpHash);
-          } else {
-            const infoCalls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
-
-            if (Array.isArray(infoData?.calls)) {
-              for (const rawCall of infoData.calls as Array<Record<string, unknown>>) {
-                const to = rawCall?.to as `0x${string}` | undefined;
-                const data = rawCall?.data as `0x${string}` | undefined;
-                if (!to || !data) {
-                  continue;
-                }
-
-                let value: bigint | undefined;
-                if (rawCall?.value !== null && rawCall?.value !== undefined) {
-                  try {
-                    value = BigInt(rawCall.value as string | number | bigint);
-                  } catch (error) {
-                    console.warn('Unable to parse ENS info call value', rawCall.value, error);
-                  }
-                }
-
-                infoCalls.push({
-                  to,
-                  data,
-                  value,
-                });
-              }
-            }
-
-            if (infoCalls.length > 0) {
-              onStatusUpdate?.('Updating ENS agent info...');
-              // Ensure we are using a deployed-only AA client (no factory/factoryData)
-              //const fullAgentName = agentName + '.' + options.ensOptions.orgName + ".eth";
-              console.log('!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName 2: agentName', options.agentData.agentName);
-              agentAccountClient = await getDeployedAccountClientByAgentName(
-                bundlerUrl,
-                options.agentData.agentName,
-                account,
-                {
-                  chain: chain as any,
-                  walletClient: viemWalletClient as any,
-                  publicClient: viemPublicClient as any,
-                }
-              );
-              const infoUserOpHash = await sendSponsoredUserOperation({
-                bundlerUrl,
-                chain: chain as any,
-                accountClient: agentAccountClient,
-                calls: infoCalls,
-              });
-
-              await waitForUserOperationReceipt({
-                bundlerUrl,
-                chain: chain as any,
-                hash: infoUserOpHash,
-              });
-            }
-          }
-        } else {
-          const errorPayload = await infoResponse.json().catch(() => ({}));
-          console.warn('Failed to prepare ENS metadata calls:', errorPayload);
-        }
-  
-        console.log('Requested ENS record creation and metadata update for agent', options.agentData.agentName);
-      } catch (ensError) {
-        console.warn('Failed to create ENS record for agent:', ensError);
-      }
-    }
-    else if (options.ensOptions?.enabled && options.ensOptions.orgName && isL2(chainId)) {
-      const rawOrg = options.ensOptions.orgName || '';
-      const rawAgent = options.agentData.agentName || '';
-      const cleanOrgName = rawOrg.replace(/\.eth$/i, '').toLowerCase();
-      const orgPattern = cleanOrgName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const cleanAgentName = rawAgent
-        .replace(new RegExp(`^${orgPattern}\\.`, 'i'), '')
-        .replace(/\.eth$/i, '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, '-');
-      const agentUrl = options.agentData.agentUrl;
-      const agentDescription = options.agentData.description;
-      const agentImage = options.agentData.image;
-
-      // Prepare all necessary L2 ENS calls server-side, then send them as one user operation
-      const prepareResp = await fetch('/api/agents/ens/addToL2Org', {
+      onStatusUpdate?.(
+        'Creating ENS subdomain for agent: ' + options.agentData.agentName
+      );
+      const pkModeDetected =
+        (await detectServerPrivateKeyMode()) || isPrivateKeyMode();
+      const addEndpoint = pkModeDetected
+        ? '/api/agents/ens/addToL1OrgPK'
+        : '/api/agents/ens/addToL1Org';
+      console.info(
+        `[ENS][L1] ${pkModeDetected ? 'PK mode detected' : 'Client mode'} - calling ${addEndpoint}`
+      );
+      const ensResponse = await fetch(addEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentAddress: agentAccountClient.address,
-          orgName: cleanOrgName,
-          agentName: cleanAgentName,
-          agentUrl,
-          agentDescription,
-          agentImage,
+          agentAccount: ensAgentAccount,
+          orgName: options.ensOptions.orgName,
+          agentName: options.agentData.agentName,
+          agentUrl: options.agentData.agentUrl,
           chainId,
         }),
       });
-      if (!prepareResp.ok) {
-        const errorPayload = await prepareResp.json().catch(() => ({}));
-        console.warn('Failed to prepare L2 ENS calls:', errorPayload);
+      if (!ensResponse.ok) {
+        const err = await ensResponse.json().catch(() => ({}));
+        console.warn('[ENS][L1] addToL1Org call failed', err);
       } else {
-        const { calls: rawCalls } = await prepareResp.json();
-        const l2EnsCalls = (rawCalls || []).map((call: any) => ({
-          to: call.to as `0x${string}`,
-          data: call.data as `0x${string}`,
-          value: BigInt(call.value || '0'),
-        }));
-        if (l2EnsCalls.length > 0) {
-          for (const call of l2EnsCalls) {
-            console.log('********************* send sponsored user operation for L2 ENS call');
-            const userOpHash = await sendSponsoredUserOperation({
+        console.info('[ENS][L1] addToL1Org call succeeded');
+      }
+
+      onStatusUpdate?.('Preparing ENS metadata update...');
+      const infoEndpoint = pkModeDetected
+        ? '/api/agents/ens/setL1NameInfoPK'
+        : '/api/agents/ens/setL1NameInfo';
+      console.info(
+        `[ENS][L1] ${pkModeDetected ? 'PK mode detected' : 'Client mode'} - calling ${infoEndpoint}`
+      );
+      const infoResponse = await fetch(infoEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentAddress: ensAgentAccount,
+          orgName: options.ensOptions.orgName,
+          agentName: options.agentData.agentName,
+          agentUrl: options.agentData.agentUrl,
+          agentDescription: options.agentData.description,
+          chainId,
+        }),
+      });
+
+      if (infoResponse.ok) {
+        console.log(
+          '*********** createAgentWithWalletForAA: ENS metadata response received'
+        );
+        const infoData = await infoResponse.json();
+        const serverInfoUserOpHash = (infoData as any)?.userOpHash as
+          | string
+          | undefined;
+        if (serverInfoUserOpHash) {
+          console.log(
+            '*********** createAgentWithWalletForAA: ENS info userOpHash (server-submitted)',
+            serverInfoUserOpHash
+          );
+        } else {
+          const infoCalls: {
+            to: `0x${string}`;
+            data: `0x${string}`;
+            value?: bigint;
+          }[] = [];
+
+          if (Array.isArray(infoData?.calls)) {
+            for (const rawCall of infoData.calls as Array<
+              Record<string, unknown>
+            >) {
+              const to = rawCall?.to as `0x${string}` | undefined;
+              const data = rawCall?.data as `0x${string}` | undefined;
+              if (!to || !data) {
+                continue;
+              }
+
+              let value: bigint | undefined;
+              if (rawCall?.value !== null && rawCall?.value !== undefined) {
+                try {
+                  value = BigInt(rawCall.value as string | number | bigint);
+                } catch (error) {
+                  console.warn(
+                    'Unable to parse ENS info call value',
+                    rawCall.value,
+                    error
+                  );
+                }
+              }
+
+              infoCalls.push({
+                to,
+                data,
+                value,
+              });
+            }
+          }
+
+          if (infoCalls.length > 0) {
+            onStatusUpdate?.('Updating ENS agent info...');
+            // Ensure we are using a deployed-only AA client (no factory/factoryData)
+            //const fullAgentName = agentName + '.' + options.ensOptions.orgName + ".eth";
+            console.log(
+              '!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName 2: agentName',
+              options.agentData.agentName
+            );
+            agentAccountClient = await getDeployedAccountClientByAgentName(
               bundlerUrl,
-              chain,
+              options.agentData.agentName,
+              account,
+              {
+                chain: chain as any,
+                walletClient: viemWalletClient as any,
+                publicClient: viemPublicClient as any,
+              }
+            );
+            const infoUserOpHash = await sendSponsoredUserOperation({
+              bundlerUrl,
+              chain: chain as any,
               accountClient: agentAccountClient,
-              calls: [call],
+              calls: infoCalls,
             });
+
             await waitForUserOperationReceipt({
               bundlerUrl,
-              chain,
-              hash: userOpHash,
+              chain: chain as any,
+              hash: infoUserOpHash,
             });
           }
         }
+      } else {
+        const errorPayload = await infoResponse.json().catch(() => ({}));
+        console.warn('Failed to prepare ENS metadata calls:', errorPayload);
       }
 
+      console.log(
+        'Requested ENS record creation and metadata update for agent',
+        options.agentData.agentName
+      );
+    } catch (ensError) {
+      console.warn('Failed to create ENS record for agent:', ensError);
+    }
+  } else if (
+    options.ensOptions?.enabled &&
+    options.ensOptions.orgName &&
+    isL2(chainId)
+  ) {
+    const rawOrg = options.ensOptions.orgName || '';
+    const rawAgent = options.agentData.agentName || '';
+    const cleanOrgName = rawOrg.replace(/\.eth$/i, '').toLowerCase();
+    const orgPattern = cleanOrgName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const cleanAgentName = rawAgent
+      .replace(new RegExp(`^${orgPattern}\\.`, 'i'), '')
+      .replace(/\.eth$/i, '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '-');
+    const agentUrl = options.agentData.agentUrl;
+    const agentDescription = options.agentData.description;
+    const agentImage = options.agentData.image;
 
-      /*  TODO:  Need to resolve this to set ens url and description
+    // Prepare all necessary L2 ENS calls server-side, then send them as one user operation
+    const prepareResp = await fetch('/api/agents/ens/addToL2Org', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        agentAddress: agentAccountClient.address,
+        orgName: cleanOrgName,
+        agentName: cleanAgentName,
+        agentUrl,
+        agentDescription,
+        agentImage,
+        chainId,
+      }),
+    });
+    if (!prepareResp.ok) {
+      const errorPayload = await prepareResp.json().catch(() => ({}));
+      console.warn('Failed to prepare L2 ENS calls:', errorPayload);
+    } else {
+      const { calls: rawCalls } = await prepareResp.json();
+      const l2EnsCalls = (rawCalls || []).map((call: any) => ({
+        to: call.to as `0x${string}`,
+        data: call.data as `0x${string}`,
+        value: BigInt(call.value || '0'),
+      }));
+      if (l2EnsCalls.length > 0) {
+        for (const call of l2EnsCalls) {
+          console.log(
+            '********************* send sponsored user operation for L2 ENS call'
+          );
+          const userOpHash = await sendSponsoredUserOperation({
+            bundlerUrl,
+            chain,
+            accountClient: agentAccountClient,
+            calls: [call],
+          });
+          await waitForUserOperationReceipt({
+            bundlerUrl,
+            chain,
+            hash: userOpHash,
+          });
+        }
+      }
+    }
+
+    /*  TODO:  Need to resolve this to set ens url and description
       onStatusUpdate?.('Set ENS metadata update...');
       const infoResponse = await fetch('/api/agents/ens/setL2NameInfo', {
         method: 'POST',
@@ -878,19 +996,17 @@ export async function createAgentWithWalletForAA(
         }
       }
         */
-    }
-
-
-
-
+  }
 
   // 2.  Need to create the Agent Identity (NFT)
 
-  console.log('*********** createAgentWithWalletForAA: creating agent identity...');
+  console.log(
+    '*********** createAgentWithWalletForAA: creating agent identity...'
+  );
   const finalAgentName =
-        options.ensOptions?.enabled && options.ensOptions?.orgName
-          ? `${options.agentData.agentName}.${options.ensOptions?.orgName}.eth`
-          : options.agentData.agentName;
+    options.ensOptions?.enabled && options.ensOptions?.orgName
+      ? `${options.agentData.agentName}.${options.ensOptions?.orgName}.eth`
+      : options.agentData.agentName;
   agentData.agentName = finalAgentName;
 
   // Prepare request body with AA parameters if needed
@@ -908,7 +1024,9 @@ export async function createAgentWithWalletForAA(
 
   if (!response.ok) {
     const errorData = await response.json();
-    throw new Error(errorData.message || errorData.error || 'Failed to create agent');
+    throw new Error(
+      errorData.message || errorData.error || 'Failed to create agent'
+    );
   }
 
   const data = await response.json();
@@ -916,7 +1034,6 @@ export async function createAgentWithWalletForAA(
   if (!Array.isArray(data.calls) || data.calls.length === 0) {
     throw new Error('Agent creation response missing register calls');
   }
-
 
   // Construct Agent Identity with agentAccount Client
   const createAgentIdentityCalls = data.calls.map((call: any) => ({
@@ -926,7 +1043,7 @@ export async function createAgentWithWalletForAA(
   }));
 
   // Send UserOperation via bundler
-  
+
   onStatusUpdate?.('Sending UserOperation via bundler...');
   const userOpHash = await sendSponsoredUserOperation({
     bundlerUrl,
@@ -935,7 +1052,9 @@ export async function createAgentWithWalletForAA(
     calls: createAgentIdentityCalls,
   });
 
-  onStatusUpdate?.(`UserOperation sent! Hash: ${userOpHash}. Waiting for confirmation...`);
+  onStatusUpdate?.(
+    `UserOperation sent! Hash: ${userOpHash}. Waiting for confirmation...`
+  );
 
   // Wait for receipt
   const receipt = await waitForUserOperationReceipt({
@@ -943,8 +1062,6 @@ export async function createAgentWithWalletForAA(
     chain: chain as any,
     hash: userOpHash,
   });
-
-
 
   // Extract agentId from receipt logs
   let agentId: string | undefined;
@@ -954,7 +1071,9 @@ export async function createAgentWithWalletForAA(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         receipt: JSON.parse(
-          JSON.stringify(receipt, (_, value) => (typeof value === 'bigint' ? value.toString() : value))
+          JSON.stringify(receipt, (_, value) =>
+            typeof value === 'bigint' ? value.toString() : value
+          )
         ),
         chainId: chain.id,
       }),
@@ -973,15 +1092,14 @@ export async function createAgentWithWalletForAA(
     console.warn('Unable to extract agentId via API:', error);
   }
 
-
-
-
   // Refresh GraphQL indexer
   if (agentId) {
     await refreshAgentInIndexer(agentId);
   } else {
     onStatusUpdate?.('Refreshing GraphQL indexer...');
-    console.log('UserOperation confirmed. Please refresh the agent list to see the new agent.');
+    console.log(
+      'UserOperation confirmed. Please refresh the agent list to see the new agent.'
+    );
   }
 
   return {
@@ -989,8 +1107,4 @@ export async function createAgentWithWalletForAA(
     txHash: userOpHash,
     requiresClientSigning: true,
   };
-
 }
-
-
-

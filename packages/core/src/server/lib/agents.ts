@@ -24,6 +24,9 @@ import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { createBundlerClient } from 'viem/account-abstraction';
+import { addToL1OrgPK } from './ensActions';
+import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/bundlerUtils';
+import { getENSClient } from '../singletons/ensClient';
 
 const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
 
@@ -488,6 +491,10 @@ export class AgentsAPI {
       capabilities?: Record<string, any>;
     }>;
     chainId?: number;
+    ensOptions?: {
+      enabled?: boolean;
+      orgName?: string;
+    };
   }): Promise<{ txHash: string; agentId?: string }> {
     const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
     const adminApp = await getAdminApp(undefined, chainId);
@@ -552,6 +559,50 @@ export class AgentsAPI {
       const id = await this.extractAgentIdFromReceipt(receipt, chainId);
       if (id) agentId = id;
     } catch {}
+
+    if (params.ensOptions?.enabled && params.ensOptions.orgName) {
+      try {
+        await addToL1OrgPK({
+          orgName: params.ensOptions.orgName,
+          agentName: params.agentName,
+          agentAddress: params.agentAccount,
+          agentUrl: params.agentUrl,
+          chainId,
+        });
+
+        const ensClient = await getENSClient(chainId);
+        const { calls: infoCalls } = await ensClient.prepareSetAgentNameInfoCalls({
+          orgName: params.ensOptions.orgName,
+          agentName: params.agentName,
+          agentAddress: params.agentAccount,
+          agentUrl: params.agentUrl,
+          agentDescription: params.description,
+        });
+
+        if (infoCalls.length > 0) {
+        const formattedCalls = infoCalls.map((call) => ({
+            to: call.to,
+            data: call.data,
+          value: 0n,
+          }));
+
+          const infoUserOpHash = await sendSponsoredUserOperation({
+            bundlerUrl,
+            chain,
+          accountClient,
+            calls: formattedCalls,
+          });
+
+          await waitForUserOperationReceipt({
+            bundlerUrl,
+            chain,
+            hash: infoUserOpHash,
+          });
+        }
+      } catch (ensError) {
+        console.warn('[createAgentForAAPK] ENS setup failed:', ensError);
+      }
+    }
 
     return { txHash: userOperationHash as string, agentId };
   }

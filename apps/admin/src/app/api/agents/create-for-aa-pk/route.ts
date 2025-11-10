@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
       supportedTrust,
       endpoints,
       chainId,
+      ensOptions,
     } = body ?? {};
 
     console.log('[api/agents/create-for-aa-pk] Received chainId:', chainId);
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
       supportedTrust,
       endpoints,
       chainId: chainId ? Number(chainId) : undefined,
+      ensOptions: ensOptions as any,
     });
 
     return NextResponse.json({

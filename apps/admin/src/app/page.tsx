@@ -742,6 +742,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               image: createForm.image || undefined,
               agentUrl: createForm.agentUrl || undefined,
               chainId: selectedChainId,
+              ensOptions: {
+                enabled: !!createENS,
+                orgName: createENS ? ensOrgName : undefined,
+              },
             }),
           });
           if (!resp.ok) {
