@@ -127,6 +127,8 @@ export {
   getChainBundlerUrl,
   isPrivateKeyMode,
   getEnsOrgName,
+  getEnsOrgAddress,
+  getEnsPrivateKey,
   getWeb3AuthClientId,
   getWeb3AuthNetwork,
   getChainDisplayMetadata,

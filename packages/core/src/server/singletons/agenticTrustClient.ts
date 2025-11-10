@@ -145,9 +145,7 @@ export class AgenticTrustClient {
       this.veramo.connect(config.veramoAgent);
     } else {
       console.log('🏭 initializeVeramoAgent: Creating agent internally...');
-      // Import the factory function
-      console.log('✅ initializeVeramoAgent: Factory imported: ', config.rpcUrl, ', privateKey: ', config.privateKey);
-      
+
       // Create agent internally
       const agent = await createVeramoAgentForClient(
         config.privateKey,

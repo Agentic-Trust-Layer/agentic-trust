@@ -2,7 +2,8 @@
  * Agentic Trust SDK - ENS Client
  * Uses AccountProvider (Ports & Adapters pattern) for chain I/O.
  */
-import { createPublicClient, http, namehash, labelhash, encodeFunctionData, hexToString, type Chain, type PublicClient } from 'viem';
+import { createPublicClient, http, namehash, labelhash, parseAbi, toHex, encodeFunctionData, decodeFunctionResult,hexToString, type Chain, type PublicClient } from 'viem';
+import { packetToBytes, normalize } from 'viem/ens'
 import { ethers } from 'ethers';
 import { sepolia } from 'viem/chains';
 import { AccountProvider } from '@erc8004/sdk';
@@ -321,17 +322,11 @@ export class AIAgentENSClient {
    * Resolve an agent by ENS name via resolver.text(namehash(name), 'agent-identity')
    */
   async getAgentIdentityByName(name: string): Promise<{ agentId: bigint | null; account: string | null }> {
-    const ensName = name.trim().toLowerCase();
+    let ensName = name.trim().toLowerCase();
     if (!ensName) return  { agentId: null, account: null };
 
-    const ENS_REGISTRY_ABI = [
-      { name: 'resolver', type: 'function', stateMutability: 'view', inputs: [{ name: 'node', type: 'bytes32' }], outputs: [{ name: '', type: 'address' }] },
-    ] as any[];
-    const RESOLVER_ABI = [
-      { name: 'text', type: 'function', stateMutability: 'view', inputs: [{ name: 'node', type: 'bytes32' }, { name: 'key', type: 'string' }], outputs: [{ name: '', type: 'string' }] },
-    ] as any[];
-
-
+    ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
+    ensName = ensName + '.eth';
     const node = namehash(ensName);
 
     // resolver
@@ -393,7 +388,8 @@ export class AIAgentENSClient {
    */
   async hasAgentNameOwner(orgName: string, agentName: string): Promise<boolean> {
     const clean = (s: string) => (s || '').trim().toLowerCase();
-    const parent = clean(orgName);
+    let parent = clean(orgName);
+    parent = parent.endsWith('.eth') ? parent.slice(0, -4) : parent;
     const label = clean(agentName).replace(/\s+/g, '-');
     const fullSubname = `${label}.${parent}.eth`;
     const subnameNode = namehash(fullSubname);
@@ -421,11 +417,23 @@ export class AIAgentENSClient {
    */
   async getAgentAccountByName(name: string): Promise<`0x${string}` | null> {
 
+    const universalResolverAbi = parseAbi([
+      'error ResolverNotFound(bytes name)',
+      'error ResolverNotContract(bytes name, address resolver)',
+      'error UnsupportedResolverProfile(bytes4 selector)',
+      'error ResolverError(bytes errorData)',
+      'error ReverseAddressMismatch(string primary, bytes primaryAddress)',
+      'error HttpError(uint16 status, string message)',
+      'function resolve(bytes name, bytes data) view returns (bytes result, address resolver)',
+      'function reverse(bytes lookupAddress, uint256 coinType) view returns (string primary, address resolver, address reverseResolver)',
+    ])
+
+
     console.info("*********** getAgentAccountByName: name", name);
-    const ensName = name.trim().toLowerCase();
-    if (!ensName) return null;
-
-
+    let ensName = name.trim().toLowerCase();
+    ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
+    ensName = ensName + '.eth';
+    
 
     const node = namehash(ensName);
 
@@ -436,6 +444,7 @@ export class AIAgentENSClient {
       console.info("ensName: ", ensName);
       console.info("this.ensRegistryAddress: ", this.ensRegistryAddress);
 
+      /*
       resolverAddr = await this.accountProvider.call<`0x${string}`>({
         to: this.ensRegistryAddress,
         abi: [{
@@ -448,6 +457,10 @@ export class AIAgentENSClient {
         functionName: 'resolver',
         args: [node],
       });
+      */
+
+      
+      resolverAddr = "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe"
 
 
       console.info("resolverAddr: ", resolverAddr);
@@ -461,15 +474,101 @@ export class AIAgentENSClient {
 
     try {
 
-      console.info("try and get addr for node using resolver")
+      const simpleResolverAbi = parseAbi([
+        'function addr(bytes32 node) view returns (address)',
+        'function text(bytes32 node, string key) view returns (string)',
+      ])
+       
+      const multicallAbi = parseAbi([
+        'function multicall(bytes[] data) returns (bytes[] results)',
+      ])
+       
+      const name = normalize(ensName)
+      const node = namehash(name)
+       
+      const resolverCalls = [
+        {
+          abi: simpleResolverAbi,
+          functionName: 'addr',
+          args: [node],
+        },
+        {
+          abi: simpleResolverAbi,
+          functionName: 'text',
+          args: [node, 'description'],
+        },
+      ] as const
+       
+      const callData = encodeFunctionData({
+        abi: multicallAbi,
+        functionName: 'multicall',
+        args: [resolverCalls.map((call) => encodeFunctionData(call))],
+      })
+
+
+      // DNS wire-format encode of the ENS name for Universal Resolver
+      const dnsEncodedName = toHex(packetToBytes(ensName))
+
+      const resolveResult = await this.publicClient?.readContract({
+        address: resolverAddr,
+        abi: universalResolverAbi,
+        functionName: 'resolve',
+        args: [dnsEncodedName, callData],
+      }).catch(() => null) as readonly [`0x${string}`, `0x${string}`] | null;
+
+
+      let addrFromMulticall: string | null = null;
+      let descriptionFromMulticall: string | null = null;
+      if (resolveResult) {
+        try {
+          const resultsBytes = decodeFunctionResult({
+            abi: multicallAbi,
+            functionName: 'multicall',
+            data: resolveResult[0],
+          }) as `0x${string}`[];
+
+          const addrBytes = resultsBytes?.[0];
+          const textBytes = resultsBytes?.[1];
+
+          const addrDecoded = addrBytes
+            ? (decodeFunctionResult({
+                abi: simpleResolverAbi,
+                functionName: 'addr',
+                data: addrBytes,
+              }) as string)
+            : null;
+
+          const textDecoded = textBytes
+            ? (decodeFunctionResult({
+                abi: simpleResolverAbi,
+                functionName: 'text',
+                data: textBytes,
+              }) as string)
+            : null;
+
+          addrFromMulticall = addrDecoded ?? null;
+          descriptionFromMulticall = (textDecoded || '').length ? textDecoded : null;
+          console.info("decodedRes addr/text: ", addrFromMulticall, descriptionFromMulticall);
+        } catch (e) {
+          console.warn("UniversalResolver decode failed", e);
+        }
+      }
+
+      
+
+
+      const addr = addrFromMulticall;
+
+      /*
       const addr = await this.accountProvider.call<string>({
         to: resolverAddr,
         abi: PublicResolverABI.abi as any,
         functionName: 'addr',
         args: [node],
       }).catch(() => null);
+      */
 
-      console.info("addr: ", addr);
+      console.info("addr2: ", addr);
       if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr) && addr !== '0x0000000000000000000000000000000000000000') {
         return addr as `0x${string}`;
       }

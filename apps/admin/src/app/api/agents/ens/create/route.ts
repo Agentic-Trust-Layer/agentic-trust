@@ -33,11 +33,13 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await addAgentNameToOrg({
-      agentName,
-      orgName,
       agentAddress: agentAccount as `0x${string}`,
+      orgName,
+      agentName,
       agentUrl,
     });
+
+
 
     return NextResponse.json({
       success: true,

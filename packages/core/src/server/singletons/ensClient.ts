@@ -5,9 +5,9 @@
  * Initialized from environment variables using AccountProvider
  */
 
-import { AIAgentENSClient } from '@erc8004/agentic-trust-sdk';
+import { AIAgentENSClient, AIAgentL2ENSDurenClient } from '@erc8004/agentic-trust-sdk';
 import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
-import { sepolia } from '../lib/chainConfig';
+import { sepolia, baseSepolia, optimismSepolia } from '../lib/chainConfig';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
@@ -17,7 +17,7 @@ import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { getChainEnvVar } from '../lib/chainConfig';
-
+import { getEnsOrgAddress } from '../lib/chainConfig';
 
 // Singleton instances by chainId
 let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
@@ -123,16 +123,21 @@ export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> 
         });
       }
 
-      // Create ENS client
-      const { baseSepolia } = await import('viem/chains');
+      // Select chain object
       const chain =
         targetChainId === 11155111
           ? sepolia
           : targetChainId === 84532
           ? baseSepolia
+          : targetChainId === 11155420
+          ? optimismSepolia
           : sepolia;
 
-      const ensClient = new AIAgentENSClient(
+      // Choose L1 vs L2 ENS client implementation
+      const isL2 = targetChainId === 84532 || targetChainId === 11155420;
+      const ClientCtor = isL2 ? AIAgentL2ENSDurenClient : AIAgentENSClient;
+
+      const ensClient = new ClientCtor(
         chain,
         rpcUrl,
         accountProvider,
@@ -184,8 +189,8 @@ export function resetENSClient(chainId?: number): void {
  * @returns true if the ENS name is available, false if it's taken, null if check failed
  */
 export async function isENSAvailable(
-  agentName: string,
   orgName: string,
+  agentName: string,
   chainId?: number
 ): Promise<boolean | null> {
   try {
@@ -456,21 +461,21 @@ export interface PrepareAgentNameInfoResult {
   }[];
 }
 
-
 export async function addAgentNameToOrg(params: AddAgentToOrgParams): Promise<string> {
-  const { agentName, orgName, agentAddress, agentUrl } = params;
+  const { agentAddress, orgName, agentName, agentUrl } = params;
 
   if (!agentName || !orgName || !agentAddress) {
     throw new Error('agentName, orgName, and agentAddress are required to add an agent name to an org');
   }
 
-  const ensClient = await getENSClient();
+  const targetChainId = params.chainId || 11155111;
+  const ensClient = await getENSClient(targetChainId);
 
   const agentNameLabel = agentName.toLowerCase().replace(/\s+/g, '-');
   const orgNameClean = orgName.toLowerCase().replace(/\.eth$/, '');
+  const orgAddress = getEnsOrgAddress(targetChainId);
 
-  const orgAddress = process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS as `0x${string}`;
-
+  console.log('********************* prepareAddAgentNameToOrgCalls: orgName: ', orgName, agentName, agentAddress, agentUrl);
   const { calls: orgCalls } = await ensClient.prepareAddAgentNameToOrgCalls({
     orgName: orgNameClean,
     agentName: agentNameLabel,

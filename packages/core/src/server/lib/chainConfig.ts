@@ -62,6 +62,25 @@ const CLIENT_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefi
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
 } as const;
 
+// ENS chain-specific variables
+const SERVER_CHAIN_ENS_PRIVKEY_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  11155111: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_SEPOLIA,
+  84532: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_BASE_SEPOLIA,
+  11155420: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_OPTIMISM_SEPOLIA,
+} as const;
+
+const SERVER_CHAIN_ENS_ORG_ADDRESS_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  11155111: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_SEPOLIA,
+  84532: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_BASE_SEPOLIA,
+  11155420: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_OPTIMISM_SEPOLIA,
+} as const;
+
+const CLIENT_CHAIN_ENS_ORG_NAME_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_SEPOLIA,
+  84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_BASE_SEPOLIA,
+  11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_OPTIMISM_SEPOLIA,
+} as const;
+
 /**
  * Get chain-specific environment variable
  * @param baseName - Base environment variable name (e.g., 'AGENTIC_TRUST_RPC_URL')
@@ -161,27 +180,16 @@ export function getChainRpcUrl(chainId: number): string {
     const clientValue = CLIENT_CHAIN_RPC_ENV[chainId as SupportedChainId];
 
     if (isBrowser) {
-      console.log(`[getChainRpcUrl] Browser mode - checking NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}:`, clientValue ? 'found' : 'not found');
       if (clientValue) return clientValue;
     } else {
-      console.log(`[getChainRpcUrl] Server mode - checking AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}:`, serverValue ? 'found' : 'not found');
       if (serverValue) return serverValue;
-
-      console.log(`[getChainRpcUrl] Server mode - checking NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}:`, clientValue ? 'found' : 'not found');
       if (clientValue) return clientValue;
     }
-
-    // Debug: Log chain-specific environment variables
-    console.log(`[getChainRpcUrl] Environment: ${isBrowser ? 'browser' : 'server'}`);
-    console.log(`[getChainRpcUrl] Looking for chain-specific variables for ${chainConfig.name} (${chainId}):`);
-    console.log(`  AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}: ${serverValue ? 'set (' + serverValue.substring(0, 20) + '...)' : 'not set'}`);
-    console.log(`  NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}: ${clientValue ? 'set (' + clientValue.substring(0, 20) + '...)' : 'not set'}`);
 
     // Log all AGENTIC_TRUST variables for debugging
     const allMatchingKeys = Object.keys(process.env).filter(key =>
       key.startsWith('AGENTIC_TRUST') || key.startsWith('NEXT_PUBLIC_AGENTIC_TRUST')
     );
-    console.log(`  Total AGENTIC_TRUST variables found: ${allMatchingKeys.length}`);
 
     // No generic fallbacks - throw error if chain-specific variable not configured
     const expectedVar = isBrowser
@@ -328,11 +336,44 @@ export function isPrivateKeyMode(): boolean {
 }
 
 /**
- * Get ENS organization name (accessible from both server and client)
- * @returns ENS organization name
+ * Get ENS organization name (accessible from both server and client), chain-specific.
+ * Throws if not configured.
+ * @param chainId - target chain (defaults to DEFAULT_CHAIN_ID)
  */
-export function getEnsOrgName(): string {
-  return process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME || '8004-agent';
+export function getEnsOrgName(chainId?: number): string {
+  const target = (chainId ?? DEFAULT_CHAIN_ID) as SupportedChainId;
+  const chainConfig = CHAIN_CONFIG[target];
+  const isBrowser = typeof window !== 'undefined';
+  const clientValue = CLIENT_CHAIN_ENS_ORG_NAME_ENV[target];
+  if (clientValue) return clientValue;
+  // Allow server to also read NEXT_PUBLIC_ value (consistency with RPC logic)
+  if (!isBrowser && clientValue) return clientValue;
+  const expectedVar = `NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_${chainConfig.suffix}`;
+  throw new Error(`Missing required ENS org name for chain ${target} (${chainConfig.name}). Set ${expectedVar}.`);
+}
+
+/**
+ * Get ENS org address (server-only), chain-specific. Throws if not configured.
+ */
+export function getEnsOrgAddress(chainId: number): `0x${string}` {
+  const target = chainId as SupportedChainId;
+  const chainConfig = CHAIN_CONFIG[target];
+  const value = SERVER_CHAIN_ENS_ORG_ADDRESS_ENV[target];
+  if (value && value.startsWith('0x') && value.length === 42) return value as `0x${string}`;
+  const expectedVar = `AGENTIC_TRUST_ENS_ORG_ADDRESS_${chainConfig.suffix}`;
+  throw new Error(`Missing required ENS org address for chain ${target} (${chainConfig.name}). Set ${expectedVar}.`);
+}
+
+/**
+ * Get ENS private key (server-only), chain-specific. Throws if not configured.
+ */
+export function getEnsPrivateKey(chainId: number): string {
+  const target = chainId as SupportedChainId;
+  const chainConfig = CHAIN_CONFIG[target];
+  const value = SERVER_CHAIN_ENS_PRIVKEY_ENV[target];
+  if (value) return value.startsWith('0x') ? value : `0x${value}`;
+  const expectedVar = `AGENTIC_TRUST_ENS_PRIVATE_KEY_${chainConfig.suffix}`;
+  throw new Error(`Missing required ENS private key for chain ${target} (${chainConfig.name}). Set ${expectedVar}.`);
 }
 
 /**

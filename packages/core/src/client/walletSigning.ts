@@ -634,9 +634,13 @@ export async function createAgentWithWalletForAA(
   // Get agent name from request
   const agentName = options.agentData.agentName;
 
+  
+
   // Get Account Client by Agent Name, find if exists and if not then create it
   const bundlerUrl = getChainBundlerUrl(chainId);
-  console.log('Getting AA account client by agent name: ', agentName);
+
+  console.log('!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName: agentName', agentName);
+        
   let agentAccountClient = await getDeployedAccountClientByAgentName(
     bundlerUrl,
     agentName,
@@ -672,14 +676,14 @@ export async function createAgentWithWalletForAA(
           ? computedAddress
           : options.agentData.agentAccount;
   
-        onStatusUpdate?.('Creating ENS subdomain...');
+        onStatusUpdate?.('Creating ENS subdomain for agent: ' + options.agentData.agentName);
         const ensResponse = await fetch('/api/agents/ens/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            agentName: options.agentData.agentName,
             agentAccount: ensAgentAccount,
             orgName: options.ensOptions.orgName,
+            agentName: options.agentData.agentName,
             agentUrl: options.agentData.agentUrl,
           }),
         });
@@ -740,6 +744,8 @@ export async function createAgentWithWalletForAA(
             if (infoCalls.length > 0) {
               onStatusUpdate?.('Updating ENS agent info...');
               // Ensure we are using a deployed-only AA client (no factory/factoryData)
+              //const fullAgentName = agentName + '.' + options.ensOptions.orgName + ".eth";
+              console.log('!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName 2: finalAgentName', agentName);
               agentAccountClient = await getDeployedAccountClientByAgentName(
                 bundlerUrl,
                 agentName,

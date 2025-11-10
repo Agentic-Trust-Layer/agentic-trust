@@ -233,7 +233,7 @@ export default function AdminPage() {
   // Toggle states for Create Agent
   const [useAA, setUseAA] = useState(false);
   const [createENS, setCreateENS] = useState(false);
-  const [ensOrgName, setEnsOrgName] = useState(getEnsOrgName()); // Default org name
+  const [ensOrgName, setEnsOrgName] = useState(getEnsOrgName(DEFAULT_CHAIN_ID)); // Default org name
   const [ensChecking, setEnsChecking] = useState(false);
   const [ensAvailable, setEnsAvailable] = useState<boolean | null>(null);
   const [aaAddress, setAaAddress] = useState<string | null>(null);
@@ -311,6 +311,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   }, [eoaAddress, useAA, usePrivateKey]);
 
+  /*
   // Compute AA address when useAA is enabled and agent name changes
   useEffect(() => {
     if (!useAA || !createForm.agentName || !eoaAddress) {
@@ -344,10 +345,16 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         let existingInfo: { account: string; method?: string } | null = null;
 
         try {
+          // Use full ENS name for discovery when ENS creation is enabled
+          const nameForResolution =
+            createENS && ensOrgName
+              ? `${createForm.agentName}.${ensOrgName}`
+              : createForm.agentName;
+          console.log('*********** zzz resolve-account nameForResolution 2: ', nameForResolution);
           const resolveResponse = await fetch('/api/agents/resolve-account', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agentName: createForm.agentName }),
+            body: JSON.stringify({ agentName: nameForResolution }),
           });
 
           if (resolveResponse.ok) {
@@ -431,6 +438,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     };
   }, [useAA, createForm.agentName, eoaAddress, selectedChainId, aaEip1193, synchronizeProvidersWithChain, CHAIN_OBJECTS, getChainIdHex]);
 
+
+  */  
   // Check ENS availability when createENS is enabled and agent name changes
   // Only check if AA is enabled (ENS only makes sense for AA agents)
   useEffect(() => {
@@ -483,6 +492,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       cancelled = true;
     };
   }, [useAA, createENS, createForm.agentName, ensOrgName, selectedChainId]);
+  
 
   // Reset ENS toggle when AA is disabled
   useEffect(() => {
@@ -490,6 +500,18 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       setCreateENS(false);
     }
   }, [useAA]);
+
+  // Keep ENS org name in sync with selected chain
+  useEffect(() => {
+    try {
+      const name = getEnsOrgName(selectedChainId);
+      setEnsOrgName(name);
+    } catch (e) {
+      // If missing, surface error, but don't crash UI
+      console.warn('Missing chain-specific ENS org name for chain', selectedChainId, e);
+      setEnsOrgName('');
+    }
+  }, [selectedChainId]);
 
   // Filter agents based on search query
   useEffect(() => {
@@ -507,62 +529,62 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     setFilteredAgents(filtered);
   }, [searchQuery, agents]);
 
-         // Handle agent row click
-         const handleAgentClick = async (agent: Agent) => {
-           setSelectedAgent(agent);
-           setShowAgentDialog(true);
-           // Clear any previous error/success messages when opening dialog
-           setError(null);
-           setSuccess(null);
-           
-          // Reset data sources
-          setContractData(null);
-          setIpfsData(null);
-          setGraphQLData(null);
-          
-          // Fetch data from consolidated route
-          if (agent.agentId) {
-            setLoadingData(true);
-            try {
-              // Fetch from consolidated route
-              const response = await fetch(`/api/agents/${agent.agentId}?chainId=11155111`);
-              
-              if (response.ok) {
-                const data = await response.json();
-                
-                // Extract identity metadata (contract) data
-                if (data.identityMetadata) {
-                  setContractData({
-                    agentId: data.agentId,
-                    tokenURI: data.identityMetadata.tokenURI,
-                    metadata: data.identityMetadata.metadata,
-                  });
-                }
-                
-                // Extract identity registration (IPFS) data
-                if (data.identityRegistration) {
-                  setIpfsData({
-                    tokenURI: data.identityRegistration.tokenURI,
-                    registration: data.identityRegistration.registration,
-                  });
-                }
-                
-                // Extract discovery (GraphQL) data
-                if (data.discovery) {
-                  setGraphQLData({
-                    agentData: data.discovery,
-                  });
-                }
-              } else {
-                console.warn('Failed to fetch agent info:', response.status, response.statusText);
-              }
-            } catch (err) {
-              console.error('Error fetching agent data:', err);
-            } finally {
-              setLoadingData(false);
-            }
-          }
-         };
+  // Handle agent row click
+  const handleAgentClick = async (agent: Agent) => {
+    setSelectedAgent(agent);
+    setShowAgentDialog(true);
+    // Clear any previous error/success messages when opening dialog
+    setError(null);
+    setSuccess(null);
+    
+  // Reset data sources
+  setContractData(null);
+  setIpfsData(null);
+  setGraphQLData(null);
+  
+  // Fetch data from consolidated route
+  if (agent.agentId) {
+    setLoadingData(true);
+    try {
+      // Fetch from consolidated route
+      const response = await fetch(`/api/agents/${agent.agentId}?chainId=11155111`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Extract identity metadata (contract) data
+        if (data.identityMetadata) {
+          setContractData({
+            agentId: data.agentId,
+            tokenURI: data.identityMetadata.tokenURI,
+            metadata: data.identityMetadata.metadata,
+          });
+        }
+        
+        // Extract identity registration (IPFS) data
+        if (data.identityRegistration) {
+          setIpfsData({
+            tokenURI: data.identityRegistration.tokenURI,
+            registration: data.identityRegistration.registration,
+          });
+        }
+        
+        // Extract discovery (GraphQL) data
+        if (data.discovery) {
+          setGraphQLData({
+            agentData: data.discovery,
+          });
+        }
+      } else {
+        console.warn('Failed to fetch agent info:', response.status, response.statusText);
+      }
+    } catch (err) {
+      console.error('Error fetching agent data:', err);
+    } finally {
+      setLoadingData(false);
+    }
+  }
+  };
 
   // Handle disconnect
   const handleDisconnect = async () => {
@@ -628,6 +650,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     try {
       setError(null);
       setSuccess(null);
+      
+      // If ENS is enabled, the agent's name should be the full ENS name (e.g., "<label>.<org>")
+      const finalAgentName =
+        createENS && ensOrgName
+          ? `${createForm.agentName}.${ensOrgName}.eth`
+          : createForm.agentName;
 
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
@@ -657,14 +685,27 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         // ignore; core will also attempt authorization
       }
 
-      // Use the agent account from the form (which should be populated with AA address if useAA is enabled)
-      const agentAccountToUse = createForm.agentAccount as `0x${string}`;
+      // Use the agent account from the form by default
+      let agentAccountToUse = createForm.agentAccount as `0x${string}`;
 
       // If using AA, the agent account should already be populated by the useEffect
       if (useAA) {
-        if (!agentAccountToUse || !agentAccountToUse.startsWith('0x')) {
-          throw new Error('AA address computation is in progress. Please wait for the address to be computed.');
+        // Ensure AA address is computed using the SAME name used for creation (finalAgentName)
+        console.log('!!!!!!!!!!!! handleCreateAgent: getCounterfactualAccountClientByAgentName: finalAgentName', finalAgentName);
+        const aaClient = await getCounterfactualAccountClientByAgentName(
+          finalAgentName,
+          eoaAddress as `0x${string}`,
+          {
+            ethereumProvider: aaEip1193 as any,
+            chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
+          },
+        );
+        const computedAa = await aaClient.getAddress();
+        if (!computedAa || !computedAa.startsWith('0x')) {
+          throw new Error('Failed to compute AA address. Please retry.');
         }
+        setAaAddress(computedAa);
+        agentAccountToUse = computedAa as `0x${string}`;
         setSuccess('Using Account Abstraction address...');
       }
 
@@ -680,7 +721,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         // create Agent Identity for Externally Owned Account (EOA)
         const result = await createAgentWithWalletForEOA({
           agentData: {
-            agentName: createForm.agentName,
+            agentName: finalAgentName,
             agentAccount: agentAccountToUse,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
@@ -704,10 +745,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       else {
         // create Agent Identity for Account Abstraction (AA)
         // create Agent Identity for Externally Owned Account (EOA)
-        console.log('*********** handleCreateAgent: createAgentWithWalletForAA: createForm.agentName', createForm.agentName);
+        console.log('*********** handleCreateAgent: createAgentWithWalletForAA: agentName', finalAgentName);
         const result = await createAgentWithWalletForAA({
           agentData: {
-            agentName: createForm.agentName,
+            agentName: finalAgentName,
             agentAccount: agentAccountToUse,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
