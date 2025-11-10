@@ -428,7 +428,7 @@ export async function createENSName(
 }
 */
 
-export interface AddAgentToOrgParams {
+export interface AddAgentToOrgL1Params {
   agentName: string;
   orgName: string;
   agentAddress: `0x${string}`;
@@ -436,7 +436,23 @@ export interface AddAgentToOrgParams {
   chainId?: number;
 }
 
-export interface AddAgentToOrgResult {
+export interface AddAgentToOrgL1Result {
+  calls: {
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value?: bigint;
+  }[];
+}
+
+export interface AddAgentToOrgL2Params {
+  agentName: string;
+  orgName: string;
+  agentAddress: `0x${string}`;
+  agentUrl?: string;
+  chainId?: number;
+}
+
+export interface AddAgentToOrgL2Result {
   calls: {
     to: `0x${string}`;
     data: `0x${string}`;
@@ -445,7 +461,7 @@ export interface AddAgentToOrgResult {
 }
 
 
-export interface PrepareAgentNameInfoParams {
+export interface PrepareL1AgentNameInfoParams {
   agentAddress: `0x${string}`;
   orgName: string;
   agentName: string;
@@ -454,7 +470,7 @@ export interface PrepareAgentNameInfoParams {
   chainId?: number;
 }
 
-export interface PrepareAgentNameInfoResult {
+export interface PrepareL1AgentNameInfoResult {
   calls: {
     to: `0x${string}`;
     data: `0x${string}`;
@@ -462,7 +478,7 @@ export interface PrepareAgentNameInfoResult {
   }[];
 }
 
-export interface PrepareL2AgentEnsParams {
+export interface PrepareL2AgentNameInfoParams {
   agentAddress: `0x${string}`;
   orgName: string;
   agentName: string;
@@ -472,7 +488,7 @@ export interface PrepareL2AgentEnsParams {
   chainId?: number;
 }
 
-export interface PrepareL2AgentEnsResult {
+export interface PrepareL2AgentNameInfoResult {
   calls: {
     to: `0x${string}`;
     data: `0x${string}`;
@@ -480,7 +496,7 @@ export interface PrepareL2AgentEnsResult {
   }[];
 }
 
-export async function addAgentNameToL1Org(params: AddAgentToOrgParams): Promise<string> {
+export async function addAgentNameToL1Org(params: AddAgentToOrgL2Params): Promise<string> {
   const { agentAddress, orgName, agentName, agentUrl } = params;
 
   if (!agentName || !orgName || !agentAddress) {
@@ -564,9 +580,9 @@ export async function addAgentNameToL1Org(params: AddAgentToOrgParams): Promise<
 }
 
 
-export async function prepareAgentNameInfoCalls(
-  params: PrepareAgentNameInfoParams
-): Promise<PrepareAgentNameInfoResult> {
+export async function prepareL1AgentNameInfoCalls(
+  params: PrepareL1AgentNameInfoParams
+): Promise<PrepareL1AgentNameInfoResult> {
   const { agentAddress, orgName, agentName, agentUrl, agentDescription } = params;
 
   if (!agentName || !orgName || !agentAddress) {
@@ -597,15 +613,15 @@ export async function prepareAgentNameInfoCalls(
   };
 }
 
-export async function prepareL2AgentEnsCalls(
-  params: PrepareL2AgentEnsParams
-): Promise<PrepareL2AgentEnsResult> {
+export async function addAgentNameToL2Org(
+  params: PrepareL2AgentNameInfoParams
+): Promise<PrepareL1AgentNameInfoResult> {
   const { agentAddress, orgName, agentName, agentUrl, agentDescription, agentImage } = params;
   if (!agentName || !orgName || !agentAddress) {
     throw new Error('agentName, orgName, and agentAddress are required to prepare L2 ENS calls');
   }
 
-  console.info("inside prepareL2AgentEnsCalls: ", params);
+  console.info("inside addAgentNameToL2Org: ", params);
 
   const targetChainId = params.chainId || 11155111;
   const ensClient = await getENSClient(targetChainId);
@@ -657,7 +673,52 @@ export async function prepareL2AgentEnsCalls(
   }
   */
 
-  console.info("prepareL2AgentEnsCalls: calls", calls);
+  console.info("addAgentNameToL2Org: calls", calls);
 
   return { calls };
 }
+
+export async function prepareL2AgentNameInfoCalls(
+  params: PrepareL2AgentNameInfoParams
+): Promise<PrepareL2AgentNameInfoResult> {
+  const { agentAddress, orgName, agentName, agentUrl, agentDescription } = params;
+
+  console.info("inside addAgentNameToL2Org: ", params);
+
+  const targetChainId = params.chainId || 11155111;
+  const ensClient = await getENSClient(targetChainId);
+
+  const orgNameClean = orgName.replace(/\.eth$/i, '').toLowerCase();
+  const orgNamePattern = orgNameClean.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const agentNameTrimmed = agentName
+    .replace(new RegExp(`^${orgNamePattern}\\.`, 'i'), '')
+    .replace(/\.eth$/i, '')
+    .trim();
+  const agentNameLabel = agentNameTrimmed.toLowerCase().replace(/\s+/g, '-');
+
+  const calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
+
+
+  // Metadata (text records)
+  console.info("prepare set agent name info calls");
+  const { calls: infoCalls } = await ensClient.prepareSetAgentNameInfoCalls({
+    orgName: orgNameClean,
+    agentName: agentNameLabel,
+    agentAddress,
+    agentUrl: agentUrl || '',
+    agentDescription: agentDescription || '',
+  });
+  calls.push(...infoCalls);
+
+  // Optional avatar/image
+  console.info("prepare set name image calls");
+  if (params.agentImage && params.agentImage.trim() !== '') {
+    const fullSubname = `${agentNameLabel}.${orgNameClean}.eth`;
+    const { calls: imageCalls } = await (ensClient as any).prepareSetNameImageCalls(fullSubname, params.agentImage.trim());
+    calls.push(...imageCalls);
+  }
+
+  return { calls };
+
+}
+

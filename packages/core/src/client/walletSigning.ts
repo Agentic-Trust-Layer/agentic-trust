@@ -689,15 +689,9 @@ export async function createAgentWithWalletForAA(
             chainId,
           }),
         });
- 
-        console.log('*********** createAgentWithWalletForAA: ensResponse', ensResponse);
- 
 
-        console.log('*********** createAgentWithWalletForAA: ENS subdomain handled server-side');
- 
-        console.log('*********** createAgentWithWalletForAA: preparing ENS metadata update...');
         onStatusUpdate?.('Preparing ENS metadata update...');
-        const infoResponse = await fetch('/api/agents/ens/set-info', {
+        const infoResponse = await fetch('/api/agents/ens/setL1NameInfo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -797,8 +791,9 @@ export async function createAgentWithWalletForAA(
       const agentUrl = options.agentData.agentUrl;
       const agentDescription = options.agentData.description;
       const agentImage = options.agentData.image;
+      
       // Prepare all necessary L2 ENS calls server-side, then send them as one user operation
-      const prepareResp = await fetch('/api/agents/ens/prepare-l2', {
+      const prepareResp = await fetch('/api/agents/ens/addToL2Org', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
