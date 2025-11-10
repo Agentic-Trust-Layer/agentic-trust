@@ -6,7 +6,7 @@
 
 import type { PublicClient, Account } from 'viem';
 import { ethers } from 'ethers';
-import type { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
+import type { AIAgentReputationClient } from '@agentic-trust/8004-ext-sdk';
 
 // Cache for the ABI to avoid reloading it multiple times
 let abiCache: any = null;
@@ -23,13 +23,13 @@ const getIdentityRegistryAbi = async (): Promise<any> => {
 
   // Dynamic import works with webpack's module resolution and the package.json exports
   try {
-    const abiModule = await import('@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json');
+    const abiModule = await import('@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json');
     abiCache = abiModule.default || abiModule;
     return abiCache;
   } catch (error: any) {
     throw new Error(
       `Failed to load IdentityRegistry ABI: ${error?.message || error}. ` +
-      `Make sure @erc8004/agentic-trust-sdk is installed and the ABI file exists.`
+      `Make sure @agentic-trust/8004-ext-sdk is installed and the ABI file exists.`
     );
   }
 };

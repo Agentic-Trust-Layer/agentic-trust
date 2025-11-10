@@ -13,17 +13,17 @@ A TypeScript SDK for interacting with ERC-8004 compliant implementations. This S
 ## Installation
 
 ```bash
-npm install @erc8004/sdk
+npm install @agentic-trust/8004-sdk
 # or
-yarn add @erc8004/sdk
+yarn add @agentic-trust/8004-sdk
 # or
-pnpm add @erc8004/sdk
+pnpm add @agentic-trust/8004-sdk
 ```
 
 ## Quick Start
 
 ```typescript
-import { ERC8004Client, EthersAdapter } from '@erc8004/sdk';
+import { ERC8004Client, EthersAdapter } from '@agentic-trust/8004-sdk';
 import { ethers } from 'ethers';
 
 // Create an adapter for your preferred blockchain library
@@ -52,7 +52,7 @@ const reputation = await client.reputation.getReputationScore(agentAddress);
 The main client that provides access to all ERC-8004 functionality:
 
 ```typescript
-import { ERC8004Client } from '@erc8004/sdk';
+import { ERC8004Client } from '@agentic-trust/8004-sdk';
 
 const client = new ERC8004Client({
   adapter: yourAdapter,
@@ -73,7 +73,7 @@ const validation = client.validation;
 Handles identity-related operations:
 
 ```typescript
-import { IdentityClient } from '@erc8004/sdk';
+import { IdentityClient } from '@agentic-trust/8004-sdk';
 
 const identityClient = new IdentityClient(adapter, identityRegistryAddress);
 
@@ -92,7 +92,7 @@ const exists = await identityClient.exists(tokenId);
 Manages reputation scoring and feedback:
 
 ```typescript
-import { ReputationClient } from '@erc8004/sdk';
+import { ReputationClient } from '@agentic-trust/8004-sdk';
 
 const reputationClient = new ReputationClient(adapter, reputationRegistryAddress);
 
@@ -116,7 +116,7 @@ const feedback = await reputationClient.getFeedbackHistory(agentAddress);
 Provides validation utilities:
 
 ```typescript
-import { ValidationClient } from '@erc8004/sdk';
+import { ValidationClient } from '@agentic-trust/8004-sdk';
 
 const validationClient = new ValidationClient(adapter);
 
@@ -134,7 +134,7 @@ The SDK uses an adapter pattern to support different blockchain libraries:
 ### EthersAdapter
 
 ```typescript
-import { EthersAdapter } from '@erc8004/sdk';
+import { EthersAdapter } from '@agentic-trust/8004-sdk';
 import { ethers } from 'ethers';
 
 const provider = new ethers.JsonRpcProvider('https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY');
@@ -146,7 +146,7 @@ const adapter = new EthersAdapter(provider);
 You can create your own adapter by implementing the `BlockchainAdapter` interface:
 
 ```typescript
-import { BlockchainAdapter } from '@erc8004/sdk';
+import { BlockchainAdapter } from '@agentic-trust/8004-sdk';
 
 class MyCustomAdapter implements BlockchainAdapter {
   async call(contractAddress: string, abi: any, functionName: string, args: any[]): Promise<any> {
@@ -173,7 +173,7 @@ import type {
   IdentityData,
   BlockchainAdapter,
   ContractAddresses
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';
 ```
 
 ## Contract Addresses

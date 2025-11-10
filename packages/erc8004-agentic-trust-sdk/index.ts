@@ -23,7 +23,7 @@ export {
   type RefreshAgentResponse,
 } from './AIAgentDiscoveryClient';
 
-// Re-export AccountProvider types from @erc8004/sdk for convenience
+// Re-export AccountProvider types from @agentic-trust/8004-sdk for convenience
 export type {
   AccountProvider,
   ChainConfig,
@@ -34,9 +34,9 @@ export type {
   GasPolicy,
   TxSendResult,
   PreparedCall,
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';
 
 export {
   ViemAccountProvider,
   type ViemAccountProviderOptions,
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';

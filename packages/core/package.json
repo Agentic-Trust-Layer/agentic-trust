@@ -32,8 +32,8 @@
   "dependencies": {
     "@agentic-trust/veramo-agent-extension": "workspace:*",
     "@ensdomains/ensjs": "^3.0.0",
-    "@erc8004/agentic-trust-sdk": "workspace:*",
-    "@erc8004/sdk": "workspace:*",
+    "@agentic-trust/8004-ext-sdk": "workspace:*",
+    "@agentic-trust/8004-sdk": "workspace:*",
     "@veramo/did-manager": "^6.0.0",
     "@veramo/did-provider-ethr": "^6.0.0",
     "@veramo/did-resolver": "^6.0.0",
@@ -67,5 +67,14 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/erc8004/erc-8004-identity-indexer.git",
+    "directory": "packages/core"
   }
 }

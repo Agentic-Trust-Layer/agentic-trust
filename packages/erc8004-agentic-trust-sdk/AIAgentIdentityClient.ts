@@ -24,9 +24,9 @@ import {
   ViemAccountProvider,
   type ChainConfig,
   type ViemAccountProviderOptions,
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';
 import IdentityRegistryABI from './abis/IdentityRegistry.json';
-import type { MetadataEntry } from '@erc8004/sdk';
+import type { MetadataEntry } from '@agentic-trust/8004-sdk';
 
 export type AIAgentIdentityClientOptions = 
   | {

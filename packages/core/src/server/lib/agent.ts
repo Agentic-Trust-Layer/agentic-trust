@@ -13,7 +13,7 @@ import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import type {
   AgentData as DiscoveryAgentData,
   GiveFeedbackParams,
-} from '@erc8004/agentic-trust-sdk';
+} from '@agentic-trust/8004-ext-sdk';
 import { getProviderApp } from '../userApps/providerApp';
 import { getReputationClient } from '../singletons/reputationClient';
 

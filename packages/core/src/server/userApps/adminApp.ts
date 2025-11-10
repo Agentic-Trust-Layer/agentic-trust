@@ -5,7 +5,7 @@
  * Provides access to admin account, wallet client, and admin adapter for agent administration
  */
 
-import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Account, PublicClient, WalletClient, Chain } from 'viem';
 import { getChainById, getChainRpcUrl, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 

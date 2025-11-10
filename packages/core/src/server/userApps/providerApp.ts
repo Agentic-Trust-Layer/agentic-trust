@@ -5,7 +5,7 @@
  * Provides access to agent account, delegation setup, and wallet client for agent operations
  */
 
-import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
 import type { SessionPackage, DelegationSetup } from '../lib/sessionPackage';
 

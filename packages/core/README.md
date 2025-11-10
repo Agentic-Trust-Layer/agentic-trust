@@ -53,8 +53,8 @@ const identityClient = new AIAgentIdentityClient(adapter);
 
 ## Dependencies
 
-- `@erc8004/agentic-trust-sdk` - ERC-8004 Agentic Trust SDK (workspace dependency)
-  - `@erc8004/sdk` - Base ERC-8004 SDK (workspace dependency)
+- `@agentic-trust/8004-ext-sdk` - ERC-8004 Agentic Trust SDK (workspace dependency)
+  - `@agentic-trust/8004-sdk` - Base ERC-8004 SDK (workspace dependency)
 
 ## License
 

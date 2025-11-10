@@ -8,7 +8,7 @@
 import {
   AIAgentDiscoveryClient,
   type AIAgentDiscoveryClientConfig,
-} from '@erc8004/agentic-trust-sdk';
+} from '@agentic-trust/8004-ext-sdk';
 
 // Singleton instance
 let discoveryClientInstance: AIAgentDiscoveryClient | null = null;

@@ -1,6 +1,6 @@
 import { createPublicClient, http, type PublicClient } from 'viem';
 import { sepolia } from 'viem/chains';
-import { AccountProvider } from '@erc8004/sdk';
+import { AccountProvider } from '@agentic-trust/8004-sdk';
 
 /**
  * Org Identity Client - ENS utilities for organizations

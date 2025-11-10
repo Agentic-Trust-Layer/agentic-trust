@@ -6,8 +6,8 @@
  */
 
 
-import { AIAgentReputationClient } from '@erc8004/agentic-trust-sdk';
-import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
+import { AIAgentReputationClient } from '@agentic-trust/8004-ext-sdk';
+import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
 import { getAdminApp } from '../userApps/adminApp';

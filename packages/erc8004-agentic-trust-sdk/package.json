@@ -1,5 +1,5 @@
 {
-  "name": "@erc8004/agentic-trust-sdk",
+  "name": "@agentic-trust/8004-ext-sdk",
   "version": "1.0.0",
   "description": "ERC-8004 Agentic Trust SDK - A TypeScript SDK for managing AI agents with ENS integration, identity management, and reputation systems",
   "type": "module",
@@ -47,7 +47,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/erc8004/erc-8004-identity-indexer.git",
-    "directory": "apps/erc8004-agentic-trust-sdk"
+    "directory": "packages/erc8004-agentic-trust-sdk"
   },
   "dependencies": {
     "graphql-request": "^6.1.0",
@@ -56,7 +56,7 @@
     "@metamask/delegation-toolkit": "^0.13.0",
     "@thenamespace/mint-manager": "^1.1.0",
     "@thenamespace/indexer": "^1.0.2",
-    "@erc8004/sdk": "workspace:*"
+    "@agentic-trust/8004-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18.0.0"
@@ -67,5 +67,8 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

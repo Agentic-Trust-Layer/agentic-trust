@@ -5,7 +5,7 @@
  * Provides access to client account, wallet client, and client address
  */
 
-import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
+import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
 
 // Client app instance type

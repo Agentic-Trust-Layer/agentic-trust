@@ -14,7 +14,7 @@ export {
   AIAgentReputationClient,
   OrgIdentityClient,
   type GiveFeedbackParams,
-} from '@erc8004/agentic-trust-sdk';
+} from '@agentic-trust/8004-ext-sdk';
 
 // Export AccountProvider types from erc8004-sdk for convenience
 export {
@@ -28,10 +28,10 @@ export {
   type GasPolicy,
   type TxSendResult,
   type PreparedCall,
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';
 
 // Legacy export for backward compatibility (deprecated - use ViemAccountProvider instead)
-export { ViemAdapter } from '@erc8004/sdk';
+export { ViemAdapter } from '@agentic-trust/8004-sdk';
 
 // Session package utilities are server-only and should be imported from '@agentic-trust/core/server'
 // They are NOT exported here to prevent browser bundling issues (uses Node.js 'fs' module)

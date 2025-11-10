@@ -11,9 +11,9 @@ import {
   ReputationClient as BaseReputationClient,
   AccountProvider,
   type TxRequest,
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';
 import ReputationRegistryABI from './abis/ReputationRegistry.json';
-import type { MetadataEntry } from '@erc8004/sdk';
+import type { MetadataEntry } from '@agentic-trust/8004-sdk';
 
 // Define GiveFeedbackParams locally since it's not exported from the base SDK
 export interface GiveFeedbackParams {

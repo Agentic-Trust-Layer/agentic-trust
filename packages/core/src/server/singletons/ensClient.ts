@@ -5,8 +5,8 @@
  * Initialized from environment variables using AccountProvider
  */
 
-import { AIAgentENSClient, AIAgentL2ENSDurenClient } from '@erc8004/agentic-trust-sdk';
-import { ViemAccountProvider, type AccountProvider } from '@erc8004/sdk';
+import { AIAgentENSClient, AIAgentL2ENSDurenClient } from '@agentic-trust/8004-ext-sdk';
+import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import { sepolia, baseSepolia, optimismSepolia, getEnsOrgName } from '../lib/chainConfig';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';

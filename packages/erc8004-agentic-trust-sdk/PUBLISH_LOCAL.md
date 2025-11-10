@@ -1,6 +1,6 @@
-# Publishing @erc8004/agentic-trust-sdk for Local Use
+# Publishing @agentic-trust/8004-ext-sdk for Local Use
 
-This guide explains how to make `@erc8004/agentic-trust-sdk` available to other projects on your WSL machine.
+This guide explains how to make `@agentic-trust/8004-ext-sdk` available to other projects on your WSL machine.
 
 ## Prerequisites
 
@@ -17,8 +17,8 @@ Add the packages directly to your other project's `package.json`:
 ```json
 {
   "dependencies": {
-    "@erc8004/sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-src",
-    "@erc8004/agentic-trust-sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-agentic-trust-sdk"
+    "@agentic-trust/8004-sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-src",
+    "@agentic-trust/8004-ext-sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-agentic-trust-sdk"
   }
 }
 ```
@@ -58,8 +58,8 @@ Or add to `package.json`:
 ```json
 {
   "dependencies": {
-    "@erc8004/sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-src/erc8004-sdk-1.0.0.tgz",
-    "@erc8004/agentic-trust-sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-agentic-trust-sdk/erc8004-agentic-trust-sdk-1.0.0.tgz"
+    "@agentic-trust/8004-sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-src/erc8004-sdk-1.0.0.tgz",
+    "@agentic-trust/8004-ext-sdk": "file:/home/barb/erc8004/erc-8004-identity-indexer/apps/erc8004-agentic-trust-sdk/erc8004-agentic-trust-sdk-1.0.0.tgz"
   }
 }
 ```
@@ -87,7 +87,7 @@ pnpm publish --access public  # or --access restricted for private
 ### Step 3: In your other project
 
 ```bash
-pnpm install @erc8004/sdk @erc8004/agentic-trust-sdk
+pnpm install @agentic-trust/8004-sdk @agentic-trust/8004-ext-sdk
 ```
 
 ## Development Workflow Tips
@@ -106,7 +106,7 @@ pnpm install @erc8004/sdk @erc8004/agentic-trust-sdk
 3. **Check installation**: Verify the packages are installed correctly:
    ```bash
    # In your other project
-   node -e "console.log(require('@erc8004/agentic-trust-sdk'))"
+   node -e "console.log(require('@agentic-trust/8004-ext-sdk'))"
    ```
 
 ## Troubleshooting

@@ -309,7 +309,7 @@ export class AgenticTrustClient {
         const clientApp = await getClientApp();
         if (clientApp && clientApp.accountProvider) {
           // Use ClientApp's AccountProvider
-          const { ViemAccountProvider } = await import('@erc8004/sdk');
+          const { ViemAccountProvider } = await import('@agentic-trust/8004-sdk');
           agentAccountProvider = new ViemAccountProvider({
             publicClient: clientApp.publicClient,
             walletClient: clientApp.walletClient as any,
@@ -366,7 +366,7 @@ export class AgenticTrustClient {
       });
 
       // Create AccountProviders
-      const { ViemAccountProvider } = await import('@erc8004/sdk');
+      const { ViemAccountProvider } = await import('@agentic-trust/8004-sdk');
       agentAccountProvider = new ViemAccountProvider({
         publicClient,
         walletClient,
@@ -396,7 +396,7 @@ export class AgenticTrustClient {
 
     // Create the reputation client using the AccountProviders
     // The AccountProviders can be from AdminApp (wallet provider), ClientApp, or created from privateKey
-    const { AIAgentReputationClient } = await import('@erc8004/agentic-trust-sdk');
+    const { AIAgentReputationClient } = await import('@agentic-trust/8004-ext-sdk');
     
     const reputationClient = await AIAgentReputationClient.create(
       agentAccountProvider,

@@ -54,11 +54,11 @@ import {
   AIAgentIdentityClient,
   type AgentData,
   type GiveFeedbackParams,
-} from '@erc8004/agentic-trust-sdk';
+} from '@agentic-trust/8004-ext-sdk';
 import {
   ViemAccountProvider,
   BaseIdentityClient,
-} from '@erc8004/sdk';
+} from '@agentic-trust/8004-sdk';
 import { Agent } from './agent';
 import { A2AProtocolProvider } from './a2aProtocolProvider';
 import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
@@ -75,7 +75,7 @@ import {
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
-import IdentityRegistryABIJson from '@erc8004/agentic-trust-sdk/abis/IdentityRegistry.json';
+import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { addToL1OrgPK } from './ensActions';

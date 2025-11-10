@@ -6,7 +6,7 @@ import { createPublicClient, http, namehash, labelhash, parseAbi, toHex, encodeF
 import { packetToBytes, normalize } from 'viem/ens'
 import { ethers } from 'ethers';
 import { sepolia } from 'viem/chains';
-import { AccountProvider } from '@erc8004/sdk';
+import { AccountProvider } from '@agentic-trust/8004-sdk';
 
 import BaseRegistrarABI from  './abis/BaseRegistrarImplementation.json'
 import ETHRegistrarControllerABI from './abis/ETHRegistrarController.json';

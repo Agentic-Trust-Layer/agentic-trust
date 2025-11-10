@@ -233,10 +233,10 @@ importers:
       '@ensdomains/ensjs':
         specifier: ^3.0.0
         version: 3.7.0(typescript@5.9.3)(viem@2.38.6)
-      '@erc8004/agentic-trust-sdk':
+      '@agentic-trust/8004-ext-sdk':
         specifier: workspace:*
         version: link:../erc8004-agentic-trust-sdk
-      '@erc8004/sdk':
+      '@agentic-trust/8004-sdk':
         specifier: workspace:*
         version: link:../erc8004-sdk
       '@metamask/delegation-toolkit':
@@ -306,7 +306,7 @@ importers:
 
   packages/erc8004-agentic-trust-sdk:
     dependencies:
-      '@erc8004/sdk':
+      '@agentic-trust/8004-sdk':
         specifier: workspace:*
         version: link:../erc8004-sdk
       '@metamask/delegation-toolkit':
