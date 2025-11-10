@@ -910,9 +910,9 @@ export class AIAgentENSClient {
 
   // ENS wrapper
   async prepareAddAgentNameToOrgCalls(params: {
-    orgName: string;            // e.g., 'airbnb.eth'
-    agentName: string;                   // e.g., 'my-agent'
     agentAddress: `0x${string}`;     // AA address for the agent name
+    orgName: string;            // e.g., 'airbnb.eth'
+    agentName: string;                   // e.g., 'my-agent'   
     agentUrl: string                   // optional TTL (defaults to 0)
   }): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
 
@@ -922,8 +922,11 @@ export class AIAgentENSClient {
     let parent = clean(params.orgName);
     parent = parent.endsWith('.eth') ? parent.slice(0, -4) : parent;
     const parentNode = namehash(parent + ".eth");
+    console.log('!!!!!!!!!!!! prepareAddAgentNameToOrgCalls: parent', parent + ".eth");
 
     const label = clean(params.agentName).replace(/\s+/g, '-');
+    console.log('!!!!!!!!!!!! prepareAddAgentNameToOrgCalls: agentName', params.agentName);
+    console.log('!!!!!!!!!!!! prepareAddAgentNameToOrgCalls: label', label);
 
     
 
@@ -943,6 +946,8 @@ export class AIAgentENSClient {
     if (!identityWrapperAddress || identityWrapperAddress.length !== 42) {
       throw new Error(`Invalid ENS identity wrapper address. Set AGENTIC_TRUST_ENS_IDENTITY_WRAPPER environment variable.`);
     }
+
+    console.log('!!!!!!!!!!!! prepareAddAgentNameToOrgCalls: label, address', label, params.agentAddress);
 
     const subdomainData = encodeFunctionData({
       abi: NameWrapperABI.abi,

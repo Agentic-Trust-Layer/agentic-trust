@@ -104,9 +104,7 @@ export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
       }
 
       // Create the client
-      console.info('Creating AgenticTrustClient instance: ', config.rpcUrl, ', privateKey: ', config.privateKey);
       agenticTrustClientInstance = await AgenticTrustClient.create(config);
-      console.log('✅ Provider AgenticTrustClient singleton initialized');
       return agenticTrustClientInstance;
     } catch (error) {
       console.error('❌ Failed to initialize provider AgenticTrustClient:', error);

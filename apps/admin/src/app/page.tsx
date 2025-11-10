@@ -651,11 +651,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       setError(null);
       setSuccess(null);
       
-      // If ENS is enabled, the agent's name should be the full ENS name (e.g., "<label>.<org>")
-      const finalAgentName =
-        createENS && ensOrgName
-          ? `${createForm.agentName}.${ensOrgName}.eth`
-          : createForm.agentName;
+
 
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
@@ -690,10 +686,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
       // If using AA, the agent account should already be populated by the useEffect
       if (useAA) {
-        // Ensure AA address is computed using the SAME name used for creation (finalAgentName)
-        console.log('!!!!!!!!!!!! handleCreateAgent: getCounterfactualAccountClientByAgentName: finalAgentName', finalAgentName);
+        // Ensure AA address is computed using the SAME name used for creation 
         const aaClient = await getCounterfactualAccountClientByAgentName(
-          finalAgentName,
+          createForm.agentName,
           eoaAddress as `0x${string}`,
           {
             ethereumProvider: aaEip1193 as any,
@@ -721,7 +716,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         // create Agent Identity for Externally Owned Account (EOA)
         const result = await createAgentWithWalletForEOA({
           agentData: {
-            agentName: finalAgentName,
+            agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
@@ -745,10 +740,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       else {
         // create Agent Identity for Account Abstraction (AA)
         // create Agent Identity for Externally Owned Account (EOA)
-        console.log('*********** handleCreateAgent: createAgentWithWalletForAA: agentName', finalAgentName);
         const result = await createAgentWithWalletForAA({
           agentData: {
-            agentName: finalAgentName,
+            agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
             description: createForm.description || undefined,
             image: createForm.image || undefined,

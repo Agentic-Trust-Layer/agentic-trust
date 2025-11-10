@@ -445,10 +445,11 @@ export interface AddAgentToOrgResult {
   }[];
 }
 
+
 export interface PrepareAgentNameInfoParams {
-  agentName: string;
-  orgName: string;
   agentAddress: `0x${string}`;
+  orgName: string;
+  agentName: string;
   agentUrl?: string;
   agentDescription?: string;
 }
@@ -474,12 +475,13 @@ export async function addAgentNameToOrg(params: AddAgentToOrgParams): Promise<st
   const agentNameLabel = agentName.toLowerCase().replace(/\s+/g, '-');
   const orgNameClean = orgName.toLowerCase().replace(/\.eth$/, '');
   const orgAddress = getEnsOrgAddress(targetChainId);
+                  // optional TTL (defaults to 0)
 
   console.log('********************* prepareAddAgentNameToOrgCalls: orgName: ', orgName, agentName, agentAddress, agentUrl);
   const { calls: orgCalls } = await ensClient.prepareAddAgentNameToOrgCalls({
+    agentAddress,
     orgName: orgNameClean,
     agentName: agentNameLabel,
-    agentAddress,
     agentUrl: agentUrl || '',
   });
 
@@ -534,11 +536,10 @@ export async function addAgentNameToOrg(params: AddAgentToOrgParams): Promise<st
 }
 
 
-
 export async function prepareAgentNameInfoCalls(
   params: PrepareAgentNameInfoParams
 ): Promise<PrepareAgentNameInfoResult> {
-  const { agentName, orgName, agentAddress, agentUrl, agentDescription } = params;
+  const { agentAddress, orgName, agentName, agentUrl, agentDescription } = params;
 
   if (!agentName || !orgName || !agentAddress) {
     throw new Error('agentName, orgName, and agentAddress are required to prepare ENS agent info calls');

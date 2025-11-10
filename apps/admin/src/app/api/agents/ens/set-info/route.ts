@@ -13,9 +13,9 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await prepareAgentNameInfoCalls({
-      agentName,
-      orgName,
       agentAddress,
+      orgName,
+      agentName,
       agentUrl,
       agentDescription,
     });

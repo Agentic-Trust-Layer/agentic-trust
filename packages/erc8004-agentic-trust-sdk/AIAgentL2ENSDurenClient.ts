@@ -381,9 +381,9 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
 
 
   async prepareAddAgentNameToOrgCalls(params: {
+    agentAddress: `0x${string}`; // AA address for the agent name
     orgName: string;            // e.g., 'airbnb.eth'
     agentName: string;          // e.g., 'my-agent'
-    agentAddress: `0x${string}`; // AA address for the agent name
     agentUrl: string    //  URL
   }): Promise<{ calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] }> {
 

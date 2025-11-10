@@ -632,18 +632,19 @@ export async function createAgentWithWalletForAA(
 
 
   // Get agent name from request
-  const agentName = options.agentData.agentName;
+  //let agentFullName = options.agentData.agentName;
+  //if (options.ensOptions?.orgName) {
+  //  agentFullName = options.agentData.agentName + '.' + options.ensOptions?.orgName + ".eth";
+  //}
 
   
 
   // Get Account Client by Agent Name, find if exists and if not then create it
   const bundlerUrl = getChainBundlerUrl(chainId);
 
-  console.log('!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName: agentName', agentName);
-        
   let agentAccountClient = await getDeployedAccountClientByAgentName(
     bundlerUrl,
-    agentName,
+    options.agentData.agentName,
     account,
     {
       chain: chain as any,
@@ -699,9 +700,9 @@ export async function createAgentWithWalletForAA(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            agentName: options.agentData.agentName,
-            orgName: options.ensOptions.orgName,
             agentAddress: ensAgentAccount,
+            orgName: options.ensOptions.orgName,
+            agentName: options.agentData.agentName,
             agentUrl: options.agentData.agentUrl,
             agentDescription: options.agentData.description,
           }),
@@ -745,10 +746,10 @@ export async function createAgentWithWalletForAA(
               onStatusUpdate?.('Updating ENS agent info...');
               // Ensure we are using a deployed-only AA client (no factory/factoryData)
               //const fullAgentName = agentName + '.' + options.ensOptions.orgName + ".eth";
-              console.log('!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName 2: finalAgentName', agentName);
+              console.log('!!!!!!!!!!!! handleCreateAgent: getDeployedAccountClientByAgentName 2: agentName', options.agentData.agentName);
               agentAccountClient = await getDeployedAccountClientByAgentName(
                 bundlerUrl,
-                agentName,
+                options.agentData.agentName,
                 account,
                 {
                   chain: chain as any,
@@ -788,7 +789,12 @@ export async function createAgentWithWalletForAA(
   // 2.  Need to create the Agent Identity (NFT)
 
   console.log('*********** createAgentWithWalletForAA: creating agent identity...');
-  
+  const finalAgentName =
+        options.ensOptions?.enabled && options.ensOptions?.orgName
+          ? `${options.agentData.agentName}.${options.ensOptions?.orgName}.eth`
+          : options.agentData.agentName;
+  agentData.agentName = finalAgentName;
+
   // Prepare request body with AA parameters if needed
   const requestBody: any = {
     account: computedAddress,
