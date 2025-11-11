@@ -1,0 +1,146 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { getAdminClient } from '@/lib/client';
+import type { SearchParams } from '@agentic-trust/core/server';
+
+const DEFAULT_PAGE_SIZE = 10;
+
+function toNumber(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+type SearchResultPayload = {
+  agents: Array<{
+    agentId?: number;
+    agentName?: string;
+    a2aEndpoint?: string;
+    data?: {
+      createdAtTime?: string | number;
+      updatedAtTime?: string | number;
+      type?: string | null;
+      agentOwner?: string;
+    };
+  }>;
+  total: number;
+  page?: number;
+  pageSize?: number;
+  totalPages?: number;
+};
+
+function mapAgentsResponse(data: SearchResultPayload) {
+  const { agents, total, page, pageSize, totalPages } = data;
+  const agentsData = agents.map(agent => ({
+    agentId: agent.agentId,
+    agentName: agent.agentName,
+    a2aEndpoint: agent.a2aEndpoint,
+    createdAtTime: agent.data?.createdAtTime,
+    updatedAtTime: agent.data?.updatedAtTime,
+    agentType: agent.data?.type,
+    agentOwner: agent.data?.agentOwner,
+  }));
+
+  return {
+    success: true,
+    agents: agentsData,
+    total,
+    page: page ?? 1,
+    pageSize: pageSize ?? agents.length,
+    totalPages: totalPages ?? Math.max(1, Math.ceil((total ?? agents.length) / (pageSize ?? Math.max(agents.length, 1)))),
+  };
+}
+
+async function mapClientSearch(options: {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  params?: SearchParams;
+}): Promise<SearchResultPayload> {
+  const client = await getAdminClient();
+  const result = await client.agents.searchAgents(options);
+  const normalized: SearchResultPayload = {
+    agents: result.agents,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalPages: result.totalPages,
+  };
+  return normalized;
+}
+
+function parseParamsParam(raw: string | null): SearchParams | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as SearchParams) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const urlParams = request.nextUrl.searchParams;
+    const page = toNumber(urlParams.get('page'));
+    const pageSize = toNumber(urlParams.get('pageSize')) ?? DEFAULT_PAGE_SIZE;
+    const query = urlParams.get('query')?.trim();
+    const params = parseParamsParam(urlParams.get('params'));
+
+    const response = await mapClientSearch({
+      page,
+      pageSize,
+      query: query && query.length > 0 ? query : undefined,
+      params,
+    });
+
+    return NextResponse.json(mapAgentsResponse(response));
+  } catch (error: unknown) {
+    console.error('Error searching agents:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    return NextResponse.json(
+      {
+        error: 'Failed to search agents',
+        message: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const page = typeof body.page === 'number' ? body.page : undefined;
+    const pageSize =
+      typeof body.pageSize === 'number' && Number.isFinite(body.pageSize)
+        ? body.pageSize
+        : DEFAULT_PAGE_SIZE;
+    const query =
+      typeof body.query === 'string' && body.query.trim().length > 0 ? body.query.trim() : undefined;
+    const params: SearchParams | undefined =
+      body.params && typeof body.params === 'object' ? body.params : undefined;
+
+    const response = await mapClientSearch({
+      page,
+      pageSize,
+      query,
+      params,
+    });
+
+    return NextResponse.json(mapAgentsResponse(response));
+  } catch (error: unknown) {
+    console.error('Error searching agents:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    return NextResponse.json(
+      {
+        error: 'Failed to search agents',
+        message: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
+      },
+      { status: 500 }
+    );
+  }
+}

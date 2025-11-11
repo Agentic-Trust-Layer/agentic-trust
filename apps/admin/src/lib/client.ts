@@ -20,8 +20,8 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
   // This ensures each request uses the correct private key from the session
   try {
     // Get configuration from environment variables (server-side only)
-    const graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
-    const apiKey = process.env.AGENTIC_TRUST_API_KEY;
+    const discoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL;
+    const apiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
     
     // Try to get private key from session first, then fall back to environment variable
     let privateKey: string | undefined;
@@ -52,9 +52,9 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
       },
     };
 
-    // Set graphQLUrl if provided
-    if (graphQLUrl) {
-      config.graphQLUrl = graphQLUrl;
+    // Set discovery URL if provided
+    if (discoveryUrl) {
+      config.graphQLUrl = discoveryUrl;
     }
 
     // Set apiKey if provided

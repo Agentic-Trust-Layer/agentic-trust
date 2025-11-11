@@ -74,6 +74,7 @@ import {
 } from './chainConfig';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
+import type { Address } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
@@ -82,6 +83,7 @@ import { addToL1OrgPK } from './ensActions';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/bundlerUtils';
 import type { Chain } from 'viem';
 import { getENSClient } from '../singletons/ensClient';
+import { rethrowDiscoveryError } from './discoveryErrors';
 
 const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? IdentityRegistryABIJson;
 
@@ -89,9 +91,72 @@ const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? Ide
 // Re-export AgentData for compatibility
 export type { AgentData };
 
+export interface SearchParams {
+  chains?: number[] | 'all';
+  name?: string;
+  description?: string;
+  owners?: Address[];
+  operators?: Address[];
+  mcp?: boolean;
+  a2a?: boolean;
+  ens?: string;
+  did?: string;
+  walletAddress?: Address;
+  supportedTrust?: string[];
+  a2aSkills?: string[];
+  mcpTools?: string[];
+  mcpPrompts?: string[];
+  mcpResources?: string[];
+  active?: boolean;
+  x402support?: boolean;
+}
+
+export interface SearchAgentsOptions {
+  page?: number;
+  pageSize?: number;
+  query?: string;
+  params?: SearchParams;
+}
+
+export interface ListAgentsOptions extends SearchAgentsOptions {}
+
 export interface ListAgentsResponse {
   agents: Agent[];
   total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+function safeParseJson<T = unknown>(value: string): T | undefined {
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeToStringArray(...values: Array<unknown>): string[] {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item));
+    }
+    if (typeof value === 'string') {
+      return [value];
+    }
+  }
+  return [];
+}
+
+function includesEveryCaseInsensitive(source: string[], expected: string[]): boolean {
+  if (!expected.length) {
+    return true;
+  }
+  if (!source.length) {
+    return false;
+  }
+  const sourceLower = source.map((value) => value.toLowerCase());
+  return expected.every((value) => sourceLower.includes(value.toLowerCase()));
 }
 
 export class AgentsAPI {
@@ -105,25 +170,8 @@ export class AgentsAPI {
    * Returns agents sorted by agentId in descending order
    * Fetches all agents using pagination if needed
    */
-  async listAgents(): Promise<ListAgentsResponse> {
-    const graphQLClient = await getDiscoveryClient();
-    const allAgents = await graphQLClient.listAgents();
-
-    // Sort all agents by agentId in descending order
-    const sortedAgents = allAgents.sort((a: AgentData, b: AgentData) => {
-      // Sort by agentId in descending order (highest first)
-      const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
-      const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
-      return idB - idA;
-    });
-
-    // Convert AgentData to Agent instances
-    const agentInstances = sortedAgents.map((data: AgentData) => new Agent(data, this.client));
-
-    return {
-      agents: agentInstances,
-      total: agentInstances.length,
-    };
+  async listAgents(options?: ListAgentsOptions): Promise<ListAgentsResponse> {
+    return this.searchAgents(options ?? {});
   }
 
   /**
@@ -132,8 +180,8 @@ export class AgentsAPI {
    * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
   async getAgent(agentId: string, chainId: number = 11155111): Promise<Agent | null> {
-    const graphQLClient = await getDiscoveryClient();
-    const agentData = await graphQLClient.getAgent(chainId, agentId);
+    const discoveryClient = await getDiscoveryClient();
+    const agentData = await discoveryClient.getAgent(chainId, agentId);
     
     if (!agentData) {
       return null;
@@ -147,8 +195,12 @@ export class AgentsAPI {
    * Returns the raw AgentData from the GraphQL indexer
    */
   async getAgentFromGraphQL(chainId: number, agentId: string): Promise<AgentData | null> {
-    const graphQLClient = await getDiscoveryClient();
-    return await graphQLClient.getAgent(chainId, agentId);
+    const discoveryClient = await getDiscoveryClient();
+    try {
+    return await discoveryClient.getAgent(chainId, agentId);
+    } catch (error) {
+      rethrowDiscoveryError(error, 'agents.getAgentFromGraphQL');
+    }
   }
 
   /**
@@ -158,8 +210,12 @@ export class AgentsAPI {
    * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
   async refreshAgent(agentId: string, chainId: number = 11155111): Promise<any> {
-    const graphQLClient = await getDiscoveryClient();
-    return await graphQLClient.refreshAgent(agentId, chainId);
+    const discoveryClient = await getDiscoveryClient();
+    try {
+    return await discoveryClient.refreshAgent(agentId, chainId);
+    } catch (error) {
+      rethrowDiscoveryError(error, 'agents.refreshAgent');
+    }
   }
 
   /**
@@ -336,9 +392,8 @@ export class AgentsAPI {
 
     // Refresh the agent in the GraphQL indexer
     try {
-      const graphQLClient = await getDiscoveryClient();
-      // Use the same chainId that was used for registration
-      await graphQLClient.refreshAgent(result.agentId.toString(), chainId);
+      const discoveryClient = await getDiscoveryClient();
+      await discoveryClient.refreshAgent(result.agentId.toString(), chainId);
       console.log(`✅ Refreshed agent ${result.agentId} in GraphQL indexer`);
     } catch (refreshError) {
       // Log error but don't fail agent creation if refresh fails
@@ -417,8 +472,8 @@ export class AgentsAPI {
 
     // Refresh in indexer (best-effort)
     try {
-      const graphQLClient = await getDiscoveryClient();
-      await graphQLClient.refreshAgent(result.agentId.toString(), targetChainId);
+      const discoveryClient = await getDiscoveryClient();
+      await discoveryClient.refreshAgent(result.agentId.toString(), targetChainId);
     } catch (refreshError) {
       console.warn(`⚠️ Failed to refresh agent ${result.agentId} in GraphQL indexer:`, refreshError);
     }
@@ -760,35 +815,335 @@ export class AgentsAPI {
     }
   }
 
-  /**
-   * Search agents by name
-   * @param query - Search query string to match against agent names
-   * Fetches all matching agents using pagination if needed
-   */
-  async searchAgents(query: string): Promise<ListAgentsResponse> {
-    const graphQLClient = await getDiscoveryClient();
-    const allAgents = await graphQLClient.searchAgents(query);
+  async searchAgents(options?: SearchAgentsOptions | string): Promise<ListAgentsResponse> {
+    if (typeof options === 'string') {
+      return this.searchAgents({ query: options });
+    }
 
-    // Sort all agents by agentId in descending order
-    const sortedAgents = allAgents.sort((a: AgentData, b: AgentData) => {
-      // Sort by agentId in descending order (highest first)
+    const discoveryClient = await getDiscoveryClient();
+    const advancedDiscoveryClient = discoveryClient as typeof discoveryClient & {
+      searchAgentsAdvanced?: (options: {
+        query?: string;
+        params?: Record<string, unknown>;
+        limit?: number;
+        offset?: number;
+      }) => Promise<{ agents: AgentData[]; total?: number | null } | null>;
+    };
+
+    const requestedPage =
+      typeof options?.page === 'number' && Number.isFinite(options.page) ? options.page : 1;
+    const pageSize =
+      typeof options?.pageSize === 'number' && options.pageSize > 0
+        ? options.pageSize
+        : undefined;
+
+    const hasRemoteFilters =
+      (typeof options?.query === 'string' && options.query.trim().length > 0) ||
+      (options?.params && Object.keys(options.params).length > 0);
+
+    if (
+      pageSize &&
+      hasRemoteFilters &&
+      typeof advancedDiscoveryClient.searchAgentsAdvanced === 'function'
+    ) {
+      const offset = (Math.max(requestedPage, 1) - 1) * pageSize;
+
+      try {
+        const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
+          query: options?.query,
+          params: options?.params as Record<string, unknown> | undefined,
+          limit: pageSize,
+          offset,
+        });
+
+        if (advanced && Array.isArray(advanced.agents)) {
+          const total =
+            typeof advanced.total === 'number' && advanced.total >= 0
+              ? advanced.total
+              : advanced.agents.length + offset;
+          const totalPages = Math.max(1, Math.ceil(total / pageSize));
+          const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
+          const agentInstances = advanced.agents.map(
+            (data: AgentData) => new Agent(data, this.client),
+          );
+
+          return {
+            agents: agentInstances,
+            total,
+            page: safePage,
+            pageSize,
+            totalPages,
+          };
+        }
+      } catch (error) {
+        console.warn(
+          '[AgentsAPI.searchAgents] Advanced search failed, falling back to discovery listAgents.',
+          error,
+        );
+      }
+    }
+
+    let allAgents: AgentData[];
+    try {
+      allAgents = await discoveryClient.listAgents();
+    } catch (error) {
+      rethrowDiscoveryError(error, 'agents.searchAgents');
+    }
+
+    if (!pageSize) {
+      const derivedOptions: SearchAgentsOptions = {
+        ...(options ?? {}),
+        page: options?.page ?? 1,
+        pageSize: options?.pageSize ?? 10,
+      };
+      return this.applySearchAndPagination(allAgents, derivedOptions);
+    }
+
+    return this.applySearchAndPagination(allAgents, options);
+  }
+
+  private applySearchAndPagination(
+    agentData: AgentData[],
+    options?: SearchAgentsOptions,
+  ): ListAgentsResponse {
+    const normalizedQuery =
+      options?.query && typeof options.query === 'string'
+        ? options.query.trim().toLowerCase()
+        : '';
+    const params = options?.params;
+
+    const sortedAgents = [...agentData].sort((a, b) => {
       const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
       const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
       return idB - idA;
     });
 
-    // Debug: Log the response data
-    if (typeof window !== 'undefined') {
-      console.log('[searchAgents] total matching agents:', sortedAgents.length);
-    }
+    const filteredAgents = sortedAgents.filter((data) => {
+      if (normalizedQuery) {
+        const haystack = [
+          typeof data.agentId === 'number' ? data.agentId.toString() : data.agentId,
+          data.agentName,
+          data.agentAddress,
+          data.agentOwner,
+          data.description,
+          data.type,
+          data.a2aEndpoint,
+          data.ensEndpoint,
+          data.agentAccountEndpoint,
+          data.metadataURI,
+          data.supportedTrust,
+          data.rawJson,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(normalizedQuery)) {
+          return false;
+        }
+      }
 
-    // Convert AgentData to Agent instances
-    const agentInstances = sortedAgents.map((data: AgentData) => new Agent(data, this.client));
+      if (!params) {
+        return true;
+      }
+
+      return this.matchesSearchParams(data, params);
+    });
+
+    const total = filteredAgents.length;
+    const pageSize =
+      typeof options?.pageSize === 'number' && options.pageSize > 0
+        ? options.pageSize
+        : total || 1;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const requestedPage =
+      typeof options?.page === 'number' && Number.isFinite(options.page) ? options.page : 1;
+    const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
+    const startIndex = (safePage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    const pageAgents = filteredAgents.slice(startIndex, endIndex);
+
+    const agentInstances = pageAgents.map((data) => new Agent(data, this.client));
 
     return {
       agents: agentInstances,
-      total: agentInstances.length,
+      total,
+      page: safePage,
+      pageSize,
+      totalPages,
     };
+  }
+
+  private matchesSearchParams(agent: AgentData, params: SearchParams): boolean {
+    const parsedRaw =
+      typeof agent.rawJson === 'string'
+        ? safeParseJson(agent.rawJson)
+        : agent.rawJson && typeof agent.rawJson === 'object'
+          ? agent.rawJson
+          : undefined;
+    const metadata =
+      parsedRaw && typeof parsedRaw === 'object'
+        ? (parsedRaw as Record<string, any>)
+        : undefined;
+
+    if (params.chains && params.chains !== 'all') {
+      const chainId = typeof agent.chainId === 'number' ? agent.chainId : undefined;
+      if (!chainId || !params.chains.includes(chainId)) {
+        return false;
+      }
+    }
+
+    if (params.name) {
+      const name = agent.agentName ?? '';
+      if (!name.toLowerCase().includes(params.name.trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (params.description) {
+      const description = agent.description ?? '';
+      if (!description.toLowerCase().includes(params.description.trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (params.owners && params.owners.length > 0) {
+      const owner = agent.agentOwner?.toLowerCase();
+      if (!owner || !params.owners.some((addr) => addr.toLowerCase() === owner)) {
+        return false;
+      }
+    }
+
+    if (params.walletAddress) {
+      const wallet = agent.agentAddress?.toLowerCase();
+      if (!wallet || wallet !== params.walletAddress.toLowerCase()) {
+        return false;
+      }
+    }
+
+    if (params.ens) {
+      const ensEndpoint = agent.ensEndpoint ?? '';
+      if (!ensEndpoint.toLowerCase().includes(params.ens.trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (params.did) {
+      const rawDid =
+        (metadata && typeof metadata.did === 'string' && metadata.did) ||
+        (metadata?.identity && typeof metadata.identity?.did === 'string'
+          ? metadata.identity.did
+          : undefined);
+      if (!rawDid || rawDid.toLowerCase() !== params.did.trim().toLowerCase()) {
+        return false;
+      }
+    }
+
+    if (params.supportedTrust && params.supportedTrust.length > 0) {
+      const supportedTrust = normalizeToStringArray(
+        agent.supportedTrust,
+        metadata?.supportedTrust,
+      );
+      if (!includesEveryCaseInsensitive(supportedTrust, params.supportedTrust)) {
+        return false;
+      }
+    }
+
+    if (params.a2aSkills && params.a2aSkills.length > 0) {
+      const skills = normalizeToStringArray(
+        metadata?.a2aSkills,
+        metadata?.a2a?.skills,
+        metadata?.skills,
+      );
+      if (!includesEveryCaseInsensitive(skills, params.a2aSkills)) {
+        return false;
+      }
+    }
+
+    if (params.mcpTools && params.mcpTools.length > 0) {
+      const tools = normalizeToStringArray(
+        metadata?.mcpTools,
+        metadata?.mcp?.tools,
+      );
+      if (!includesEveryCaseInsensitive(tools, params.mcpTools)) {
+        return false;
+      }
+    }
+
+    if (params.mcpPrompts && params.mcpPrompts.length > 0) {
+      const prompts = normalizeToStringArray(
+        metadata?.mcpPrompts,
+        metadata?.mcp?.prompts,
+      );
+      if (!includesEveryCaseInsensitive(prompts, params.mcpPrompts)) {
+        return false;
+      }
+    }
+
+    if (params.mcpResources && params.mcpResources.length > 0) {
+      const resources = normalizeToStringArray(
+        metadata?.mcpResources,
+        metadata?.mcp?.resources,
+      );
+      if (!includesEveryCaseInsensitive(resources, params.mcpResources)) {
+        return false;
+      }
+    }
+
+    if (params.mcp !== undefined) {
+      const hasMcp =
+        metadata?.mcp === true ||
+        metadata?.mcp?.enabled === true ||
+        (Array.isArray(metadata?.mcp?.tools) && metadata.mcp.tools.length > 0);
+      if (params.mcp !== hasMcp) {
+        return false;
+      }
+    }
+
+    if (params.a2a !== undefined) {
+      const hasA2a = typeof agent.a2aEndpoint === 'string' && agent.a2aEndpoint.length > 0;
+      if (params.a2a !== hasA2a) {
+        return false;
+      }
+    }
+
+    if (params.operators && params.operators.length > 0) {
+      const operators = normalizeToStringArray(
+        metadata?.operators,
+        metadata?.agentOperators,
+        metadata?.operatorAddresses,
+      ).map((value) => value.toLowerCase());
+      if (
+        operators.length === 0 ||
+        !params.operators.some((addr) => operators.includes(addr.toLowerCase()))
+      ) {
+        return false;
+      }
+    }
+
+    if (params.active !== undefined) {
+      const active =
+        typeof metadata?.active === 'boolean'
+          ? metadata.active
+          : typeof metadata?.status === 'string'
+            ? metadata.status.toLowerCase() === 'active'
+            : undefined;
+      if (active !== undefined && params.active !== active) {
+        return false;
+      }
+    }
+
+    if (params.x402support !== undefined) {
+      const support =
+        metadata?.x402support === true ||
+        metadata?.x402Support === true ||
+        (Array.isArray(metadata?.protocols) &&
+          metadata.protocols.map((p: string) => p.toLowerCase()).includes('x402'));
+      if (params.x402support !== support) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

@@ -9,7 +9,7 @@ import { getAgentTrustClient } from '@/lib/server-client';
 export async function GET() {
   try {
     const atClient = await getAgentTrustClient();
-    const response = await atClient.agents.listAgents();
+    const response = await atClient.agents.searchAgents();
     
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({
@@ -23,6 +23,9 @@ export async function GET() {
     return NextResponse.json({
       agents: agentsData,
       total: response.total,
+      page: response.page,
+      pageSize: response.pageSize,
+      totalPages: response.totalPages,
     });
   } catch (error: unknown) {
     console.error('Error fetching agents:', error);
@@ -41,18 +44,23 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { query } = body;
+    const body = await request.json().catch(() => ({}));
+    const { query, params, page, pageSize } = body || {};
 
-    if (!query || typeof query !== 'string') {
+    if (query && typeof query !== 'string') {
       return NextResponse.json(
-        { error: 'Missing or invalid query parameter' },
+        { error: 'Invalid query parameter' },
         { status: 400 }
       );
     }
 
     const atClient = await getAgentTrustClient();
-    const response = await atClient.agents.searchAgents(query.trim());
+    const response = await atClient.agents.searchAgents({
+      query: typeof query === 'string' ? query.trim() : undefined,
+      page: typeof page === 'number' ? page : undefined,
+      pageSize: typeof pageSize === 'number' ? pageSize : undefined,
+      params: params && typeof params === 'object' ? params : undefined,
+    });
     
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({
@@ -66,6 +74,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       agents: agentsData,
       total: response.total,
+      page: response.page,
+      pageSize: response.pageSize,
+      totalPages: response.totalPages,
     });
   } catch (error: unknown) {
     console.error('Error searching agents:', error);

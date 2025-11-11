@@ -46,8 +46,8 @@ const agents = await client.agents.listAgents();
 Create a `.env.local` file in the `apps/web` directory with your API key:
 
 ```bash
-# Required: Your AgenticTrust API key
-NEXT_PUBLIC_AGENTIC_TRUST_API_KEY=your-api-key-here
+# Required: Your AgenticTrust discovery API key
+NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
 
 # Optional: Override the base URL
 #NEXT_PUBLIC_AGENTIC_TRUST_BASE_URL=
@@ -56,6 +56,6 @@ NEXT_PUBLIC_AGENTIC_TRUST_API_KEY=your-api-key-here
 The `NEXT_PUBLIC_` prefix is required for Next.js to expose the variable to the browser. For server-side only variables (not exposed to client), you can use:
 
 ```bash
-AGENTIC_TRUST_API_KEY=your-api-key-here
+AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
 ```
 

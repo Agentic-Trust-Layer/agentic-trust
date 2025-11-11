@@ -110,7 +110,7 @@ import { agent } from './your-veramo-agent';
 
 // Create the client - agent is automatically connected
 const client = AgenticTrustClient.create({
-  apiKey: process.env.AGENTIC_TRUST_API_KEY,
+  apiKey: process.env.AGENTIC_TRUST_DISCOVERY_API_KEY,
   veramoAgent: agent, // Required - automatically connected
 });
 

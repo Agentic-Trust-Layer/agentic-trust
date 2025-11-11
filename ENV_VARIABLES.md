@@ -9,8 +9,8 @@ Create a `.env.local` file in the `apps/web` directory:
 ### Required Variables
 
 ```bash
-# Your AgenticTrust API key
-NEXT_PUBLIC_AGENTIC_TRUST_API_KEY=your-api-key-here
+# Your AgenticTrust discovery API key
+NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
 ```
 
 ### Optional Variables
@@ -18,6 +18,12 @@ NEXT_PUBLIC_AGENTIC_TRUST_API_KEY=your-api-key-here
 ```bash
 # Override the base URL (defaults to https://8004-agent.io)
 NEXT_PUBLIC_AGENTIC_TRUST_BASE_URL=https://8004-agent.io
+
+# Discovery API endpoint (GraphQL)
+AGENTIC_TRUST_DISCOVERY_URL=https://api.agentictrust.io
+
+# Server-side discovery API key
+AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
 
 # Ethereum private key for Veramo agent DID
 # If not provided, a key will be generated for the session
@@ -117,6 +123,12 @@ PORT=3001
 # Ethereum private key for Veramo agent DID
 # If not provided, a key will be generated for the session
 AGENTIC_TRUST_PRIVATE_KEY=0x...
+
+# Discovery API endpoint (GraphQL)
+AGENTIC_TRUST_DISCOVERY_URL=https://api.agentictrust.io
+
+# Discovery API key (server-side only)
+AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
 ```
 
 ### Notes
@@ -135,7 +147,7 @@ AGENTIC_TRUST_PRIVATE_KEY=0x...
 cd apps/web
 cp .env.example .env.local
 # Edit .env.local with your API key
-NEXT_PUBLIC_AGENTIC_TRUST_API_KEY=your-actual-api-key
+NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_API_KEY=your-actual-api-key
 ```
 
 ### Provider App

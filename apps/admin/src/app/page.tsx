@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useWeb3Auth } from '@/components/Web3AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
+import { isAddress } from 'viem';
 import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAccountClientByAgentName } from '@agentic-trust/core/client';
 import type { Chain } from 'viem';
 import {
@@ -17,6 +18,7 @@ import {
   DEFAULT_CHAIN_ID,
 } from '@agentic-trust/core/server';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
+import type { SearchParams as AgentSearchParams } from '@agentic-trust/core/server';
 
 
 type Agent = {
@@ -25,6 +27,8 @@ type Agent = {
   a2aEndpoint?: string;
   createdAtTime?: string;
   updatedAtTime?: string;
+  agentOwner?: string;
+  agentType?: string;
 };
 
 export default function AdminPage() {
@@ -65,9 +69,13 @@ export default function AdminPage() {
     return effectiveEip1193 ?? metamaskProvider ?? null;
   }, [web3AuthProvider, effectiveEip1193]);
   
+  const PAGE_SIZE = 10;
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [filteredAgents, setFilteredAgents] = useState<Agent[]>([]);
+  const [agentsPage, setAgentsPage] = useState(1);
+  const [agentsTotal, setAgentsTotal] = useState(0);
+  const [agentsTotalPages, setAgentsTotalPages] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeSearchParams, setActiveSearchParams] = useState<AgentSearchParams | undefined>(undefined);
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [showAgentDialog, setShowAgentDialog] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
@@ -282,8 +290,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   // Fetch agents on mount (only if connected)
   useEffect(() => {
     if (eoaConnected && !loading) {
-      fetchAgents();
+      fetchAgents({ page: 1 });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eoaConnected, loading]);
 
   useEffect(() => {
@@ -349,19 +358,19 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     (async () => {
       try {
         const resp = await fetch('/api/agents/aa/address', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ agentName: name, chainId: selectedChainId }),
-        });
+          });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           console.warn('AA address compute (server) failed:', err);
-          if (!cancelled) {
+        if (!cancelled) {
             setAaAddress(null);
             setCreateForm(prev => ({ ...prev, agentAccount: '' }));
           }
           return;
-        }
+          }
         const data = await resp.json();
         const computed = (data?.address as string) || '';
         if (!cancelled && computed && computed.startsWith('0x')) {
@@ -457,22 +466,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   }, [selectedChainId]);
 
-  // Filter agents based on search query
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredAgents(agents);
-      return;
-    }
-
-    const query = searchQuery.toLowerCase().trim();
-    const filtered = agents.filter(agent => {
-      const agentIdMatch = agent.agentId?.toString().toLowerCase().includes(query);
-      const agentNameMatch = agent.agentName?.toLowerCase().includes(query);
-      return agentIdMatch || agentNameMatch;
-    });
-    setFilteredAgents(filtered);
-  }, [searchQuery, agents]);
-
   // Handle agent row click
   const handleAgentClick = async (agent: Agent) => {
     setSelectedAgent(agent);
@@ -553,6 +546,129 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   };
 
+  const fetchAgents = useCallback(
+    async (options?: {
+      page?: number;
+      searchParams?: AgentSearchParams | undefined;
+      queryOverride?: string;
+    }) => {
+      try {
+        setPageLoading(true);
+        setError(null);
+
+        const searchParamsToUse =
+          options && 'searchParams' in options ? options.searchParams : activeSearchParams;
+        const pageParam =
+          options && typeof options.page === 'number' ? options.page : agentsPage || 1;
+        const safePage = Math.max(pageParam, 1);
+
+        const trimmedQuery =
+          options && typeof options.queryOverride === 'string'
+            ? options.queryOverride
+            : searchQuery.trim();
+        const payload: {
+          page: number;
+          pageSize: number;
+          query?: string;
+          params?: AgentSearchParams;
+        } = {
+          page: safePage,
+          pageSize: PAGE_SIZE,
+        };
+
+        if (trimmedQuery.length > 0) {
+          payload.query = trimmedQuery;
+        }
+
+        if (searchParamsToUse && Object.keys(searchParamsToUse).length > 0) {
+          payload.params = searchParamsToUse;
+        }
+
+        const response = await fetch('/api/agents/search', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
+        }
+
+        const data = await response.json();
+        const agentsList = (data.agents as Agent[]) || [];
+        setAgents(agentsList);
+        setAgentsPage(data.page ?? safePage);
+        setAgentsTotal(data.total ?? agentsList.length);
+        setAgentsTotalPages(data.totalPages ?? 1);
+      } catch (err) {
+        console.error('Failed to fetch agents:', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch agents');
+      } finally {
+        setPageLoading(false);
+      }
+    },
+    [activeSearchParams, agentsPage, searchQuery],
+  );
+
+  const handleSearchSubmit = useCallback(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setActiveSearchParams(undefined);
+      setAgentsPage(1);
+      fetchAgents({ page: 1, searchParams: undefined, queryOverride: '' });
+      return;
+    }
+
+    const lower = trimmed.toLowerCase();
+    const addressLike = isAddress(trimmed);
+
+    const params: AgentSearchParams = {
+      name: trimmed,
+      description: trimmed,
+      ens: trimmed,
+      did: trimmed,
+      supportedTrust: [trimmed],
+      a2aSkills: [trimmed],
+      mcpTools: [trimmed],
+      mcpPrompts: [trimmed],
+      mcpResources: [trimmed],
+    };
+
+    if (addressLike) {
+      params.walletAddress = trimmed as Address;
+      params.owners = [trimmed as Address];
+      params.operators = [trimmed as Address];
+    } else if (lower.startsWith('0x') && trimmed.length === 42) {
+      const normalized = trimmed as Address;
+      params.walletAddress = normalized;
+      params.owners = [normalized];
+      params.operators = [normalized];
+    }
+
+    setActiveSearchParams(params);
+    setAgentsPage(1);
+    fetchAgents({ page: 1, searchParams: params, queryOverride: trimmed });
+  }, [fetchAgents, searchQuery]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    setActiveSearchParams(undefined);
+    setAgentsPage(1);
+    fetchAgents({ page: 1, searchParams: undefined, queryOverride: '' });
+  }, [fetchAgents]);
+
+  const handlePageChange = useCallback(
+    (nextPage: number) => {
+      const safePage = Math.min(Math.max(nextPage, 1), agentsTotalPages || 1);
+      setAgentsPage(safePage);
+      fetchAgents({ page: safePage });
+    },
+    [agentsTotalPages, fetchAgents],
+  );
+
   // Show login page if not connected via Web3Auth
   // But allow wallet connection even if Web3Auth is not connected
   if (authLoading && !walletConnected && !effectivePrivateKeyMode) {
@@ -568,27 +684,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     return <LoginPage />;
   }
 
-  const fetchAgents = async () => {
-    try {
-      setPageLoading(true);
-      setError(null);
-      const response = await fetch('/api/agents/list');
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
-      }
-             const data = await response.json();
-             const agentsList = data.agents || [];
-             setAgents(agentsList);
-             setFilteredAgents(agentsList);
-           } catch (err) {
-             console.error('Failed to fetch agents:', err);
-             setError(err instanceof Error ? err.message : 'Failed to fetch agents');
-           } finally {
-             setPageLoading(false);
-           }
-         };
-
   const handleCreateAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -598,32 +693,32 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
 
       if (!effectivePrivateKeyMode) {
-        const ready = await synchronizeProvidersWithChain(selectedChainId);
-        if (!ready) {
-          setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
-          return;
-        }
-        // Ensure provider is authorized before any core calls
-        try {
-          const prefProvider = (useAA ? aaEip1193 : effectiveEip1193) as any;
-          if (prefProvider && typeof prefProvider.request === 'function') {
-            // Switch to selected chain (if wallet supports it)
-            const chainIdHex = getChainIdHex(selectedChainId);
-            try {
-              const current = await prefProvider.request({ method: 'eth_chainId' }).catch(() => null);
-              if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
-                await prefProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
-              }
-            } catch {
-              // ignore; core will also attempt chain selection
+      const ready = await synchronizeProvidersWithChain(selectedChainId);
+      if (!ready) {
+        setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
+        return;
+      }
+      // Ensure provider is authorized before any core calls
+      try {
+        const prefProvider = (useAA ? aaEip1193 : effectiveEip1193) as any;
+        if (prefProvider && typeof prefProvider.request === 'function') {
+          // Switch to selected chain (if wallet supports it)
+          const chainIdHex = getChainIdHex(selectedChainId);
+          try {
+            const current = await prefProvider.request({ method: 'eth_chainId' }).catch(() => null);
+            if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
+              await prefProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
             }
-            const accs = await prefProvider.request({ method: 'eth_accounts' }).catch(() => []);
-            if (!Array.isArray(accs) || accs.length === 0) {
-              await prefProvider.request({ method: 'eth_requestAccounts' });
-            }
+          } catch {
+            // ignore; core will also attempt chain selection
           }
-        } catch {
-          // ignore; core will also attempt authorization
+          const accs = await prefProvider.request({ method: 'eth_accounts' }).catch(() => []);
+          if (!Array.isArray(accs) || accs.length === 0) {
+            await prefProvider.request({ method: 'eth_requestAccounts' });
+          }
+        }
+      } catch {
+        // ignore; core will also attempt authorization
         }
       }
 
@@ -706,25 +801,25 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           }
         } else {
           // Client path (requires connected wallet/provider)
-          const result = await createAgentWithWalletForEOA({
-            agentData: {
+        const result = await createAgentWithWalletForEOA({
+          agentData: {
               agentName: createForm.agentName,
-              agentAccount: agentAccountToUse,
-              description: createForm.description || undefined,
-              image: createForm.image || undefined,
-              agentUrl: createForm.agentUrl || undefined,
-            },
-            account: eoaAddress as Address,
-            ethereumProvider: effectiveEip1193 as any,
-            onStatusUpdate: setSuccess,
-            useAA: useAA || undefined,
-            chainId: selectedChainId,
-          });
+            agentAccount: agentAccountToUse,
+            description: createForm.description || undefined,
+            image: createForm.image || undefined,
+            agentUrl: createForm.agentUrl || undefined,
+          },
+          account: eoaAddress as Address,
+          ethereumProvider: effectiveEip1193 as any,
+          onStatusUpdate: setSuccess,
+          useAA: useAA || undefined,
+          chainId: selectedChainId,
+        });
 
-          if (result.agentId) {
-            setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
-          } else {
-            setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+        if (result.agentId) {
+          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+        } else {
+          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
           }
         }
       }
@@ -762,29 +857,29 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           }
         } else {
           // Client path (requires connected wallet/provider)
-          const result = await createAgentWithWalletForAA({
-            agentData: {
+        const result = await createAgentWithWalletForAA({
+          agentData: {
               agentName: createForm.agentName,
-              agentAccount: agentAccountToUse,
-              description: createForm.description || undefined,
-              image: createForm.image || undefined,
-              agentUrl: createForm.agentUrl || undefined,
-            },
-            account: eoaAddress as Address,
-            ethereumProvider: aaEip1193 as any,
-            onStatusUpdate: setSuccess,
-            useAA: useAA || undefined,
-            ensOptions: {
-              enabled: !!createENS,
-              orgName: createENS ? ensOrgName : undefined,
-            },
-            chainId: selectedChainId,
-          });
+            agentAccount: agentAccountToUse,
+            description: createForm.description || undefined,
+            image: createForm.image || undefined,
+            agentUrl: createForm.agentUrl || undefined,
+          },
+          account: eoaAddress as Address,
+          ethereumProvider: aaEip1193 as any,
+          onStatusUpdate: setSuccess,
+          useAA: useAA || undefined,
+          ensOptions: {
+            enabled: !!createENS,
+            orgName: createENS ? ensOrgName : undefined,
+          },
+          chainId: selectedChainId,
+        });
 
-          if (result.agentId) {
-            setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
-          } else {
-            setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+        if (result.agentId) {
+          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+        } else {
+          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
           }
         }
       }
@@ -1358,7 +1453,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h2 style={{ fontSize: '1.5rem' }}>Agents List</h2>
           <button
-            onClick={fetchAgents}
+            onClick={() => fetchAgents()}
             style={{
               padding: '0.5rem 1rem',
               backgroundColor: '#6c757d',
@@ -1372,26 +1467,63 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             Refresh
           </button>
         </div>
-        <div style={{ marginBottom: '1rem' }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSearchSubmit();
+          }}
+          style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}
+        >
           <input
             type="text"
-            placeholder="Search by Agent ID or Agent Name..."
+            placeholder="Search agents by name, ENS, owner, wallet address..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             style={{
-              width: '100%',
+              flex: '1 1 280px',
+              minWidth: '220px',
               padding: '0.75rem',
               border: '1px solid #ddd',
               borderRadius: '4px',
               fontSize: '1rem',
             }}
           />
-        </div>
+          <button
+            type="submit"
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: '#0d6efd',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '1rem',
+              fontWeight: 'bold',
+            }}
+          >
+            Search
+          </button>
+          <button
+            type="button"
+            onClick={handleClearSearch}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: '#6c757d',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '1rem',
+            }}
+          >
+            Clear
+          </button>
+        </form>
         {pageLoading ? (
           <div style={{ padding: '2rem', textAlign: 'center' }}>Loading agents...</div>
-        ) : filteredAgents.length === 0 ? (
+        ) : agents.length === 0 ? (
           <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
-            {searchQuery ? `No agents found matching "${searchQuery}"` : 'No agents found'}
+            {activeSearchParams ? 'No agents found for the selected filters.' : 'No agents found.'}
           </div>
         ) : (
           <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
@@ -1405,7 +1537,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 </tr>
               </thead>
               <tbody>
-                {filteredAgents.map((agent, index) => (
+                {agents.map((agent, index) => (
                   <tr 
                     key={`agent-${agent.agentId !== undefined ? agent.agentId : 'unknown'}-${index}`} 
                     onClick={() => handleAgentClick(agent)}
@@ -1435,6 +1567,53 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             </table>
           </div>
         )}
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginTop: '1rem',
+            flexWrap: 'wrap',
+            gap: '0.5rem',
+          }}
+        >
+          <div style={{ color: '#555', fontSize: '0.9rem' }}>
+            Showing page {agentsPage} of {Math.max(agentsTotalPages, 1)} — {agentsTotal}{' '}
+            agent{agentsTotal === 1 ? '' : 's'} total
+          </div>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              onClick={() => handlePageChange(agentsPage - 1)}
+              disabled={agentsPage <= 1 || pageLoading}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: agentsPage <= 1 ? '#e9ecef' : '#0d6efd',
+                color: agentsPage <= 1 ? '#6c757d' : '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: agentsPage <= 1 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePageChange(agentsPage + 1)}
+              disabled={agentsPage >= agentsTotalPages || pageLoading}
+              style={{
+                padding: '0.5rem 1rem',
+                backgroundColor: agentsPage >= agentsTotalPages ? '#e9ecef' : '#0d6efd',
+                color: agentsPage >= agentsTotalPages ? '#6c757d' : '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: agentsPage >= agentsTotalPages ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Agent Details Dialog */}

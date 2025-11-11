@@ -20,6 +20,7 @@ export {
   type ListAgentsResponse,
   type GetAgentResponse,
   type SearchAgentsResponse,
+  type SearchAgentsAdvancedOptions,
   type RefreshAgentResponse,
 } from './AIAgentDiscoveryClient';
 

@@ -45,11 +45,11 @@ AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x...
 AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x...
 AGENTIC_TRUST_ENS_REGISTRY_SEPOLIA=0x...
 
-# Optional: GraphQL URL (for agent discovery)
-AGENTIC_TRUST_GRAPHQL_URL=https://api.example.com
+# Optional: Discovery URL (GraphQL endpoint)
+AGENTIC_TRUST_DISCOVERY_URL=https://api.example.com
 
-# Optional: API Key (for GraphQL)
-AGENTIC_TRUST_API_KEY=...
+# Optional: Discovery API key
+AGENTIC_TRUST_DISCOVERY_API_KEY=...
 
 # Optional: Reputation Registry (if using reputation features)
 AGENTIC_TRUST_REPUTATION_REGISTRY=0x...
@@ -163,9 +163,25 @@ Transfer agent ownership to a new address.
 }
 ```
 
-### GET /api/agents/list
+### POST /api/agents/search
 
-List all registered agents.
+Search registered agents with pagination and advanced filters.
+
+**Request Body:**
+```json
+{
+  "page": 1,
+  "pageSize": 10,
+  "query": "orbit",
+  "params": {
+    "chains": [84532],
+    "name": "orbit",
+    "walletAddress": "0x1234...abcd",
+    "supportedTrust": ["identity"],
+    "mcp": true
+  }
+}
+```
 
 **Response:**
 ```json
@@ -177,10 +193,15 @@ List all registered agents.
       "agentName": "My Agent",
       "a2aEndpoint": "https://...",
       "createdAtTime": "1234567890",
-      "updatedAtTime": "1234567890"
+      "updatedAtTime": "1234567890",
+      "agentOwner": "0x1234...abcd",
+      "agentType": "wallet"
     }
   ],
-  "total": 1
+  "total": 4,
+  "page": 1,
+  "pageSize": 10,
+  "totalPages": 1
 }
 ```
 

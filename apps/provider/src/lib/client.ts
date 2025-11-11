@@ -36,8 +36,8 @@ export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
   initializationPromise = (async () => {
     try {
       // Get configuration from environment variables (server-side only)
-      const graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
-      const apiKey = process.env.AGENTIC_TRUST_API_KEY;
+      const discoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL;
+      const apiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
       const privateKey = process.env.AGENTIC_TRUST_PRIVATE_KEY;
 
       // Session package configuration
@@ -64,9 +64,9 @@ export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
       };
 
 
-      // Set apiKey if provided
-      if (graphQLUrl) {
-        config.graphQLUrl = graphQLUrl;
+      // Set discovery URL if provided
+      if (discoveryUrl) {
+        config.graphQLUrl = discoveryUrl;
       }
 
       // Set apiKey if provided

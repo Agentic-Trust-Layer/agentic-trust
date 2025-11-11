@@ -134,8 +134,16 @@ const client = await AgenticTrustClient.create({
   rpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/...', // Optional: for DID resolution
 });
 
-// List agents
-const { agents } = await client.agents.listAgents();
+// Search agents with optional filters
+const { agents, total } = await client.agents.searchAgents({
+  query: 'orbit',
+  page: 1,
+  pageSize: 20,
+  params: {
+    supportedTrust: ['identity'],
+    a2aSkills: ['trust-webhook'],
+  },
+});
 
 // Get a specific agent
 const agent = await client.agents.getAgent('943');
@@ -164,10 +172,10 @@ let serverClient: AgenticTrustClient | null = null;
 export async function getServerClient(): Promise<AgenticTrustClient> {
   if (!serverClient) {
     serverClient = await AgenticTrustClient.create({
-      graphQLUrl: process.env.AGENTIC_TRUST_GRAPHQL_URL!,
-      apiKey: process.env.AGENTIC_TRUST_API_KEY,
+      graphQLUrl: process.env.AGENTIC_TRUST_DISCOVERY_URL!,
+      apiKey: process.env.AGENTIC_TRUST_DISCOVERY_API_KEY,
       privateKey: process.env.AGENTIC_TRUST_PRIVATE_KEY,
-      rpcUrl: process.env.AGENTIC_TRUST_RPC_URL,
+      rpcUrl: process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA,
     });
   }
   return serverClient;
@@ -184,8 +192,8 @@ AGENTIC_TRUST_PRIVATE_KEY=0x...
 AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
 AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA=https://sepolia.base.org
 AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA=https://sepolia.optimism.io
-AGENTIC_TRUST_GRAPHQL_URL=https://...
-AGENTIC_TRUST_API_KEY=...
+AGENTIC_TRUST_DISCOVERY_URL=https://...
+AGENTIC_TRUST_DISCOVERY_API_KEY=...
 AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x...
 AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x...
 ```

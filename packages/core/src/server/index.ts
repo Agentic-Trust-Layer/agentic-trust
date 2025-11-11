@@ -39,6 +39,9 @@ export {
 } from './lib/agents';
 
 export type {
+  SearchParams,
+  SearchAgentsOptions,
+  ListAgentsOptions,
   ListAgentsResponse,
 } from './lib/agents';
 

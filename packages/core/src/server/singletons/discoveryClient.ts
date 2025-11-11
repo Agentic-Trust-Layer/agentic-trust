@@ -35,28 +35,30 @@ export async function getDiscoveryClient(
   initializationPromise = (async () => {
     try {
       // Get configuration from environment variables or provided config
-      // Note: endpoint should be the full GraphQL URL (e.g., https://api.example.com/graphql)
-      let graphQLUrl = config?.endpoint;
-      if (!graphQLUrl) {
+      // Note: endpoint should be the full discovery GraphQL URL (e.g., https://api.example.com/graphql)
+      let discoveryUrl = config?.endpoint;
+      if (!discoveryUrl) {
         // Try environment variable
-        graphQLUrl = process.env.AGENTIC_TRUST_GRAPHQL_URL;
+        discoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL;
         // If it doesn't end with /graphql, append it
-        if (graphQLUrl && !graphQLUrl.endsWith('/graphql')) {
-          graphQLUrl = `${graphQLUrl.replace(/\/$/, '')}/graphql`;
+        if (discoveryUrl && !discoveryUrl.endsWith('/graphql')) {
+          discoveryUrl = `${discoveryUrl.replace(/\/$/, '')}/graphql`;
         }
       }
       
-      const apiKey = config?.apiKey || process.env.AGENTIC_TRUST_API_KEY;
+      const apiKey =
+        config?.apiKey ??
+        process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
 
-      if (!graphQLUrl) {
+      if (!discoveryUrl) {
         throw new Error(
-          'Missing required configuration: GraphQL endpoint. Set AGENTIC_TRUST_GRAPHQL_URL or provide config.endpoint'
+          'Missing required configuration: Discovery endpoint. Set AGENTIC_TRUST_DISCOVERY_URL or provide config.endpoint'
         );
       }
 
       // Build full config
       const clientConfig: AIAgentDiscoveryClientConfig = {
-        endpoint: graphQLUrl,
+        endpoint: discoveryUrl,
         apiKey,
         timeout: config?.timeout,
         headers: config?.headers,
