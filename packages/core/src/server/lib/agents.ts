@@ -932,10 +932,10 @@ export class AgentsAPI {
       }
       // Default: newest first by agentId desc (back-compat)
       list.sort((a, b) => {
-        const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
-        const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
-        return idB - idA;
-      });
+      const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
+      const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
+      return idB - idA;
+    });
       return list;
     })();
 

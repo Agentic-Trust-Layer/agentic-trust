@@ -582,7 +582,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
         if (trimmedQuery.length > 0) {
           payload.query = trimmedQuery;
-        }
+  }
 
         if (searchParamsToUse && Object.keys(searchParamsToUse).length > 0) {
           payload.params = searchParamsToUse;
@@ -596,23 +596,23 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           body: JSON.stringify(payload),
         });
 
-        if (!response.ok) {
+      if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
-        }
+        throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
+      }
 
-        const data = await response.json();
+             const data = await response.json();
         const agentsList = (data.agents as Agent[]) || [];
-        setAgents(agentsList);
+             setAgents(agentsList);
         setAgentsPage(data.page ?? safePage);
         setAgentsTotal(data.total ?? agentsList.length);
         setAgentsTotalPages(data.totalPages ?? 1);
-      } catch (err) {
-        console.error('Failed to fetch agents:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch agents');
-      } finally {
-        setPageLoading(false);
-      }
+           } catch (err) {
+             console.error('Failed to fetch agents:', err);
+             setError(err instanceof Error ? err.message : 'Failed to fetch agents');
+           } finally {
+             setPageLoading(false);
+           }
     },
     [activeSearchParams, agentsPage, searchQuery],
   );

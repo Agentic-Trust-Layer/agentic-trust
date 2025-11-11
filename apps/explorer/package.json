@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@agentic-trust/core": "workspace:*",
+    "@agentic-trust/core": "npm:@agentic-trust/core@1.0.1",
     "@emotion/cache": "^11.11.3",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.3",

@@ -485,8 +485,6 @@ function PaginationLinks({ totalPages, currentPage, query, totalAgents }: Pagina
     );
   }
 
-  const pages = Array.from({ length: totalPages }, (_, index) => index + 1);
-
   const createHref = (page: number) => {
     const params = new URLSearchParams();
     if (query.trim()) {
@@ -505,17 +503,26 @@ function PaginationLinks({ totalPages, currentPage, query, totalAgents }: Pagina
         Page {currentPage} of {totalPages}
       </Typography>
       <Stack direction="row" spacing={1}>
-        {pages.map((page) => (
-          <Button
-            key={page}
-            component={Link}
-            href={createHref(page)}
-            variant={page === currentPage ? 'contained' : 'outlined'}
-            size="small"
-          >
-            {page}
-          </Button>
-        ))}
+        <Button
+          component={Link}
+          href={createHref(Math.max(1, currentPage - 1))}
+          variant="outlined"
+          size="small"
+          aria-disabled={currentPage <= 1}
+          sx={{ pointerEvents: currentPage <= 1 ? 'none' : 'auto', opacity: currentPage <= 1 ? 0.5 : 1 }}
+        >
+          Previous
+        </Button>
+        <Button
+          component={Link}
+          href={createHref(Math.min(totalPages, currentPage + 1))}
+          variant="contained"
+          size="small"
+          aria-disabled={currentPage >= totalPages}
+          sx={{ pointerEvents: currentPage >= totalPages ? 'none' : 'auto', opacity: currentPage >= totalPages ? 0.5 : 1 }}
+        >
+          Next
+        </Button>
       </Stack>
     </Stack>
   );
