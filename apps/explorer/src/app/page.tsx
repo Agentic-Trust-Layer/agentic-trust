@@ -33,19 +33,28 @@ type NormalizedAgent = {
   metadataUri: string | null;
 };
 
-async function fetchAgents(): Promise<{ agents: NormalizedAgent[]; error?: string }> {
+const PAGE_SIZE = 10;
+
+async function fetchAgentsServer(params: {
+  page: number;
+  query: string;
+}): Promise<{ agents: NormalizedAgent[]; total: number; page: number; pageSize: number; totalPages: number; error?: string }> {
   try {
     const client = await getExplorerClient();
-    const { agents }: ListAgentsResponse = await client.agents.searchAgents({
-      pageSize: 200,
+    const { agents, total, page, pageSize, totalPages }: ListAgentsResponse = await client.agents.searchAgents({
+      page: params.page,
+      pageSize: PAGE_SIZE,
+      query: params.query,
+      orderBy: 'agentName',
+      orderDirection: 'ASC',
     });
 
     const normalized = agents.map(normalizeAgent);
-    return { agents: normalized };
+    return { agents: normalized, total, page, pageSize, totalPages };
   } catch (error) {
     const message = extractErrorMessage(error);
     console.error('[Explorer] Failed to load agents:', error);
-    return { agents: [], error: message };
+    return { agents: [], total: 0, page: 1, pageSize: PAGE_SIZE, totalPages: 1, error: message };
   }
 }
 
@@ -149,8 +158,6 @@ function cryptoRandomId(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
-const PAGE_SIZE = 10;
-
 type PageParams = {
   searchParams?: Record<string, string | string[] | undefined>;
 };
@@ -165,7 +172,7 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
       : Array.isArray(queryRaw)
         ? queryRaw[0]?.trim() ?? ''
         : '';
-  const normalizedQuery = queryInput.toLowerCase();
+  const normalizedQuery = queryInput; // send raw trimmed query to backend advanced search
 
   const requestedPage =
     typeof currentPageRaw === 'string'
@@ -174,7 +181,10 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
         ? Number.parseInt(currentPageRaw[0] ?? '1', 10)
         : 1;
 
-  const { agents, error } = await fetchAgents();
+  const { agents, total, page, totalPages, error } = await fetchAgentsServer({
+    page: requestedPage,
+    query: queryInput,
+  });
 
   if (error) {
     return (
@@ -186,24 +196,8 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
     );
   }
 
-  const filteredAgents = normalizedQuery
-    ? agents.filter((agent) => {
-        const haystackSource = [
-          agent.name,
-          agent.description,
-          agent.type,
-          agent.address,
-          agent.owner,
-          agent.endpoint,
-          agent.metadataUri,
-        ]
-          .filter(Boolean)
-          .join(' ');
-        return haystackSource.toLowerCase().includes(normalizedQuery);
-      })
-    : agents;
-
-  const totalAgents = filteredAgents.length;
+  const filteredAgents = agents;
+  const totalAgents = total;
   if (totalAgents === 0) {
     return (
       <Box component="section">
@@ -219,11 +213,8 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(totalAgents / PAGE_SIZE));
-  const currentPage = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
-  const safePage = Math.min(currentPage, totalPages);
-  const startIndex = (safePage - 1) * PAGE_SIZE;
-  const pageAgents = filteredAgents.slice(startIndex, startIndex + PAGE_SIZE);
+  const safePage = Number.isFinite(page) && page > 0 ? Math.min(page, totalPages) : 1;
+  const pageAgents = filteredAgents;
 
   return (
     <Box component="section">

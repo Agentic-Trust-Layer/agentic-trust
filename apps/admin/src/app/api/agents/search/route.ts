@@ -55,6 +55,8 @@ async function mapClientSearch(options: {
   pageSize?: number;
   query?: string;
   params?: SearchParams;
+  orderBy?: string;
+  orderDirection?: 'ASC' | 'DESC';
 }): Promise<SearchResultPayload> {
   const client = await getAdminClient();
   const result = await client.agents.searchAgents(options);
@@ -85,12 +87,18 @@ export async function GET(request: NextRequest) {
     const pageSize = toNumber(urlParams.get('pageSize')) ?? DEFAULT_PAGE_SIZE;
     const query = urlParams.get('query')?.trim();
     const params = parseParamsParam(urlParams.get('params'));
+    const orderBy = urlParams.get('orderBy')?.trim() || undefined;
+    const orderDirectionRaw = urlParams.get('orderDirection')?.trim().toUpperCase();
+    const orderDirection =
+      orderDirectionRaw === 'ASC' || orderDirectionRaw === 'DESC' ? (orderDirectionRaw as 'ASC' | 'DESC') : undefined;
 
     const response = await mapClientSearch({
       page,
       pageSize,
       query: query && query.length > 0 ? query : undefined,
       params,
+      orderBy,
+      orderDirection,
     });
 
     return NextResponse.json(mapAgentsResponse(response));
@@ -121,12 +129,20 @@ export async function POST(request: NextRequest) {
       typeof body.query === 'string' && body.query.trim().length > 0 ? body.query.trim() : undefined;
     const params: SearchParams | undefined =
       body.params && typeof body.params === 'object' ? body.params : undefined;
+    const orderBy: string | undefined =
+      typeof body.orderBy === 'string' && body.orderBy.trim().length > 0 ? body.orderBy.trim() : undefined;
+    const orderDirection: 'ASC' | 'DESC' | undefined =
+      typeof body.orderDirection === 'string' && ['ASC', 'DESC'].includes(body.orderDirection.toUpperCase())
+        ? (body.orderDirection.toUpperCase() as 'ASC' | 'DESC')
+        : undefined;
 
     const response = await mapClientSearch({
       page,
       pageSize,
       query,
       params,
+      orderBy,
+      orderDirection,
     });
 
     return NextResponse.json(mapAgentsResponse(response));

@@ -571,9 +571,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           pageSize: number;
           query?: string;
           params?: AgentSearchParams;
+          orderBy?: string;
+          orderDirection?: 'ASC' | 'DESC';
         } = {
           page: safePage,
           pageSize: PAGE_SIZE,
+          orderBy: 'agentName',
+          orderDirection: 'ASC',
         };
 
         if (trimmedQuery.length > 0) {
@@ -613,6 +617,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     [activeSearchParams, agentsPage, searchQuery],
   );
 
+  useEffect(() => {
+    // Initial load with default paging and current search state
+    fetchAgents({ page: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSearchSubmit = useCallback(() => {
     const trimmed = searchQuery.trim();
     if (!trimmed) {
@@ -622,35 +632,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       return;
     }
 
-    const lower = trimmed.toLowerCase();
-    const addressLike = isAddress(trimmed);
-
-    const params: AgentSearchParams = {
-      name: trimmed,
-      description: trimmed,
-      ens: trimmed,
-      did: trimmed,
-      supportedTrust: [trimmed],
-      a2aSkills: [trimmed],
-      mcpTools: [trimmed],
-      mcpPrompts: [trimmed],
-      mcpResources: [trimmed],
-    };
-
-    if (addressLike) {
-      params.walletAddress = trimmed as Address;
-      params.owners = [trimmed as Address];
-      params.operators = [trimmed as Address];
-    } else if (lower.startsWith('0x') && trimmed.length === 42) {
-      const normalized = trimmed as Address;
-      params.walletAddress = normalized;
-      params.owners = [normalized];
-      params.operators = [normalized];
-    }
-
-    setActiveSearchParams(params);
+    // Simple search should use free-text query only; avoid restrictive params
+    setActiveSearchParams(undefined);
     setAgentsPage(1);
-    fetchAgents({ page: 1, searchParams: params, queryOverride: trimmed });
+    fetchAgents({ page: 1, searchParams: undefined, queryOverride: trimmed });
   }, [fetchAgents, searchQuery]);
 
   const handleClearSearch = useCallback(() => {

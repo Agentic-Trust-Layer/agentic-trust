@@ -82,6 +82,8 @@ type ConnectionStrategy = {
   filterArg?: ArgConfig;
   limitArg?: ArgConfig;
   offsetArg?: ArgConfig;
+  orderByArg?: ArgConfig;
+  orderDirectionArg?: ArgConfig;
 };
 
 type ListStrategy = {
@@ -90,6 +92,8 @@ type ListStrategy = {
   queryArg?: ArgConfig;
   limitArg?: ArgConfig;
   offsetArg?: ArgConfig;
+  orderByArg?: ArgConfig;
+  orderDirectionArg?: ArgConfig;
 };
 
 type SearchStrategy = ConnectionStrategy | ListStrategy;
@@ -215,6 +219,8 @@ export interface SearchAgentsAdvancedOptions {
   params?: Record<string, unknown>;
   limit?: number;
   offset?: number;
+  orderBy?: string;
+  orderDirection?: 'ASC' | 'DESC';
 }
 
 export interface RefreshAgentResponse {
@@ -333,9 +339,6 @@ export class AIAgentDiscoveryClient {
     options: SearchAgentsAdvancedOptions,
   ): Promise<{ agents: AgentData[]; total?: number | null } | null> {
     const strategy = await this.detectSearchStrategy();
-    if (!strategy) {
-      return null;
-    }
 
     const { query, params, limit, offset } = options;
     const trimmedQuery = typeof query === 'string' ? query.trim() : '';
@@ -343,6 +346,50 @@ export class AIAgentDiscoveryClient {
     const hasParams = params && Object.keys(params).length > 0;
 
     if (!hasQuery && !hasParams) {
+      return null;
+    }
+
+    // If no detected strategy (introspection disabled), attempt a direct list-form searchAgents call.
+    if (!strategy) {
+      try {
+        const queryText = `
+          query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
+            searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
+              chainId
+              agentId
+              agentAddress
+              agentOwner
+              agentName
+              metadataURI
+              createdAtBlock
+              createdAtTime
+              updatedAtTime
+              type
+              description
+              image
+              a2aEndpoint
+              ensEndpoint
+              agentAccountEndpoint
+              supportedTrust
+              rawJson
+            }
+          }
+        `;
+        const variables: Record<string, unknown> = {
+          query: trimmedQuery,
+          limit: typeof limit === 'number' ? limit : undefined,
+          offset: typeof offset === 'number' ? offset : undefined,
+          orderBy: options.orderBy,
+          orderDirection: options.orderDirection,
+        };
+        const data = await this.client.request<Record<string, any>>(queryText, variables);
+        const list = data?.searchAgents;
+        if (Array.isArray(list)) {
+          return { agents: list.filter(Boolean) as AgentData[], total: undefined };
+        }
+      } catch (error) {
+        console.warn('[AIAgentDiscoveryClient] Fallback searchAgents call failed:', error);
+      }
       return null;
     }
 
@@ -417,6 +464,8 @@ export class AIAgentDiscoveryClient {
       }
       addIntArg(strategy.limitArg, typeof limit === 'number' ? limit : undefined);
       addIntArg(strategy.offsetArg, typeof offset === 'number' ? offset : undefined);
+      addStringArg(strategy.orderByArg, options.orderBy);
+      addStringArg(strategy.orderDirectionArg, options.orderDirection);
 
       if (argumentAssignments.length === 0) {
         return null;
@@ -458,6 +507,8 @@ export class AIAgentDiscoveryClient {
       }
       addIntArg(strategy.limitArg, typeof limit === 'number' ? limit : undefined);
       addIntArg(strategy.offsetArg, typeof offset === 'number' ? offset : undefined);
+      addStringArg(strategy.orderByArg, options.orderBy);
+      addStringArg(strategy.orderDirectionArg, options.orderDirection);
 
       if (argumentAssignments.length === 0) {
         return null;
@@ -545,6 +596,8 @@ export class AIAgentDiscoveryClient {
     const filterArg =
       field.args.find((arg) => arg.name === 'params') ??
       field.args.find((arg) => arg.name === 'filters');
+  const orderByArg = field.args.find((arg) => arg.name === 'orderBy');
+  const orderDirectionArg = field.args.find((arg) => arg.name === 'orderDirection');
 
     if (baseReturn.kind === 'OBJECT' && baseReturn.name) {
       const connectionFields = await this.getTypeFields(baseReturn.name);
@@ -595,6 +648,20 @@ export class AIAgentDiscoveryClient {
               isNonNull: isNonNull(offsetArg.type),
             }
           : undefined,
+        orderByArg: orderByArg
+          ? {
+              name: orderByArg.name,
+              typeName: unwrapToTypeName(orderByArg.type),
+              isNonNull: isNonNull(orderByArg.type),
+            }
+          : undefined,
+        orderDirectionArg: orderDirectionArg
+          ? {
+              name: orderDirectionArg.name,
+              typeName: unwrapToTypeName(orderDirectionArg.type),
+              isNonNull: isNonNull(orderDirectionArg.type),
+            }
+          : undefined,
       };
     }
 
@@ -622,7 +689,21 @@ export class AIAgentDiscoveryClient {
               typeName: unwrapToTypeName(offsetArg.type),
               isNonNull: isNonNull(offsetArg.type),
             }
-          : undefined,
+        : undefined,
+      orderByArg: orderByArg
+        ? {
+            name: orderByArg.name,
+            typeName: unwrapToTypeName(orderByArg.type),
+            isNonNull: isNonNull(orderByArg.type),
+          }
+        : undefined,
+      orderDirectionArg: orderDirectionArg
+        ? {
+            name: orderDirectionArg.name,
+            typeName: unwrapToTypeName(orderDirectionArg.type),
+            isNonNull: isNonNull(orderDirectionArg.type),
+          }
+        : undefined,
       };
     }
 

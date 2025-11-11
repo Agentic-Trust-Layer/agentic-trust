@@ -116,6 +116,8 @@ export interface SearchAgentsOptions {
   pageSize?: number;
   query?: string;
   params?: SearchParams;
+  orderBy?: string;
+  orderDirection?: 'ASC' | 'DESC';
 }
 
 export interface ListAgentsOptions extends SearchAgentsOptions {}
@@ -827,6 +829,8 @@ export class AgentsAPI {
         params?: Record<string, unknown>;
         limit?: number;
         offset?: number;
+        orderBy?: string;
+        orderDirection?: 'ASC' | 'DESC';
       }) => Promise<{ agents: AgentData[]; total?: number | null } | null>;
     };
 
@@ -854,6 +858,8 @@ export class AgentsAPI {
           params: options?.params as Record<string, unknown> | undefined,
           limit: pageSize,
           offset,
+          orderBy: options?.orderBy,
+          orderDirection: options?.orderDirection,
         });
 
         if (advanced && Array.isArray(advanced.agents)) {
@@ -912,11 +918,26 @@ export class AgentsAPI {
         : '';
     const params = options?.params;
 
-    const sortedAgents = [...agentData].sort((a, b) => {
-      const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
-      const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
-      return idB - idA;
-    });
+    const sortedAgents = (() => {
+      const orderBy = options?.orderBy?.trim();
+      const orderDirection = (options?.orderDirection ?? 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+      const list = [...agentData];
+      if (orderBy === 'agentName') {
+        list.sort((a, b) => {
+          const aName = (a.agentName ?? '').toLowerCase();
+          const bName = (b.agentName ?? '').toLowerCase();
+          return orderDirection === 'ASC' ? aName.localeCompare(bName) : bName.localeCompare(aName);
+        });
+        return list;
+      }
+      // Default: newest first by agentId desc (back-compat)
+      list.sort((a, b) => {
+        const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId) || 0;
+        const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId) || 0;
+        return idB - idA;
+      });
+      return list;
+    })();
 
     const filteredAgents = sortedAgents.filter((data) => {
       if (normalizedQuery) {
