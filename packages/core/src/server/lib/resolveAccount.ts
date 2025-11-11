@@ -1,9 +1,9 @@
 /**
  * Reusable API route handler for resolving agent account by name
- * Handles ENS resolution server-side
+ * Handles ENS resolution
  */
 
-import { extractAgentAccountFromDiscovery } from '../../server/lib/agentAccount';
+import { extractAgentAccountFromDiscovery } from './agentAccount';
 
 // Use a function signature type to avoid circular dependency
 type AgenticTrustClient = {
@@ -81,7 +81,7 @@ export async function handleResolveAccount(
     }
 
     // Check if ENS client is properly configured
-    const ensRegistryAddress = (ensClient as any)?.ensRegistryAddress;
+    const ensRegistryAddress = (ensClient as any)?.suilookeen_registrar ?? (ensClient as any)?.ensRegistryAddress;
     if (!ensRegistryAddress || ensRegistryAddress === '' || ensRegistryAddress === '0x0000000000000000000000000000000000000000') {
       return {
         account: null,
@@ -185,4 +185,5 @@ export async function handleResolveAccount(
     };
   }
 }
+
 

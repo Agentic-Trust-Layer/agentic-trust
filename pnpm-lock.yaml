@@ -38,6 +38,21 @@ importers:
       '@agentic-trust/veramo-agent-extension':
         specifier: workspace:*
         version: link:../../packages/veramo-agent-extension
+      '@emotion/cache':
+        specifier: ^11.11.3
+        version: 11.14.0
+      '@emotion/react':
+        specifier: ^11.11.3
+        version: 11.14.0(@types/react@18.3.26)(react@18.3.1)
+      '@emotion/styled':
+        specifier: ^11.11.3
+        version: 11.14.1(@emotion/react@11.14.0)(@types/react@18.3.26)(react@18.3.1)
+      '@mui/icons-material':
+        specifier: ^5.15.17
+        version: 5.18.0(@mui/material@5.18.0)(@types/react@18.3.26)(react@18.3.1)
+      '@mui/material':
+        specifier: ^5.15.17
+        version: 5.18.0(@emotion/react@11.14.0)(@emotion/styled@11.14.1)(@types/react@18.3.26)(react-dom@18.3.1)(react@18.3.1)
       '@veramo/core':
         specifier: ^6.0.0
         version: 6.0.0
@@ -106,8 +121,8 @@ importers:
   apps/explorer:
     dependencies:
       '@agentic-trust/core':
-        specifier: 1.0.1
-        version: 1.0.1(@veramo/core@6.0.0)(graphql@16.12.0)(node-fetch@2.7.0)(react@18.3.1)(typescript@5.9.3)
+        specifier: workspace:*
+        version: link:../../packages/core
       '@emotion/cache':
         specifier: ^11.11.3
         version: 11.14.0
@@ -460,111 +475,6 @@ packages:
 
   /@adraffy/ens-normalize@1.11.1:
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
-    dev: false
-
-  /@agentic-trust/8004-ext-sdk@1.0.1(graphql@16.12.0)(react@18.3.1)(typescript@5.9.3):
-    resolution: {integrity: sha512-WmMzFuupaNevfUbqtsU5UXbniYvwSnmmaRcTMzeluG7txFGu1AHyi36c66i53AL4Mmm7c9jzjXxZOqMOGb3Fgw==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      react: '>=18.0.0'
-    dependencies:
-      '@agentic-trust/8004-sdk': 1.0.1(ethers@6.15.0)(viem@2.38.6)
-      '@metamask/delegation-toolkit': 0.13.0(viem@2.38.6)
-      '@thenamespace/indexer': 1.0.2
-      '@thenamespace/mint-manager': 1.1.1
-      ethers: 6.15.0
-      graphql-request: 6.1.0(graphql@16.12.0)
-      react: 18.3.1
-      viem: 2.38.6(typescript@5.9.3)
-    transitivePeerDependencies:
-      - '@swc/core'
-      - '@swc/wasm'
-      - bufferutil
-      - debug
-      - encoding
-      - graphql
-      - supports-color
-      - typescript
-      - utf-8-validate
-      - zod
-    dev: false
-
-  /@agentic-trust/8004-sdk@1.0.1(ethers@6.15.0)(viem@2.38.6):
-    resolution: {integrity: sha512-NQDGsyMHWWHTLs5MraqLT4L+h3E6/ajfQtObXRiNP4xZHc+Fx1yGdbr6Js24Wb0jC1GuECPZLQk89eYj6kTfzw==}
-    engines: {node: '>=18.0.0'}
-    peerDependencies:
-      ethers: '>=6.0.0'
-      viem: '>=2.0.0'
-    dependencies:
-      ethers: 6.15.0
-      viem: 2.38.6(typescript@5.9.3)
-    dev: false
-
-  /@agentic-trust/core@1.0.1(@veramo/core@6.0.0)(graphql@16.12.0)(node-fetch@2.7.0)(react@18.3.1)(typescript@5.9.3):
-    resolution: {integrity: sha512-ijzofB2qn7b1BELXpbTvvodKcziilzipsUyHo81ndqo6XMlZAKPvMrt9yIUrIm8opl95TV9raUXeN5KNYOh7AQ==}
-    peerDependencies:
-      '@metamask/delegation-toolkit': '*'
-      '@veramo/core': ^6.0.0
-    peerDependenciesMeta:
-      '@metamask/delegation-toolkit':
-        optional: true
-    dependencies:
-      '@agentic-trust/8004-ext-sdk': 1.0.1(graphql@16.12.0)(react@18.3.1)(typescript@5.9.3)
-      '@agentic-trust/8004-sdk': 1.0.1(ethers@6.15.0)(viem@2.38.6)
-      '@agentic-trust/veramo-agent-extension': 0.1.0(typescript@5.9.3)
-      '@ensdomains/ensjs': 3.7.0(typescript@5.9.3)(viem@2.38.6)
-      '@veramo/core': 6.0.0
-      '@veramo/did-manager': 6.0.0
-      '@veramo/did-provider-ethr': 6.0.0
-      '@veramo/did-resolver': 6.0.0
-      '@veramo/key-manager': 6.0.0
-      '@veramo/kms-local': 6.0.0
-      did-resolver: 4.1.0
-      ethers: 6.15.0
-      ethr-did-resolver: 11.0.5
-      graphql-request: 6.1.0(graphql@16.12.0)
-      permissionless: 0.2.57(viem@2.38.6)
-      viem: 2.38.6(typescript@5.9.3)
-      web3: 1.10.4
-      web3.storage: 4.5.5(node-fetch@2.7.0)
-    transitivePeerDependencies:
-      - '@swc/core'
-      - '@swc/wasm'
-      - bufferutil
-      - debug
-      - encoding
-      - graphql
-      - node-fetch
-      - ox
-      - react
-      - supports-color
-      - typescript
-      - utf-8-validate
-      - zod
-    dev: false
-
-  /@agentic-trust/veramo-agent-extension@0.1.0(typescript@5.9.3):
-    resolution: {integrity: sha512-6vYo4lYgDCXVh22/sz8gDNgB8Ad72PCh6dAE6WRq7UGponZlBt4vSVtKar8uN66KjRckKgxCyeWZ3AQNTSyizg==}
-    dependencies:
-      '@veramo/core': 6.0.0
-      '@veramo/core-types': 6.0.0
-      '@veramo/did-manager': 6.0.0
-      '@veramo/did-resolver': 6.0.0
-      '@veramo/key-manager': 6.0.0
-      '@veramo/utils': 6.0.0
-      caip: 1.1.1
-      did-jwt: 8.0.18
-      did-resolver: 4.1.0
-      eip-712-types-generation: 0.1.6
-      ethers: 6.15.0
-      viem: 2.38.6(typescript@5.9.3)
-    transitivePeerDependencies:
-      - bufferutil
-      - encoding
-      - supports-color
-      - typescript
-      - utf-8-validate
-      - zod
     dev: false
 
   /@ampproject/remapping@2.3.0:

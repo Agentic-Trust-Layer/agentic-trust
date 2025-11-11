@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import type { SearchParams } from '@agentic-trust/core/server';
+import type { DiscoverParams } from '@agentic-trust/core/server';
+import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -10,27 +11,11 @@ function toNumber(value: string | null): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-type SearchResultPayload = {
-  agents: Array<{
-    agentId?: number;
-    agentName?: string;
-    a2aEndpoint?: string;
-    data?: {
-      createdAtTime?: string | number;
-      updatedAtTime?: string | number;
-      type?: string | null;
-      agentOwner?: string;
-    };
-  }>;
-  total: number;
-  page?: number;
-  pageSize?: number;
-  totalPages?: number;
-};
+type SearchResultPayload = import('@agentic-trust/core/server').DiscoverResponse;
 
 function mapAgentsResponse(data: SearchResultPayload) {
   const { agents, total, page, pageSize, totalPages } = data;
-  const agentsData = agents.map(agent => ({
+  const agentsData = agents.map((agent: any) => ({
     agentId: agent.agentId,
     agentName: agent.agentName,
     a2aEndpoint: agent.a2aEndpoint,
@@ -50,31 +35,15 @@ function mapAgentsResponse(data: SearchResultPayload) {
   };
 }
 
-async function mapClientSearch(options: {
-  page?: number;
-  pageSize?: number;
-  query?: string;
-  params?: SearchParams;
-  orderBy?: string;
-  orderDirection?: 'ASC' | 'DESC';
-}): Promise<SearchResultPayload> {
-  const client = await getAdminClient();
-  const result = await client.agents.searchAgents(options);
-  const normalized: SearchResultPayload = {
-    agents: result.agents,
-    total: result.total,
-    page: result.page,
-    pageSize: result.pageSize,
-    totalPages: result.totalPages,
-  };
-  return normalized;
+async function mapClientSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
+  return discoverAgents(options, getAdminClient);
 }
 
-function parseParamsParam(raw: string | null): SearchParams | undefined {
+function parseParamsParam(raw: string | null): DiscoverParams | undefined {
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? (parsed as SearchParams) : undefined;
+    return parsed && typeof parsed === 'object' ? (parsed as unknown as DiscoverParams) : undefined;
   } catch {
     return undefined;
   }
@@ -127,8 +96,8 @@ export async function POST(request: NextRequest) {
         : DEFAULT_PAGE_SIZE;
     const query =
       typeof body.query === 'string' && body.query.trim().length > 0 ? body.query.trim() : undefined;
-    const params: SearchParams | undefined =
-      body.params && typeof body.params === 'object' ? body.params : undefined;
+    const params: DiscoverParams | undefined =
+      body.params && typeof body.params === 'object' ? (body.params as DiscoverParams) : undefined;
     const orderBy: string | undefined =
       typeof body.orderBy === 'string' && body.orderBy.trim().length > 0 ? body.orderBy.trim() : undefined;
     const orderDirection: 'ASC' | 'DESC' | undefined =

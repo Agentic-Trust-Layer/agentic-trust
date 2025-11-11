@@ -91,7 +91,7 @@ const identityRegistryAbi: any = (IdentityRegistryABIJson as any).default ?? Ide
 // Re-export AgentData for compatibility
 export type { AgentData };
 
-export interface SearchParams {
+export interface DiscoverParams {
   chains?: number[] | 'all';
   name?: string;
   description?: string;
@@ -111,16 +111,16 @@ export interface SearchParams {
   x402support?: boolean;
 }
 
-export interface SearchAgentsOptions {
+export interface DiscoverAgentsOptions {
   page?: number;
   pageSize?: number;
   query?: string;
-  params?: SearchParams;
+  params?: DiscoverParams;
   orderBy?: string;
   orderDirection?: 'ASC' | 'DESC';
 }
 
-export interface ListAgentsOptions extends SearchAgentsOptions {}
+export interface ListAgentsOptions extends DiscoverAgentsOptions {}
 
 export interface ListAgentsResponse {
   agents: Agent[];
@@ -817,7 +817,7 @@ export class AgentsAPI {
     }
   }
 
-  async searchAgents(options?: SearchAgentsOptions | string): Promise<ListAgentsResponse> {
+  async searchAgents(options?: DiscoverAgentsOptions | string): Promise<ListAgentsResponse> {
     if (typeof options === 'string') {
       return this.searchAgents({ query: options });
     }
@@ -897,7 +897,7 @@ export class AgentsAPI {
     }
 
     if (!pageSize) {
-      const derivedOptions: SearchAgentsOptions = {
+      const derivedOptions: DiscoverAgentsOptions = {
         ...(options ?? {}),
         page: options?.page ?? 1,
         pageSize: options?.pageSize ?? 10,
@@ -910,7 +910,7 @@ export class AgentsAPI {
 
   private applySearchAndPagination(
     agentData: AgentData[],
-    options?: SearchAgentsOptions,
+    options?: DiscoverAgentsOptions,
   ): ListAgentsResponse {
     const normalizedQuery =
       options?.query && typeof options.query === 'string'
@@ -994,7 +994,7 @@ export class AgentsAPI {
     };
   }
 
-  private matchesSearchParams(agent: AgentData, params: SearchParams): boolean {
+  private matchesSearchParams(agent: AgentData, params: DiscoverParams): boolean {
     const parsedRaw =
       typeof agent.rawJson === 'string'
         ? safeParseJson(agent.rawJson)

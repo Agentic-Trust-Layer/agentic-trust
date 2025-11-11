@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/8004-sdk",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "ERC-8004 Trustless Agents SDK - A TypeScript SDK for interacting with ERC-8004 compliant implementations",
   "type": "module",
   "main": "./dist/index.js",

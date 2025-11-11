@@ -18,7 +18,12 @@ import {
   DEFAULT_CHAIN_ID,
 } from '@agentic-trust/core/server';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
-import type { SearchParams as AgentSearchParams } from '@agentic-trust/core/server';
+import type { DiscoverParams as AgentSearchParams } from '@agentic-trust/core/server';
+import { use } from 'react';
+import { cookies } from 'next/headers';
+import Image from 'next/image';
+import { Button, Chip } from '@mui/material';
+import { getAdminClient } from '@/lib/client';
 
 
 type Agent = {

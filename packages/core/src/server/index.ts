@@ -6,8 +6,8 @@
  */
 
 // API route handlers (server-side only)
-export { handleResolveAccount } from '../api/agents/resolveAccount';
-export type { ResolveAccountRequestBody, ResolveAccountResponse } from '../api/agents/resolveAccount';
+export { handleResolveAccount } from './lib/resolveAccount';
+export type { ResolveAccountRequestBody, ResolveAccountResponse } from './lib/resolveAccount';
 
 // Server singletons & utilities
 export {
@@ -39,8 +39,8 @@ export {
 } from './lib/agents';
 
 export type {
-  SearchParams,
-  SearchAgentsOptions,
+  DiscoverParams,
+  DiscoverAgentsOptions,
   ListAgentsOptions,
   ListAgentsResponse,
 } from './lib/agents';
@@ -94,6 +94,12 @@ export {
   resetDiscoveryClient,
 } from './singletons/discoveryClient';
 
+// API helpers for server routes (discovery/search)
+export {
+  discoverAgents,
+  type DiscoverRequest,
+  type DiscoverResponse,
+} from './lib/discover';
 export {
   getIdentityClient,
   isIdentityClientInitialized,
