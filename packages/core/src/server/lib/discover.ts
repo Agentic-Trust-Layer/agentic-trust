@@ -4,7 +4,13 @@
  * payload that UIs can consume directly.
  */
 
-import type { AgentsAPI, ListAgentsResponse, DiscoverAgentsOptions, DiscoverParams } from './agents';
+import type {
+  AgentsAPI,
+  ListAgentsResponse,
+  DiscoverAgentsOptions,
+  DiscoverParams,
+} from './agents';
+import { DEFAULT_CHAIN_ID } from './chainConfig';
 
 // Lightweight interface for the server client to avoid heavy coupling here.
 type AgenticTrustClient = {
@@ -21,15 +27,27 @@ export type DiscoverRequest = {
 };
 
 export type DiscoverAgent = {
-  agentId?: number;
-  agentName?: string;
-  a2aEndpoint?: string;
-  data?: {
-    createdAtTime?: string | number;
-    updatedAtTime?: string | number;
-    type?: string | null;
-    agentOwner?: string;
-  };
+  chainId: number;
+  agentId: string;
+  agentAddress: string;
+  agentOwner: string;
+  agentName: string;
+  metadataURI?: string | null;
+  createdAtBlock: number;
+  createdAtTime: number;
+  updatedAtTime?: number | null;
+  type?: string | null;
+  description?: string | null;
+  image?: string | null;
+  a2aEndpoint?: string | null;
+  ensEndpoint?: string | null;
+  agentAccountEndpoint?: string | null;
+  supportedTrust?: string | null;
+  rawJson?: string | null;
+  did?: string | null;
+  mcp?: boolean | null;
+  x402support?: boolean | null;
+  active?: boolean | null;
 };
 
 export type DiscoverResponse = {
@@ -66,17 +84,56 @@ export async function discoverAgents(
   );
 
   const mapped: DiscoverResponse = {
-    agents: (agents || []).map((agent: any) => ({
-      agentId: agent?.agentId as number | undefined,
-      agentName: agent?.agentName as string | undefined,
-      a2aEndpoint: agent?.a2aEndpoint as string | undefined,
-      data: {
-        createdAtTime: (agent?.createdAtTime as any) ?? undefined,
-        updatedAtTime: (agent?.updatedAtTime as any) ?? undefined,
-        type: (agent?.type as any) ?? undefined,
-        agentOwner: (agent?.agentOwner as any) ?? undefined,
-      },
-    })),
+    agents: (agents || []).map((agent: any) => {
+      const raw =
+        agent && typeof (agent as any).data === 'object'
+          ? ((agent as any).data as Record<string, unknown>)
+          : (agent as Record<string, unknown>);
+
+      const numeric = (value: unknown, fallback?: number | null): number | null => {
+        if (value === undefined || value === null) return fallback ?? null;
+        const converted = Number(value);
+        return Number.isFinite(converted) ? converted : fallback ?? null;
+      };
+
+      const booleanish = (value: unknown): boolean | null | undefined => {
+        if (value === undefined) return undefined;
+        if (value === null) return null;
+        return Boolean(value);
+      };
+
+      const stringOrNull = (value: unknown): string | null | undefined => {
+        if (value === undefined) return undefined;
+        if (value === null) return null;
+        return String(value);
+      };
+
+      const chainId = numeric(raw?.chainId, DEFAULT_CHAIN_ID) ?? DEFAULT_CHAIN_ID;
+
+      return {
+        chainId,
+        agentId: stringOrNull(raw?.agentId) ?? '',
+        agentAddress: String(raw?.agentAddress ?? ''),
+        agentOwner: String(raw?.agentOwner ?? ''),
+        agentName: String(raw?.agentName ?? ''),
+        metadataURI: stringOrNull(raw?.metadataURI) ?? undefined,
+        createdAtBlock: numeric(raw?.createdAtBlock, 0) ?? 0,
+        createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,
+        updatedAtTime: numeric(raw?.updatedAtTime, null),
+        type: stringOrNull(raw?.type) ?? undefined,
+        description: stringOrNull(raw?.description) ?? undefined,
+        image: stringOrNull(raw?.image) ?? undefined,
+        a2aEndpoint: stringOrNull(raw?.a2aEndpoint) ?? undefined,
+        ensEndpoint: stringOrNull(raw?.ensEndpoint) ?? undefined,
+        agentAccountEndpoint: stringOrNull(raw?.agentAccountEndpoint) ?? undefined,
+        supportedTrust: stringOrNull(raw?.supportedTrust) ?? undefined,
+        rawJson: stringOrNull(raw?.rawJson) ?? undefined,
+        did: stringOrNull(raw?.did) ?? undefined,
+        mcp: booleanish(raw?.mcp) ?? undefined,
+        x402support: booleanish(raw?.x402support) ?? undefined,
+        active: booleanish(raw?.active) ?? undefined,
+      };
+    }),
     total,
     page,
     pageSize,

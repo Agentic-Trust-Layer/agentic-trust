@@ -105,14 +105,37 @@ const CLIENT_CHAIN_ENS_ORG_NAME_ENV: Partial<Record<SupportedChainId, string | u
  * @param chainId - Chain ID to get configuration for
  * @returns Chain-specific environment variable value or fallback to base name
  */
+export function getChainEnvVarDetails(baseName: string, chainId: number): {
+  value: string;
+  chainKey: string;
+  fallbackKey: string;
+  usedKey: string;
+} {
+  const cfg = CHAIN_CONFIG[chainId as SupportedChainId];
+  const chainKey = cfg ? `${baseName}_${cfg.suffix}` : `${baseName}_${chainId}`;
+  const fallbackKey = baseName;
+  const chainValue = cfg ? process.env[chainKey] : undefined;
+  const fallbackValue = process.env[fallbackKey];
+  const value = chainValue ?? fallbackValue ?? '';
+  const usedKey = chainValue ? chainKey : fallbackValue ? fallbackKey : chainKey;
+  return {
+    value,
+    chainKey: cfg ? chainKey : fallbackKey,
+    fallbackKey,
+    usedKey,
+  };
+}
+
 export function getChainEnvVar(baseName: string, chainId: number): string {
-  const chainConfig = CHAIN_CONFIG[chainId as SupportedChainId];
-  if (chainConfig) {
-    const chainSpecificKey = `${baseName}_${chainConfig.suffix}`;
-    const fallbackKey = baseName;
-    return process.env[chainSpecificKey] || process.env[fallbackKey] || '';
+  return getChainEnvVarDetails(baseName, chainId).value;
+}
+
+export function requireChainEnvVar(baseName: string, chainId: number): string {
+  const { value, chainKey } = getChainEnvVarDetails(baseName, chainId);
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${chainKey}`);
   }
-  return process.env[baseName] || '';
+  return value;
 }
 
 /**

@@ -2,15 +2,19 @@
 
 import { useEffect, useState } from 'react';
 import { type AgentCard, type AgentSkill, type MessageRequest } from '@agentic-trust/core';
+import { buildAgentDid } from '@/lib/agentDid';
 
 // Plain agent data type from API (not Agent instances)
 type AgentData = {
   agentId?: number;
+  chainId?: number;
   agentName?: string;
   a2aEndpoint?: string;
   createdAtTime?: string;
   updatedAtTime?: string;
 };
+
+const DEFAULT_CHAIN_ID = 11155111;
 
 export default function Home() {
   const [agents, setAgents] = useState<AgentData[]>([]);
@@ -129,9 +133,15 @@ export default function Home() {
       if (!agent.agentId) {
         throw new Error('Agent ID is required');
       }
+
+      const agentChainId =
+        typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
+          ? agent.chainId
+          : DEFAULT_CHAIN_ID;
+      const agentDid = buildAgentDid(agentChainId, agent.agentId);
       
       // Fetch agent card via server-side API
-      const response = await fetch(`/api/agents/${agent.agentId}/card`);
+      const response = await fetch(`/api/agents/${agentDid}/card`);
       
       if (!response.ok) {
         const errorData = await response.json();
@@ -240,8 +250,14 @@ export default function Home() {
         };
       }
 
+      const agentChainId =
+        typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
+          ? selectedAgent.chainId
+          : DEFAULT_CHAIN_ID;
+      const agentDid = buildAgentDid(agentChainId, selectedAgent.agentId);
+
       // Send message via server-side API
-      const response = await fetch(`/api/agents/${selectedAgent.agentId}/send`, {
+      const response = await fetch(`/api/agents/${agentDid}/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -494,7 +510,12 @@ export default function Home() {
                   setError(null);
                   
                   try {
-                    const response = await fetch(`/api/agents/${selectedAgent.agentId}/verify`, {
+                    const verifyChainId =
+                      typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
+                        ? selectedAgent.chainId
+                        : DEFAULT_CHAIN_ID;
+                    const agentDid = buildAgentDid(verifyChainId, selectedAgent.agentId);
+                    const response = await fetch(`/api/agents/${agentDid}/verify`, {
                       method: 'POST',
                     });
                     

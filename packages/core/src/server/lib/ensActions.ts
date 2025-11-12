@@ -3,6 +3,7 @@ import {
 } from '../singletons/ensClient';
 import {
   getChainEnvVar,
+  requireChainEnvVar,
   getEnsOrgAddress,
   getEnsPrivateKey,
   sepolia,
@@ -14,7 +15,7 @@ import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-too
 import {
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
-} from '../../client/bundlerUtils';
+} from '../../client/accountClient';
 
 export type AddToL1OrgPKParams = {
   orgName: string;
@@ -69,8 +70,8 @@ export async function setL1NameInfoPK(params: SetL1NameInfoPKParams): Promise<Ex
 
 async function executeEnsCallsWithOrgPK(params: { calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[]; chainId: number }): Promise<ExecuteEnsTxResult> {
   const { calls, chainId } = params;
-  const bundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', chainId);
-  const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
+  const bundlerUrl = requireChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', chainId);
+  const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
   const privKey = getEnsPrivateKey(chainId) as `0x${string}`;
   const orgAddress = getEnsOrgAddress(chainId);
 

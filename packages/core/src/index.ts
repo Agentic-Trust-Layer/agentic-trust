@@ -42,7 +42,7 @@ export {
   waitForUserOperationReceipt,
   deploySmartAccountIfNeeded,
   isSmartContract,
-} from './client/bundlerUtils';
+} from './client/accountClient';
 
 // Agent/type definitions (type-only exports for convenience)
 export type {

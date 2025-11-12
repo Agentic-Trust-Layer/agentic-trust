@@ -25,15 +25,15 @@ import {
   isL2,
   isPrivateKeyMode,
 } from '../server/lib/chainConfig';
-import { getDeployedAccountClientByAgentName } from './aaClient';
 import {
+  getDeployedAccountClientByAgentName,
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
-} from './bundlerUtils';
+} from './accountClient';
 export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
-} from './aaClient';
+} from './accountClient';
 
 async function detectServerPrivateKeyMode(): Promise<boolean> {
   try {
@@ -367,14 +367,22 @@ export function extractAgentIdFromReceipt(receipt: any): string | undefined {
  * Refresh agent in GraphQL indexer
  *
  * @param agentId - Agent ID to refresh
- * @param refreshEndpoint - Optional custom refresh endpoint (defaults to `/api/agents/${agentId}/refresh`)
+ * @param chainId - Chain ID for the agent
+ * @param refreshEndpoint - Optional custom refresh endpoint (defaults to `/api/agents/<did>/refresh`)
  * @returns Promise that resolves when refresh is complete
  */
 export async function refreshAgentInIndexer(
   agentId: string,
+  chainId: number | string,
   refreshEndpoint?: string
 ): Promise<void> {
-  const endpoint = refreshEndpoint || `/api/agents/${agentId}/refresh`;
+  const chainIdStr =
+    typeof chainId === 'number' ? chainId.toString(10) : chainId?.toString() ?? '';
+  if (!chainIdStr.trim()) {
+    throw new Error('Chain ID is required to refresh agent in indexer');
+  }
+  const did = encodeURIComponent(`did:agent:${chainIdStr.trim()}:${agentId}`);
+  const endpoint = refreshEndpoint || `/api/agents/${did}/refresh`;
 
   try {
     const response = await fetch(endpoint, {
@@ -579,7 +587,7 @@ export async function createAgentWithWalletForEOA(
 
     // Step 3: Refresh GraphQL indexer if agentId was extracted
     if (result.agentId) {
-      await refreshAgentInIndexer(result.agentId);
+      await refreshAgentInIndexer(result.agentId, chainId);
     }
 
     return {
@@ -601,7 +609,11 @@ export async function createAgentWithWalletForEOA(
     // Refresh GraphQL indexer for server-side signed transactions too
     if (agentIdStr) {
       try {
-        await refreshAgentInIndexer(agentIdStr);
+        const fallbackChainId =
+          typeof requestedChainId === 'number' && Number.isFinite(requestedChainId)
+            ? requestedChainId
+            : DEFAULT_CHAIN_ID;
+        await refreshAgentInIndexer(agentIdStr, fallbackChainId);
       } catch (error) {
         // Don't fail the whole operation if refresh fails
         console.warn('Failed to refresh agent in indexer:', error);
@@ -752,8 +764,8 @@ export async function createAgentWithWalletForAA(
       const pkModeDetected =
         (await detectServerPrivateKeyMode()) || isPrivateKeyMode();
       const addEndpoint = pkModeDetected
-        ? '/api/agents/ens/addToL1OrgPK'
-        : '/api/agents/ens/addToL1Org';
+        ? '/api/names/add-to-l1-org-pk'
+        : '/api/names/add-to-l1-org';
       console.info(
         `[ENS][L1] ${pkModeDetected ? 'PK mode detected' : 'Client mode'} - calling ${addEndpoint}`
       );
@@ -770,15 +782,15 @@ export async function createAgentWithWalletForAA(
       });
       if (!ensResponse.ok) {
         const err = await ensResponse.json().catch(() => ({}));
-        console.warn('[ENS][L1] addToL1Org call failed', err);
+        console.warn('[ENS][L1] add-to-l1-org call failed', err);
       } else {
-        console.info('[ENS][L1] addToL1Org call succeeded');
+        console.info('[ENS][L1] add-to-l1-org call succeeded');
       }
 
       onStatusUpdate?.('Preparing ENS metadata update...');
       const infoEndpoint = pkModeDetected
-        ? '/api/agents/ens/setL1NameInfoPK'
-        : '/api/agents/ens/setL1NameInfo';
+        ? '/api/names/set-l1-name-info-pk'
+        : '/api/names/set-l1-name-info';
       console.info(
         `[ENS][L1] ${pkModeDetected ? 'PK mode detected' : 'Client mode'} - calling ${infoEndpoint}`
       );
@@ -910,7 +922,7 @@ export async function createAgentWithWalletForAA(
     const agentImage = options.agentData.image;
 
     // Prepare all necessary L2 ENS calls server-side, then send them as one user operation
-    const prepareResp = await fetch('/api/agents/ens/addToL2Org', {
+    const prepareResp = await fetch('/api/names/add-to-l2-org', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -955,7 +967,7 @@ export async function createAgentWithWalletForAA(
 
     /*  TODO:  Need to resolve this to set ens url and description
       onStatusUpdate?.('Set ENS metadata update...');
-      const infoResponse = await fetch('/api/agents/ens/setL2NameInfo', {
+      const infoResponse = await fetch('/api/names/set-l2-name-info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1094,7 +1106,7 @@ export async function createAgentWithWalletForAA(
 
   // Refresh GraphQL indexer
   if (agentId) {
-    await refreshAgentInIndexer(agentId);
+    await refreshAgentInIndexer(agentId, chain.id);
   } else {
     onStatusUpdate?.('Refreshing GraphQL indexer...');
     console.log(

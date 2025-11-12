@@ -26,6 +26,10 @@ export interface AgentData {
   a2aEndpoint?: string | null; // URL to agent-card.json
   ensEndpoint?: string | null;
   agentAccountEndpoint?: string | null;
+  did?: string | null;
+  mcp?: boolean | null;
+  x402support?: boolean | null;
+  active?: boolean | null;
   supportedTrust?: string | null;
   rawJson?: string | null;
   [key: string]: unknown; // Allow for additional fields that may exist
@@ -315,6 +319,10 @@ export class AIAgentDiscoveryClient {
           a2aEndpoint
           ensEndpoint
           agentAccountEndpoint
+            did
+            mcp
+            x402support
+            active
           supportedTrust
           rawJson
         }
@@ -413,6 +421,10 @@ export class AIAgentDiscoveryClient {
       a2aEndpoint
       ensEndpoint
       agentAccountEndpoint
+      did
+      mcp
+      x402support
+      active
       supportedTrust
       rawJson
     `;
@@ -476,7 +488,26 @@ export class AIAgentDiscoveryClient {
           ${strategy.fieldName}(${argumentAssignments.join(', ')}) {
             ${strategy.totalFieldName ? `${strategy.totalFieldName}` : ''}
             ${strategy.listFieldName} {
-              ${agentSelection}
+              chainId
+              agentId
+              agentAddress
+              agentOwner
+              agentName
+              metadataURI
+              createdAtBlock
+              createdAtTime
+              updatedAtTime
+              type
+              description
+              image
+              a2aEndpoint
+              ensEndpoint
+              agentAccountEndpoint
+              did
+              mcp
+              x402support
+              supportedTrust
+              rawJson
             }
           }
         }
@@ -551,7 +582,7 @@ export class AIAgentDiscoveryClient {
 
     this.searchStrategyPromise = (async () => {
       try {
-        const data = await this.client.request<IntrospectionQueryResult>(INTROSPECTION_QUERY);
+      const data = await this.client.request<IntrospectionQueryResult>(INTROSPECTION_QUERY);
         const fields = data.__schema?.queryType?.fields ?? [];
         const candidateNames = ['searchAgentsAdvanced', 'searchAgents'];
 

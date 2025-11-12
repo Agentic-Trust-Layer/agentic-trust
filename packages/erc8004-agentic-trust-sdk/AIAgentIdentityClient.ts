@@ -419,18 +419,31 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     throw new Error('Could not extract agentId from transaction receipt - Registered or Transfer event not found');
   }
 
-  async getAgentEoaByAgentAccount(agentAccount: `0x${string}`): Promise<string | null> {
+  /**
+   * Get the owner (EOA) of an account address
+   * 
+   * @param accountAddress - The account address (smart account or contract)
+   * @returns The owner address (EOA) or null if not found or error
+   */
+  async getAccountOwner(accountAddress: `0x${string}`): Promise<string | null> {
     try {
-      const eoa = await this.accountProvider.call<string>({
-        to: agentAccount,
+      const owner = await this.accountProvider.call<string>({
+        to: accountAddress,
         abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as any,
         functionName: 'owner',
         args: [],
       });
-      return eoa;
+      return owner;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * @deprecated Use getAccountOwner instead
+   */
+  async getAgentEoaByAgentAccount(agentAccount: `0x${string}`): Promise<string | null> {
+    return this.getAccountOwner(agentAccount);
   }
 
   /**

@@ -110,7 +110,9 @@ Create a new agent.
 }
 ```
 
-### PUT /api/agents/[agentId]/update
+### PUT /api/agents/[did:agent]/update
+
+The dynamic segment `did:agent` is a URL-encoded DID in the form `did:agent:<chainId>:<agentId>`.
 
 Update an agent's token URI and/or metadata.
 
@@ -132,7 +134,7 @@ Update an agent's token URI and/or metadata.
 }
 ```
 
-### DELETE /api/agents/[agentId]/delete
+### DELETE /api/agents/[did:agent]/delete
 
 Delete an agent (transfers to address(0)).
 
@@ -144,7 +146,7 @@ Delete an agent (transfers to address(0)).
 }
 ```
 
-### POST /api/agents/[agentId]/transfer
+### POST /api/agents/[did:agent]/transfer
 
 Transfer agent ownership to a new address.
 

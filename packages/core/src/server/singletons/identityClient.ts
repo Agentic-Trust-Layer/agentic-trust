@@ -7,7 +7,7 @@
 
 import { AIAgentIdentityClient } from '@agentic-trust/8004-ext-sdk';
 import { ViemAccountProvider } from '@agentic-trust/8004-sdk';
-import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import { requireChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 
 // Singleton instances by chainId
 let identityClientInstances: Map<number, AIAgentIdentityClient> = new Map();
@@ -36,18 +36,8 @@ export async function getIdentityClient(chainId?: number): Promise<AIAgentIdenti
 
   const executeInit = async (): Promise<AIAgentIdentityClient> => {
     try {
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
-      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
-
-      if (!identityRegistry) {
-        throw new Error(
-          'Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY'
-        );
-      }
-
-      if (!rpcUrl) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_RPC_URL');
-      }
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
+      const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
       // Create AccountProvider using ViemAccountProvider (read-only, no wallet)
       const { createPublicClient, http } = await import('viem');

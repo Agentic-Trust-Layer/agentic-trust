@@ -14,6 +14,9 @@ export async function GET() {
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({
       agentId: agent.agentId,
+      chainId:
+        (agent as { data?: { chainId?: number } }).data?.chainId ??
+        (agent as { chainId?: number }).chainId,
       agentName: agent.agentName,
       a2aEndpoint: agent.a2aEndpoint,
       createdAtTime: (agent as { data?: { createdAtTime?: string } }).data?.createdAtTime,
@@ -65,6 +68,9 @@ export async function POST(request: NextRequest) {
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({
       agentId: agent.agentId,
+      chainId:
+        (agent as { data?: { chainId?: number } }).data?.chainId ??
+        (agent as { chainId?: number }).chainId,
       agentName: agent.agentName,
       a2aEndpoint: agent.a2aEndpoint,
       createdAtTime: (agent as { data?: { createdAtTime?: string } }).data?.createdAtTime,

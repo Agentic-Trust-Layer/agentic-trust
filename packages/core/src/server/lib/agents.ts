@@ -66,11 +66,13 @@ import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import { getDiscoveryClient } from '../singletons/discoveryClient';
 import {
   getChainEnvVar,
+  requireChainEnvVar,
   getChainById,
   getChainRpcUrl,
   getChainBundlerUrl,
   DEFAULT_CHAIN_ID,
   isL1,
+  getChainConfig,
 } from './chainConfig';
 import { uploadRegistration, createRegistrationJSON } from './registration';
 import { createPublicClient, http } from 'viem';
@@ -80,7 +82,7 @@ import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRe
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { addToL1OrgPK } from './ensActions';
-import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/bundlerUtils';
+import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/accountClient';
 import type { Chain } from 'viem';
 import { getENSClient } from '../singletons/ensClient';
 import { rethrowDiscoveryError } from './discoveryErrors';
@@ -266,10 +268,7 @@ export class AgentsAPI {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
 
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
-      if (!identityRegistry || typeof identityRegistry !== 'string') {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
 
       const identityRegistryHex = identityRegistry.startsWith('0x') 
         ? identityRegistry 
@@ -433,10 +432,7 @@ export class AgentsAPI {
       throw new Error('Admin private key not available on server. Cannot execute server-side transaction.');
     }
 
-    const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
-    if (!identityRegistry || typeof identityRegistry !== 'string') {
-      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-    }
+    const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
     const identityRegistryHex = identityRegistry.startsWith('0x') ? identityRegistry : `0x${identityRegistry}`;
 
     // Create registration JSON and upload to IPFS
@@ -510,10 +506,7 @@ export class AgentsAPI {
       throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
     }
 
-    const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
-    if (!identityRegistry || typeof identityRegistry !== 'string') {
-      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-    }
+    const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
 
     const identityRegistryHex = identityRegistry.startsWith('0x') 
       ? identityRegistry 
@@ -790,10 +783,7 @@ export class AgentsAPI {
       return null;
     }
 
-    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
-    if (!identityRegistry || typeof identityRegistry !== 'string') {
-      throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-    }
+    const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
 
     const identityRegistryHex = identityRegistry.startsWith('0x')
       ? identityRegistry
@@ -1218,10 +1208,7 @@ export class AgentsAPI {
         throw new Error('prepareCreateAgentTransaction should only be used when no private key is available');
       }
 
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
-      if (!identityRegistry || typeof identityRegistry !== 'string') {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
 
       const identityRegistryHex = identityRegistry.startsWith('0x') 
         ? identityRegistry 
@@ -1352,10 +1339,7 @@ export class AgentsAPI {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
-      if (!identityRegistry) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
 
       // Create write-capable IdentityClient using AdminApp AccountProvider
       const identityClient = new BaseIdentityClient(
@@ -1409,10 +1393,7 @@ export class AgentsAPI {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
-      if (!identityRegistry) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
 
       // Import IdentityRegistry ABI for transferFrom
       const IdentityRegistryABI = identityRegistryAbi;
@@ -1455,10 +1436,7 @@ export class AgentsAPI {
         throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
-      if (!identityRegistry) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_IDENTITY_REGISTRY');
-      }
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
 
       // Import IdentityRegistry ABI for transferFrom
       const IdentityRegistryABI = identityRegistryAbi;

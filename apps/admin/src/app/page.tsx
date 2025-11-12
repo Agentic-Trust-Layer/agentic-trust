@@ -5,7 +5,6 @@ import { useWeb3Auth } from '@/components/Web3AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
-import { isAddress } from 'viem';
 import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAccountClientByAgentName } from '@agentic-trust/core/client';
 import type { Chain } from 'viem';
 import {
@@ -18,23 +17,12 @@ import {
   DEFAULT_CHAIN_ID,
 } from '@agentic-trust/core/server';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
-import type { DiscoverParams as AgentSearchParams } from '@agentic-trust/core/server';
-import { use } from 'react';
-import { cookies } from 'next/headers';
-import Image from 'next/image';
-import { Button, Chip } from '@mui/material';
-import { getAdminClient } from '@/lib/client';
+import { buildAgentDid } from '@/lib/agentDid';
+import { buildEnsDidFromAgentAndOrg } from '@/app/api/names/_lib/ensDid';
+import type { DiscoverParams as AgentSearchParams, DiscoverAgent } from '@agentic-trust/core/server';
 
 
-type Agent = {
-  agentId?: number;
-  agentName?: string;
-  a2aEndpoint?: string;
-  createdAtTime?: string;
-  updatedAtTime?: string;
-  agentOwner?: string;
-  agentType?: string;
-};
+type Agent = DiscoverAgent;
 
 export default function AdminPage() {
   const web3AuthCtx = useWeb3Auth() as any;
@@ -276,6 +264,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   // Update agent form state
   const [updateForm, setUpdateForm] = useState({
     agentId: '',
+    chainId: DEFAULT_CHAIN_ID.toString(),
     tokenURI: '',
     metadataKey: '',
     metadataValue: '',
@@ -284,11 +273,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   // Delete agent form state
   const [deleteForm, setDeleteForm] = useState({
     agentId: '',
+    chainId: DEFAULT_CHAIN_ID.toString(),
   });
 
   // Transfer agent form state
   const [transferForm, setTransferForm] = useState({
     agentId: '',
+    chainId: DEFAULT_CHAIN_ID.toString(),
     to: '',
   });
 
@@ -362,20 +353,21 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
     (async () => {
       try {
-        const resp = await fetch('/api/agents/aa/address', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ agentName: name, chainId: selectedChainId }),
-          });
+        const encodedName = encodeURIComponent(name);
+        const chainIdParam = selectedChainId ? `?chainId=${selectedChainId}` : '';
+        const resp = await fetch(`/api/accounts/by-name/${encodedName}${chainIdParam}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
         if (!resp.ok) {
           const err = await resp.json().catch(() => ({}));
           console.warn('AA address compute (server) failed:', err);
-        if (!cancelled) {
+          if (!cancelled) {
             setAaAddress(null);
             setCreateForm(prev => ({ ...prev, agentAccount: '' }));
           }
           return;
-          }
+        }
         const data = await resp.json();
         const computed = (data?.address as string) || '';
         if (!cancelled && computed && computed.startsWith('0x')) {
@@ -411,17 +403,19 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
     (async () => {
       try {
+        // Build ENS DID from agent name and org name
+        const encodedEnsDid = buildEnsDidFromAgentAndOrg(
+          selectedChainId,
+          createForm.agentName,
+          ensOrgName
+        );
+
         // Check ENS availability via API
-        const response = await fetch('/api/agents/ens/availability', {
-          method: 'POST',
+        const response = await fetch(`/api/names/${encodedEnsDid}`, {
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            orgName: ensOrgName,
-            agentName: createForm.agentName,
-            chainId: selectedChainId,
-          }),
         });
 
         if (!response.ok) {
@@ -488,8 +482,30 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   if (agent.agentId) {
     setLoadingData(true);
     try {
+      const agentChainId =
+        typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
+          ? agent.chainId
+          : DEFAULT_CHAIN_ID;
+      const agentDid = buildAgentDid(agentChainId, agent.agentId ?? '');
+
+      setUpdateForm((prev) => ({
+        ...prev,
+        agentId: agent.agentId ? String(agent.agentId) : prev.agentId,
+        chainId: agentChainId.toString(),
+      }));
+      setDeleteForm((prev) => ({
+        ...prev,
+        agentId: agent.agentId ? String(agent.agentId) : prev.agentId,
+        chainId: agentChainId.toString(),
+      }));
+      setTransferForm((prev) => ({
+        ...prev,
+        agentId: agent.agentId ? String(agent.agentId) : prev.agentId,
+        chainId: agentChainId.toString(),
+      }));
+
       // Fetch from consolidated route
-      const response = await fetch(`/api/agents/${agent.agentId}?chainId=11155111`);
+      const response = await fetch(`/api/agents/${agentDid}`);
       
       if (response.ok) {
         const data = await response.json();
@@ -721,10 +737,11 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         let computedAa: string | null = null;
         if (effectivePrivateKeyMode) {
           // Server-side computation using admin private key
-          const resp = await fetch('/api/agents/aa/address', {
-            method: 'POST',
+          const encodedName = encodeURIComponent(createForm.agentName);
+          const chainIdParam = selectedChainId ? `?chainId=${selectedChainId}` : '';
+          const resp = await fetch(`/api/accounts/by-name/${encodedName}${chainIdParam}`, {
+            method: 'GET',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ agentName: createForm.agentName, chainId: selectedChainId }),
           });
           if (resp.ok) {
             const data = await resp.json();
@@ -898,15 +915,24 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       setError(null);
       setSuccess(null);
 
-      const metadata = updateForm.metadataKey && updateForm.metadataValue
-        ? [{ key: updateForm.metadataKey, value: updateForm.metadataValue }]
-        : undefined;
+      const metadata =
+        updateForm.metadataKey && updateForm.metadataValue
+          ? [{ key: updateForm.metadataKey, value: updateForm.metadataValue }]
+          : undefined;
 
-      const response = await fetch(`/api/agents/${updateForm.agentId}/update`, {
+      const parsedChainId = Number.parseInt(updateForm.chainId, 10);
+      const chainId = Number.isFinite(parsedChainId)
+        ? parsedChainId
+        : DEFAULT_CHAIN_ID;
+
+      const agentDid = buildAgentDid(chainId, updateForm.agentId);
+
+      const response = await fetch(`/api/agents/${agentDid}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tokenURI: updateForm.tokenURI || undefined,
+          chainId,
           metadata,
         }),
       });
@@ -918,7 +944,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
       const data = await response.json();
       setSuccess(`Agent updated successfully! TX: ${data.txHash}`);
-      setUpdateForm({ agentId: '', tokenURI: '', metadataKey: '', metadataValue: '' });
+      setUpdateForm({
+        agentId: '',
+        chainId: DEFAULT_CHAIN_ID.toString(),
+        tokenURI: '',
+        metadataKey: '',
+        metadataValue: '',
+      });
       fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update agent');
@@ -934,8 +966,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     try {
       setError(null);
       setSuccess(null);
+      const parsedChainId = Number.parseInt(deleteForm.chainId, 10);
+      const chainId = Number.isFinite(parsedChainId)
+        ? parsedChainId
+        : DEFAULT_CHAIN_ID;
+      const agentDid = buildAgentDid(chainId, deleteForm.agentId);
 
-      const response = await fetch(`/api/agents/${deleteForm.agentId}/delete`, {
+      const response = await fetch(`/api/agents/${agentDid}/delete`, {
         method: 'DELETE',
       });
 
@@ -946,7 +983,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
       const data = await response.json();
       setSuccess(`Agent deleted successfully! TX: ${data.txHash}`);
-      setDeleteForm({ agentId: '' });
+      setDeleteForm({ agentId: '', chainId: DEFAULT_CHAIN_ID.toString() });
       fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete agent');
@@ -959,11 +996,18 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       setError(null);
       setSuccess(null);
 
-      const response = await fetch(`/api/agents/${transferForm.agentId}/transfer`, {
+      const parsedChainId = Number.parseInt(transferForm.chainId, 10);
+      const chainId = Number.isFinite(parsedChainId)
+        ? parsedChainId
+        : DEFAULT_CHAIN_ID;
+      const agentDid = buildAgentDid(chainId, transferForm.agentId);
+
+      const response = await fetch(`/api/agents/${agentDid}/transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: transferForm.to,
+          chainId,
         }),
       });
 
@@ -974,7 +1018,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
       const data = await response.json();
       setSuccess(`Agent transferred successfully! TX: ${data.txHash}`);
-      setTransferForm({ agentId: '', to: '' });
+      setTransferForm({ agentId: '', chainId: DEFAULT_CHAIN_ID.toString(), to: '' });
       fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to transfer agent');
@@ -1304,6 +1348,21 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Chain ID *
+              </label>
+              <input
+                type="number"
+                value={updateForm.chainId}
+                onChange={(e) =>
+                  setUpdateForm({ ...updateForm, chainId: e.target.value })
+                }
+                required
+                min={0}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+              />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
                 New Token URI (optional)
               </label>
               <input
@@ -1370,6 +1429,21 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
               />
             </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Chain ID *
+              </label>
+              <input
+                type="number"
+                value={deleteForm.chainId}
+                onChange={(e) =>
+                  setDeleteForm({ ...deleteForm, chainId: e.target.value })
+                }
+                required
+                min={0}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+              />
+            </div>
             <button
               type="submit"
               style={{
@@ -1402,6 +1476,21 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={transferForm.agentId}
                 onChange={(e) => setTransferForm({ ...transferForm, agentId: e.target.value })}
                 required
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+              />
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Chain ID *
+              </label>
+              <input
+                type="number"
+                value={transferForm.chainId}
+                onChange={(e) =>
+                  setTransferForm({ ...transferForm, chainId: e.target.value })
+                }
+                required
+                min={0}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
               />
             </div>
@@ -1549,7 +1638,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                       {agent.a2aEndpoint || 'N/A'}
                     </td>
                     <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
-                      {agent.createdAtTime ? new Date(parseInt(agent.createdAtTime) * 1000).toLocaleString() : 'N/A'}
+                      {agent.createdAtTime != null
+                        ? new Date(Number(agent.createdAtTime) * 1000).toLocaleString()
+                        : 'N/A'}
                     </td>
                   </tr>
                 ))}
@@ -1747,16 +1838,16 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                       <div>
                         <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Created At</strong>
                         <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                          {graphQLData.agentData.createdAtTime 
-                            ? new Date(parseInt(graphQLData.agentData.createdAtTime) * 1000).toLocaleString()
+                          {graphQLData.agentData.createdAtTime !== undefined && graphQLData.agentData.createdAtTime !== null
+                            ? new Date(Number(graphQLData.agentData.createdAtTime) * 1000).toLocaleString()
                             : 'N/A'}
                         </div>
                       </div>
-                      {graphQLData.agentData.updatedAtTime && (
+                      {graphQLData.agentData.updatedAtTime !== undefined && graphQLData.agentData.updatedAtTime !== null && (
                         <div>
                           <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Updated At</strong>
                           <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                            {new Date(parseInt(graphQLData.agentData.updatedAtTime) * 1000).toLocaleString()}
+                            {new Date(Number(graphQLData.agentData.updatedAtTime) * 1000).toLocaleString()}
                           </div>
                         </div>
                       )}
@@ -1775,7 +1866,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 <div><strong>Agent ID:</strong> {selectedAgent.agentId || 'N/A'}</div>
                 <div><strong>Agent Name:</strong> {selectedAgent.agentName || 'N/A'}</div>
                 <div><strong>A2A Endpoint:</strong> {selectedAgent.a2aEndpoint || 'N/A'}</div>
-                <div><strong>Created At:</strong> {selectedAgent.createdAtTime ? new Date(parseInt(selectedAgent.createdAtTime) * 1000).toLocaleString() : 'N/A'}</div>
+                <div><strong>Created At:</strong> {selectedAgent.createdAtTime !== undefined && selectedAgent.createdAtTime !== null ? new Date(Number(selectedAgent.createdAtTime) * 1000).toLocaleString() : 'N/A'}</div>
               </div>
             </div>
             
@@ -1801,10 +1892,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     setRefreshing(true);
                     setError(null);
                     setSuccess(null);
-                    const response = await fetch(`/api/agents/${selectedAgent.agentId}/refresh`, {
+                    const refreshChainId =
+                      typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
+                        ? selectedAgent.chainId
+                        : DEFAULT_CHAIN_ID;
+                    const agentDid = buildAgentDid(refreshChainId, selectedAgent.agentId);
+                    const response = await fetch(`/api/agents/${agentDid}/refresh`, {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ chainId: 11155111 }), // Default to Sepolia
                     });
                     if (!response.ok) {
                       const errorData = await response.json();

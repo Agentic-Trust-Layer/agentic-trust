@@ -11,7 +11,7 @@ import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-s
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
 import { getAdminApp } from '../userApps/adminApp';
-import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import { getChainEnvVar, requireChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 
 // Singleton instances by chainId
 let reputationClientInstances: Map<number, AIAgentReputationClient> = new Map();
@@ -40,21 +40,10 @@ export async function getReputationClient(chainId?: number): Promise<AIAgentRepu
 
   const executeInit = async (): Promise<AIAgentReputationClient> => {
     try {
-      const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
-      const reputationRegistry = getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', targetChainId);
+      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
+      const reputationRegistry = requireChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', targetChainId);
       const ensRegistry = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId);
-      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
-
-
-      if (!identityRegistry || !reputationRegistry) {
-        throw new Error(
-          'Missing required environment variables: AGENTIC_TRUST_IDENTITY_REGISTRY and AGENTIC_TRUST_REPUTATION_REGISTRY'
-        );
-      }
-
-      if (!rpcUrl) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_RPC_URL');
-      }
+      const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
       // Determine if this is a client app, provider app, or admin app
       const isClientApp = process.env.AGENTIC_TRUST_IS_CLIENT_APP === '1' || 

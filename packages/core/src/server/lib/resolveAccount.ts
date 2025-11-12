@@ -3,7 +3,7 @@
  * Handles ENS resolution
  */
 
-import { extractAgentAccountFromDiscovery } from './agentAccount';
+import { extractAgentAccountFromDiscovery } from './accounts';
 
 // Use a function signature type to avoid circular dependency
 type AgenticTrustClient = {

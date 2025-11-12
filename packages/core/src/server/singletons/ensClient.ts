@@ -16,7 +16,7 @@ import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
-import { getChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
+import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
 
 // Singleton instances by chainId
 let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
@@ -46,7 +46,7 @@ export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> 
   const executeInit = async (): Promise<AIAgentENSClient> => {
     try {
       // Get RPC URL from environment
-      const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
+      const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
       // Get ENS registry addresses from environment
       const ensRegistry = (getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || '') as `0x${string}`;
@@ -187,24 +187,55 @@ export function resetENSClient(chainId?: number): void {
  * @param orgName - The organization name (e.g., "8004-agent" or "8004-agent.eth")
  * @returns true if the ENS name is available, false if it's taken, null if check failed
  */
+/**
+ * Check if an ENS name is available (general purpose)
+ * 
+ * @param ensName - Full ENS name (e.g., "agentname.orgname.eth" or "orgname.eth")
+ * @param chainId - Chain ID where the ENS name should be checked
+ * @returns true if the ENS name is available, false if it's taken, null if check failed
+ */
+export async function isENSNameAvailable(
+  ensName: string,
+  chainId?: number
+): Promise<boolean | null> {
+  try {
+    const ensClient = await getENSClient(chainId);
+
+    // Normalize the ENS name (ensure it ends with .eth if not already)
+    const normalizedName = ensName.trim().toLowerCase();
+    const fullName = normalizedName.endsWith('.eth') ? normalizedName : `${normalizedName}.eth`;
+
+    // Check if ENS name is available
+    const existingAccount = await ensClient.getAgentAccountByName(fullName);
+    const isAvailable = !existingAccount || existingAccount === '0x0000000000000000000000000000000000000000';
+
+    return isAvailable;
+  } catch (error) {
+    console.error('Error checking ENS availability:', error);
+    return null;
+  }
+}
+
+/**
+ * Check if an ENS name is available (legacy method for backward compatibility)
+ * 
+ * @param orgName - The organization name (e.g., "8004-agent" or "8004-agent.eth")
+ * @param agentName - The agent name (e.g., "my-agent")
+ * @param chainId - Chain ID where the ENS name should be checked
+ * @returns true if the ENS name is available, false if it's taken, null if check failed
+ */
 export async function isENSAvailable(
   orgName: string,
   agentName: string,
   chainId?: number
 ): Promise<boolean | null> {
   try {
-    const ensClient = await getENSClient(chainId);
-
     // Format: agentName.orgName.eth
     const agentNameLabel = agentName.toLowerCase().replace(/\s+/g, '-');
     const orgNameClean = orgName.toLowerCase().replace(/\.eth$/, '');
     const fullName = `${agentNameLabel}.${orgNameClean}.eth`;
 
-    // Check if agent name is available
-    const existingAccount = await ensClient.getAgentAccountByName(fullName);
-    const isAvailable = !existingAccount || existingAccount === '0x0000000000000000000000000000000000000000';
-
-    return isAvailable;
+    return await isENSNameAvailable(fullName, chainId);
   } catch (error) {
     console.error('Error checking ENS availability:', error);
     return null;

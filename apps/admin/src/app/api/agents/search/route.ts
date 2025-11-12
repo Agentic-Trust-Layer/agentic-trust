@@ -14,24 +14,20 @@ function toNumber(value: string | null): number | undefined {
 type SearchResultPayload = import('@agentic-trust/core/server').DiscoverResponse;
 
 function mapAgentsResponse(data: SearchResultPayload) {
-  const { agents, total, page, pageSize, totalPages } = data;
-  const agentsData = agents.map((agent: any) => ({
-    agentId: agent.agentId,
-    agentName: agent.agentName,
-    a2aEndpoint: agent.a2aEndpoint,
-    createdAtTime: agent.data?.createdAtTime,
-    updatedAtTime: agent.data?.updatedAtTime,
-    agentType: agent.data?.type,
-    agentOwner: agent.data?.agentOwner,
-  }));
+  const { agents = [], total, page, pageSize, totalPages } = data;
 
   return {
     success: true,
-    agents: agentsData,
+    agents,
     total,
     page: page ?? 1,
     pageSize: pageSize ?? agents.length,
-    totalPages: totalPages ?? Math.max(1, Math.ceil((total ?? agents.length) / (pageSize ?? Math.max(agents.length, 1)))),
+    totalPages:
+      totalPages ??
+      Math.max(
+        1,
+        Math.ceil((total ?? agents.length) / (pageSize ?? Math.max(agents.length, 1))),
+      ),
   };
 }
 

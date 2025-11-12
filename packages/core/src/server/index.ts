@@ -62,10 +62,10 @@ export {
 
 export {
   getAgentAccountByAgentName,
+  extractAgentAccountFromDiscovery,
+  getServerCounterfactualAAAddressByAgentName,
   type AgentAccountResolution,
-} from './lib/agentAccount';
-
-export { getServerCounterfactualAAAddressByAgentName } from './lib/aaAccount';
+} from './lib/accounts';
 
 export {
   getAdminApp,
@@ -99,6 +99,7 @@ export {
   discoverAgents,
   type DiscoverRequest,
   type DiscoverResponse,
+  type DiscoverAgent,
 } from './lib/discover';
 export {
   getIdentityClient,
@@ -107,10 +108,18 @@ export {
 } from './singletons/identityClient';
 
 export {
+  getAccountOwner,
+  getAccountOwnerByDidPkh,
+  parsePkhDid,
+  type ParsedPkhDid,
+} from './lib/accounts';
+
+export {
   getENSClient,
   isENSClientInitialized,
   resetENSClient,
   isENSAvailable,
+  isENSNameAvailable,
   addAgentNameToL1Org,
   addAgentNameToL2Org,
   prepareL1AgentNameInfoCalls,
@@ -133,6 +142,8 @@ export {
 
 export {
   getChainEnvVar,
+  getChainEnvVarDetails,
+  requireChainEnvVar,
   getChainById,
   getSupportedChainIds,
   isChainSupported,
