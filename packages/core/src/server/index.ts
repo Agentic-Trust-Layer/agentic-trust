@@ -63,7 +63,7 @@ export {
 export {
   getAgentAccountByAgentName,
   extractAgentAccountFromDiscovery,
-  getServerCounterfactualAAAddressByAgentName,
+  getCounterfactualAAAddressByAgentName,
   type AgentAccountResolution,
 } from './lib/accounts';
 

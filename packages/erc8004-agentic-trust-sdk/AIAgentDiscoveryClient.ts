@@ -14,6 +14,11 @@ export interface AgentData {
   agentId?: number | string;
   agentName?: string;
   chainId?: number;
+  
+  agentDID?: string;
+  agentENS?: string;
+  agentAccountDID?: string;
+  
   agentAddress?: string;
   agentOwner?: string;
   metadataURI?: string;
@@ -319,10 +324,10 @@ export class AIAgentDiscoveryClient {
           a2aEndpoint
           ensEndpoint
           agentAccountEndpoint
-            did
-            mcp
-            x402support
-            active
+          did
+          mcp
+          x402support
+          active
           supportedTrust
           rawJson
         }

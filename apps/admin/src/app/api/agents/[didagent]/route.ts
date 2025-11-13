@@ -4,12 +4,13 @@ import { parseAgentDid } from '../_lib/agentDid';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { 'did:agent': string } }
+  { params }: { params: Promise<{ 'did:agent': string }> }
 ) {
   try {
+    const { 'did:agent': didAgent } = await params;
     let parsed;
     try {
-      parsed = parseAgentDid(params['did:agent']);
+      parsed = parseAgentDid(didAgent);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid agent DID';

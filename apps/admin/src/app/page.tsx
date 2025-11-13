@@ -5,10 +5,9 @@ import { useWeb3Auth } from '@/components/Web3AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { LoginPage } from '@/components/LoginPage';
 import type { Address } from 'viem';
-import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAccountClientByAgentName } from '@agentic-trust/core/client';
+import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAAAddressByAgentName } from '@agentic-trust/core/client';
 import type { Chain } from 'viem';
 import {
-  isPrivateKeyMode,
   getEnsOrgName,
   getSupportedChainIds,
   getChainDisplayMetadata,
@@ -25,42 +24,24 @@ import type { DiscoverParams as AgentSearchParams, DiscoverAgent } from '@agenti
 type Agent = DiscoverAgent;
 
 export default function AdminPage() {
+
   const web3AuthCtx = useWeb3Auth() as any;
   const {
-    connected: web3AuthConnected,
-    address: web3AuthAddress,
     userInfo,
     disconnect: web3AuthDisconnect,
-    loading: authLoading,
-  } = web3AuthCtx;
-  const web3AuthProvider = web3AuthCtx?.provider ?? null;
-  const { connected: walletConnected, address: walletAddress, connect: walletConnect, disconnect: walletDisconnect, loading: walletLoading } = useWallet();
+  } = web3AuthCtx || {};
   
-  // Use either Web3Auth or direct wallet connection
-  const eoaConnected = web3AuthConnected || walletConnected;
-  const eoaAddress = web3AuthAddress || walletAddress;
-  const loading = authLoading || walletLoading;
-
-  // Pick the matching provider for the selected EOA: Web3Auth if that address is active, otherwise MetaMask
-  const effectiveEip1193 = React.useMemo(() => {
-    const metamaskProvider = typeof window !== 'undefined' ? (window as any)?.ethereum : null;
-    if (web3AuthConnected && web3AuthProvider) {
-      return web3AuthProvider;
-    }
-    if (walletConnected && metamaskProvider) {
-      return metamaskProvider;
-    }
-    return web3AuthProvider ?? metamaskProvider ?? null;
-  }, [web3AuthConnected, web3AuthProvider, walletConnected]);
-
-  // For AA flow, strongly prefer Web3Auth to avoid MetaMask prompts when available
-  const aaEip1193 = React.useMemo(() => {
-    const metamaskProvider = typeof window !== 'undefined' ? (window as any)?.ethereum : null;
-    if (web3AuthProvider) {
-      return web3AuthProvider;
-    }
-    return effectiveEip1193 ?? metamaskProvider ?? null;
-  }, [web3AuthProvider, effectiveEip1193]);
+  // Get consolidated wallet state from useWallet hook
+  // This includes: connected, address, eip1193Provider, privateKeyMode
+  const { 
+    connected: eoaConnected, 
+    address: eoaAddress, 
+    eip1193Provider,
+    privateKeyMode,
+    loading,
+    disconnect: walletDisconnect,
+  } = useWallet();
+  
   
   const PAGE_SIZE = 10;
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -91,28 +72,25 @@ export default function AdminPage() {
     agentUrl: '',
   });
 
-  // Check if private key mode is enabled
-  const usePrivateKey = isPrivateKeyMode();
-  // Also detect server-side admin private key availability
-  const [serverPrivateKeyMode, setServerPrivateKeyMode] = useState<boolean>(false);
+  // Get admin EOA for private key mode display
   const [adminEOA, setAdminEOA] = useState<string | null>(null);
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch('/api/admin/address', { method: 'GET' });
-        if (res.ok) {
-          setServerPrivateKeyMode(true);
-          const data = await res.json();
-          if (data?.address && typeof data.address === 'string') {
-            setAdminEOA(data.address);
+    if (privateKeyMode) {
+      (async () => {
+        try {
+          const res = await fetch('/api/admin/address', { method: 'GET' });
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.address && typeof data.address === 'string') {
+              setAdminEOA(data.address);
+            }
           }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
-      }
-    })();
-  }, []);
-  const effectivePrivateKeyMode = usePrivateKey || serverPrivateKeyMode;
+      })();
+    }
+  }, [privateKeyMode]);
 
   // Chain selection for Create Agent
   const [selectedChainId, setSelectedChainId] = useState<number>(DEFAULT_CHAIN_ID);
@@ -216,39 +194,36 @@ export default function AdminPage() {
       console.info('[chain] synchronizeProvidersWithChain', chainId, chainLabel);
       const results: boolean[] = [];
 
-      // Prefer MetaMask when it's the actively connected wallet
-      if (walletConnected && effectiveEip1193 && (effectiveEip1193 as any).isMetaMask) {
-        results.push(await ensureProviderOnChain(effectiveEip1193, chainId, 'metamask'));
-      } else if (web3AuthConnected && web3AuthProvider) {
-        const switched = await ensureWeb3AuthChain(chainId);
-        if (!switched) {
-          console.info('[chain] ensureWeb3AuthChain returned false; falling back to provider request');
-          results.push(await ensureProviderOnChain(web3AuthProvider, chainId, 'web3auth'));
+      // Use the consolidated eip1193Provider from useWallet
+      if (eip1193Provider && eoaConnected) {
+        const isMetaMask = Boolean((eip1193Provider as any)?.isMetaMask);
+        const isWeb3Auth = !isMetaMask && Boolean((eip1193Provider as any)?.isWeb3Auth);
+        
+        if (isWeb3Auth) {
+          // Try Web3Auth-specific chain switching first
+          const switched = await ensureWeb3AuthChain(chainId);
+          if (!switched) {
+            console.info('[chain] ensureWeb3AuthChain returned false; falling back to provider request');
+            results.push(await ensureProviderOnChain(eip1193Provider, chainId, 'web3auth'));
+          } else {
+            results.push(true);
+          }
+        } else if (isMetaMask) {
+          results.push(await ensureProviderOnChain(eip1193Provider, chainId, 'metamask'));
         } else {
-          results.push(true);
+          // Generic provider
+          results.push(await ensureProviderOnChain(eip1193Provider, chainId, 'provider'));
         }
       } else {
-        if (effectiveEip1193 && (effectiveEip1193 as any).isMetaMask) {
-          console.info('[chain] skipping MetaMask auto-switch (not connected)');
-        }
-        if (web3AuthProvider && !web3AuthConnected) {
-          console.info('[chain] skipping Web3Auth auto-switch (not connected)');
-        }
-      }
-
-      if (aaEip1193 && aaEip1193 !== web3AuthProvider) {
-        const isMetaMask = Boolean((aaEip1193 as any)?.isMetaMask);
-        if (isMetaMask && !walletConnected) {
-          console.info('[chain] skipping AA MetaMask auto-switch (not connected)');
-        } else {
-          const label = isMetaMask ? 'aa-metamask' : 'aa-provider';
-          results.push(await ensureProviderOnChain(aaEip1193, chainId, label));
+        if (eip1193Provider) {
+          const isMetaMask = Boolean((eip1193Provider as any)?.isMetaMask);
+          console.info(`[chain] skipping ${isMetaMask ? 'MetaMask' : 'provider'} auto-switch (not connected)`);
         }
       }
 
       return results.length === 0 || results.every(Boolean);
     },
-    [aaEip1193, effectiveEip1193, ensureProviderOnChain, walletConnected, web3AuthProvider, web3AuthConnected, CHAIN_METADATA],
+    [eip1193Provider, eoaConnected, ensureProviderOnChain, CHAIN_METADATA],
   );
 
   // Toggle states for Create Agent
@@ -292,7 +267,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   }, [eoaConnected, loading]);
 
   useEffect(() => {
-    if (!web3AuthProvider && !walletConnected) {
+    if (!eip1193Provider && !eoaConnected) {
       console.info('[chain] skip auto-sync (no connected provider)');
       return;
     }
@@ -302,7 +277,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet.');
       }
     })();
-  }, [selectedChainId, synchronizeProvidersWithChain, web3AuthProvider, walletConnected]);
+  }, [selectedChainId, synchronizeProvidersWithChain, eip1193Provider, eoaConnected]);
 
   // Set agent account in EOA mode (when AA is not enabled)
   useEffect(() => {
@@ -314,7 +289,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           ...prev,
           agentAccount: eoaAddress,
         }));
-      } else if (effectivePrivateKeyMode) {
+      } else if (privateKeyMode) {
         // Fetch admin EOA address from API
         (async () => {
           try {
@@ -334,15 +309,77 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         })();
       }
     }
-  }, [eoaAddress, useAA, effectivePrivateKeyMode]);
+  }, [eoaAddress, useAA, privateKeyMode]);
 
-  // Auto-compute AA address in private key mode as the agent name changes
+  // Auto-compute AA address as the agent name changes
+  // Use server-side endpoint for private key mode, client-side function for wallet mode
   useEffect(() => {
-    if (!useAA || !effectivePrivateKeyMode) {
+    if (!useAA) {
+      setAaAddress(null);
+      setCreateForm(prev => ({ ...prev, agentAccount: '' }));
       return;
     }
+    
     const name = (createForm.agentName || '').trim();
     if (!name) {
+      setAaAddress(null);
+      setCreateForm(prev => ({ ...prev, agentAccount: '' }));
+      return;
+    }
+
+    // Private key mode: use server-side endpoint
+    if (privateKeyMode) {
+      let cancelled = false;
+      setAaComputing(true);
+
+      (async () => {
+        try {
+          // Use server-side endpoint for private key mode
+          const resp = await fetch('/api/accounts/counterfactual-account', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentName: name,
+              chainId: selectedChainId || undefined,
+            }),
+          });
+          
+          if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            console.warn('Server-side AA address computation failed:', err);
+            if (!cancelled) {
+              setAaAddress(null);
+              setCreateForm(prev => ({ ...prev, agentAccount: '' }));
+            }
+            return;
+          }
+          
+          const data = await resp.json();
+          const computed = (data?.address as string) || '';
+          if (!cancelled && computed && computed.startsWith('0x')) {
+            setAaAddress(computed);
+            setCreateForm(prev => ({ ...prev, agentAccount: computed }));
+          }
+        } catch (error) {
+          console.error('Error computing AA address (server-side):', error);
+          if (!cancelled) {
+            setAaAddress(null);
+            setCreateForm(prev => ({ ...prev, agentAccount: '' }));
+          }
+        } finally {
+          if (!cancelled) {
+            setAaComputing(false);
+          }
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }
+    
+    // Wallet mode: use client-side function
+    if (!eip1193Provider || !eoaAddress) {
       setAaAddress(null);
       setCreateForm(prev => ({ ...prev, agentAccount: '' }));
       return;
@@ -353,42 +390,36 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
     (async () => {
       try {
-        const encodedName = encodeURIComponent(name);
-        const chainIdParam = selectedChainId ? `?chainId=${selectedChainId}` : '';
-        const resp = await fetch(`/api/accounts/by-name/${encodedName}${chainIdParam}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
-        if (!resp.ok) {
-          const err = await resp.json().catch(() => ({}));
-          console.warn('AA address compute (server) failed:', err);
-          if (!cancelled) {
-            setAaAddress(null);
-            setCreateForm(prev => ({ ...prev, agentAccount: '' }));
-          }
-          return;
-        }
-        const data = await resp.json();
-        const computed = (data?.address as string) || '';
+        // Use client-side function to compute AA address with wallet provider
+        const computed = await getCounterfactualAAAddressByAgentName(
+          name,
+          eoaAddress as `0x${string}`,
+          {
+            ethereumProvider: eip1193Provider as any,
+            chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
+          },
+        );
         if (!cancelled && computed && computed.startsWith('0x')) {
           setAaAddress(computed);
           setCreateForm(prev => ({ ...prev, agentAccount: computed }));
         }
       } catch (error) {
-        console.warn('AA address compute (server) error:', error);
+        console.error('Error computing AA address (client-side):', error);
         if (!cancelled) {
           setAaAddress(null);
           setCreateForm(prev => ({ ...prev, agentAccount: '' }));
         }
       } finally {
-        if (!cancelled) setAaComputing(false);
+        if (!cancelled) {
+          setAaComputing(false);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [useAA, effectivePrivateKeyMode, createForm.agentName, selectedChainId]);
+  }, [useAA, privateKeyMode, eip1193Provider, eoaAddress, createForm.agentName, selectedChainId, CHAIN_OBJECTS]);
 
   // Check ENS availability when createENS is enabled and agent name changes
   // Only check if AA is enabled (ENS only makes sense for AA agents)
@@ -546,15 +577,20 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
   // Handle disconnect
   const handleDisconnect = async () => {
-    if (web3AuthConnected) {
+    // Try both disconnect methods - if not connected, they won't do anything
+    try {
       await web3AuthDisconnect();
+    } catch (e) {
+      // Ignore - might not be connected
     }
-    if (walletConnected) {
+    try {
       await walletDisconnect();
+    } catch (e) {
+      // Ignore - might not be connected
     }
 
     // In private key mode, clear any session data
-    if (effectivePrivateKeyMode) {
+    if (privateKeyMode) {
       try {
         await fetch('/api/auth/session', {
           method: 'DELETE',
@@ -675,9 +711,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     [agentsTotalPages, fetchAgents],
   );
 
-  // Show login page if not connected via Web3Auth
-  // But allow wallet connection even if Web3Auth is not connected
-  if (authLoading && !walletConnected && !effectivePrivateKeyMode) {
+  // Show login page if not connected
+  // Use consolidated loading and connected state from useWallet
+  if (loading && !privateKeyMode) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh' }}>
         <div>Loading...</div>
@@ -685,8 +721,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     );
   }
 
-  // Only show login page if neither Web3Auth nor wallet is connected, and private key mode is not enabled
-  if (!web3AuthConnected && !walletConnected && !authLoading && !effectivePrivateKeyMode) {
+  // Only show login page if not connected and private key mode is not enabled
+  if (!eoaConnected && !loading && !privateKeyMode) {
     return <LoginPage />;
   }
 
@@ -698,7 +734,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       
 
 
-      if (!effectivePrivateKeyMode) {
+      if (!privateKeyMode) {
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
         setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
@@ -706,21 +742,20 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       }
       // Ensure provider is authorized before any core calls
       try {
-        const prefProvider = (useAA ? aaEip1193 : effectiveEip1193) as any;
-        if (prefProvider && typeof prefProvider.request === 'function') {
+        if (eip1193Provider && typeof eip1193Provider.request === 'function') {
           // Switch to selected chain (if wallet supports it)
           const chainIdHex = getChainIdHex(selectedChainId);
           try {
-            const current = await prefProvider.request({ method: 'eth_chainId' }).catch(() => null);
+            const current = await eip1193Provider.request({ method: 'eth_chainId' }).catch(() => null);
             if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
-              await prefProvider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
+              await eip1193Provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
             }
           } catch {
             // ignore; core will also attempt chain selection
           }
-          const accs = await prefProvider.request({ method: 'eth_accounts' }).catch(() => []);
+          const accs = await eip1193Provider.request({ method: 'eth_accounts' }).catch(() => []);
           if (!Array.isArray(accs) || accs.length === 0) {
-            await prefProvider.request({ method: 'eth_requestAccounts' });
+            await eip1193Provider.request({ method: 'eth_requestAccounts' });
           }
         }
       } catch {
@@ -733,35 +768,23 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
       // If using AA, the agent account should already be populated by the useEffect
       if (useAA) {
-        // Compute AA address
-        let computedAa: string | null = null;
-        if (effectivePrivateKeyMode) {
-          // Server-side computation using admin private key
-          const encodedName = encodeURIComponent(createForm.agentName);
-          const chainIdParam = selectedChainId ? `?chainId=${selectedChainId}` : '';
-          const resp = await fetch(`/api/accounts/by-name/${encodedName}${chainIdParam}`, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-          });
-          if (resp.ok) {
-            const data = await resp.json();
-            computedAa = (data?.address as string) || null;
-          } else {
-            const err = await resp.json().catch(() => ({}));
-            console.warn('Failed to compute AA address on server:', err);
-          }
-        } else {
-          // Client-side computation using connected wallet
-          const aaClient = await getCounterfactualAccountClientByAgentName(
-            createForm.agentName,
-            eoaAddress as `0x${string}`,
-            {
-              ethereumProvider: aaEip1193 as any,
-              chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
-            },
-          );
-          computedAa = await aaClient.getAddress();
+        // Compute AA address using wallet provider (client-side)
+        // This uses the wallet (Web3Auth/MetaMask) to compute the counterfactual address
+        if (!eip1193Provider) {
+          throw new Error('Wallet provider is required to compute AA address. Please connect your wallet.');
         }
+        if (!eoaAddress) {
+          throw new Error('EOA address is required to compute AA address.');
+        }
+        
+        const computedAa = await getCounterfactualAAAddressByAgentName(
+          createForm.agentName,
+          eoaAddress as `0x${string}`,
+          {
+            ethereumProvider: eip1193Provider as any,
+            chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
+          },
+        );
         if (!computedAa || !computedAa.startsWith('0x')) {
           throw new Error('Failed to compute AA address. Please retry.');
         }
@@ -780,7 +803,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       // Only agentData is required - account, chain, and provider are auto-detected
       if (useAA == false) {
         // EOA agent creation
-        if (effectivePrivateKeyMode) {
+        if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
           const resp = await fetch('/api/agents/create-for-eoa-pk', {
             method: 'POST',
@@ -817,7 +840,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             agentUrl: createForm.agentUrl || undefined,
           },
           account: eoaAddress as Address,
-          ethereumProvider: effectiveEip1193 as any,
+          ethereumProvider: eip1193Provider as any,
           onStatusUpdate: setSuccess,
           useAA: useAA || undefined,
           chainId: selectedChainId,
@@ -832,7 +855,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       }
       else {
         // Account Abstraction (AA) creation
-        if (effectivePrivateKeyMode) {
+        if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
           const resp = await fetch('/api/agents/create-for-aa-pk', {
             method: 'POST',
@@ -873,7 +896,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             agentUrl: createForm.agentUrl || undefined,
           },
           account: eoaAddress as Address,
-          ethereumProvider: aaEip1193 as any,
+          ethereumProvider: eip1193Provider as any,
           onStatusUpdate: setSuccess,
           useAA: useAA || undefined,
           ensOptions: {
@@ -1033,14 +1056,14 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           {(() => {
-            const displayed = effectivePrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
+            const displayed = privateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
             return displayed ? (
             <div style={{ fontSize: '0.9rem', color: '#666', fontFamily: 'monospace' }}>
               {displayed.slice(0, 6)}...{displayed.slice(-4)}
             </div>
             ) : null;
           })()}
-          {effectivePrivateKeyMode ? (
+          {privateKeyMode ? (
             <div style={{
               padding: '0.5rem 1rem',
               backgroundColor: '#17a2b8',

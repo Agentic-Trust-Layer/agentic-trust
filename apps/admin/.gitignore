@@ -7,6 +7,7 @@
 
 # testing
 /coverage
+/test-results
 
 # next.js
 /.next/
@@ -25,8 +26,11 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+# .env.local should NOT be committed (contains secrets)
 .env*.local
-.env
+# .env should be committed as a template (with example values)
+# Uncomment the line below if you want to ignore .env (not recommended)
+# .env
 
 # vercel
 .vercel

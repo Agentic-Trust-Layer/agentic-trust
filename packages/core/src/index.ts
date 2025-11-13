@@ -97,7 +97,8 @@ export {
   isWalletProviderAvailable,
   getWalletAddress,
   getDeployedAccountClientByAgentName,
-  getCounterfactualAccountClientByAgentName
+  getCounterfactualAccountClientByAgentName,
+  getCounterfactualAAAddressByAgentName,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,

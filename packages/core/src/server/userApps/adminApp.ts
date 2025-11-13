@@ -54,12 +54,16 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
       // If cookies() fails (e.g., not in Next.js context), fall back to environment variable
       // This is expected in non-Next.js contexts
     }
-    console.log('______________ resolvedPrivateKey: ', resolvedPrivateKey);
+    console.log('______________ resolvedPrivateKey after cookies: ', resolvedPrivateKey);
     
     // Fall back to environment variable if no session key
     if (!resolvedPrivateKey) {
-      resolvedPrivateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+      // Check environment variables directly
+      const envPrivateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+      console.log('______________ envPrivateKey check: ', envPrivateKey ? `SET (length: ${envPrivateKey.length})` : 'NOT SET');
+      resolvedPrivateKey = envPrivateKey;
     }
+    console.log('______________ resolvedPrivateKey FINAL: ', resolvedPrivateKey ? `SET (length: ${resolvedPrivateKey.length})` : 'NOT SET');
   }
 
   // Check if we have a wallet address from MetaMask (no private key available)

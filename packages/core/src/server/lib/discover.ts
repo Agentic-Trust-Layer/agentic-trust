@@ -27,11 +27,16 @@ export type DiscoverRequest = {
 };
 
 export type DiscoverAgent = {
-  chainId: number;
   agentId: string;
+  agentName: string;
+  chainId: number;
+  
+  agentDID?: string;
+  agentENS?: string;
+  agentAccountDID?: string;
+
   agentAddress: string;
   agentOwner: string;
-  agentName: string;
   metadataURI?: string | null;
   createdAtBlock: number;
   createdAtTime: number;

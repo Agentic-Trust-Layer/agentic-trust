@@ -14,6 +14,7 @@ export {
   createAgentWithWalletForAA,
   getCounterfactualAccountClientByAgentName,
   getDeployedAccountClientByAgentName,
+  getCounterfactualAAAddressByAgentName,
 } from './walletSigning';
 
 export type {

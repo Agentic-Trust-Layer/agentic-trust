@@ -42,8 +42,10 @@ export async function getAdminClient(): Promise<AgenticTrustClient> {
     
     const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
-    // Get identity registry from environment
-    const identityRegistry = process.env.AGENTIC_TRUST_IDENTITY_REGISTRY;
+    // Get identity registry from environment (chain-specific)
+    // Use getChainEnvVar to support chain-specific variables
+    const { getChainEnvVar } = await import('@agentic-trust/core/server');
+    const identityRegistry = getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', DEFAULT_CHAIN_ID);
 
     const config: ApiClientConfig = {
       timeout: 30000,

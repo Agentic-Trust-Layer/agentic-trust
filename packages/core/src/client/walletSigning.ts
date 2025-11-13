@@ -33,6 +33,7 @@ import {
 export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
+  getCounterfactualAAAddressByAgentName,
 } from './accountClient';
 
 async function detectServerPrivateKeyMode(): Promise<boolean> {

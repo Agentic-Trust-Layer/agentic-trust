@@ -26,46 +26,53 @@ Open [http://localhost:3002](http://localhost:3002) to access the admin dashboar
 
 ## Environment Variables
 
-Create a `.env.local` file:
+### Quick Start
 
-```bash
-# Required: Web3Auth Client ID (get from https://dashboard.web3auth.io/)
-NEXT_PUBLIC_WEB3AUTH_CLIENT_ID=your-web3auth-client-id
+1. **Create `.env` file (or `.env.local` for secrets):**
+   ```bash
+   cd apps/admin
+   touch .env
+   # Add your environment variables to .env
+   ```
+   
+   **Note**: You can use either `.env` (can be committed) or `.env.local` (should not be committed).
+   `.env.local` will override `.env` if both exist.
 
-# Optional: Web3Auth Network (testnet or mainnet, defaults to mainnet)
-NEXT_PUBLIC_WEB3AUTH_NETWORK=testnet
+2. **Required variables:**
+   ```bash
+   # Web3Auth (Required for authentication)
+   NEXT_PUBLIC_WEB3AUTH_CLIENT_ID=your-web3auth-client-id
+   
+   # RPC URLs (Chain-specific - required for each chain you use)
+   AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
+   
+   # Contract addresses (Chain-specific - required for each chain you use)
+   AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x8004a6090Cd10A7288092483047B097295Fb8847
+   
+   # Discovery API (Chain-agnostic - works for all chains)
+   AGENTIC_TRUST_DISCOVERY_URL=https://api.agentictrust.io
+   AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
+   ```
 
-# Required: RPC URLs (chain-specific)
-AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
-AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA=https://sepolia.base.org
-AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA=https://sepolia.optimism.io
+### Why Some Variables Have Chain Info and Others Don't
 
-# Required: Contract addresses (chain-specific)
-AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x...
-AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x...
-AGENTIC_TRUST_ENS_REGISTRY_SEPOLIA=0x...
+- **Chain-Specific Variables** (have chain suffix like `_SEPOLIA`):
+  - RPC URLs, Contract Addresses, ENS Configuration
+  - Each chain has its own resources
+  
+- **Chain-Agnostic Variables** (no chain suffix):
+  - Discovery API URL and API Key
+  - One endpoint/key works for all chains
 
-# Optional: Discovery URL (GraphQL endpoint)
-AGENTIC_TRUST_DISCOVERY_URL=https://api.example.com
+### Full Documentation
 
-# Optional: Discovery API key
-AGENTIC_TRUST_DISCOVERY_API_KEY=...
+See **[ENV-VARIABLES.md](./ENV-VARIABLES.md)** for complete documentation:
+- Where to put environment variables
+- Why some variables are chain-specific and others are chain-agnostic
+- All available environment variables
+- Troubleshooting guide
 
-# Optional: Reputation Registry (if using reputation features)
-AGENTIC_TRUST_REPUTATION_REGISTRY=0x...
-
-# Optional: Chain ID (defaults to Sepolia: 0xaa36a7 / 11155111)
-NEXT_PUBLIC_CHAIN_ID=0xaa36a7
-
-# Optional: Port (defaults to 3002)
-PORT=3002
-
-# Optional: Fallback admin private key (if not using Web3Auth)
-# Only used if Web3Auth session is not available
-AGENTIC_TRUST_ADMIN_PRIVATE_KEY=0x...
-```
-
-**Note**: Never commit `.env.local` to version control.
+**Note**: Never commit `.env.local` to version control (it's already in `.gitignore`).
 
 ## Web3Auth Setup
 

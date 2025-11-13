@@ -15,6 +15,31 @@ type GetAAAccountClientOptions = {
   accountAddress?: `0x${string}`;
 };
 
+/**
+ * Get the counterfactual AA address for an agent name (client-side computation)
+ * 
+ * This function computes the AA address without creating a full account client.
+ * It uses the wallet provider (MetaMask/Web3Auth) to compute the address.
+ * 
+ * @param agentName - The agent name
+ * @param eoaAddress - The EOA address (owner of the AA account)
+ * @param options - Options for chain, ethereumProvider, etc.
+ * @returns The counterfactual AA address
+ */
+export async function getCounterfactualAAAddressByAgentName(
+  agentName: string,
+  eoaAddress: `0x${string}`,
+  options?: GetAAAccountClientOptions
+): Promise<`0x${string}`> {
+  // Use the existing function to get the account client, then return just the address
+  const accountClient = await getCounterfactualAccountClientByAgentName(
+    agentName,
+    eoaAddress,
+    options
+  );
+  return accountClient.address as `0x${string}`;
+}
+
 export async function getCounterfactualAccountClientByAgentName(
   agentName: string,
   eoaAddress: `0x${string}`,
@@ -22,9 +47,6 @@ export async function getCounterfactualAccountClientByAgentName(
 ): Promise<any> {
 
   const chain = options?.chain || sepolia;
-  console.info('*********** accountClient getCounterfactualAccountClientByAgentName: agentName', agentName);
-  console.info('*********** accountClient getCounterfactualAccountClientByAgentName: chain.id', chain?.id);
-
 
   let walletClient: WalletClient;
   if (options?.walletClient) {
@@ -69,7 +91,6 @@ export async function getCounterfactualAccountClientByAgentName(
 
   let counterfactualAccountClient  = await toMetaMaskSmartAccount(clientConfig as any);
 
-  console.info('*********** accountClient getCounterfactualAccountClientByAgentName: counterfactualAccountClient', counterfactualAccountClient.address);
   return counterfactualAccountClient;
 }
 

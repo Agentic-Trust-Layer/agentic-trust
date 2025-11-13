@@ -26,11 +26,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <WalletProvider>
-          <Web3AuthProvider>
+        <Web3AuthProvider>
+          <WalletProvider>
             {children}
-          </Web3AuthProvider>
-        </WalletProvider>
+          </WalletProvider>
+        </Web3AuthProvider>
       </body>
     </html>
   );
