@@ -1,5 +1,5 @@
 /**
- * Integration Tests for /api/agents/[did:agent] route
+ * Integration Tests for /api/agents/[did:8004] route
  * 
  * These tests make actual calls to backends:
  * - Blockchain RPC (contract reads)
@@ -15,7 +15,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { shouldSkipIntegrationTests, hasRequiredEnvVars } from '../../../../../vitest.integration.setup';
 import { createMockRequest, createMockParamsAsync, assertJsonResponse } from '../../__tests__/helpers';
-import { GET } from '../[did:agent]/route';
+import { GET } from '../[did:8004]/route';
 import {
   TEST_AGENT_ID,
   TEST_CHAIN_ID,
@@ -28,7 +28,7 @@ import {
 // Skip all tests if integration tests are disabled or env vars are missing
 const skip = shouldSkipIntegrationTests();
 
-describe.skipIf(skip)('GET /api/agents/[did:agent] (Integration)', () => {
+describe.skipIf(skip)('GET /api/agents/[did:8004] (Integration)', () => {
   beforeAll(() => {
     if (!hasRequiredEnvVars()) {
       throw new Error('Missing required environment variables for integration tests');
@@ -37,9 +37,9 @@ describe.skipIf(skip)('GET /api/agents/[did:agent] (Integration)', () => {
 
   it('should fetch real agent data from blockchain, IPFS, and GraphQL', async () => {
     // Build agent DID from real test data
-    const didAgent = `did:agent:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`;
+    const didAgent = `did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`;
     const request = createMockRequest(`http://test.example/api/agents/${encodeURIComponent(didAgent)}`);
-    const params = createMockParamsAsync({ 'did:agent': didAgent });
+    const params = createMockParamsAsync({ 'did:8004': didAgent });
 
     // Call the route handler (this will make real backend calls)
     const response = await GET(request, params);
@@ -114,22 +114,22 @@ describe.skipIf(skip)('GET /api/agents/[did:agent] (Integration)', () => {
     expect(data.identityRegistration?.tokenURI).toBe(TEST_TOKEN_URI);
   }, 30000); // 30 second timeout for integration test
 
-  it('should return 400 for invalid agent DID', async () => {
+  it('should return 400 for invalid 8004 DID', async () => {
     const request = createMockRequest('http://test.example/api/agents/invalid-did');
-    const params = createMockParamsAsync({ 'did:agent': 'invalid-did' });
+    const params = createMockParamsAsync({ 'did:8004': 'invalid-did' });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 400);
 
-    expect(data).toHaveProperty('error', 'Invalid agent DID');
+    expect(data).toHaveProperty('error', 'Invalid 8004 DID');
     expect(data).toHaveProperty('message');
   });
 
   it('should return 500 for non-existent agent ID', async () => {
     // Use a very large agent ID that likely doesn't exist
-    const didAgent = `did:agent:${TEST_CHAIN_ID}:999999999`;
+    const didAgent = `did:8004:${TEST_CHAIN_ID}:999999999`;
     const request = createMockRequest(`http://test.example/api/agents/${encodeURIComponent(didAgent)}`);
-    const params = createMockParamsAsync({ 'did:agent': didAgent });
+    const params = createMockParamsAsync({ 'did:8004': didAgent });
 
     const response = await GET(request, params);
 

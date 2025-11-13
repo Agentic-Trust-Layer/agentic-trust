@@ -35,8 +35,7 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
   // Resolve the private key first
   let resolvedPrivateKey: string | undefined = privateKey;
 
-  console.log('______________ resolvedPrivateKey: ', resolvedPrivateKey);
-  
+
   if (!resolvedPrivateKey) {
     // Try to get private key from session first (for Web3Auth/wallet), then fall back to environment variable
     // Only try Next.js cookies if we're in a Next.js environment
@@ -207,7 +206,6 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
       adminAppInstances.set(instanceKey, instance);
       initializationPromises.delete(instanceKey); // Remove from pending
 
-      console.log('✅ AdminApp initialized with address:', address, 'on chain', targetChainId);
       return instance;
     } catch (error) {
       console.error('❌ Failed to initialize AdminApp:', error);

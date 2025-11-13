@@ -66,7 +66,6 @@ export async function getDiscoveryClient(
 
       discoveryClientInstance = new AIAgentDiscoveryClient(clientConfig);
 
-      console.log('✅ DiscoveryClient singleton initialized');
       return discoveryClientInstance;
     } catch (error) {
       console.error('❌ Failed to initialize DiscoveryClient singleton:', error);

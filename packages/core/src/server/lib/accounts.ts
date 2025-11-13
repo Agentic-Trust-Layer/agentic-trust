@@ -20,34 +20,34 @@ import { DEFAULT_CHAIN_ID, type SupportedChainId, isChainSupported, getChainById
 // PKH DID Parsing
 // ============================================================================
 
-const PKH_DID_PREFIX = 'did:pkh:';
+const ETHR_DID_PREFIX = 'did:ethr:';
 
-export interface ParsedPkhDid {
+export interface ParsedEthrDid {
   account: `0x${string}`;
   chainId: number;
 }
 
 /**
- * Parse a did:pkh DID to extract chainId and account address
+ * Parse a did:ethr DID to extract chainId and account address
  * 
- * @param didPkh - The did:pkh string (e.g., "did:pkh:11155111:0x1234..." or "did:pkh:0x1234...")
+ * @param didEthr - The did:ethr string (e.g., "did:ethr:11155111:0x1234..." or "did:ethr:0x1234...")
  * @returns Parsed DID with chainId and account address
  */
-export function parsePkhDid(didPkh: string): ParsedPkhDid {
-  const decoded = decodeURIComponent((didPkh || '').trim());
+export function parseEthrDid(didEthr: string): ParsedEthrDid {
+  const decoded = decodeURIComponent((didEthr || '').trim());
   if (!decoded) {
-    throw new Error('Missing PKH DID parameter');
+    throw new Error('Missing ETHR DID parameter');
   }
 
-  if (!decoded.startsWith(PKH_DID_PREFIX)) {
-    throw new Error(`Invalid PKH DID format: ${decoded}. Expected format: did:pkh:chainId:account or did:pkh:account`);
+  if (!decoded.startsWith(ETHR_DID_PREFIX)) {
+    throw new Error(`Invalid ETHR DID format: ${decoded}. Expected format: did:ethr:chainId:account or did:ethr:account`);
   }
 
   const segments = decoded.split(':');
   const accountCandidate = segments[segments.length - 1];
   
   if (!accountCandidate || !accountCandidate.startsWith('0x')) {
-    throw new Error('PKH DID is missing account component');
+    throw new Error('ETHR DID is missing account component');
   }
 
   // Try to find chainId in the remaining segments
@@ -73,7 +73,7 @@ export function parsePkhDid(didPkh: string): ParsedPkhDid {
 
   // Validate account address
   if (accountCandidate.length !== 42 || !/^0x[a-fA-F0-9]{40}$/.test(accountCandidate)) {
-    throw new Error('Invalid account address in PKH DID');
+    throw new Error('Invalid account address in ETHR DID');
   }
 
   return {
@@ -87,18 +87,18 @@ export function parsePkhDid(didPkh: string): ParsedPkhDid {
 // ============================================================================
 
 /**
- * Get the owner (EOA) of an account address using did:pkh format
+ * Get the owner (EOA) of an account address using did:ethr format
  * 
- * @param didPkh - The did:pkh string (e.g., "did:pkh:11155111:0x1234...")
+ * @param didEthr - The did:ethr string (e.g., "did:ethr:11155111:0x1234...")
  * @returns The owner address (EOA) or null if not found or error
  */
-export async function getAccountOwnerByDidPkh(didPkh: string): Promise<string | null> {
+export async function getAccountOwnerByDidEthr(didEthr: string): Promise<string | null> {
   try {
-    const { chainId, account } = parsePkhDid(didPkh);
+    const { chainId, account } = parseEthrDid(didEthr);
     const identityClient = await getIdentityClient(chainId);
     return await identityClient.getAccountOwner(account);
   } catch (error) {
-    console.error('Error getting account owner by DID PKH:', error);
+    console.error('Error getting account owner by DID ETHR:', error);
     return null;
   }
 }

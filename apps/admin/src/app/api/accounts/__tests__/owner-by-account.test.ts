@@ -1,5 +1,5 @@
 /**
- * Tests for /api/accounts/owner/by-account/[did:pkh] route
+ * Tests for /api/accounts/owner/by-account/[did:ethr] route
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -7,33 +7,33 @@ import { createMockRequest, createMockParamsAsync, assertJsonResponse } from '..
 
 // Mock dependencies BEFORE importing the route
 vi.mock('@agentic-trust/core/server', () => ({
-  getAccountOwnerByDidPkh: vi.fn(),
-  parsePkhDid: vi.fn(),
+  getAccountOwnerByDidEthr: vi.fn(),
+  parseEthrDid: vi.fn(),
 }));
 
 // Import the route AFTER mocks are set up
-import { GET } from '../owner/by-account/[did:pkh]/route';
-import { getAccountOwnerByDidPkh, parsePkhDid } from '@agentic-trust/core/server';
+import { GET } from '../owner/by-account/[did:ethr]/route';
+import { getAccountOwnerByDidEthr, parseEthrDid } from '@agentic-trust/core/server';
 
-describe('GET /api/accounts/owner/by-account/[did:pkh]', () => {
+describe('GET /api/accounts/owner/by-account/[did:ethr]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('should return 400 for invalid PKH DID', async () => {
-    const mockParsePkhDid = vi.mocked(parsePkhDid);
-    mockParsePkhDid.mockImplementation(() => {
-      throw new Error('Invalid PKH DID format');
+  it('should return 400 for invalid ETHR DID', async () => {
+    const mockParseEthrDid = vi.mocked(parseEthrDid);
+    mockParseEthrDid.mockImplementation(() => {
+      throw new Error('Invalid ETHR DID format');
     });
 
     const request = createMockRequest('http://localhost:3000/api/accounts/owner/by-account/invalid');
-    const params = createMockParamsAsync({ 'did:pkh': 'invalid' });
+    const params = createMockParamsAsync({ 'did:ethr': 'invalid' });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 400);
 
     expect(data).toMatchObject({
-      error: 'Invalid PKH DID',
+      error: 'Invalid ETHR DID',
     });
     expect(data.message).toBeDefined();
   });
@@ -42,18 +42,18 @@ describe('GET /api/accounts/owner/by-account/[did:pkh]', () => {
     const mockAccount = '0x1234567890123456789012345678901234567890' as `0x${string}`;
     const mockChainId = 11155111;
 
-    const mockParsePkhDid = vi.mocked(parsePkhDid);
-    mockParsePkhDid.mockReturnValue({
+    const mockParseEthrDid = vi.mocked(parseEthrDid);
+    mockParseEthrDid.mockReturnValue({
       account: mockAccount,
       chainId: mockChainId,
     });
 
-    const mockGetAccountOwnerByDidPkh = vi.mocked(getAccountOwnerByDidPkh);
-    mockGetAccountOwnerByDidPkh.mockResolvedValue(null);
+    const mockGetAccountOwnerByDidEthr = vi.mocked(getAccountOwnerByDidEthr);
+    mockGetAccountOwnerByDidEthr.mockResolvedValue(null);
 
-    const encodedDid = encodeURIComponent(`did:pkh:${mockChainId}:${mockAccount}`);
+    const encodedDid = encodeURIComponent(`did:ethr:${mockChainId}:${mockAccount}`);
     const request = createMockRequest(`http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`);
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 404);
@@ -65,28 +65,28 @@ describe('GET /api/accounts/owner/by-account/[did:pkh]', () => {
     });
   });
 
-  it('should return account owner for valid PKH DID', async () => {
+  it('should return account owner for valid ETHR DID', async () => {
     const mockAccount = '0x1234567890123456789012345678901234567890' as `0x${string}`;
     const mockOwner = '0x9876543210987654321098765432109876543210' as `0x${string}`;
     const mockChainId = 11155111;
 
-    const mockParsePkhDid = vi.mocked(parsePkhDid);
-    mockParsePkhDid.mockReturnValue({
+    const mockParseEthrDid = vi.mocked(parseEthrDid);
+    mockParseEthrDid.mockReturnValue({
       account: mockAccount,
       chainId: mockChainId,
     });
 
-    const mockGetAccountOwnerByDidPkh = vi.mocked(getAccountOwnerByDidPkh);
-    mockGetAccountOwnerByDidPkh.mockResolvedValue(mockOwner);
+    const mockGetAccountOwnerByDidEthr = vi.mocked(getAccountOwnerByDidEthr);
+    mockGetAccountOwnerByDidEthr.mockResolvedValue(mockOwner);
 
-    const encodedDid = encodeURIComponent(`did:pkh:${mockChainId}:${mockAccount}`);
+    const encodedDid = encodeURIComponent(`did:ethr:${mockChainId}:${mockAccount}`);
     const request = createMockRequest(`http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`);
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 200);
 
-    expect(mockGetAccountOwnerByDidPkh).toHaveBeenCalledWith(encodedDid);
+    expect(mockGetAccountOwnerByDidEthr).toHaveBeenCalledWith(encodedDid);
     expect(data).toEqual({
       owner: mockOwner,
       account: mockAccount,
@@ -99,18 +99,18 @@ describe('GET /api/accounts/owner/by-account/[did:pkh]', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const mockParsePkhDid = vi.mocked(parsePkhDid);
-      mockParsePkhDid.mockReturnValue({
+      const mockParseEthrDid = vi.mocked(parseEthrDid);
+      mockParseEthrDid.mockReturnValue({
         account: '0x1234567890123456789012345678901234567890' as `0x${string}`,
         chainId: 11155111,
       });
 
-      const mockGetAccountOwnerByDidPkh = vi.mocked(getAccountOwnerByDidPkh);
-      mockGetAccountOwnerByDidPkh.mockRejectedValue(new Error('RPC error'));
+      const mockGetAccountOwnerByDidEthr = vi.mocked(getAccountOwnerByDidEthr);
+      mockGetAccountOwnerByDidEthr.mockRejectedValue(new Error('RPC error'));
 
-      const encodedDid = encodeURIComponent('did:pkh:11155111:0x1234567890123456789012345678901234567890');
+      const encodedDid = encodeURIComponent('did:ethr:11155111:0x1234567890123456789012345678901234567890');
       const request = createMockRequest(`http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`);
-      const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+      const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
       const response = await GET(request, params);
       const data = await assertJsonResponse(response, 500);

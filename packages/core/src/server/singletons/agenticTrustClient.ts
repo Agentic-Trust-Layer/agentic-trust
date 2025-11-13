@@ -137,23 +137,19 @@ export class AgenticTrustClient {
    * Called automatically during create() if not provided in config
    */
   private async initializeVeramoAgent(config: ApiClientConfig): Promise<void> {
-    console.log('🔧 initializeVeramoAgent: Starting...');
+
     
     if (config.veramoAgent) {
-      console.log('✅ initializeVeramoAgent: Using provided agent');
       // Use provided agent
       this.veramo.connect(config.veramoAgent);
     } else {
-      console.log('🏭 initializeVeramoAgent: Creating agent internally...');
 
       // Create agent internally
       const agent = await createVeramoAgentForClient(
         config.privateKey,
         config.rpcUrl
       );
-      console.log('✅ initializeVeramoAgent: Agent created, connecting...');
       this.veramo.connect(agent);
-      console.log('✅ initializeVeramoAgent: Complete');
     }
   }
 
@@ -170,24 +166,17 @@ export class AgenticTrustClient {
     
     // Step 2: Initialize reputation client if configured
     // Priority: sessionPackage > reputation config > top-level config with identity/reputation registry
-    console.log('📋 AgenticTrustClient.create: Step 2 - Checking reputation configuration...');
     if (config.sessionPackage) {
-      console.log('📋 AgenticTrustClient.create: Initializing reputation from sessionPackage...');
       await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: import('../lib/sessionPackage').SessionPackage; ensRegistry: `0x${string}` });
-      console.log('✅ AgenticTrustClient.create: Reputation initialized from sessionPackage');
     } else if (config.identityRegistry && config.reputationRegistry) {
       // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
       // Uses the EOA derived from privateKey (same as VeramoAgent)
       // Note: Reputation client requires private key for signing operations
       if (config.privateKey) {
-        console.log('📋 AgenticTrustClient.create: Initializing reputation from top-level config (identityRegistry + reputationRegistry)...');
         await client.initializeReputationFromConfig(config);
-        console.log('✅ AgenticTrustClient.create: Reputation initialized from top-level config');
       } else {
-        console.log('⚠️ AgenticTrustClient.create: Reputation client not initialized (private key required for reputation operations)');
       }
     } else {
-      console.log('⚠️ AgenticTrustClient.create: Reputation client not initialized (missing identityRegistry or reputationRegistry)');
     }
     
     return client;

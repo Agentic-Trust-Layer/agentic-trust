@@ -16,7 +16,7 @@ import {
   DEFAULT_CHAIN_ID,
 } from '@agentic-trust/core/server';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
-import { buildAgentDid } from '@/lib/agentDid';
+import { build8004Did } from '@agentic-trust/core';
 import { buildEnsDidFromAgentAndOrg } from '@/app/api/names/_lib/ensDid';
 import type { DiscoverParams as AgentSearchParams, DiscoverAgent } from '@agentic-trust/core/server';
 
@@ -517,7 +517,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
           ? agent.chainId
           : DEFAULT_CHAIN_ID;
-      const agentDid = buildAgentDid(agentChainId, agent.agentId ?? '');
+      const erc8004Did = build8004Did(agentChainId, agent.agentId ?? '');
 
       setUpdateForm((prev) => ({
         ...prev,
@@ -536,7 +536,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       }));
 
       // Fetch from consolidated route
-      const response = await fetch(`/api/agents/${agentDid}`);
+      const response = await fetch(`/api/agents/${erc8004Did}`);
       
       if (response.ok) {
         const data = await response.json();
@@ -948,9 +948,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         ? parsedChainId
         : DEFAULT_CHAIN_ID;
 
-      const agentDid = buildAgentDid(chainId, updateForm.agentId);
+      const erc8004Did = build8004Did(chainId, updateForm.agentId);
 
-      const response = await fetch(`/api/agents/${agentDid}/update`, {
+      const response = await fetch(`/api/agents/${erc8004Did}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -993,9 +993,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       const chainId = Number.isFinite(parsedChainId)
         ? parsedChainId
         : DEFAULT_CHAIN_ID;
-      const agentDid = buildAgentDid(chainId, deleteForm.agentId);
+      const erc8004Did = build8004Did(chainId, deleteForm.agentId);
 
-      const response = await fetch(`/api/agents/${agentDid}/delete`, {
+      const response = await fetch(`/api/agents/${erc8004Did}/delete`, {
         method: 'DELETE',
       });
 
@@ -1023,9 +1023,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       const chainId = Number.isFinite(parsedChainId)
         ? parsedChainId
         : DEFAULT_CHAIN_ID;
-      const agentDid = buildAgentDid(chainId, transferForm.agentId);
+      const erc8004Did = build8004Did(chainId, transferForm.agentId);
 
-      const response = await fetch(`/api/agents/${agentDid}/transfer`, {
+      const response = await fetch(`/api/agents/${erc8004Did}/transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1919,8 +1919,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                       typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
                         ? selectedAgent.chainId
                         : DEFAULT_CHAIN_ID;
-                    const agentDid = buildAgentDid(refreshChainId, selectedAgent.agentId);
-                    const response = await fetch(`/api/agents/${agentDid}/refresh`, {
+                    const erc8004Did = build8004Did(refreshChainId, selectedAgent.agentId);
+                    const response = await fetch(`/api/agents/${erc8004Did}/refresh`, {
                       method: 'POST',
                     });
                     if (!response.ok) {

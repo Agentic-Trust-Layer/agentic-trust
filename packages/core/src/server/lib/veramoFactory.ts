@@ -46,29 +46,23 @@ export async function createVeramoAgentForClient(
   privateKey?: string,
   rpcUrl?: string
 ): Promise<VeramoAgent> {
-  console.warn('🏭 createVeramoAgentForClient: Starting...');
+
   
   // Initialize DID providers for AA and Agent DIDs
-  console.warn('🏭 createVeramoAgentForClient: Initializing DID providers...');
   const aaDidProviders: Record<string, AADidProvider> = {};
   const agentDidProviders: Record<string, AgentDidProvider> = {};
 
   // Initialize KMS instances
-  console.warn('🏭 createVeramoAgentForClient: Initializing KMS...');
   const aaKMS = new AAKeyManagementSystem(aaDidProviders);
   const agentKMS = new AgentKeyManagementSystem(agentDidProviders);
-  console.warn('✅ createVeramoAgentForClient: KMS initialized');
 
   // Get Ethereum RPC URLs from parameters or defaults
-  console.warn('🏭 createVeramoAgentForClient: Setting up RPC URLs...');
   const rpc = rpcUrl || 'https://sepolia.drpc.org';
 
   // Create Web3 providers for ethr-did-resolver
-  console.warn('🏭 createVeramoAgentForClient: Creating Web3 providers...');
   const web3SepoliaProvider = new Web3.providers.HttpProvider(rpc);
 
   // Create ethr DID provider for client DIDs
-  console.warn('🏭 createVeramoAgentForClient: Creating ethr DID provider...');
   const ethrDidProvider = new EthrDIDProvider({
     defaultKms: 'local',
     networks: [
@@ -80,7 +74,6 @@ export async function createVeramoAgentForClient(
   });
 
   // Create the agent with required plugins
-  console.warn('🏭 createVeramoAgentForClient: Creating agent with plugins...');
   const agent = createAgent<
     IKeyManager & IDIDManager & ICredentialIssuer & ICredentialVerifier & IResolver
   >({
@@ -129,16 +122,12 @@ export async function createVeramoAgentForClient(
 
   // If a private key is provided, import it and create DID with it
   // Otherwise, generate a key for this session
-  console.warn('🏭 createVeramoAgentForClient: Setting up private key...');
   let finalPrivateKey = privateKey;
   if (!finalPrivateKey) {
     // Generate a new private key for this session
-    console.warn('🏭 createVeramoAgentForClient: Generating new private key...');
     finalPrivateKey = generatePrivateKey();
-    console.warn('✅ createVeramoAgentForClient: Generated new private key for session');
   } else {
-    console.warn('✅ createVeramoAgentForClient: Using provided private key');
-  }
+   }
 
   // Normalize and validate private key
   // Remove any whitespace, newlines, or other invalid characters
@@ -161,18 +150,12 @@ export async function createVeramoAgentForClient(
   // Add 0x prefix
   const normalizedKey = `0x${cleanedKey}`;
   
-  console.warn('🏭 createVeramoAgentForClient: Importing key into key manager...');
-  console.warn('🔑 Normalized key length:', normalizedKey.length, 'characters');
-  
   // Import the private key into the key manager
   const importedKey = await agent.keyManagerImport({
     type: 'Secp256k1',
     privateKeyHex: normalizedKey,
     kms: 'local',
   });
-  console.warn('✅ createVeramoAgentForClient: Key imported');
-
-  console.warn('🏭 createVeramoAgentForClient: Creating DID...');
   // Create DID with the imported key
   const identifier = await agent.didManagerCreate({
     alias: 'default',
@@ -181,9 +164,6 @@ export async function createVeramoAgentForClient(
       keyRef: importedKey.kid,
     },
   });
-
-  console.warn('✅ createVeramoAgentForClient: Created DID:', identifier.did);
-  console.warn('✅ createVeramoAgentForClient: Complete!');
 
   return agent;
 }

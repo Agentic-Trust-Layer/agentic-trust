@@ -41,3 +41,10 @@ export {
   ViemAccountProvider,
   type ViemAccountProviderOptions,
 } from '@agentic-trust/8004-sdk';
+
+export {
+  build8004Did,
+  parse8004Did,
+  type Parsed8004Did,
+  type Build8004DidOptions,
+} from './utils/erc8004Did';

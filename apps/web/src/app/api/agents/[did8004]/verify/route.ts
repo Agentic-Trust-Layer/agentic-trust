@@ -4,22 +4,22 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentTrustClient } from '@/lib/server-client';
-import { parseAgentDid } from '../../_lib/agentDid';
+import { parse8004Did } from '@agentic-trust/core';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { 'did:agent': string } }
+  { params }: { params: { 'did:8004': string } }
 ) {
   try {
     let parsed;
     try {
-      parsed = parseAgentDid(params['did:agent']);
+      parsed = parse8004Did(params['did:8004']);
     } catch (parseError) {
       const message =
-        parseError instanceof Error ? parseError.message : 'Invalid agent DID';
+        parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
       return NextResponse.json(
-        { error: 'Invalid agent DID', message, valid: false },
-        { status: 400 }
+        { error: 'Invalid 8004 DID', message, valid: false },
+        { status: 400 },
       );
     }
 
@@ -31,7 +31,7 @@ export async function POST(
     if (!agent) {
       return NextResponse.json(
         { error: 'Agent not found' },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -52,7 +52,7 @@ export async function POST(
         valid: false,
         details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

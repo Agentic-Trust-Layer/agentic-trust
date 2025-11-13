@@ -429,48 +429,14 @@ export class AIAgentENSClient {
     ])
 
 
-    console.info("*********** getAgentAccountByName: name", name);
     let ensName = name.trim().toLowerCase();
     ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
     ensName = ensName + '.eth';
+
+
+    // universal resolver
+    const resolverAddr: `0x${string}` = "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe";
     
-
-    const node = namehash(ensName);
-
-    // resolver
-    let resolverAddr: `0x${string}` | null = null;
-    try {
-      console.info("try and get resolver for node")
-      console.info("ensName: ", ensName);
-      console.info("this.ensRegistryAddress: ", this.ensRegistryAddress);
-
-      /*
-      resolverAddr = await this.accountProvider.call<`0x${string}`>({
-        to: this.ensRegistryAddress,
-        abi: [{
-            name: 'resolver',
-            type: 'function',
-            stateMutability: 'view',
-            inputs: [{ name: 'node', type: 'bytes32' }],
-            outputs: [{ name: '', type: 'address' }]
-        }] as any,
-        functionName: 'resolver',
-        args: [node],
-      });
-      */
-
-      
-      resolverAddr = "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe"
-
-
-      console.info("resolverAddr: ", resolverAddr);
-      // returns 0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5
-
-    } catch {}
-    if (!resolverAddr || resolverAddr === '0x0000000000000000000000000000000000000000') {
-      console.error("Error getting agent account by name: resolverAddr is null or zero address");
-      return null;
-    }
 
     try {
 
@@ -554,21 +520,7 @@ export class AIAgentENSClient {
         }
       }
 
-      
-
-
       const addr = addrFromMulticall;
-
-      /*
-      const addr = await this.accountProvider.call<string>({
-        to: resolverAddr,
-        abi: PublicResolverABI.abi as any,
-        functionName: 'addr',
-        args: [node],
-      }).catch(() => null);
-      */
-
-      console.info("addr2: ", addr);
       if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr) && addr !== '0x0000000000000000000000000000000000000000') {
         return addr as `0x${string}`;
       }

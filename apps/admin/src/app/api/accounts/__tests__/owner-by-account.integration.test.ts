@@ -1,5 +1,5 @@
 /**
- * Integration Tests for /api/accounts/owner/by-account/[did:pkh] route
+ * Integration Tests for /api/accounts/owner/by-account/[did:ethr] route
  * 
  * These tests make actual calls to get account owners using:
  * - Blockchain RPC (to query contract owner function)
@@ -15,30 +15,30 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { shouldSkipIntegrationTests, hasRequiredEnvVars } from '../../../../../vitest.integration.setup';
 import { createMockRequest, createMockParamsAsync, assertJsonResponse, assertErrorResponse } from '../../__tests__/helpers';
-import { GET } from '../owner/by-account/[did:pkh]/route';
+import { GET } from '../owner/by-account/[did:ethr]/route';
 import { TEST_CHAIN_ID, TEST_AGENT_ACCOUNT } from '../../__tests__/test-data';
 
 // Skip all tests if integration tests are disabled or env vars are missing
 const skip = shouldSkipIntegrationTests();
 
-describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:pkh] (Integration)', () => {
+describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integration)', () => {
   beforeAll(() => {
     if (!hasRequiredEnvVars()) {
       throw new Error('Missing required environment variables for integration tests');
     }
   });
 
-  it('should return account owner for valid PKH DID', async () => {
+  it('should return account owner for valid ETHR DID', async () => {
     // Use the test agent account from test-data.ts
     const account = TEST_AGENT_ACCOUNT;
     const chainId = TEST_CHAIN_ID;
-    const didPkh = `did:pkh:${chainId}:${account}`;
-    const encodedDid = encodeURIComponent(didPkh);
+    const didEthr = `did:ethr:${chainId}:${account}`;
+    const encodedDid = encodeURIComponent(didEthr);
 
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 200);
@@ -58,33 +58,33 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:pkh] (Integration
     expect(data.chainId).toBe(chainId);
   }, 30000); // 30 second timeout for integration test
 
-  it('should return 400 for invalid PKH DID format', async () => {
+  it('should return 400 for invalid ETHR DID format', async () => {
     const invalidDid = 'invalid-did-format';
     const encodedDid = encodeURIComponent(invalidDid);
 
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     const data = await assertErrorResponse(response, 400);
 
     expect(data).toHaveProperty('error');
-    expect(data.error).toMatch(/Invalid PKH DID/i);
+    expect(data.error).toMatch(/Invalid ETHR DID/i);
   });
 
   it('should return 404 when account owner is not found (non-existent account)', async () => {
     // Use a non-existent account address (doesn't have an owner function)
     const nonExistentAccount = '0x0000000000000000000000000000000000000001';
     const chainId = TEST_CHAIN_ID;
-    const didPkh = `did:pkh:${chainId}:${nonExistentAccount}`;
-    const encodedDid = encodeURIComponent(didPkh);
+    const didEthr = `did:ethr:${chainId}:${nonExistentAccount}`;
+    const encodedDid = encodeURIComponent(didEthr);
 
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     const data = await assertErrorResponse(response, 404);
@@ -99,13 +99,13 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:pkh] (Integration
     // Test with Sepolia chain ID
     const account = TEST_AGENT_ACCOUNT;
     const chainId = TEST_CHAIN_ID;
-    const didPkh = `did:pkh:${chainId}:${account}`;
-    const encodedDid = encodeURIComponent(didPkh);
+    const didEthr = `did:ethr:${chainId}:${account}`;
+    const encodedDid = encodeURIComponent(didEthr);
 
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     
@@ -126,14 +126,14 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:pkh] (Integration
   it('should return the same owner for the same account', async () => {
     const account = TEST_AGENT_ACCOUNT;
     const chainId = TEST_CHAIN_ID;
-    const didPkh = `did:pkh:${chainId}:${account}`;
-    const encodedDid = encodeURIComponent(didPkh);
+    const didEthr = `did:ethr:${chainId}:${account}`;
+    const encodedDid = encodeURIComponent(didEthr);
 
     // First request
     const request1 = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params1 = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params1 = createMockParamsAsync({ 'did:ethr': encodedDid });
     const response1 = await GET(request1, params1);
 
     // Skip if account owner is not found
@@ -147,7 +147,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:pkh] (Integration
     const request2 = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params2 = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params2 = createMockParamsAsync({ 'did:ethr': encodedDid });
     const response2 = await GET(request2, params2);
     const data2 = await assertJsonResponse(response2, 200);
 
@@ -160,14 +160,14 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:pkh] (Integration
   it('should handle URL-encoded DID parameters', async () => {
     const account = TEST_AGENT_ACCOUNT;
     const chainId = TEST_CHAIN_ID;
-    const didPkh = `did:pkh:${chainId}:${account}`;
+    const didEthr = `did:ethr:${chainId}:${account}`;
     // Test with URL-encoded DID
-    const encodedDid = encodeURIComponent(didPkh);
+    const encodedDid = encodeURIComponent(didEthr);
 
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:pkh': encodedDid });
+    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
 
     const response = await GET(request, params);
     

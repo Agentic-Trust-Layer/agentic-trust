@@ -73,7 +73,6 @@ export async function getIdentityClient(chainId?: number): Promise<AIAgentIdenti
         identityRegistryAddress: identityRegistry as `0x${string}`,
       });
 
-      console.log('✅ IdentityClient singleton initialized');
       return identityClient;
     } catch (error) {
       console.error('❌ Failed to initialize identity client singleton:', error);

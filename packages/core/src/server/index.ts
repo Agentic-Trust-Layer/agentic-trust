@@ -109,9 +109,9 @@ export {
 
 export {
   getAccountOwner,
-  getAccountOwnerByDidPkh,
-  parsePkhDid,
-  type ParsedPkhDid,
+  getAccountOwnerByDidEthr,
+  parseEthrDid,
+  type ParsedEthrDid,
 } from './lib/accounts';
 
 export {

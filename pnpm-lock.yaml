@@ -429,6 +429,9 @@ importers:
 
   packages/veramo-agent-extension:
     dependencies:
+      '@agentic-trust/8004-ext-sdk':
+        specifier: workspace:*
+        version: link:../erc8004-agentic-trust-sdk
       '@veramo/core':
         specifier: ^6.0.0
         version: 6.0.0

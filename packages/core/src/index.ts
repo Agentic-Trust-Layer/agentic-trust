@@ -30,6 +30,13 @@ export {
   type PreparedCall,
 } from '@agentic-trust/8004-sdk';
 
+export {
+  build8004Did,
+  parse8004Did,
+  type Build8004DidOptions,
+  type Parsed8004Did,
+} from '@agentic-trust/8004-ext-sdk';
+
 // Legacy export for backward compatibility (deprecated - use ViemAccountProvider instead)
 export { ViemAdapter } from '@agentic-trust/8004-sdk';
 

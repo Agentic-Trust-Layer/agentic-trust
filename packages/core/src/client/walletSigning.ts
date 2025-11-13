@@ -382,7 +382,7 @@ export async function refreshAgentInIndexer(
   if (!chainIdStr.trim()) {
     throw new Error('Chain ID is required to refresh agent in indexer');
   }
-  const did = encodeURIComponent(`did:agent:${chainIdStr.trim()}:${agentId}`);
+  const did = encodeURIComponent(`did:8004:${chainIdStr.trim()}:${agentId}`);
   const endpoint = refreshEndpoint || `/api/agents/${did}/refresh`;
 
   try {

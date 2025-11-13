@@ -87,7 +87,7 @@ export class AACredentialIssuerEIP1271 implements IAgentPlugin {
       const parts = baseDid.split(":");
 
       if (parts.length !== 5 || parts[0] !== "did" || parts[1] !== "aa") {
-        throw new Error(`Invalid did:agent format 2: ${didUrl}`);
+        throw new Error(`Invalid did:8004 format 2: ${didUrl}`);
       }
 
       const [, method, namespace, chainId, address] = parts;

@@ -82,7 +82,7 @@ export class AgentDidProvider extends AbstractIdentifierProvider {
     // provider and did are a one to one relationship
     const agentId = this.agentId
     const chainId = this.chainId
-    const did = `did:agent:eip155:${chainId}:${agentId}`
+    const did = `did:8004:eip155:${chainId}:${agentId}`
 
     const identifier: IIdentifier = {
       did,

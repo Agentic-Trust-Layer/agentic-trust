@@ -1,5 +1,5 @@
 /**
- * Tests for /api/agents/[did:agent] route
+ * Tests for /api/agents/[did:8004] route
  * 
  * These tests use real agent data (Agent ID 724) to ensure
  * the API correctly handles actual response formats.
@@ -20,8 +20,8 @@ import {
 } from '../../__tests__/test-data';
 
 // Mock dependencies BEFORE importing the route
-vi.mock('../../_lib/agentDid', () => ({
-  parseAgentDid: vi.fn(),
+vi.mock('@agentic-trust/core', () => ({
+  parse8004Did: vi.fn(),
 }));
 
 // Mock core dependencies
@@ -40,23 +40,24 @@ vi.mock('@agentic-trust/core/server', () => ({
   })),
 }));
 
-vi.mock('@/lib/client', () => ({
+vi.mock('../../../../lib/client', () => ({
   getAdminClient: vi.fn(() => Promise.resolve({
     agents: {
-      getAgentFromGraphQL: vi.fn().mockResolvedValue(null),
+      getAgentFromDiscovery: vi.fn().mockResolvedValue(null),
+      getAgentFromDiscoveryByDid: vi.fn().mockResolvedValue(null),
       getAgent: vi.fn(),
     },
   })),
 }));
 
 // Import the route AFTER mocks are set up
-import { GET } from '../[did:agent]/route';
-import { parseAgentDid } from '../../_lib/agentDid';
+import { GET } from '../[did:8004]/route';
+import { parse8004Did } from '@agentic-trust/core';
 import { getIdentityClient } from '@agentic-trust/core/server';
 import { getIPFSStorage } from '@agentic-trust/core';
-import { getAdminClient } from '@/lib/client';
+import { getAdminClient } from '../../../../lib/client';
 
-describe('GET /api/agents/[did:agent]', () => {
+describe('GET /api/agents/[did:8004]', () => {
   beforeEach(() => {
     // Clear all mocks but preserve the mock structure
     vi.clearAllMocks();
@@ -65,31 +66,36 @@ describe('GET /api/agents/[did:agent]', () => {
     // This ensures mocks are properly configured for each test
   });
 
-  it('should return 400 for invalid agent DID', async () => {
-    const mockParseAgentDid = vi.mocked(parseAgentDid);
-    mockParseAgentDid.mockImplementation(() => {
-      throw new Error('Invalid agent DID format');
+  it('should return 400 for invalid 8004 DID', async () => {
+    const mockParse8004Did = vi.mocked(parse8004Did);
+    mockParse8004Did.mockImplementation(() => {
+      throw new Error('Invalid 8004 DID format');
     });
 
     const request = createMockRequest('http://localhost:3000/api/agents/invalid');
     // Next.js automatically decodes URL params
-    const params = createMockParamsAsync({ 'did:agent': 'invalid' });
+    const params = createMockParamsAsync({ 'did:8004': 'invalid' });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 400);
 
     expect(data).toMatchObject({
-      error: 'Invalid agent DID',
+      error: 'Invalid 8004 DID',
     });
     expect(data.message).toBeDefined();
   });
 
-  it('should return agent record for valid agent DID with real data', async () => {
+  it('should return agent record for valid 8004 DID with real data', async () => {
     // Set up mocks for this test
-    const mockParseAgentDid = vi.mocked(parseAgentDid);
-    mockParseAgentDid.mockReturnValue({
-      agentId: TEST_AGENT_ID,
+    const mockParse8004Did = vi.mocked(parse8004Did);
+    mockParse8004Did.mockReturnValue({
+      did: `did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`,
+      method: '8004',
+      namespace: undefined,
       chainId: TEST_CHAIN_ID,
+      agentId: TEST_AGENT_ID,
+      fragment: undefined,
+      encoded: encodeURIComponent(`did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`),
     });
 
     // Mock identity client to return real metadata
@@ -119,7 +125,9 @@ describe('GET /api/agents/[did:agent]', () => {
     // Mock admin client to return real GraphQL discovery data
     const mockAdminClient = {
       agents: {
-        getAgentFromGraphQL: vi.fn().mockResolvedValue(TEST_DISCOVERY_DATA),
+        getAgentFromDiscovery: vi.fn(),
+        getAgentFromDiscoveryByDid: vi.fn().mockResolvedValue(TEST_DISCOVERY_DATA),
+        getAgent: vi.fn(),
       },
     };
 
@@ -127,9 +135,9 @@ describe('GET /api/agents/[did:agent]', () => {
     mockGetAdminClient.mockResolvedValue(mockAdminClient as any);
 
     // Next.js automatically decodes URL params, so we pass the decoded DID
-    const didAgent = `did:agent:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`;
+    const didAgent = `did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`;
     const request = createMockRequest(`http://localhost:3000/api/agents/${encodeURIComponent(didAgent)}`);
-    const params = createMockParamsAsync({ 'did:agent': didAgent });
+    const params = createMockParamsAsync({ 'did:8004': didAgent });
 
     const response = await GET(request, params);
     
@@ -202,7 +210,7 @@ describe('GET /api/agents/[did:agent]', () => {
     expect(mockIPFSStorage.getJson).toHaveBeenCalledWith(TEST_TOKEN_URI);
     
     // Verify that GraphQL was called with correct parameters
-    expect(mockAdminClient.agents.getAgentFromGraphQL).toHaveBeenCalledWith(TEST_CHAIN_ID, TEST_AGENT_ID);
+    expect(mockAdminClient.agents.getAgentFromDiscoveryByDid).toHaveBeenCalledWith(didAgent);
   });
 
   it('should return 500 on internal error', async () => {
@@ -210,10 +218,15 @@ describe('GET /api/agents/[did:agent]', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const mockParseAgentDid = vi.mocked(parseAgentDid);
-      mockParseAgentDid.mockReturnValue({
-        agentId: '123',
+      const mockParse8004Did = vi.mocked(parse8004Did);
+      mockParse8004Did.mockReturnValue({
+        did: 'did:8004:11155111:123',
+        method: '8004',
+        namespace: undefined,
         chainId: 11155111,
+        agentId: '123',
+        fragment: undefined,
+        encoded: encodeURIComponent('did:8004:11155111:123'),
       });
 
       // Mock getIdentityClient to throw an error
@@ -221,9 +234,9 @@ describe('GET /api/agents/[did:agent]', () => {
       mockGetIdentityClient.mockRejectedValue(new Error('Database error'));
 
       // Next.js automatically decodes URL params
-      const didAgent = 'did:agent:11155111:123';
+      const didAgent = 'did:8004:11155111:123';
       const request = createMockRequest(`http://localhost:3000/api/agents/${encodeURIComponent(didAgent)}`);
-      const params = createMockParamsAsync({ 'did:agent': didAgent });
+      const params = createMockParamsAsync({ 'did:8004': didAgent });
 
       const response = await GET(request, params);
       const data = await assertJsonResponse(response, 500);
@@ -237,3 +250,4 @@ describe('GET /api/agents/[did:agent]', () => {
     }
   });
 });
+

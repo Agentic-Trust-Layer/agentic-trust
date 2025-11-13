@@ -51,21 +51,13 @@ const chain = sepolia
 
 import { getEthTypesFromInputDoc } from 'eip-712-types-generation'
 import { getRegistryAgent } from './IdentityRegistry.js'
-
-export type AgentDidParts = {
-    did: string;
-    method: string;
-    namespace: string;
-    chainId: string;
-    agentId: string;
-    fragment?: string;
-  };
+import { parse8004Did } from '@agentic-trust/8004-ext-sdk';
 
 // Extracts the numeric agentId from a verificationMethod object.
 // Accepts fields like:
 // - agentId: 'eip155:11155111:13'
-// - controller: 'did:agent:eip155:11155111:13'
-// - id: 'did:agent:eip155:11155111:13#agentId'
+// - controller: 'did:8004:eip155:11155111:13'
+// - id: 'did:8004:eip155:11155111:13#agentId'
 function getVerMethodAgentId(verificationMethod: any): string | undefined {
   try {
     const vm = verificationMethod || {}
@@ -84,7 +76,7 @@ function getVerMethodAgentId(verificationMethod: any): string | undefined {
         return undefined
       }
       const parts = base.split(':')
-      if (parts.length >= 5 && parts[0] === 'did' && parts[1] === 'agent') {
+      if (parts.length >= 5 && parts[0] === 'did' && parts[1] === '8004') {
         return parts[parts.length - 1]
       }
     }
@@ -106,37 +98,6 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
     }
 
   }
-
-
-
-
-  parseAgentDid(didUrl: string): AgentDidParts {
-      const [baseDid, fragment] = didUrl.split("#");
-      if (!baseDid) {
-        throw new Error(`Invalid DID format: ${didUrl}`);
-      }
-      const parts = baseDid.split(":");
-
-      if (parts.length !== 5 || parts[0] !== "did" || parts[1] !== "agent") {
-        throw new Error(`Invalid did:agent format: ${didUrl}`);
-      }
-
-      const [, method, namespace, chainId, agentId] = parts;
-
-      if (!method || !namespace || !chainId || !agentId) {
-        throw new Error(`Invalid DID parts: ${didUrl}`);
-      }
-
-      return {
-        did: baseDid,
-        method,
-        namespace,
-        chainId,
-        agentId,
-        fragment,
-      };
-    }
-
 
 
   async createVerifiableCredentialEIP1271(
@@ -164,11 +125,11 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
     console.info("Creating Verifiable Credential EIP1271 with issuer:", issuer)
     const identifier = await context.agent.didManagerGet({ did: issuer.id })
 
-    const agentDidParts = this.parseAgentDid(identifier.did);
+    const did8004 = parse8004Did(identifier.did);
 
     let chainId
     try {
-      chainId = agentDidParts.chainId
+      chainId = did8004.chainId
     } catch (e) {
       chainId = 11155111
     }
@@ -265,11 +226,11 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
 
     console.info("identifier: ", identifier)
 
-    const agentDidParts = this.parseAgentDid(identifier.did);
+    const did8004 = parse8004Did(identifier.did);
 
     let chainId
     try {
-      chainId = agentDidParts.chainId
+      chainId = did8004.chainId
     } catch (e) {
       chainId = 11155111
     }
@@ -277,7 +238,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
 
 
     presentation['proof'] = {
-      verificationMethod: agentDidParts.agentId + "#agentId",
+      verificationMethod: did8004.agentId + "#agentId",
       created: issuanceDate,
       proofPurpose: 'assertionMethod',
       type: 'EthereumEip712Signature2021',
@@ -367,7 +328,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
     const did = (credential.issuer as any).id
     console.info(">>>>>>>>>>>> credential issuer did: ", did)
     
-    const agentId = this.parseAgentDid(did as `${string}`).agentId;
+    const agentId = parse8004Did(did as `${string}`).agentId;
     console.info("agentId used to validate signature: ", agentId)
 
     // Resolve smart account address from ERC-8004 Identity Registry using agentId
@@ -463,7 +424,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
 
 
 
-    const agentId = this.parseAgentDid(presentation.holder).agentId;
+    const agentId = parse8004Did(presentation.holder).agentId;
 
         // Resolve smart account address from ERC-8004 Identity Registry using agentId
     const registryAddress = "0xD3Ef59f3Bbc1d766E3Ba463Be134B5eB29e907A0"

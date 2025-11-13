@@ -1,21 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import { parseAgentDid } from '../../_lib/agentDid';
+import { parse8004Did } from '@agentic-trust/core';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { 'did:agent': string } }
+  { params }: { params: { 'did:8004': string } }
 ) {
   try {
+    const agentDid = params['did:8004'];
     let parsed;
     try {
-      parsed = parseAgentDid(params['did:agent']);
+      parsed = parse8004Did(agentDid);
     } catch (parseError) {
       const message =
-        parseError instanceof Error ? parseError.message : 'Invalid agent DID';
+        parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
       return NextResponse.json(
-        { error: 'Invalid agent DID', message },
-        { status: 400 }
+        { error: 'Invalid 8004 DID', message },
+        { status: 400 },
       );
     }
 
@@ -26,15 +27,28 @@ export async function PUT(
     if (tokenURI === undefined && (!metadata || metadata.length === 0)) {
       return NextResponse.json(
         { error: 'At least one update field is required: tokenURI or metadata' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const client = await getAdminClient();
 
     // Update agent using admin API
-    const result = await client.agents.admin.updateAgent({
-      agentId: parsed.agentId,
+    const adminAgents = client.agents.admin as any;
+    const updateFn =
+      typeof adminAgents.updateAgentByDid === 'function'
+        ? adminAgents.updateAgentByDid.bind(adminAgents)
+        : (async (did: string, options: { chainId: number; tokenURI?: string; metadata?: Array<{ key: string; value: string }> }) => {
+            const parsedDid = parse8004Did(did);
+            return client.agents.admin.updateAgent({
+              agentId: parsedDid.agentId,
+              chainId: options.chainId,
+              tokenURI: options.tokenURI,
+              metadata: options.metadata,
+            });
+          });
+
+    const result = await updateFn(agentDid, {
       chainId: parsed.chainId,
       tokenURI,
       metadata,
@@ -54,7 +68,7 @@ export async function PUT(
         message: errorMessage,
         details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

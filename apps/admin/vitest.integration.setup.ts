@@ -83,8 +83,6 @@ beforeAll(() => {
   if (shouldSkipIntegrationTests()) {
     console.log('⏭️  Skipping integration tests');
   } else {
-    console.log('✅ Running integration tests with real backends');
-    console.log('✅ Environment variables loaded from .env file');
     // Log which env vars are loaded (without showing values for security)
     const loadedVars = Object.keys(REQUIRED_ENV_VARS).filter(
       (key) => REQUIRED_ENV_VARS[key as keyof typeof REQUIRED_ENV_VARS]

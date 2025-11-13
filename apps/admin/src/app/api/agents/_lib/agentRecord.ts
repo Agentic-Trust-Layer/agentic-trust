@@ -1,6 +1,7 @@
 import { getIPFSStorage } from '@agentic-trust/core';
 import { getIdentityClient } from '@agentic-trust/core/server';
 import { getAdminClient } from '@/lib/client';
+import { parse8004Did } from '@agentic-trust/core';
 
 const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
 
@@ -22,24 +23,42 @@ export interface AgentRecordPayload {
 }
 
 export async function buildAgentRecord(
-  agentIdInput: string | bigint,
+  agentIdentifier: string | bigint,
   chainId: number = DEFAULT_CHAIN_ID,
 ): Promise<AgentRecordPayload> {
-  const agentIdBigInt =
-    typeof agentIdInput === 'bigint'
-      ? agentIdInput
-      : (() => {
-          try {
-            return BigInt(agentIdInput);
-          } catch (error) {
-            throw new Error(`Invalid agentId: ${agentIdInput}`);
-          }
-        })();
+  const isDid = typeof agentIdentifier === 'string' && agentIdentifier.trim().startsWith('did:8004:');
+  let resolvedChainId = chainId;
+  let agentId: string;
+  let agentIdBigInt: bigint;
+  let did8004: string | undefined;
 
-  const agentId = agentIdBigInt.toString();
+  if (isDid) {
+    did8004 = decodeURIComponent((agentIdentifier as string).trim());
+    const parsed = parse8004Did(did8004);
+    resolvedChainId = parsed.chainId;
+    agentId = parsed.agentId;
+    try {
+      agentIdBigInt = BigInt(agentId);
+    } catch (error) {
+      throw new Error(`Invalid agentId in did:8004 identifier: ${did8004}`);
+    }
+  } else {
+    const agentIdInput = agentIdentifier;
+    agentIdBigInt =
+      typeof agentIdInput === 'bigint'
+        ? agentIdInput
+        : (() => {
+            try {
+              return BigInt(agentIdInput);
+            } catch (error) {
+              throw new Error(`Invalid agentId: ${agentIdInput}`);
+            }
+          })();
+    agentId = agentIdBigInt.toString();
+  }
 
   const client = await getAdminClient();
-  const identityClient = await getIdentityClient(chainId);
+  const identityClient = await getIdentityClient(resolvedChainId);
 
   const tokenURI = await identityClient.getTokenURI(agentIdBigInt);
 
@@ -81,10 +100,19 @@ export async function buildAgentRecord(
 
   let discovery: Record<string, unknown> | null = null;
   try {
-    discovery = (await client.agents.getAgentFromGraphQL(
-      chainId,
-      agentId,
-    )) as unknown as Record<string, unknown> | null;
+    const agentsApi = client.agents as any;
+    if (did8004 && typeof agentsApi.getAgentFromDiscoveryByDid === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscoveryByDid(
+        did8004,
+      )) as unknown as Record<string, unknown> | null;
+    } else if (typeof agentsApi.getAgentFromDiscovery === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscovery(
+        resolvedChainId,
+        agentId,
+      )) as unknown as Record<string, unknown> | null;
+    } else {
+      discovery = null;
+    }
   } catch (error) {
     console.warn('Failed to get GraphQL agent data:', error);
     discovery = null;
@@ -136,7 +164,7 @@ export async function buildAgentRecord(
   return {
     success: true,
     agentId,
-    chainId,
+    chainId: resolvedChainId,
     identityMetadata,
     identityRegistration,
     discovery,

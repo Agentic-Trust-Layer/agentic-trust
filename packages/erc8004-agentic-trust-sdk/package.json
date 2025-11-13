@@ -11,6 +11,10 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
+    "./utils/erc8004Did": {
+      "import": "./dist/utils/erc8004Did.js",
+      "types": "./dist/utils/erc8004Did.d.ts"
+    },
     "./package.json": "./package.json",
     "./abis/*.json": {
       "import": "./abis/*.json",

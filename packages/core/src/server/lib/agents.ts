@@ -1,3 +1,5 @@
+import { parse8004Did } from '@agentic-trust/8004-ext-sdk';
+
 async function getAccountNonce(accountClient: any): Promise<bigint | undefined> {
   if (typeof accountClient?.getNonce === 'function') {
     try {
@@ -45,6 +47,7 @@ async function sendUserOpWithTimeout(params: {
     ),
   ]);
 }
+
 /**
  * Agents API for AgenticTrust Client
  */
@@ -194,17 +197,27 @@ export class AgentsAPI {
     return new Agent(agentData, this.client);
   }
 
+  async getAgentByDid(erc8004Did: string): Promise<Agent | null> {
+    const { agentId, chainId } = parse8004Did(erc8004Did);
+    return this.getAgent(agentId, chainId);
+  }
+
   /**
-   * Get raw agent data from GraphQL (for internal use)
-   * Returns the raw AgentData from the GraphQL indexer
+   * Get raw agent data from discovery (for internal use)
+   * Returns the raw AgentData from the discovery indexer
    */
-  async getAgentFromGraphQL(chainId: number, agentId: string): Promise<AgentData | null> {
+  async getAgentFromDiscovery(chainId: number, agentId: string): Promise<AgentData | null> {
     const discoveryClient = await getDiscoveryClient();
     try {
     return await discoveryClient.getAgent(chainId, agentId);
     } catch (error) {
-      rethrowDiscoveryError(error, 'agents.getAgentFromGraphQL');
+      rethrowDiscoveryError(error, 'agents.getAgentFromDiscovery');
     }
+  }
+
+  async getAgentFromDiscoveryByDid(erc8004Did: string): Promise<AgentData | null> {
+    const { agentId, chainId } = parse8004Did(erc8004Did);
+    return this.getAgentFromDiscovery(chainId, agentId);
   }
 
   /**
@@ -220,6 +233,11 @@ export class AgentsAPI {
     } catch (error) {
       rethrowDiscoveryError(error, 'agents.refreshAgent');
     }
+  }
+
+  async refreshAgentByDid(agentDid: string): Promise<any> {
+    const { agentId, chainId } = parse8004Did(agentDid);
+    return this.refreshAgent(agentId, chainId);
   }
 
   /**
@@ -1376,6 +1394,23 @@ export class AgentsAPI {
       return { txHash: lastResult.txHash };
     },
 
+    updateAgentByDid: async (
+      agentDid: string,
+      params: {
+        tokenURI?: string;
+        metadata?: Array<{ key: string; value: string }>;
+        chainId?: number;
+      } = {},
+    ): Promise<{ txHash: string }> => {
+      const { agentId, chainId } = parse8004Did(agentDid);
+      return this.admin.updateAgent({
+        agentId,
+        chainId: params.chainId ?? chainId,
+        tokenURI: params.tokenURI,
+        metadata: params.metadata,
+      });
+    },
+
     /**
      * Delete an agent by transferring it to the zero address (burn)
      * Note: This requires the contract to support transfers to address(0)
@@ -1418,6 +1453,17 @@ export class AgentsAPI {
       return { txHash: result.hash };
     },
 
+    deleteAgentByDid: async (
+      agentDid: string,
+      options: { chainId?: number } = {},
+    ): Promise<{ txHash: string }> => {
+      const { agentId, chainId } = parse8004Did(agentDid);
+      return this.admin.deleteAgent({
+        agentId,
+        chainId: options.chainId ?? chainId,
+      });
+    },
+
     /**
      * Transfer an agent to a new owner
      * @param agentId - The agent ID to transfer
@@ -1458,6 +1504,18 @@ export class AgentsAPI {
       });
 
       return { txHash: result.hash };
+    },
+
+    transferAgentByDid: async (
+      agentDid: string,
+      params: { to: `0x${string}`; chainId?: number },
+    ): Promise<{ txHash: string }> => {
+      const { agentId, chainId } = parse8004Did(agentDid);
+      return this.admin.transferAgent({
+        agentId,
+        chainId: params.chainId ?? chainId,
+        to: params.to,
+      });
     },
   };
 }

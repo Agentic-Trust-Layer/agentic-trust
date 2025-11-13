@@ -1,28 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAccountOwnerByDidPkh, parsePkhDid } from '@agentic-trust/core/server';
+import { getAccountOwnerByDidEthr, parseEthrDid } from '@agentic-trust/core/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ 'did:pkh': string }> }
+  { params }: { params: Promise<{ 'did:ethr': string }> }
 ) {
   try {
-    const didPkh = (await params)['did:pkh'];
+    const didEthr = (await params)['did:ethr'];
     
     let parsed;
     try {
-      parsed = parsePkhDid(didPkh);
+      parsed = parseEthrDid(didEthr);
     } catch (parseError) {
       const message =
-        parseError instanceof Error ? parseError.message : 'Invalid PKH DID';
+        parseError instanceof Error ? parseError.message : 'Invalid ETHR DID';
       return NextResponse.json(
-        { error: 'Invalid PKH DID', message },
-        { status: 400 }
+        { error: 'Invalid ETHR DID', message },
+        { status: 400 },
       );
     }
 
     const { account, chainId } = parsed;
 
-    const owner = await getAccountOwnerByDidPkh(didPkh);
+    const owner = await getAccountOwnerByDidEthr(didEthr);
 
     if (owner === null) {
       return NextResponse.json(
@@ -32,7 +32,7 @@ export async function GET(
           account,
           chainId,
         },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -48,7 +48,7 @@ export async function GET(
         error: 'Failed to get account owner',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

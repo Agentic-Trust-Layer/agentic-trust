@@ -1,21 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import { parseAgentDid } from '../../_lib/agentDid';
+import { build8004Did, parse8004Did } from '@agentic-trust/core';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { 'did:agent': string } }
+  { params }: { params: { 'did:8004': string } }
 ) {
   try {
     let parsed;
+    const didParam = params['did:8004'];
     try {
-      parsed = parseAgentDid(params['did:agent']);
+      parsed = parse8004Did(didParam);
     } catch (parseError) {
       const message =
-        parseError instanceof Error ? parseError.message : 'Invalid agent DID';
+        parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
       return NextResponse.json(
-        { error: 'Invalid agent DID', message },
-        { status: 400 }
+        { error: 'Invalid 8004 DID', message },
+        { status: 400 },
       );
     }
 
@@ -34,7 +35,19 @@ export async function POST(
     const chainIdToUse = chainIdOverride ?? parsed.chainId;
 
     const client = await getAdminClient();
-    const result = await client.agents.refreshAgent(parsed.agentId, chainIdToUse);
+    const effectiveDid =
+      chainIdToUse === parsed.chainId
+        ? didParam
+        : build8004Did(chainIdToUse, parsed.agentId);
+    const refreshFn =
+      typeof (client.agents as any).refreshAgentByDid === 'function'
+        ? (client.agents as any).refreshAgentByDid.bind(client.agents)
+        : async (did: string) => {
+            const { agentId, chainId } = parse8004Did(did);
+            return client.agents.refreshAgent(agentId, chainId);
+          };
+
+    const result = await refreshFn(effectiveDid);
 
     return NextResponse.json({
       success: true,
@@ -50,7 +63,7 @@ export async function POST(
         message: errorMessage,
         details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

@@ -39,6 +39,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@agentic-trust/8004-ext-sdk": "workspace:*",
     "@veramo/core": "^6.0.0",
     "@veramo/core-types": "^6.0.0",
     "@veramo/did-manager": "^6.0.0",

@@ -18,7 +18,12 @@
     "incremental": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": {
+      "@agentic-trust/8004-ext-sdk": ["packages/erc8004-agentic-trust-sdk/src/index.ts"],
+      "@agentic-trust/8004-ext-sdk/*": ["packages/erc8004-agentic-trust-sdk/src/*"]
+    }
   },
   "exclude": ["node_modules", "dist", "build", ".turbo"]
 }

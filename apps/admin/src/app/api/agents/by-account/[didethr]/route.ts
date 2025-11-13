@@ -6,16 +6,16 @@ import { buildAgentRecord, DEFAULT_CHAIN_ID } from '../../_lib/agentRecord';
 
 export const dynamic = 'force-dynamic';
 
-type Params = { 'did:pkh': string };
+type Params = { 'did:ethr': string };
 
-function parseDidPkh(raw: string): { chainId: number; account: `0x${string}` } {
+function parseDidEthr(raw: string): { chainId: number; account: `0x${string}` } {
   const decoded = decodeURIComponent(raw || '').trim();
   if (!decoded) {
     throw new Error('Missing DID parameter');
   }
 
-  if (!decoded.startsWith('did:pkh:')) {
-    throw new Error('Unsupported DID format. Expected did:pkh:...');
+  if (!decoded.startsWith('did:ethr:')) {
+    throw new Error('Unsupported DID format. Expected did:ethr:...');
   }
 
   const segments = decoded.split(':');
@@ -51,8 +51,8 @@ export async function GET(
   { params }: { params: Params },
 ) {
   try {
-    const rawParam = params['did:pkh'];
-    const { chainId: initialChainId, account } = parseDidPkh(rawParam);
+    const rawParam = params['did:ethr'];
+    const { chainId: initialChainId, account } = parseDidEthr(rawParam);
 
     let chainId = initialChainId;
     let agentId: string | null = null;
@@ -125,7 +125,7 @@ export async function GET(
         {
           error: 'Agent not found for account',
           account,
-          did: decodeURIComponent(params['did:pkh']),
+          did: decodeURIComponent(params['did:ethr']),
         },
         { status: 404 },
       );
@@ -145,5 +145,4 @@ export async function GET(
     );
   }
 }
-
 

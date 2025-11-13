@@ -1,21 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import { parseAgentDid } from '../../_lib/agentDid';
+import { parse8004Did } from '@agentic-trust/core';
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { 'did:agent': string } }
+  { params }: { params: { 'did:8004': string } }
 ) {
   try {
+    const agentDid = params['did:8004'];
     let parsed;
     try {
-      parsed = parseAgentDid(params['did:agent']);
+      parsed = parse8004Did(agentDid);
     } catch (parseError) {
       const message =
-        parseError instanceof Error ? parseError.message : 'Invalid agent DID';
+        parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
       return NextResponse.json(
-        { error: 'Invalid agent DID', message },
-        { status: 400 }
+        { error: 'Invalid 8004 DID', message },
+        { status: 400 },
       );
     }
 
@@ -25,7 +26,7 @@ export async function POST(
     if (!to) {
       return NextResponse.json(
         { error: 'Missing required field: to (recipient address)' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -33,15 +34,27 @@ export async function POST(
     if (!/^0x[a-fA-F0-9]{40}$/.test(to)) {
       return NextResponse.json(
         { error: 'Invalid recipient address format. Must be a valid Ethereum address (0x...)' },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     const client = await getAdminClient();
 
     // Transfer agent using admin API
-    const result = await client.agents.admin.transferAgent({
-      agentId: parsed.agentId,
+    const adminAgents = client.agents.admin as any;
+    const transferFn =
+      typeof adminAgents.transferAgentByDid === 'function'
+        ? adminAgents.transferAgentByDid.bind(adminAgents)
+        : async (agentDidParam: string, opts: { to: `0x${string}`; chainId: number }) => {
+            const parsedDid = parse8004Did(agentDidParam);
+            return client.agents.admin.transferAgent({
+              agentId: parsedDid.agentId,
+              chainId: opts.chainId,
+              to: opts.to,
+            });
+          };
+
+    const result = await transferFn(agentDid, {
       chainId: parsed.chainId,
       to: to as `0x${string}`,
     });
@@ -60,7 +73,7 @@ export async function POST(
         message: errorMessage,
         details: process.env.NODE_ENV === 'development' ? errorStack : undefined,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

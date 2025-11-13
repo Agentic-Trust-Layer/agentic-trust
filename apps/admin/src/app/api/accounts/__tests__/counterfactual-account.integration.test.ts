@@ -87,10 +87,6 @@ async function ensureAdminAppInitialized(): Promise<void> {
     }
   }
 
-  console.log('✅ AdminApp confirmed for tests');
-  console.log(`   Address: ${adminApp.address}`);
-  console.log(`   Has account: ${!!adminApp.account}`);
-  console.log(`   Has walletClient: ${!!adminApp.walletClient}`);
 }
 
 // Check if private key is available (required for these tests)

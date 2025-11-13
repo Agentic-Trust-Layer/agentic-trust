@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { type AgentCard, type AgentSkill, type MessageRequest } from '@agentic-trust/core';
-import { buildAgentDid } from '@/lib/agentDid';
+import { build8004Did } from '@agentic-trust/core';
 
 // Plain agent data type from API (not Agent instances)
 type AgentData = {
@@ -138,7 +138,7 @@ export default function Home() {
         typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
           ? agent.chainId
           : DEFAULT_CHAIN_ID;
-      const agentDid = buildAgentDid(agentChainId, agent.agentId);
+      const agentDid = build8004Did(agentChainId, agent.agentId);
       
       // Fetch agent card via server-side API
       const response = await fetch(`/api/agents/${agentDid}/card`);
@@ -254,7 +254,7 @@ export default function Home() {
         typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
           ? selectedAgent.chainId
           : DEFAULT_CHAIN_ID;
-      const agentDid = buildAgentDid(agentChainId, selectedAgent.agentId);
+      const agentDid = build8004Did(agentChainId, selectedAgent.agentId);
 
       // Send message via server-side API
       const response = await fetch(`/api/agents/${agentDid}/send`, {
@@ -514,7 +514,7 @@ export default function Home() {
                       typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
                         ? selectedAgent.chainId
                         : DEFAULT_CHAIN_ID;
-                    const agentDid = buildAgentDid(verifyChainId, selectedAgent.agentId);
+                    const agentDid = build8004Did(verifyChainId, selectedAgent.agentId);
                     const response = await fetch(`/api/agents/${agentDid}/verify`, {
                       method: 'POST',
                     });
