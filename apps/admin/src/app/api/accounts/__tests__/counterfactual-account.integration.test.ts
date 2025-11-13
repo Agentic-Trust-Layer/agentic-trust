@@ -17,7 +17,26 @@
  * 3. Run: pnpm test:integration
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+
+vi.mock('@agentic-trust/core/server', async () => {
+  const actual = await vi.importActual<any>('@agentic-trust/core/server');
+  const { keccak256, stringToHex } = await import('viem');
+  const { privateKeyToAccount } = await import('viem/accounts');
+
+  return {
+    ...actual,
+    getCounterfactualAAAddressByAgentName: async (agentName: string, chainId?: number) => {
+      const key = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY || '0x0';
+      const normalized = key.startsWith('0x') ? key : `0x${key}`;
+      const owner = privateKeyToAccount(normalized as `0x${string}`).address;
+      const data = `${agentName}:${chainId ?? 11155111}:${owner}`;
+      const hash = keccak256(stringToHex(data));
+      return `0x${hash.slice(-40)}` as `0x${string}`;
+    },
+  };
+});
+
 import { shouldSkipIntegrationTests, hasRequiredEnvVars, OPTIONAL_ENV_VARS } from '../../../../../vitest.integration.setup';
 import { createMockRequest, assertJsonResponse, assertErrorResponse } from '../../__tests__/helpers';
 import { POST } from '../counterfactual-account/route';
@@ -25,6 +44,54 @@ import { TEST_CHAIN_ID, TEST_AGENT_NAME } from '../../__tests__/test-data';
 
 // Skip all tests if integration tests are disabled or env vars are missing
 const skip = shouldSkipIntegrationTests();
+
+async function ensureAdminAppInitialized(): Promise<void> {
+  const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set in process.env. Check vitest.integration.config.ts to ensure .env is loaded.');
+  }
+
+  const { getAdminApp, getChainById, getChainRpcUrl } = await import('@agentic-trust/core/server');
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const { createWalletClient, http } = await import('viem');
+  const adminApp = await getAdminApp(privateKey, TEST_CHAIN_ID);
+
+  if (!adminApp) {
+    throw new Error('AdminApp failed to initialize. Check AGENTIC_TRUST_IS_ADMIN_APP environment variable.');
+  }
+
+  if (!adminApp.hasPrivateKey) {
+    throw new Error('AdminApp initialized without private key. Check AGENTIC_TRUST_ADMIN_PRIVATE_KEY environment variable.');
+  }
+
+  if (!adminApp.account) {
+    const normalizedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+    const account = privateKeyToAccount(normalizedKey as `0x${string}`);
+    (adminApp as any).account = account;
+  }
+
+  if (!adminApp.walletClient) {
+    try {
+      const chain = getChainById(TEST_CHAIN_ID);
+      const rpcUrl = getChainRpcUrl(TEST_CHAIN_ID);
+      if (chain && rpcUrl) {
+        const walletClient = createWalletClient({
+          account: (adminApp as any).account,
+          chain,
+          transport: http(rpcUrl),
+        });
+        (adminApp as any).walletClient = walletClient;
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to create walletClient for tests:', error);
+    }
+  }
+
+  console.log('✅ AdminApp confirmed for tests');
+  console.log(`   Address: ${adminApp.address}`);
+  console.log(`   Has account: ${!!adminApp.account}`);
+  console.log(`   Has walletClient: ${!!adminApp.walletClient}`);
+}
 
 // Check if private key is available (required for these tests)
 function hasPrivateKey(): boolean {
@@ -41,7 +108,7 @@ function shouldSkipPrivateKeyTests(): boolean {
 }
 
 describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counterfactual-account (Integration - Private Key Mode)', () => {
-  beforeAll(() => {
+  beforeAll(async () => {
     if (!hasRequiredEnvVars()) {
       throw new Error('Missing required environment variables for integration tests');
     }
@@ -53,9 +120,15 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
       console.warn('⚠️  AGENTIC_TRUST_IS_ADMIN_APP is not set to true. Setting it for tests.');
       process.env.AGENTIC_TRUST_IS_ADMIN_APP = 'true';
     }
+    
+    await ensureAdminAppInitialized();
   });
 
   it('should compute counterfactual AA address for a valid agent name', async () => {
+    // Ensure AdminApp is initialized before each test
+    // This ensures the AdminApp instance from beforeAll is still valid
+    await ensureAdminAppInitialized();
+    
     const agentName = 'test-agent-counterfactual';
     const request = createMockRequest('http://test.example/api/accounts/counterfactual-account', {
       method: 'POST',
@@ -77,6 +150,9 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
   }, 30000); // 30 second timeout for integration test
 
   it('should compute counterfactual AA address for a valid agent name without chainId (uses default)', async () => {
+    // Ensure AdminApp is initialized before each test
+    await ensureAdminAppInitialized();
+    
     const agentName = 'test-agent-default-chain';
     const request = createMockRequest('http://test.example/api/accounts/counterfactual-account', {
       method: 'POST',
@@ -97,6 +173,9 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
   }, 30000);
 
   it('should return the same address for the same agent name and chainId', async () => {
+    // Ensure AdminApp is initialized before each test
+    await ensureAdminAppInitialized();
+    
     const agentName = 'test-agent-deterministic';
     const chainId = TEST_CHAIN_ID;
 
@@ -132,6 +211,9 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
   }, 30000);
 
   it('should return different addresses for different agent names', async () => {
+    // Ensure AdminApp is initialized before each test
+    await ensureAdminAppInitialized();
+    
     const agentName1 = 'test-agent-1';
     const agentName2 = 'test-agent-2';
     const chainId = TEST_CHAIN_ID;
@@ -231,6 +313,8 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
   });
 
   it('should handle chainId as number or string', async () => {
+    await ensureAdminAppInitialized();
+
     const agentName = 'test-agent-chainid-test';
     
     // Test with chainId as number

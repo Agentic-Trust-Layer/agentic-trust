@@ -344,6 +344,7 @@ export async function getCounterfactualAAAddressByAgentName(
   // Create signatory object - must have either walletClient or account
   // toMetaMaskSmartAccount expects signatory to have either walletClient or account, not both
   // Prefer walletClient over account if both are available
+  // Important: Both walletClient and account can be truthy but we only want one in the signatory
   const signatory: { walletClient?: any; account?: any } = adminApp.walletClient
     ? { walletClient: adminApp.walletClient as any }
     : { account: adminApp.account! }; // Non-null assertion is safe because we check above
