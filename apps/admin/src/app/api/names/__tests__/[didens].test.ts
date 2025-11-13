@@ -8,12 +8,16 @@ import { createMockRequest, createMockParamsAsync, assertJsonResponse, assertErr
 // Mock dependencies BEFORE importing the route
 vi.mock('@agentic-trust/core/server', () => ({
   isENSNameAvailable: vi.fn(),
+}));
+
+vi.mock('../_lib/ensDid', () => ({
   parseEnsDid: vi.fn(),
 }));
 
 // Import the route AFTER mocks are set up
 import { GET } from '../[did:ens]/route';
-import { isENSNameAvailable, parseEnsDid } from '@agentic-trust/core/server';
+import { isENSNameAvailable } from '@agentic-trust/core/server';
+import { parseEnsDid } from '../_lib/ensDid';
 
 describe('GET /api/names/[did:ens]', () => {
   beforeEach(() => {
@@ -36,6 +40,25 @@ describe('GET /api/names/[did:ens]', () => {
       error: 'Invalid ENS DID',
     });
     expect(data.message).toBeDefined();
+  });
+
+  it('should return 400 for ENS DID without .eth suffix', async () => {
+    const mockParseEnsDid = vi.mocked(parseEnsDid);
+    mockParseEnsDid.mockImplementation(() => {
+      throw new Error('Invalid ENS name in ENS DID: did:ens:11155111:test-agent.8004-agent. ENS name must end with .eth');
+    });
+
+    const invalidDid = encodeURIComponent('did:ens:11155111:test-agent.8004-agent');
+    const request = createMockRequest(`http://localhost:3000/api/names/${invalidDid}`);
+    const params = createMockParamsAsync({ 'did:ens': invalidDid });
+
+    const response = await GET(request, params);
+    const data = await assertErrorResponse(response, 400);
+
+    expect(data).toMatchObject({
+      error: 'Invalid ENS DID',
+    });
+    expect(data.message).toContain('must end with .eth');
   });
 
   it('should return available: true when ENS name is available', async () => {

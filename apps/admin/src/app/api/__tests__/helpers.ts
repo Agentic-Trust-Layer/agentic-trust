@@ -52,7 +52,7 @@ export function createMockRequest(
     }
   }
 
-  const requestInit: RequestInit = {
+  const requestInit: Omit<RequestInit, 'signal'> & { signal?: AbortSignal } = {
     method,
     headers: headerObj,
   };

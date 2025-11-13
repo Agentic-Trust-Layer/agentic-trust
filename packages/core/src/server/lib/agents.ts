@@ -853,6 +853,8 @@ export class AgentsAPI {
       (typeof options?.query === 'string' && options.query.trim().length > 0) ||
       (options?.params && Object.keys(options.params).length > 0);
 
+    // Only use advanced search if we have filters and pageSize is set
+    // If it fails or returns null, return empty results (no fallback)
     if (
       pageSize &&
       hasRemoteFilters &&
@@ -871,6 +873,8 @@ export class AgentsAPI {
         });
 
         if (advanced && Array.isArray(advanced.agents)) {
+          // Use results directly from advanced search - no local filtering
+          // Rely solely on the GraphQL endpoint for filtering
           const total =
             typeof advanced.total === 'number' && advanced.total >= 0
               ? advanced.total
@@ -891,29 +895,57 @@ export class AgentsAPI {
         }
       } catch (error) {
         console.warn(
-          '[AgentsAPI.searchAgents] Advanced search failed, falling back to discovery listAgents.',
+          '[AgentsAPI.searchAgents] Advanced search failed, returning empty results.',
           error,
         );
       }
-    }
-
-    let allAgents: AgentData[];
-    try {
-      allAgents = await discoveryClient.listAgents();
-    } catch (error) {
-      rethrowDiscoveryError(error, 'agents.searchAgents');
-    }
-
-    if (!pageSize) {
-      const derivedOptions: DiscoverAgentsOptions = {
-        ...(options ?? {}),
-        page: options?.page ?? 1,
-        pageSize: options?.pageSize ?? 10,
+      
+      // If advanced search fails or returns null, return empty results (no fallback)
+      return {
+        agents: [],
+        total: 0,
+        page: requestedPage,
+        pageSize,
+        totalPages: 0,
       };
-      return this.applySearchAndPagination(allAgents, derivedOptions);
     }
 
-    return this.applySearchAndPagination(allAgents, options);
+    // If no filters, use listAgents to get default list from GraphQL endpoint
+    // Default to 50 agents if no pageSize specified
+    const defaultPageSize = pageSize ?? 50;
+    const offset = (Math.max(requestedPage, 1) - 1) * defaultPageSize;
+    
+    try {
+      const allAgents = await discoveryClient.listAgents(defaultPageSize, offset);
+      
+      // For listAgents, we don't know the total, so we estimate based on returned results
+      // If we got a full page, there might be more; if less, we're at the end
+      const hasMore = allAgents.length === defaultPageSize;
+      const estimatedTotal = hasMore ? allAgents.length + offset + 1 : allAgents.length + offset;
+      const totalPages = Math.max(1, Math.ceil(estimatedTotal / defaultPageSize));
+      
+      const agentInstances = allAgents.map((data: AgentData) => new Agent(data, this.client));
+      
+      return {
+        agents: agentInstances,
+        total: estimatedTotal,
+        page: requestedPage,
+        pageSize: defaultPageSize,
+        totalPages,
+      };
+    } catch (error) {
+      console.warn(
+        '[AgentsAPI.searchAgents] listAgents failed, returning empty results.',
+        error,
+      );
+      return {
+        agents: [],
+        total: 0,
+        page: requestedPage ?? 1,
+        pageSize: defaultPageSize,
+        totalPages: 0,
+      };
+    }
   }
 
   private applySearchAndPagination(
@@ -952,7 +984,7 @@ export class AgentsAPI {
         const haystack = [
           typeof data.agentId === 'number' ? data.agentId.toString() : data.agentId,
           data.agentName,
-          data.agentAddress,
+          data.agentAccount,
           data.agentOwner,
           data.description,
           data.type,
@@ -1043,7 +1075,8 @@ export class AgentsAPI {
     }
 
     if (params.walletAddress) {
-      const wallet = agent.agentAddress?.toLowerCase();
+      const accountValue = agent.agentAccount;
+      const wallet = typeof accountValue === 'string' ? accountValue.toLowerCase() : undefined;
       if (!wallet || wallet !== params.walletAddress.toLowerCase()) {
         return false;
       }

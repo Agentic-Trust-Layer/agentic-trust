@@ -68,5 +68,18 @@ describe.skipIf(skip)('GET /api/names/[did:ens] (Integration)', () => {
     expect(data).toHaveProperty('error', 'Invalid ENS DID');
     expect(data).toHaveProperty('message');
   });
+
+  it('should return 400 for ENS DID without .eth suffix', async () => {
+    // Try to use an ENS name without .eth suffix - should be rejected
+    const invalidDid = encodeURIComponent('did:ens:11155111:test-agent.8004-agent');
+    const request = createMockRequest(`http://test.example/api/names/${invalidDid}`);
+    const params = createMockParamsAsync({ 'did:ens': invalidDid });
+
+    const response = await GET(request, params);
+    const data = await assertJsonResponse(response, 400);
+
+    expect(data).toHaveProperty('error', 'Invalid ENS DID');
+    expect(data.message).toContain('must end with .eth');
+  });
 });
 

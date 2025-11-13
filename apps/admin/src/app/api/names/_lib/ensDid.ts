@@ -32,6 +32,11 @@ export function parseEnsDid(raw: string | undefined | null): ParsedEnsDid {
     throw new Error(`Invalid ENS name in ENS DID: ${decoded}`);
   }
 
+  // Validate that ENS name ends with .eth
+  if (!ensNamePart.toLowerCase().endsWith('.eth')) {
+    throw new Error(`Invalid ENS name in ENS DID: ${decoded}. ENS name must end with .eth`);
+  }
+
   return {
     chainId,
     ensName: ensNamePart,
@@ -56,6 +61,12 @@ export function buildEnsDid(chainId: number | string, ensName: string): string {
   const chainIdNum = Number.parseInt(normalizedChainId, 10);
   if (!Number.isFinite(chainIdNum) || chainIdNum <= 0) {
     throw new Error(`Invalid chain ID: ${normalizedChainId}`);
+  }
+
+  // Ensure ENS name ends with .eth (case-insensitive check)
+  const lowerEnsName = normalizedEnsName.toLowerCase();
+  if (!lowerEnsName.endsWith('.eth')) {
+    throw new Error(`Invalid ENS name: ${normalizedEnsName}. ENS name must end with .eth to be a valid did:ens`);
   }
 
   const did = `${ENS_DID_PREFIX}${normalizedChainId}:${normalizedEnsName}`;

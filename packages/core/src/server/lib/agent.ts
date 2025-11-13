@@ -81,6 +81,81 @@ export class Agent {
   }
 
   /**
+   * Get agent account address
+   */
+  get agentAccount(): string | undefined {
+    const account = this.data.agentAccount;
+    if (typeof account === 'string' && account.trim().length > 0) {
+      return account;
+    }
+    const legacyAddress = (this.data as Record<string, unknown>).agentAddress;
+    if (typeof legacyAddress === 'string' && legacyAddress.trim().length > 0) {
+      return legacyAddress;
+    }
+    return undefined;
+  }
+
+  /**
+   * Backwards-compatible alias for agentAccount
+   */
+  get agentAddress(): string | undefined {
+    return this.agentAccount;
+  }
+
+  /**
+   * Get agent owner address
+   */
+  get agentOwner(): string | undefined {
+    const owner = this.data.agentOwner;
+    if (typeof owner === 'string' && owner.trim().length > 0) {
+      return owner;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get identity DID (e.g. did:8004)
+   */
+  get didIdentity(): string | null | undefined {
+    const value = (this.data as Record<string, unknown>).didIdentity;
+    if (value === null) {
+      return null;
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+    return undefined;
+  }
+
+  /**
+   * Get account DID (e.g. did:ethr)
+   */
+  get didAccount(): string | null | undefined {
+    const value = (this.data as Record<string, unknown>).didAccount;
+    if (value === null) {
+      return null;
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+    return undefined;
+  }
+
+  /**
+   * Get name DID (e.g. did:ens)
+   */
+  get didName(): string | null | undefined {
+    const value = (this.data as Record<string, unknown>).didName;
+    if (value === null) {
+      return null;
+    }
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim();
+    }
+    return undefined;
+  }
+
+  /**
    * Get A2A endpoint URL
    */
   get a2aEndpoint(): string | undefined {

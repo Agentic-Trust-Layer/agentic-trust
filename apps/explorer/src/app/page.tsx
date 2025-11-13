@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { type Agent, type ListAgentsResponse } from '@agentic-trust/core/server';
+import type { DiscoverAgent, DiscoverParams } from '@agentic-trust/core/server';
+import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
 import { getExplorerClient } from '@/lib/server-client';
 import {
   Alert,
@@ -15,6 +16,7 @@ import {
   Stack,
   Typography,
   TextField,
+  Paper,
 } from '@mui/material';
 import Link from 'next/link';
 
@@ -23,7 +25,7 @@ export const dynamic = 'force-dynamic';
 type NormalizedAgent = {
   id: string;
   name: string;
-  address: string | null;
+  account: string | null;
   owner: string | null;
   chainId: number | null;
   type: string | null;
@@ -31,26 +33,76 @@ type NormalizedAgent = {
   createdAt: string | null;
   endpoint: string | null;
   metadataUri: string | null;
+  didIdentity: string | null;
+  didAccount: string | null;
+  didName: string | null;
 };
 
 const PAGE_SIZE = 10;
 
+type SearchFilters = {
+  name?: string;
+  agentId?: string;
+  account?: string;
+};
+
 async function fetchAgentsServer(params: {
   page: number;
-  query: string;
+  filters: SearchFilters;
 }): Promise<{ agents: NormalizedAgent[]; total: number; page: number; pageSize: number; totalPages: number; error?: string }> {
   try {
-    const client = await getExplorerClient();
-    const { agents, total, page, pageSize, totalPages }: ListAgentsResponse = await client.agents.searchAgents({
+    const { name, agentId, account } = params.filters;
+
+    // Build query from agentId if provided (query searches across multiple fields including agentId)
+    const queryParts: string[] = [];
+    if (agentId?.trim()) {
+      queryParts.push(agentId.trim());
+    }
+
+    // Build params for specific field searches
+    const discoverParams: DiscoverParams = {};
+    if (name?.trim()) {
+      discoverParams.name = name.trim();
+    }
+    if (account?.trim()) {
+      const accountTrimmed = account.trim();
+      // Validate account address format (0x followed by 40 hex chars)
+      // Also accept partial addresses (0x followed by at least 2 hex chars)
+      if (/^0x[a-fA-F0-9]{2,}$/i.test(accountTrimmed)) {
+        // If it's a full address (40 hex chars), use walletAddress param for exact match
+        if (/^0x[a-fA-F0-9]{40}$/i.test(accountTrimmed)) {
+          discoverParams.walletAddress = accountTrimmed as `0x${string}`;
+        } else {
+          // For partial addresses, add to query for text search
+          queryParts.push(accountTrimmed);
+        }
+      } else {
+        // Invalid format, but still try to search it
+        queryParts.push(accountTrimmed);
+      }
+    }
+
+    const query = queryParts.length > 0 ? queryParts.join(' ') : undefined;
+
+    const request: DiscoverRequest = {
       page: params.page,
       pageSize: PAGE_SIZE,
-      query: params.query,
+      query,
+      params: Object.keys(discoverParams).length > 0 ? discoverParams : undefined,
       orderBy: 'agentName',
       orderDirection: 'ASC',
-    });
+    };
 
-    const normalized = agents.map(normalizeAgent);
-    return { agents: normalized, total, page, pageSize, totalPages };
+    const response = await discoverAgents(request, getExplorerClient);
+
+    const normalized = response.agents.map(normalizeAgent);
+    return {
+      agents: normalized,
+      total: response.total ?? 0,
+      page: response.page ?? params.page,
+      pageSize: response.pageSize ?? PAGE_SIZE,
+      totalPages: response.totalPages ?? 1,
+    };
   } catch (error) {
     const message = extractErrorMessage(error);
     console.error('[Explorer] Failed to load agents:', error);
@@ -102,36 +154,47 @@ function extractErrorMessage(error: unknown): string {
   return baseMessage;
 }
 
-function normalizeAgent(agent: Agent): NormalizedAgent {
-  const data = agent.data ?? {};
-  const idFromAgentClass = agent.agentId;
-  const idRaw = typeof data.agentId === 'string' ? data.agentId : String(data.agentId ?? '');
-
-  const id =
-    typeof idFromAgentClass === 'number'
-      ? idFromAgentClass.toString()
-      : idRaw || cryptoRandomId();
+function normalizeAgent(agent: DiscoverAgent): NormalizedAgent {
+  const id = typeof agent.agentId === 'string' ? agent.agentId : String(agent.agentId ?? '');
 
   return {
-    id,
-    name: (agent.agentName ?? data.agentName ?? 'Unnamed Agent').trim() || 'Unnamed Agent',
-    address: (data.agentAddress as string | undefined) ?? null,
-    owner: (data.agentOwner as string | undefined) ?? null,
-    chainId: typeof data.chainId === 'number' ? data.chainId : null,
-    type:
-      typeof data.type === 'string' && data.type.trim().length > 0 ? data.type.trim() : null,
-    description:
-      typeof data.description === 'string' && data.description.trim().length > 0
-        ? data.description.trim()
+    id: id || cryptoRandomId(),
+    name: (agent.agentName ?? 'Unnamed Agent').trim() || 'Unnamed Agent',
+    account:
+      typeof agent.agentAccount === 'string' && agent.agentAccount.trim().length > 0
+        ? agent.agentAccount
         : null,
-    createdAt: normalizeTimestamp(data.createdAtTime),
+    owner:
+      typeof agent.agentOwner === 'string' && agent.agentOwner.trim().length > 0
+        ? agent.agentOwner
+        : null,
+    chainId: typeof agent.chainId === 'number' ? agent.chainId : null,
+    type:
+      typeof agent.type === 'string' && agent.type.trim().length > 0 ? agent.type.trim() : null,
+    description:
+      typeof agent.description === 'string' && agent.description.trim().length > 0
+        ? agent.description.trim()
+        : null,
+    createdAt: normalizeTimestamp(agent.createdAtTime),
     endpoint:
-      typeof data.a2aEndpoint === 'string' && data.a2aEndpoint.trim().length > 0
-        ? data.a2aEndpoint
+      typeof agent.a2aEndpoint === 'string' && agent.a2aEndpoint.trim().length > 0
+        ? agent.a2aEndpoint
         : null,
     metadataUri:
-      typeof data.metadataURI === 'string' && data.metadataURI.trim().length > 0
-        ? data.metadataURI.trim()
+      typeof agent.metadataURI === 'string' && agent.metadataURI.trim().length > 0
+        ? agent.metadataURI.trim()
+        : null,
+    didIdentity:
+      typeof agent.didIdentity === 'string' && agent.didIdentity.trim().length > 0
+        ? agent.didIdentity.trim()
+        : null,
+    didAccount:
+      typeof agent.didAccount === 'string' && agent.didAccount.trim().length > 0
+        ? agent.didAccount.trim()
+        : null,
+    didName:
+      typeof agent.didName === 'string' && agent.didName.trim().length > 0
+        ? agent.didName.trim()
         : null,
   };
 }
@@ -163,16 +226,31 @@ type PageParams = {
 };
 
 export default async function ExplorerPage({ searchParams }: PageParams) {
-  const queryRaw = searchParams?.query;
+  const nameRaw = searchParams?.name;
+  const agentIdRaw = searchParams?.agentId;
+  const accountRaw = searchParams?.account;
   const currentPageRaw = searchParams?.page;
 
-  const queryInput =
-    typeof queryRaw === 'string'
-      ? queryRaw.trim()
-      : Array.isArray(queryRaw)
-        ? queryRaw[0]?.trim() ?? ''
+  const nameInput =
+    typeof nameRaw === 'string'
+      ? nameRaw.trim()
+      : Array.isArray(nameRaw)
+        ? nameRaw[0]?.trim() ?? ''
         : '';
-  const normalizedQuery = queryInput; // send raw trimmed query to backend advanced search
+
+  const agentIdInput =
+    typeof agentIdRaw === 'string'
+      ? agentIdRaw.trim()
+      : Array.isArray(agentIdRaw)
+        ? agentIdRaw[0]?.trim() ?? ''
+        : '';
+
+  const accountInput =
+    typeof accountRaw === 'string'
+      ? accountRaw.trim()
+      : Array.isArray(accountRaw)
+        ? accountRaw[0]?.trim() ?? ''
+        : '';
 
   const requestedPage =
     typeof currentPageRaw === 'string'
@@ -183,7 +261,11 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
 
   const { agents, total, page, totalPages, error } = await fetchAgentsServer({
     page: requestedPage,
-    query: queryInput,
+    filters: {
+      name: nameInput || undefined,
+      agentId: agentIdInput || undefined,
+      account: accountInput || undefined,
+    },
   });
 
   if (error) {
@@ -198,14 +280,16 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
 
   const filteredAgents = agents;
   const totalAgents = total;
+  const hasFilters = nameInput || agentIdInput || accountInput;
+
   if (totalAgents === 0) {
     return (
       <Box component="section">
-        <SearchBar initialQuery={queryInput} />
+        <SearchBar initialFilters={{ name: nameInput, agentId: agentIdInput, account: accountInput }} />
         <Box sx={{ py: 6 }}>
           <Alert severity="info" variant="outlined">
-            {normalizedQuery
-              ? 'No agents match your search yet. Try a different keyword or capability.'
+            {hasFilters
+              ? 'No agents match your search filters. Try adjusting your search criteria.'
               : 'No agents discovered yet. Once agents are registered with the Agentic Trust network, they will appear here.'}
           </Alert>
         </Box>
@@ -218,7 +302,7 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
 
   return (
     <Box component="section">
-      <SearchBar initialQuery={queryInput} />
+      <SearchBar initialFilters={{ name: nameInput, agentId: agentIdInput, account: accountInput }} />
       <Box
         sx={{
           display: 'flex',
@@ -230,7 +314,7 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
         <PaginationLinks
           totalPages={totalPages}
           currentPage={safePage}
-          query={queryInput}
+          filters={{ name: nameInput, agentId: agentIdInput, account: accountInput }}
           totalAgents={totalAgents}
         />
       </Box>
@@ -297,11 +381,11 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
                 )}
 
                 <Stack spacing={2.5} sx={{ flexGrow: 1 }}>
-                  {agent.address && (
+                  {agent.account && (
                     <MetaBlock
                       label="Account"
-                      value={formatHash(agent.address)}
-                      title={agent.address}
+                      value={formatHash(agent.account)}
+                      title={agent.account}
                       monospace
                     />
                   )}
@@ -310,6 +394,30 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
                       label="Owner"
                       value={formatHash(agent.owner)}
                       title={agent.owner}
+                      monospace
+                    />
+                  )}
+                  {agent.didIdentity && (
+                    <MetaBlock
+                      label="Identity DID"
+                      value={formatDid(agent.didIdentity)}
+                      title={agent.didIdentity}
+                      monospace
+                    />
+                  )}
+                  {agent.didAccount && (
+                    <MetaBlock
+                      label="Account DID"
+                      value={formatDid(agent.didAccount)}
+                      title={agent.didAccount}
+                      monospace
+                    />
+                  )}
+                  {agent.didName && (
+                    <MetaBlock
+                      label="Name DID"
+                      value={formatDid(agent.didName)}
+                      title={agent.didName}
                       monospace
                     />
                   )}
@@ -390,6 +498,12 @@ function formatHash(value: string | null): string {
   return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }
 
+function formatDid(value: string | null): string {
+  if (!value) return '—';
+  if (value.length <= 32) return value;
+  return `${value.slice(0, 20)}…${value.slice(-10)}`;
+}
+
 function formatEndpoint(value: string): string {
   try {
     const url = new URL(value);
@@ -434,49 +548,102 @@ function MetaBlock({ label, value, monospace = false, title }: MetaBlockProps) {
   );
 }
 
-function SearchBar({ initialQuery }: { initialQuery: string }) {
+function SearchBar({ initialFilters }: { initialFilters: SearchFilters }) {
   return (
-    <Box
-      component="form"
-      action="/"
-      method="get"
+    <Paper
+      elevation={0}
       sx={{
+        p: 3,
         mb: 3,
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 2,
       }}
     >
-      <input type="hidden" name="page" value="1" />
-      <Stack
-        direction={{ xs: 'column', sm: 'row' }}
-        spacing={2}
-        alignItems={{ xs: 'stretch', sm: 'center' }}
+      <Box
+        component="form"
+        action="/"
+        method="get"
       >
-        <TextField
-          name="query"
-          placeholder="Search agents by name, capability, or address..."
-          fullWidth
-          defaultValue={initialQuery || ''}
-          variant="outlined"
-        />
-        <Button
-          type="submit"
-          variant="contained"
-          sx={{ px: 4, whiteSpace: 'nowrap', alignSelf: { xs: 'stretch', sm: 'flex-end' } }}
-        >
-          Search
-        </Button>
-      </Stack>
-    </Box>
+        <input type="hidden" name="page" value="1" />
+        <Stack spacing={2}>
+          <Typography variant="h6" sx={{ mb: 1 }}>
+            Search Agents
+          </Typography>
+          <Grid container spacing={2}>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                name="name"
+                label="Agent Name"
+                placeholder="Enter agent name"
+                fullWidth
+                defaultValue={initialFilters.name || ''}
+                variant="outlined"
+                size="small"
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                name="agentId"
+                label="Agent ID"
+                placeholder="Enter agent ID"
+                fullWidth
+                defaultValue={initialFilters.agentId || ''}
+                variant="outlined"
+                size="small"
+                type="text"
+              />
+            </Grid>
+            <Grid item xs={12} sm={4}>
+              <TextField
+                name="account"
+                label="Account Address"
+                placeholder="0x..."
+                fullWidth
+                defaultValue={initialFilters.account || ''}
+                variant="outlined"
+                size="small"
+                helperText="Enter full or partial Ethereum address"
+                sx={{
+                  '& .MuiInputBase-input': {
+                    fontFamily: 'monospace',
+                  },
+                }}
+              />
+            </Grid>
+          </Grid>
+          <Stack direction="row" spacing={2} justifyContent="flex-end">
+            <Button
+              type="submit"
+              variant="contained"
+              sx={{ px: 4 }}
+            >
+              Search
+            </Button>
+            <Button
+              type="button"
+              variant="outlined"
+              component={Link}
+              href="/"
+              sx={{ px: 4 }}
+            >
+              Clear
+            </Button>
+          </Stack>
+        </Stack>
+      </Box>
+    </Paper>
   );
 }
 
 type PaginationLinksProps = {
   totalPages: number;
   currentPage: number;
-  query: string;
+  filters: SearchFilters;
   totalAgents: number;
 };
 
-function PaginationLinks({ totalPages, currentPage, query, totalAgents }: PaginationLinksProps) {
+function PaginationLinks({ totalPages, currentPage, filters, totalAgents }: PaginationLinksProps) {
   if (totalPages <= 1) {
     return (
       <Typography variant="body2" color="text.secondary">
@@ -487,8 +654,14 @@ function PaginationLinks({ totalPages, currentPage, query, totalAgents }: Pagina
 
   const createHref = (page: number) => {
     const params = new URLSearchParams();
-    if (query.trim()) {
-      params.set('query', query.trim());
+    if (filters.name?.trim()) {
+      params.set('name', filters.name.trim());
+    }
+    if (filters.agentId?.trim()) {
+      params.set('agentId', filters.agentId.trim());
+    }
+    if (filters.account?.trim()) {
+      params.set('account', filters.account.trim());
     }
     if (page > 1) {
       params.set('page', String(page));

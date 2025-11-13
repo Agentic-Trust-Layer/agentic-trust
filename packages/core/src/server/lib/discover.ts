@@ -30,13 +30,11 @@ export type DiscoverAgent = {
   agentId: string;
   agentName: string;
   chainId: number;
-  
-  agentDID?: string;
-  agentENS?: string;
-  agentAccountDID?: string;
-
-  agentAddress: string;
+  agentAccount: string;
   agentOwner: string;
+  didIdentity?: string | null;
+  didAccount?: string | null;
+  didName?: string | null;
   metadataURI?: string | null;
   createdAtBlock: number;
   createdAtTime: number;
@@ -118,9 +116,12 @@ export async function discoverAgents(
       return {
         chainId,
         agentId: stringOrNull(raw?.agentId) ?? '',
-        agentAddress: String(raw?.agentAddress ?? ''),
+        agentAccount: String(raw?.agentAccount ?? ''),
         agentOwner: String(raw?.agentOwner ?? ''),
         agentName: String(raw?.agentName ?? ''),
+        didIdentity: stringOrNull(raw?.didIdentity) ?? undefined,
+        didAccount: stringOrNull(raw?.didAccount) ?? undefined,
+        didName: stringOrNull(raw?.didName) ?? undefined,
         metadataURI: stringOrNull(raw?.metadataURI) ?? undefined,
         createdAtBlock: numeric(raw?.createdAtBlock, 0) ?? 0,
         createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,

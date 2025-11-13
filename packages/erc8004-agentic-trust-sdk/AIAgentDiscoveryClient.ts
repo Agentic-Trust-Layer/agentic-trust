@@ -14,13 +14,11 @@ export interface AgentData {
   agentId?: number | string;
   agentName?: string;
   chainId?: number;
-  
-  agentDID?: string;
-  agentENS?: string;
-  agentAccountDID?: string;
-  
-  agentAddress?: string;
+  agentAccount?: string;
   agentOwner?: string;
+  didIdentity?: string | null;
+  didAccount?: string | null;
+  didName?: string | null;
   metadataURI?: string;
   createdAtBlock?: number;
   createdAtTime?: string | number;
@@ -295,6 +293,98 @@ export class AIAgentDiscoveryClient {
     });
   }
 
+  private normalizeAgent(agent: AgentData | Record<string, unknown> | null | undefined): AgentData {
+    const record = (agent ?? {}) as Record<string, unknown>;
+
+    const toOptionalString = (value: unknown): string | undefined => {
+      if (value === undefined || value === null) {
+        return undefined;
+      }
+      return String(value);
+    };
+
+    const toOptionalStringOrNull = (value: unknown): string | null | undefined => {
+      if (value === undefined) {
+        return undefined;
+      }
+      if (value === null) {
+        return null;
+      }
+      return String(value);
+    };
+
+    const normalized: AgentData = {
+      ...(record as AgentData),
+    };
+
+    const agentAccount = toOptionalString(record.agentAccount);
+    if (agentAccount !== undefined) {
+      normalized.agentAccount = agentAccount;
+    }
+
+    const agentOwner = toOptionalString(record.agentOwner);
+    if (agentOwner !== undefined) {
+      normalized.agentOwner = agentOwner;
+    }
+
+    const didIdentity = toOptionalStringOrNull(record.didIdentity);
+    if (didIdentity !== undefined) {
+      normalized.didIdentity = didIdentity;
+    }
+
+    const didAccount = toOptionalStringOrNull(record.didAccount);
+    if (didAccount !== undefined) {
+      normalized.didAccount = didAccount;
+    }
+
+    const didName = toOptionalStringOrNull(record.didName);
+    if (didName !== undefined) {
+      normalized.didName = didName;
+    }
+
+    const metadataURI = toOptionalString(record.metadataURI);
+    if (metadataURI !== undefined) {
+      normalized.metadataURI = metadataURI;
+    }
+
+    const description = toOptionalStringOrNull(record.description);
+    if (description !== undefined) {
+      normalized.description = description;
+    }
+
+    const image = toOptionalStringOrNull(record.image);
+    if (image !== undefined) {
+      normalized.image = image;
+    }
+
+    const a2aEndpoint = toOptionalStringOrNull(record.a2aEndpoint);
+    if (a2aEndpoint !== undefined) {
+      normalized.a2aEndpoint = a2aEndpoint;
+    }
+
+    const ensEndpoint = toOptionalStringOrNull(record.ensEndpoint);
+    if (ensEndpoint !== undefined) {
+      normalized.ensEndpoint = ensEndpoint;
+    }
+
+    const agentAccountEndpoint = toOptionalStringOrNull(record.agentAccountEndpoint);
+    if (agentAccountEndpoint !== undefined) {
+      normalized.agentAccountEndpoint = agentAccountEndpoint;
+    }
+
+    const supportedTrust = toOptionalString(record.supportedTrust);
+    if (supportedTrust !== undefined) {
+      normalized.supportedTrust = supportedTrust;
+    }
+
+    const did = toOptionalStringOrNull(record.did);
+    if (did !== undefined) {
+      normalized.did = did;
+    }
+
+    return normalized;
+  }
+
   /**
    * List all agents
    * @param limit - Maximum number of agents to return per page
@@ -311,9 +401,12 @@ export class AIAgentDiscoveryClient {
         agents(limit: $limit, offset: $offset) {
           chainId
           agentId
-          agentAddress
+          agentAccount
           agentOwner
           agentName
+          didIdentity
+          didAccount
+          didName
           metadataURI
           createdAtBlock
           createdAtTime
@@ -339,7 +432,7 @@ export class AIAgentDiscoveryClient {
         limit: effectiveLimit,
         offset: effectiveOffset,
       });
-      const pageAgents = data.agents || [];
+      const pageAgents = (data.agents || []).map((agent) => this.normalizeAgent(agent));
       allAgents = allAgents.concat(pageAgents);
     } catch (error) {
       console.warn('[AIAgentDiscoveryClient.listAgents] Error fetching agents with pagination:', error);
@@ -363,46 +456,61 @@ export class AIAgentDiscoveryClient {
     }
 
     // If no detected strategy (introspection disabled), attempt a direct list-form searchAgents call.
+    // Only use this fallback if we have a query string, since the GraphQL query requires a non-null query parameter.
+    // If we only have params but no query, return null to trigger local filtering fallback.
     if (!strategy) {
-      try {
-        const queryText = `
-          query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
-            searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
-              chainId
-              agentId
-              agentAddress
-              agentOwner
-              agentName
-              metadataURI
-              createdAtBlock
-              createdAtTime
-              updatedAtTime
-              type
-              description
-              image
-              a2aEndpoint
-              ensEndpoint
-              agentAccountEndpoint
-              supportedTrust
-              rawJson
+      if (hasQuery) {
+        try {
+          const queryText = `
+            query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
+              searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
+                chainId
+                agentId
+                agentAccount
+                agentOwner
+                agentName
+                didIdentity
+                didAccount
+                didName
+                metadataURI
+                createdAtBlock
+                createdAtTime
+                updatedAtTime
+                type
+                description
+                image
+                a2aEndpoint
+                ensEndpoint
+                agentAccountEndpoint
+                did
+                mcp
+                x402support
+                active
+                supportedTrust
+                rawJson
+              }
             }
+          `;
+          const variables: Record<string, unknown> = {
+            query: trimmedQuery,
+            limit: typeof limit === 'number' ? limit : undefined,
+            offset: typeof offset === 'number' ? offset : undefined,
+            orderBy: options.orderBy,
+            orderDirection: options.orderDirection,
+          };
+          const data = await this.client.request<Record<string, any>>(queryText, variables);
+          const list = data?.searchAgents;
+          if (Array.isArray(list)) {
+            const normalizedList = list
+              .filter(Boolean)
+              .map((item) => this.normalizeAgent(item as AgentData));
+            return { agents: normalizedList, total: undefined };
           }
-        `;
-        const variables: Record<string, unknown> = {
-          query: trimmedQuery,
-          limit: typeof limit === 'number' ? limit : undefined,
-          offset: typeof offset === 'number' ? offset : undefined,
-          orderBy: options.orderBy,
-          orderDirection: options.orderDirection,
-        };
-        const data = await this.client.request<Record<string, any>>(queryText, variables);
-        const list = data?.searchAgents;
-        if (Array.isArray(list)) {
-          return { agents: list.filter(Boolean) as AgentData[], total: undefined };
+        } catch (error) {
+          console.warn('[AIAgentDiscoveryClient] Fallback searchAgents call failed:', error);
         }
-      } catch (error) {
-        console.warn('[AIAgentDiscoveryClient] Fallback searchAgents call failed:', error);
       }
+      // If no strategy and no query (only params), return null to trigger local filtering fallback
       return null;
     }
 
@@ -413,9 +521,12 @@ export class AIAgentDiscoveryClient {
     const agentSelection = `
       chainId
       agentId
-      agentAddress
+      agentAccount
       agentOwner
       agentName
+      didIdentity
+      didAccount
+      didName
       metadataURI
       createdAtBlock
       createdAtTime
@@ -473,12 +584,26 @@ export class AIAgentDiscoveryClient {
     };
 
     if (strategy.kind === 'connection') {
-      if (!addStringArg(strategy.queryArg, hasQuery ? trimmedQuery : undefined)) {
+      // Add query arg only if we have a query, or if queryArg is optional
+      // If queryArg is required (non-null) but we don't have a query, only proceed if we have params
+      const queryArgAdded = addStringArg(strategy.queryArg, hasQuery ? trimmedQuery : undefined);
+      if (!queryArgAdded && strategy.queryArg?.isNonNull && !hasParams) {
+        // Required query arg but no query and no params - can't proceed
         return null;
       }
-      if (!addInputArg(strategy.filterArg, hasParams ? (params as Record<string, unknown>) : undefined)) {
+
+      // Add filter arg if we have params
+      const filterArgAdded = addInputArg(strategy.filterArg, hasParams ? (params as Record<string, unknown>) : undefined);
+      if (!filterArgAdded && strategy.filterArg?.isNonNull && !hasQuery) {
+        // Required filter arg but no params and no query - can't proceed
         return null;
       }
+
+      // If neither query nor params were added, and both are optional, we need at least one
+      if (!queryArgAdded && !filterArgAdded && (!strategy.queryArg || !strategy.filterArg)) {
+        return null;
+      }
+
       addIntArg(strategy.limitArg, typeof limit === 'number' ? limit : undefined);
       addIntArg(strategy.offsetArg, typeof offset === 'number' ? offset : undefined);
       addStringArg(strategy.orderByArg, options.orderBy);
@@ -495,9 +620,12 @@ export class AIAgentDiscoveryClient {
             ${strategy.listFieldName} {
               chainId
               agentId
-              agentAddress
+              agentAccount
               agentOwner
               agentName
+              didIdentity
+              didAccount
+              didName
               metadataURI
               createdAtBlock
               createdAtTime
@@ -511,6 +639,7 @@ export class AIAgentDiscoveryClient {
               did
               mcp
               x402support
+              active
               supportedTrust
               rawJson
             }
@@ -775,9 +904,12 @@ export class AIAgentDiscoveryClient {
         agent(chainId: $chainId, agentId: $agentId) {
           chainId
           agentId
-          agentAddress
+          agentAccount
           agentOwner
           agentName
+          didIdentity
+          didAccount
+          didName
           metadataURI
           createdAtBlock
           createdAtTime
@@ -788,6 +920,10 @@ export class AIAgentDiscoveryClient {
           a2aEndpoint
           ensEndpoint
           agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
           supportedTrust
           rawJson
         }
@@ -800,7 +936,11 @@ export class AIAgentDiscoveryClient {
         agentId: String(agentId),
       });
 
-      return data.agent || null;
+      if (!data.agent) {
+        return null;
+      }
+
+      return this.normalizeAgent(data.agent);
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.getAgent] Error fetching agent:', error);
       return null;
@@ -813,9 +953,12 @@ export class AIAgentDiscoveryClient {
         agentByName(agentName: $agentName) {
           chainId
           agentId
-          agentAddress
+          agentAccount
           agentOwner
           agentName
+          didIdentity
+          didAccount
+          didName
           metadataURI
           createdAtBlock
           createdAtTime
@@ -826,6 +969,10 @@ export class AIAgentDiscoveryClient {
           a2aEndpoint
           ensEndpoint
           agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
           supportedTrust
           rawJson
         }
@@ -838,7 +985,11 @@ export class AIAgentDiscoveryClient {
       });
       console.log("*********** AIAgentDiscoveryClient.getAgentByName: data", data);
 
-      return data.agentByName || null;
+      if (!data.agentByName) {
+        return null;
+      }
+
+      return this.normalizeAgent(data.agentByName);
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.getAgentByName] Error fetching agent:', error);
       return null;
@@ -857,9 +1008,12 @@ export class AIAgentDiscoveryClient {
         agents(searchTerm: $searchTerm, limit: $limit) {
           chainId
           agentId
-          agentAddress
+          agentAccount
           agentOwner
           agentName
+          didIdentity
+          didAccount
+          didName
           metadataURI
           createdAtBlock
           createdAtTime
@@ -870,6 +1024,10 @@ export class AIAgentDiscoveryClient {
           a2aEndpoint
           ensEndpoint
           agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
           supportedTrust
           rawJson
         }
@@ -882,7 +1040,8 @@ export class AIAgentDiscoveryClient {
         limit: limit || 100,
       });
 
-      return data.agents || [];
+      const agents = data.agents || [];
+      return agents.map((agent) => this.normalizeAgent(agent));
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.searchAgents] Error searching agents:', error);
       // Fallback to client-side filtering if search isn't supported

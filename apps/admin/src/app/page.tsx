@@ -1634,7 +1634,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 <tr style={{ borderBottom: '2px solid #ddd' }}>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Agent ID</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Agent Name</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>A2A Endpoint</th>
+                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Agent Account</th>
                   <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Created</th>
                 </tr>
               </thead>
@@ -1658,7 +1658,18 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     <td style={{ padding: '0.75rem' }}>{agent.agentId}</td>
                     <td style={{ padding: '0.75rem' }}>{agent.agentName || 'N/A'}</td>
                     <td style={{ padding: '0.75rem', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
-                      {agent.a2aEndpoint || 'N/A'}
+                      {(() => {
+                        const accountValue =
+                          typeof agent.agentAccount === 'string' && agent.agentAccount
+                            ? agent.agentAccount
+                            : null;
+                        if (!accountValue) {
+                          return 'N/A';
+                        }
+                        return accountValue.length > 12
+                          ? `${accountValue.slice(0, 6)}…${accountValue.slice(-4)}`
+                          : accountValue;
+                      })()}
                     </td>
                     <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
                       {agent.createdAtTime != null
@@ -1853,6 +1864,36 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                         </div>
                       </div>
                       <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent Account</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {graphQLData.agentData.agentAccount || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent Owner</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {graphQLData.agentData.agentOwner || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Identity DID</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {graphQLData.agentData.didIdentity || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Account DID</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {graphQLData.agentData.didAccount || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Name DID</strong>
+                        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
+                          {graphQLData.agentData.didName || 'N/A'}
+                        </div>
+                      </div>
+                      <div>
                         <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>A2A Endpoint</strong>
                         <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
                           {graphQLData.agentData.a2aEndpoint || 'N/A'}
@@ -1888,6 +1929,11 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
                 <div><strong>Agent ID:</strong> {selectedAgent.agentId || 'N/A'}</div>
                 <div><strong>Agent Name:</strong> {selectedAgent.agentName || 'N/A'}</div>
+                <div><strong>Agent Account:</strong> {selectedAgent?.agentAccount || 'N/A'}</div>
+                <div><strong>Agent Owner:</strong> {selectedAgent?.agentOwner || 'N/A'}</div>
+                <div><strong>Identity DID:</strong> {selectedAgent?.didIdentity || 'N/A'}</div>
+                <div><strong>Account DID:</strong> {selectedAgent?.didAccount || 'N/A'}</div>
+                <div><strong>Name DID:</strong> {selectedAgent?.didName || 'N/A'}</div>
                 <div><strong>A2A Endpoint:</strong> {selectedAgent.a2aEndpoint || 'N/A'}</div>
                 <div><strong>Created At:</strong> {selectedAgent.createdAtTime !== undefined && selectedAgent.createdAtTime !== null ? new Date(Number(selectedAgent.createdAtTime) * 1000).toLocaleString() : 'N/A'}</div>
               </div>
