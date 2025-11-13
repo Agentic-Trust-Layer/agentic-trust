@@ -53,16 +53,24 @@ async function fetchAgentsServer(params: {
   try {
     const { name, agentId, account } = params.filters;
 
-    // Build query from agentId if provided (query searches across multiple fields including agentId)
-    const queryParts: string[] = [];
-    if (agentId?.trim()) {
-      queryParts.push(agentId.trim());
-    }
-
     // Build params for specific field searches
-    const discoverParams: DiscoverParams = {};
+    const queryParts: string[] = [];
+    const discoverParams: DiscoverParams & { agentId?: string; agentName?: string; agentAccount?: `0x${string}` } = {};
+
+    // agentId participates in both free-text query and structured filters
+    if (agentId?.trim()) {
+      const agentIdTrimmed = agentId.trim();
+      queryParts.push(agentIdTrimmed);
+      // Also send as a structured filter so the indexer can use AgentWhereInput.agentId
+      // when searchAgentsGraph is available.
+      discoverParams.agentId = agentIdTrimmed;
+    }
     if (name?.trim()) {
-      discoverParams.name = name.trim();
+      const nameTrimmed = name.trim();
+      discoverParams.agentName = nameTrimmed;
+      // Also include name in the free-text query so it works even if the
+      // remote indexer doesn't support structured name filtering yet.
+      queryParts.push(nameTrimmed);
     }
     if (account?.trim()) {
       const accountTrimmed = account.trim();
@@ -71,7 +79,7 @@ async function fetchAgentsServer(params: {
       if (/^0x[a-fA-F0-9]{2,}$/i.test(accountTrimmed)) {
         // If it's a full address (40 hex chars), use walletAddress param for exact match
         if (/^0x[a-fA-F0-9]{40}$/i.test(accountTrimmed)) {
-          discoverParams.walletAddress = accountTrimmed as `0x${string}`;
+          discoverParams.agentAccount = accountTrimmed as `0x${string}`;
         } else {
           // For partial addresses, add to query for text search
           queryParts.push(accountTrimmed);

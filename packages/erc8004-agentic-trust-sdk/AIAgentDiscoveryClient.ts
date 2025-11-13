@@ -444,6 +444,8 @@ export class AIAgentDiscoveryClient {
   async searchAgentsAdvanced(
     options: SearchAgentsAdvancedOptions,
   ): Promise<{ agents: AgentData[]; total?: number | null } | null> {
+
+    console.log('>>>>>>>>>>>>>>>>>> searchAgentsAdvanced', options);
     const strategy = await this.detectSearchStrategy();
 
     const { query, params, limit, offset } = options;
@@ -461,6 +463,7 @@ export class AIAgentDiscoveryClient {
     if (!strategy) {
       if (hasQuery) {
         try {
+          console.log('>>>>>>>>>>>>>>>>>> SearchAgentsFallback', trimmedQuery, limit, offset, options.orderBy, options.orderDirection);
           const queryText = `
             query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
               searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
@@ -613,6 +616,7 @@ export class AIAgentDiscoveryClient {
         return null;
       }
 
+      console.log('>>>>>>>>>>>>>>>>>> AdvancedSearch', variableDefinitions, argumentAssignments);
       const queryText = `
         query AdvancedSearch(${variableDefinitions.join(', ')}) {
           ${strategy.fieldName}(${argumentAssignments.join(', ')}) {
@@ -667,6 +671,7 @@ export class AIAgentDiscoveryClient {
     }
 
     if (strategy.kind === 'list') {
+      console.log('>>>>>>>>>>>>>>>>>> AdvancedSearchList', variableDefinitions, argumentAssignments);
       if (!addStringArg(strategy.queryArg, hasQuery ? trimmedQuery : undefined)) {
         return null;
       }
@@ -703,6 +708,91 @@ export class AIAgentDiscoveryClient {
     }
 
     return null;
+  }
+
+  /**
+   * Search agents using the strongly-typed AgentWhereInput / searchAgentsGraph API.
+   * This is tailored to the indexer schema that exposes AgentWhereInput and
+   * searchAgentsGraph(where:, first:, skip:, orderBy:, orderDirection:).
+   */
+  async searchAgentsGraph(options: {
+    where?: Record<string, unknown>;
+    first?: number;
+    skip?: number;
+    orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner';
+    orderDirection?: 'ASC' | 'DESC';
+  }): Promise<{ agents: AgentData[]; total: number; hasMore: boolean }> {
+    const query = `
+      query SearchAgentsGraph(
+        $where: AgentWhereInput
+        $first: Int
+        $skip: Int
+        $orderBy: AgentOrderBy
+        $orderDirection: OrderDirection
+      ) {
+        searchAgentsGraph(
+          where: $where
+          first: $first
+          skip: $skip
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          agents {
+            chainId
+            agentId
+            agentAccount
+            agentOwner
+            agentName
+            didIdentity
+            didAccount
+            didName
+            metadataURI
+            createdAtBlock
+            createdAtTime
+            updatedAtTime
+            type
+            description
+            image
+            a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            supportedTrust
+            rawJson
+            did
+            mcp
+            x402support
+            active
+          }
+          total
+          hasMore
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      where: options.where,
+      first: typeof options.first === 'number' ? options.first : undefined,
+      skip: typeof options.skip === 'number' ? options.skip : undefined,
+      orderBy: options.orderBy,
+      orderDirection: options.orderDirection,
+    };
+
+    const data = await this.client.request<{
+      searchAgentsGraph?: {
+        agents?: AgentData[];
+        total?: number;
+        hasMore?: boolean;
+      };
+    }>(query, variables);
+
+    const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
+    const agents = (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+
+    return {
+      agents,
+      total: typeof result.total === 'number' ? result.total : agents.length,
+      hasMore: Boolean(result.hasMore),
+    };
   }
 
   private async detectSearchStrategy(): Promise<SearchStrategy | null> {
@@ -1044,12 +1134,7 @@ export class AIAgentDiscoveryClient {
       return agents.map((agent) => this.normalizeAgent(agent));
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.searchAgents] Error searching agents:', error);
-      // Fallback to client-side filtering if search isn't supported
-      const allAgents = await this.listAgents();
-      const searchLower = searchTerm.toLowerCase();
-      return allAgents.filter(agent => 
-        agent.agentName?.toLowerCase().includes(searchLower)
-      );
+      throw error;
     }
   }
 

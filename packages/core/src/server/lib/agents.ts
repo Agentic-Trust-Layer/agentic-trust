@@ -98,15 +98,36 @@ export type { AgentData };
 
 export interface DiscoverParams {
   chains?: number[] | 'all';
-  name?: string;
+
+  /**
+   * Agent name filter (maps to agentName_* in the indexer).
+   */
+  agentName?: string;
+
+  /**
+   * Exact agentId (string form).
+   * Used to build AgentWhereInput.agentId / agentId_in filters.
+   */
+  agentId?: string;
+
+  /**
+   * Single agent account (EOA/AA address).
+   * For discovery this is the primary "account" concept.
+   */
+  agentAccount?: Address;
+
+  /**
+   * Multiple account addresses to filter by.
+   * Maps to agentOwner_in in the indexer.
+   */
+  accounts?: Address[];
+
   description?: string;
-  owners?: Address[];
   operators?: Address[];
   mcp?: boolean;
   a2a?: boolean;
   ens?: string;
   did?: string;
-  walletAddress?: Address;
   supportedTrust?: string[];
   a2aSkills?: string[];
   mcpTools?: string[];
@@ -840,6 +861,13 @@ export class AgentsAPI {
         orderBy?: string;
         orderDirection?: 'ASC' | 'DESC';
       }) => Promise<{ agents: AgentData[]; total?: number | null } | null>;
+      searchAgentsGraph?: (options: {
+        where?: Record<string, unknown>;
+        first?: number;
+        skip?: number;
+        orderBy?: string;
+        orderDirection?: 'ASC' | 'DESC';
+      }) => Promise<{ agents: AgentData[]; total: number; hasMore: boolean }>;
     };
 
     const requestedPage =
@@ -849,49 +877,77 @@ export class AgentsAPI {
         ? options.pageSize
         : undefined;
 
-    const hasRemoteFilters =
-      (typeof options?.query === 'string' && options.query.trim().length > 0) ||
-      (options?.params && Object.keys(options.params).length > 0);
+    const hasQuery =
+      typeof options?.query === 'string' && options.query.trim().length > 0;
+    const where = this.buildAgentWhereInput(options?.params);
+    const hasRemoteFilters = hasQuery || !!where;
 
-    // Only use advanced search if we have filters and pageSize is set
-    // If it fails or returns null, return empty results (no fallback)
-    if (
-      pageSize &&
-      hasRemoteFilters &&
-      typeof advancedDiscoveryClient.searchAgentsAdvanced === 'function'
-    ) {
+    // Only use advanced search if we have filters or a free-text query and pageSize is set.
+    // If it fails or returns null, return empty results (no fallback).
+    if (pageSize && hasRemoteFilters) {
       const offset = (Math.max(requestedPage, 1) - 1) * pageSize;
 
       try {
-        const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
-          query: options?.query,
-          params: options?.params as Record<string, unknown> | undefined,
-          limit: pageSize,
-          offset,
-          orderBy: options?.orderBy,
-          orderDirection: options?.orderDirection,
-        });
+        if (where && typeof advancedDiscoveryClient.searchAgentsGraph === 'function') {
+          const advanced = await advancedDiscoveryClient.searchAgentsGraph({
+            where,
+            first: pageSize,
+            skip: offset,
+            orderBy: options?.orderBy,
+            orderDirection: options?.orderDirection,
+          });
 
-        if (advanced && Array.isArray(advanced.agents)) {
-          // Use results directly from advanced search - no local filtering
-          // Rely solely on the GraphQL endpoint for filtering
-          const total =
-            typeof advanced.total === 'number' && advanced.total >= 0
-              ? advanced.total
-              : advanced.agents.length + offset;
-          const totalPages = Math.max(1, Math.ceil(total / pageSize));
-          const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
-          const agentInstances = advanced.agents.map(
-            (data: AgentData) => new Agent(data, this.client),
-          );
+          if (advanced && Array.isArray(advanced.agents)) {
+            const total =
+              typeof advanced.total === 'number' && advanced.total >= 0
+                ? advanced.total
+                : advanced.agents.length + offset;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
+            const agentInstances = advanced.agents.map(
+              (data: AgentData) => new Agent(data, this.client),
+            );
 
-          return {
-            agents: agentInstances,
-            total,
-            page: safePage,
-            pageSize,
-            totalPages,
-          };
+            return {
+              agents: agentInstances,
+              total,
+              page: safePage,
+              pageSize,
+              totalPages,
+            };
+          }
+        } else if (
+          hasQuery &&
+          typeof advancedDiscoveryClient.searchAgentsAdvanced === 'function'
+        ) {
+          const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
+            query: options?.query,
+            params: options?.params as Record<string, unknown> | undefined,
+            limit: pageSize,
+            offset,
+            orderBy: options?.orderBy,
+            orderDirection: options?.orderDirection,
+          });
+
+          if (advanced && Array.isArray(advanced.agents)) {
+            const total =
+              typeof advanced.total === 'number' && advanced.total >= 0
+                ? advanced.total
+                : advanced.agents.length + offset;
+            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
+            const agentInstances = advanced.agents.map(
+              (data: AgentData) => new Agent(data, this.client),
+            );
+
+            return {
+              agents: agentInstances,
+              total,
+              page: safePage,
+              pageSize,
+              totalPages,
+            };
+          }
         }
       } catch (error) {
         console.warn(
@@ -899,7 +955,7 @@ export class AgentsAPI {
           error,
         );
       }
-      
+
       // If advanced search fails or returns null, return empty results (no fallback)
       return {
         agents: [],
@@ -946,6 +1002,95 @@ export class AgentsAPI {
         totalPages: 0,
       };
     }
+  }
+
+  /**
+   * Map high-level DiscoverParams to the indexer's AgentWhereInput shape.
+   * This is used for the searchAgentsGraph(where: AgentWhereInput, ...) API.
+   */
+  private buildAgentWhereInput(params?: DiscoverParams): Record<string, unknown> | undefined {
+    if (!params) return undefined;
+
+    const where: Record<string, unknown> = {};
+
+    if (params.chains && params.chains !== 'all' && params.chains.length > 0) {
+      where.chainId_in = params.chains;
+    }
+
+    if (params.agentName?.trim()) {
+      where.agentName_contains_nocase = params.agentName.trim();
+    }
+
+    if (params.agentId?.trim()) {
+      // Exact match on agentId; you could also expose agentId_in if you later
+      // support multiple IDs.
+      where.agentId = params.agentId.trim();
+    }
+
+    if (params.description?.trim()) {
+      where.description_contains_nocase = params.description.trim();
+    }
+
+    if (params.accounts && params.accounts.length > 0) {
+      where.agentOwner_in = params.accounts.map((addr) => addr.toLowerCase());
+    }
+
+    if (params.operators && params.operators.length > 0) {
+      where.operator_in = params.operators.map((addr) => addr.toLowerCase());
+    }
+
+    if (typeof params.mcp === 'boolean') {
+      where.mcp = params.mcp;
+    }
+
+    if (typeof params.a2a === 'boolean') {
+      if (params.a2a) {
+        where.hasA2aEndpoint = true;
+      }
+    }
+
+    if (params.ens?.trim()) {
+      where.ensEndpoint_contains_nocase = params.ens.trim();
+    }
+
+    if (params.did?.trim()) {
+      where.did_contains_nocase = params.did.trim();
+    }
+
+    if (params.agentAccount) {
+      // Treat the agent account as the owner in the indexer schema.
+      where.agentOwner = params.agentAccount.toLowerCase();
+    }
+
+    if (params.supportedTrust && params.supportedTrust.length > 0) {
+      where.supportedTrust_in = params.supportedTrust;
+    }
+
+    if (params.a2aSkills && params.a2aSkills.length > 0) {
+      where.a2aSkills_in = params.a2aSkills;
+    }
+
+    if (params.mcpTools && params.mcpTools.length > 0) {
+      where.mcpTools_in = params.mcpTools;
+    }
+
+    if (params.mcpPrompts && params.mcpPrompts.length > 0) {
+      where.mcpPrompts_in = params.mcpPrompts;
+    }
+
+    if (params.mcpResources && params.mcpResources.length > 0) {
+      where.mcpResources_in = params.mcpResources;
+    }
+
+    if (typeof params.active === 'boolean') {
+      where.active = params.active;
+    }
+
+    if (typeof params.x402support === 'boolean') {
+      where.x402support = params.x402support;
+    }
+
+    return Object.keys(where).length > 0 ? where : undefined;
   }
 
   private applySearchAndPagination(
@@ -1053,9 +1198,9 @@ export class AgentsAPI {
       }
     }
 
-    if (params.name) {
+    if (params.agentName) {
       const name = agent.agentName ?? '';
-      if (!name.toLowerCase().includes(params.name.trim().toLowerCase())) {
+      if (!name.toLowerCase().includes(params.agentName.trim().toLowerCase())) {
         return false;
       }
     }
@@ -1067,17 +1212,17 @@ export class AgentsAPI {
       }
     }
 
-    if (params.owners && params.owners.length > 0) {
+    if (params.accounts && params.accounts.length > 0) {
       const owner = agent.agentOwner?.toLowerCase();
-      if (!owner || !params.owners.some((addr) => addr.toLowerCase() === owner)) {
+      if (!owner || !params.accounts.some((addr) => addr.toLowerCase() === owner)) {
         return false;
       }
     }
 
-    if (params.walletAddress) {
+    if (params.agentAccount) {
       const accountValue = agent.agentAccount;
       const wallet = typeof accountValue === 'string' ? accountValue.toLowerCase() : undefined;
-      if (!wallet || wallet !== params.walletAddress.toLowerCase()) {
+      if (!wallet || wallet !== params.agentAccount.toLowerCase()) {
         return false;
       }
     }
