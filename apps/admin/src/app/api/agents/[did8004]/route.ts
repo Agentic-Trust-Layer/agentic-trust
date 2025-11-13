@@ -13,7 +13,12 @@ export async function GET(
     return NextResponse.json(payload);
   } catch (error) {
     console.error('Error in get agent info route:', error);
-    if (error instanceof Error && error.message.toLowerCase().includes('8004 did')) {
+    if (
+      error instanceof Error &&
+      (error.message.toLowerCase().includes('8004 did') ||
+        error.message.toLowerCase().includes('did:8004') ||
+        error.message.toLowerCase().includes('invalid agentid'))
+    ) {
       return NextResponse.json(
         { error: 'Invalid 8004 DID', message: error.message },
         { status: 400 },
