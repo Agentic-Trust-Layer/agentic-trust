@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 
 export async function POST(
@@ -38,7 +38,7 @@ export async function POST(
       );
     }
 
-    const client = await getAdminClient();
+    const client = await getAgenticTrustClient();
 
     // Transfer agent using admin API
     const adminAgents = client.agents.admin as any;

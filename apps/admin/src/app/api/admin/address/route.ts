@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function GET() {
   try {
@@ -13,7 +13,7 @@ export async function GET() {
       );
     }
 
-    const client = await getAdminClient();
+    const client = await getAgenticTrustClient();
     const adminAddress = await client.getAdminEOAAddress();
 
     return NextResponse.json({

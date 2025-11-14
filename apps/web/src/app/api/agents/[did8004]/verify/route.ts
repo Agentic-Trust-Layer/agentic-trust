@@ -3,7 +3,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentTrustClient } from '@/lib/server-client';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 
 export async function POST(
@@ -23,7 +23,7 @@ export async function POST(
       );
     }
 
-    const atClient = await getAgentTrustClient();
+    const atClient = await getAgenticTrustClient();
     
     // Get agent by ID directly
     const agent = await atClient.agents.getAgent(parsed.agentId, parsed.chainId);

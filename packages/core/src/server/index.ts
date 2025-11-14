@@ -14,6 +14,10 @@ export {
   AgenticTrustClient,
 } from './singletons/agenticTrustClient';
 
+export {
+  getAgenticTrustClient,
+} from './lib/agenticTrust';
+
 export type {
   ApiClientConfig,
 } from './lib/types';

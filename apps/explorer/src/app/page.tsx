@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import type { DiscoverParams, DiscoverResponse } from '@agentic-trust/core/server';
-import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
-import { getExplorerClient } from '@/lib/server-client';
+import { discoverAgents, type DiscoverRequest, getAgenticTrustClient } from '@agentic-trust/core/server';
 import {
   Alert,
   Box,
@@ -99,11 +98,11 @@ async function fetchAgentsServer(params: {
       pageSize: PAGE_SIZE,
       query,
       params: Object.keys(discoverParams).length > 0 ? discoverParams : undefined,
-      orderBy: 'agentName',
-      orderDirection: 'ASC',
+      orderBy: 'agentId',
+      orderDirection: 'DESC',
     };
 
-    const response = await discoverAgents(request, getExplorerClient);
+    const response = await discoverAgents(request, getAgenticTrustClient);
 
     const normalized = response.agents.map(normalizeAgent);
     return {

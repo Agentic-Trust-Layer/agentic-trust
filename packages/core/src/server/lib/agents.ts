@@ -964,11 +964,11 @@ export class AgentsAPI {
       };
     }
 
-    // If no filters, use listAgents to get default list from GraphQL endpoint
-    // Default to 50 agents if no pageSize specified
+    // If no filters, use listAgents to get default list from GraphQL endpoint.
+    // Default to 50 agents if no pageSize specified.
     const defaultPageSize = pageSize ?? 50;
     const offset = (Math.max(requestedPage, 1) - 1) * defaultPageSize;
-    
+
     try {
       const allAgents = await discoveryClient.listAgents(defaultPageSize, offset);
       

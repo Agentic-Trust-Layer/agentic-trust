@@ -40,22 +40,27 @@ vi.mock('@agentic-trust/core/server', () => ({
   })),
 }));
 
-vi.mock('../../../../lib/server/client', () => ({
-  getAdminClient: vi.fn(() => Promise.resolve({
+vi.mock('@agentic-trust/core/server', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@agentic-trust/core/server')>();
+  return {
+    ...actual,
+    getAgenticTrustClient: vi.fn(() => Promise.resolve({
     agents: {
       getAgentFromDiscovery: vi.fn().mockResolvedValue(null),
       getAgentFromDiscoveryByDid: vi.fn().mockResolvedValue(null),
       getAgent: vi.fn(),
     },
-  })),
-}));
+    })),
+  };
+});
 
 // Import the route AFTER mocks are set up
 import { GET } from '../[did:8004]/route';
 import { parseDid8004 } from '@agentic-trust/core';
 import { getIdentityClient } from '@agentic-trust/core/server';
-import { getIPFSStorage } from '@agentic-trust/core';
-import { getAdminClient } from '../../../../lib/server/client';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
+// getIPFSStorage is imported via the server entry (server-only IPFS utilities)
+import { getIPFSStorage } from '@agentic-trust/core/server';
 
 describe('GET /api/agents/[did:8004]', () => {
   beforeEach(() => {
@@ -67,7 +72,7 @@ describe('GET /api/agents/[did:8004]', () => {
   });
 
   it('should return 400 for invalid 8004 DID', async () => {
-    const mockParseDid800 = vi.mocked(parseDid8004);
+    const mockParseDid8004 = vi.mocked(parseDid8004);
     mockParseDid8004.mockImplementation(() => {
       throw new Error('Invalid 8004 DID format');
     });
@@ -131,8 +136,8 @@ describe('GET /api/agents/[did:8004]', () => {
       },
     };
 
-    const mockGetAdminClient = vi.mocked(getAdminClient);
-    mockGetAdminClient.mockResolvedValue(mockAdminClient as any);
+    const mockGetAgenticTrustClient = vi.mocked(getAgenticTrustClient);
+    mockGetAgenticTrustClient.mockResolvedValue(mockAdminClient as any);
 
     // Next.js automatically decodes URL params, so we pass the decoded DID
     const didAgent = `did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`;

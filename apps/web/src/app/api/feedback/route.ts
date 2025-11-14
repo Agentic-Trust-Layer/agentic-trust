@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse, userAgent } from 'next/server';
-import { getAgentTrustClient } from '@/lib/server-client';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get server-side client
-    const atClient = await getAgentTrustClient();
+    const atClient = await getAgenticTrustClient();
 
     // Get the agent by ID
     const agent = await atClient.agents.getAgent(agentId.toString());

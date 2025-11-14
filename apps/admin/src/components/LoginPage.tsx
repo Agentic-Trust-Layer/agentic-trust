@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useWeb3Auth } from './Web3AuthProvider';
 import { useWallet } from './WalletProvider';
 
+
 export function LoginPage() {
   const { connect, loading } = useWeb3Auth();
   const { connect: walletConnect, connected: walletConnected, loading: walletLoading } = useWallet();

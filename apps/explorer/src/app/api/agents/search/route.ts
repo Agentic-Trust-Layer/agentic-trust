@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getExplorerClient } from '@/lib/server-client';
 import type { DiscoverParams } from '@agentic-trust/core/server';
-import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
+import { discoverAgents, type DiscoverRequest, getAgenticTrustClient } from '@agentic-trust/core/server';
 
 const DEFAULT_PAGE_SIZE = 10;
 
@@ -32,7 +31,7 @@ function mapAgentsResponse(data: SearchResultPayload) {
 }
 
 async function mapClientSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
-  return discoverAgents(options, getExplorerClient);
+  return discoverAgents(options, getAgenticTrustClient);
 }
 
 function parseParamsParam(raw: string | null): DiscoverParams | undefined {

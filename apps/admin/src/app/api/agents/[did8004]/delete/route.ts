@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 
 export async function DELETE(
@@ -7,7 +7,7 @@ export async function DELETE(
   { params }: { params: { 'did:8004': string } }
 ) {
   try {
-    const client = await getAdminClient();
+    const client = await getAgenticTrustClient();
     const adminAgents = client.agents.admin as any;
     const deleteFn =
       typeof adminAgents.deleteAgentByDid === 'function'

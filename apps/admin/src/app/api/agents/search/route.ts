@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import type { DiscoverParams } from '@agentic-trust/core/server';
 import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
 
@@ -32,7 +32,7 @@ function mapAgentsResponse(data: SearchResultPayload) {
 }
 
 async function mapClientSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
-  return discoverAgents(options, getAdminClient);
+  return discoverAgents(options, getAgenticTrustClient);
 }
 
 function parseParamsParam(raw: string | null): DiscoverParams | undefined {

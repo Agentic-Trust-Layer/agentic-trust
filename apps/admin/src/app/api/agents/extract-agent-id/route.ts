@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = await getAdminClient();
+    const client = await getAgenticTrustClient();
     const agentId = await client.agents.extractAgentIdFromReceipt(receipt, chainId);
 
     return NextResponse.json({

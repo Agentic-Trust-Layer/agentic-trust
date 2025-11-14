@@ -4,11 +4,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentTrustClient } from '@/lib/server-client';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function GET() {
   try {
-    const atClient = await getAgentTrustClient();
+    const atClient = await getAgenticTrustClient();
     const response = await atClient.agents.searchAgents();
     
     // Convert Agent instances to plain data for JSON serialization
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const atClient = await getAgentTrustClient();
+    const atClient = await getAgenticTrustClient();
     const response = await atClient.agents.searchAgents({
       query: typeof query === 'string' ? query.trim() : undefined,
       page: typeof page === 'number' ? page : undefined,

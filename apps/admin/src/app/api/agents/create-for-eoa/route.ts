@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const client = await getAdminClient();
+    const client = await getAgenticTrustClient();
     const result = await client.agents.createAgentForEOA({
       agentName,
       agentAccount: agentAccount as `0x${string}`,

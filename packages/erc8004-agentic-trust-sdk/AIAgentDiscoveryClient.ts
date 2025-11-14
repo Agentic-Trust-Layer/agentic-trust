@@ -386,7 +386,8 @@ export class AIAgentDiscoveryClient {
   }
 
   /**
-   * List all agents
+   * List agents with a deterministic default ordering (agentId DESC).
+   *
    * @param limit - Maximum number of agents to return per page
    * @param offset - Number of agents to skip
    * @returns List of agents
@@ -432,8 +433,22 @@ export class AIAgentDiscoveryClient {
         limit: effectiveLimit,
         offset: effectiveOffset,
       });
-      const pageAgents = (data.agents || []).map((agent) => this.normalizeAgent(agent));
+      const pageAgents = (data.agents || []).map((agent) =>
+        this.normalizeAgent(agent),
+      );
       allAgents = allAgents.concat(pageAgents);
+
+      // Apply client-side ordering to ensure deterministic results,
+      // since the base agents query may not support orderBy/orderDirection
+      // arguments. Default is agentId DESC for "newest first".
+      // Default to newest agents first by agentId DESC
+      allAgents.sort((a, b) => {
+        const idA =
+          typeof a.agentId === 'number' ? a.agentId : Number(a.agentId ?? 0) || 0;
+        const idB =
+          typeof b.agentId === 'number' ? b.agentId : Number(b.agentId ?? 0) || 0;
+        return idB - idA;
+      });
     } catch (error) {
       console.warn('[AIAgentDiscoveryClient.listAgents] Error fetching agents with pagination:', error);
     }
@@ -460,17 +475,17 @@ export class AIAgentDiscoveryClient {
     // If no detected strategy (introspection disabled), attempt a direct list-form searchAgents call.
     // Only use this fallback if we have a query string, since the GraphQL query requires a non-null query parameter.
     // If we only have params but no query, return null to trigger local filtering fallback.
+    console.log('>>>>>>>>>>>>>>>>>> 012 strategy', strategy);
     if (!strategy) {
+      console.log('>>>>>>>>>>>>>>>>>> 012 hasQuery', hasQuery);
       if (hasQuery) {
         try {
-          console.log(
-            '>>>>>>>>>>>>>>>>>> SearchAgentsFallback',
-            trimmedQuery,
-            limit,
-            offset,
-            options.orderBy,
-            options.orderDirection,
-          );
+          console.log('>>>>>>>>>>>>>>>>>> 012 trimmedQuery', trimmedQuery);
+          console.log('>>>>>>>>>>>>>>>>>> 012 limit', limit);
+          console.log('>>>>>>>>>>>>>>>>>> 012 offset', offset);
+          console.log('>>>>>>>>>>>>>>>>>> 012 options.orderBy', options.orderBy);
+          console.log('>>>>>>>>>>>>>>>>>> 012 options.orderDirection', options.orderDirection);
+          
           const queryText = `
             query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
               searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
@@ -510,6 +525,8 @@ export class AIAgentDiscoveryClient {
           };
           const data = await this.client.request<Record<string, any>>(queryText, variables);
           const list = data?.searchAgents;
+
+          console.log('>>>>>>>>>>>>>>>>>> 012 list.length', list?.length);
           if (Array.isArray(list)) {
             const normalizedList = list
               .filter(Boolean)
@@ -521,7 +538,7 @@ export class AIAgentDiscoveryClient {
             const orderDirectionRaw =
               typeof options.orderDirection === 'string'
                 ? options.orderDirection.toUpperCase()
-                : 'ASC';
+                : 'DESC';
             const orderDirection = orderDirectionRaw === 'DESC' ? 'DESC' : 'ASC';
 
             if (orderBy === 'agentName') {
@@ -544,8 +561,40 @@ export class AIAgentDiscoveryClient {
                     : Number(b.agentId ?? 0) || 0;
                 return orderDirection === 'ASC' ? idA - idB : idB - idA;
               });
+            } else if (orderBy === 'createdAtTime') {
+              normalizedList.sort((a, b) => {
+                const tA =
+                  typeof a.createdAtTime === 'number'
+                    ? a.createdAtTime
+                    : Number(a.createdAtTime ?? 0) || 0;
+                const tB =
+                  typeof b.createdAtTime === 'number'
+                    ? b.createdAtTime
+                    : Number(b.createdAtTime ?? 0) || 0;
+                return orderDirection === 'ASC' ? tA - tB : tB - tA;
+              });
+            } else if (orderBy === 'createdAtBlock') {
+              normalizedList.sort((a, b) => {
+                const bA =
+                  typeof a.createdAtBlock === 'number'
+                    ? a.createdAtBlock
+                    : Number(a.createdAtBlock ?? 0) || 0;
+                const bB =
+                  typeof b.createdAtBlock === 'number'
+                    ? b.createdAtBlock
+                    : Number(b.createdAtBlock ?? 0) || 0;
+                return orderDirection === 'ASC' ? bA - bB : bB - bA;
+              });
+            } else if (orderBy === 'agentOwner') {
+              normalizedList.sort((a, b) => {
+                const aOwner = (a.agentOwner ?? '').toLowerCase();
+                const bOwner = (b.agentOwner ?? '').toLowerCase();
+                return orderDirection === 'ASC'
+                  ? aOwner.localeCompare(bOwner)
+                  : bOwner.localeCompare(aOwner);
+              });
             }
-
+            console.log('>>>>>>>>>>>>>>>>>> 345 AdvancedSearch', normalizedList);
             return { agents: normalizedList, total: undefined };
           }
         } catch (error) {
@@ -698,7 +747,8 @@ export class AIAgentDiscoveryClient {
         if (!Array.isArray(list)) return null;
         const totalValue =
           typeof strategy.totalFieldName === 'string' ? node?.[strategy.totalFieldName] : undefined;
-        return {
+        console.log('>>>>>>>>>>>>>>>>>> 123 AdvancedSearch', list);
+          return {
           agents: list.filter(Boolean) as AgentData[],
           total: typeof totalValue === 'number' ? totalValue : undefined,
         };
@@ -808,12 +858,18 @@ export class AIAgentDiscoveryClient {
       }
     `;
 
+    // Default ordering when not explicitly provided: newest agents first
+    // by agentId DESC.
+    const effectiveOrderBy = options.orderBy ?? 'agentId';
+    const effectiveOrderDirection: 'ASC' | 'DESC' =
+      (options.orderDirection ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
     const variables: Record<string, unknown> = {
       where: options.where,
       first: typeof options.first === 'number' ? options.first : undefined,
       skip: typeof options.skip === 'number' ? options.skip : undefined,
-      orderBy: options.orderBy,
-      orderDirection: options.orderDirection,
+      orderBy: effectiveOrderBy,
+      orderDirection: effectiveOrderDirection,
     };
 
     const data = await this.client.request<{

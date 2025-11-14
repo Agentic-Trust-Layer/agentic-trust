@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAddress } from 'viem';
-import { getENSClient, buildAgentDetail, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getENSClient, buildAgentDetail, DEFAULT_CHAIN_ID, getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,7 +65,7 @@ export async function GET(
       console.warn('Reverse ENS lookup by account failed:', error);
     }
 
-    const adminClient = await getAdminClient();
+    const adminClient = await getAgenticTrustClient();
 
     if (!agentId) {
       try {

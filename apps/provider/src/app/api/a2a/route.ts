@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgenticTrustClient } from '@/lib/client';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { loadSessionPackage } from '@agentic-trust/core/server';
 
 /**

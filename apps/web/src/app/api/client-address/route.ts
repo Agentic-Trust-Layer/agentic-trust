@@ -4,12 +4,12 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgentTrustClient } from '@/lib/server-client';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function GET(request: NextRequest) {
   try {
     // Get server-side client
-    const atClient = await getAgentTrustClient();
+    const atClient = await getAgenticTrustClient();
     
     // Get client address using AgenticTrustClient method
     const clientAddress = await atClient.getClientAddress();

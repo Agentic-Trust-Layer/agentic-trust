@@ -34,6 +34,7 @@ export {
   // Preferred Did-then-method names only
   buildDid8004,
   parseDid8004,
+  resolveDid8004,
   type BuildDid8004Options,
   type ParsedDid8004,
 } from './shared/did8004';

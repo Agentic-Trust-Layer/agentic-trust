@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildAgentDetail } from '@agentic-trust/core/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { buildAgentDetail, getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function GET(
   request: NextRequest,
@@ -9,10 +8,10 @@ export async function GET(
   try {
     const { 'did:8004': didAgent } = await params;
 
-    const client = await getAdminClient();
-    const payload = await buildAgentDetail(client as any, didAgent);
+    const client = await getAgenticTrustClient();
+    const agentDetail = await buildAgentDetail(client as any, didAgent);
 
-    return NextResponse.json(payload);
+    return NextResponse.json(agentDetail);
   } catch (error) {
     console.error('Error in get agent info route:', error);
     if (

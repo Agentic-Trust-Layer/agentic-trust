@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/server/adminClient';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
 
 export async function POST(
@@ -34,7 +34,7 @@ export async function POST(
 
     const chainIdToUse = chainIdOverride ?? parsed.chainId;
 
-    const client = await getAdminClient();
+    const client = await getAgenticTrustClient();
     const effectiveDid =
       chainIdToUse === parsed.chainId
         ? didParam
