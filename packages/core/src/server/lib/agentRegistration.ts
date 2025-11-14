@@ -6,75 +6,7 @@
  */
 
 import { getIPFSStorage, type IPFSStorage } from '../../storage/ipfs';
-
-/**
- * ERC-8004 Agent Registration JSON structure
- * Based on ERC-8004 specification for agent identity metadata
- * https://eips.ethereum.org/EIPS/eip-8004
- */
-export interface AgentRegistrationJSON {
-  /**
-   * ERC-8004 registration type identifier
-   */
-  type: string;
-  
-  /**
-   * Agent name
-   */
-  name: string;
-  
-  /**
-   * Agent description
-   */
-  description?: string;
-  
-  /**
-   * Agent image URL
-   */
-  image?: string;
-  
-  /**
-   * Agent endpoints (A2A, MCP, etc.)
-   */
-  endpoints?: Array<{
-    name: string;
-    endpoint: string;
-    version?: string;
-    capabilities?: Record<string, any>;
-  }>;
-  
-  /**
-   * Agent registrations across chains
-   */
-  registrations?: Array<{
-    agentId: string | number;
-    agentRegistry: string;
-  }>;
-  
-  /**
-   * Supported trust models
-   */
-  supportedTrust?: string[];
-  
-  /**
-   * Agent account address (EOA or smart account)
-   * Not in ERC-8004 spec but useful for our implementation
-   */
-  agentAccount?: `0x${string}`;
-  
-  /**
-   * Legacy fields for backward compatibility
-   */
-  version?: string;
-  metadata?: Record<string, string>;
-  createdAt?: string;
-  updatedAt?: string;
-  external_url?: string;
-  attributes?: Array<{
-    trait_type: string;
-    value: string | number;
-  }>;
-}
+import type { AgentRegistrationInfo } from '../models/agentRegistrationInfo';
 
 /**
  * Upload agent registration JSON to IPFS
@@ -83,13 +15,13 @@ export interface AgentRegistrationJSON {
  * @returns Upload result with CID and URL
  */
 export async function uploadRegistration(
-  registration: AgentRegistrationJSON,
+  registration: AgentRegistrationInfo,
   storage?: IPFSStorage
 ): Promise<{ cid: string; url: string; tokenURI: string }> {
   const ipfsStorage = storage || getIPFSStorage();
   
   // Ensure ERC-8004 type is set
-  const registrationWithType: AgentRegistrationJSON = {
+  const registrationWithType: AgentRegistrationInfo = {
     ...registration,
     type: registration.type || 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     // Set timestamps for legacy fields if not provided
@@ -122,7 +54,7 @@ export async function uploadRegistration(
 export async function getRegistration(
   cidOrTokenURI: string,
   storage?: IPFSStorage
-): Promise<AgentRegistrationJSON> {
+): Promise<AgentRegistrationInfo> {
   const ipfsStorage = storage || getIPFSStorage();
   
   // Use the new getJson method which handles all URI formats and gateway fallbacks
@@ -132,7 +64,7 @@ export async function getRegistration(
     throw new Error(`Failed to retrieve registration from IPFS: ${cidOrTokenURI}`);
   }
   
-  return registration as AgentRegistrationJSON;
+  return registration as AgentRegistrationInfo;
 }
 
 /**
@@ -159,7 +91,7 @@ export function createRegistrationJSON(params: {
   metadata?: Record<string, string>;
   external_url?: string;
   attributes?: Array<{ trait_type: string; value: string | number }>;
-}): AgentRegistrationJSON {
+}): AgentRegistrationInfo {
   const endpoints: Array<{
     name: string;
     endpoint: string;

@@ -1,0 +1,21 @@
+import type { AgentInfo } from './agentInfo';
+
+const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
+type MetadataKeys = (typeof METADATA_KEYS)[number];
+
+/**
+ * Detailed Agent view combining AgentInfo (discovery),
+ * on-chain identity, IPFS registration, and extra flattened fields.
+ */
+export interface AgentDetail extends AgentInfo {
+  success: true;
+  identityMetadata: {
+    tokenURI: string | null;
+    metadata: Record<MetadataKeys, string>;
+  };
+  identityRegistration: { tokenURI: string; registration: Record<string, unknown> | null } | null;
+  [key: string]: unknown;
+}
+
+export type AgentIdentifier = string | bigint;
+

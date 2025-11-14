@@ -1,0 +1,32 @@
+/**
+ * Core flattened Agent model used by discovery/search services.
+ * This is the standard data shape returned to clients.
+ */
+export interface AgentInfo {
+  agentId: string;
+  agentName: string;
+  chainId: number;
+  agentAccount: string;
+  agentOwner: string;
+  didIdentity?: string | null;
+  didAccount?: string | null;
+  didName?: string | null;
+  metadataURI?: string | null;
+  createdAtBlock: number;
+  createdAtTime: number;
+  updatedAtTime?: number | null;
+  type?: string | null;
+  description?: string | null;
+  image?: string | null;
+  a2aEndpoint?: string | null;
+  ensEndpoint?: string | null;
+  agentAccountEndpoint?: string | null;
+  supportedTrust?: string | null;
+  rawJson?: string | null;
+  did?: string | null;
+  mcp?: boolean | null;
+  x402support?: boolean | null;
+  active?: boolean | null;
+}
+
+

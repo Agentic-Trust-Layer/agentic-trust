@@ -8,17 +8,30 @@
 
 import type { AgenticTrustClient } from '../singletons/agenticTrustClient';
 import { A2AProtocolProvider } from './a2aProtocolProvider';
-import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
+import type {
+  A2AAgentCard as AgentCard,
+  AgentSkill,
+  AgentCapabilities,
+} from '../models/a2aAgentCardInfo';
 import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
 import type {
   AgentData as DiscoveryAgentData,
   GiveFeedbackParams,
 } from '@agentic-trust/8004-ext-sdk';
+import { parse8004Did } from '@agentic-trust/8004-ext-sdk';
 import { getProviderApp } from '../userApps/providerApp';
 import { getReputationClient } from '../singletons/reputationClient';
+import { getIPFSStorage } from '../../storage/ipfs';
+import { getIdentityClient } from '../singletons/identityClient';
+import { DEFAULT_CHAIN_ID } from './chainConfig';
+import type { AgentDetail, AgentIdentifier } from '../models/agentDetail';
 
 // Re-export types
-export type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
+export type {
+  A2AAgentCard as AgentCard,
+  AgentSkill,
+  AgentCapabilities,
+} from '../models/a2aAgentCardInfo';
 
 export interface MessageRequest {
   message?: string;
@@ -349,9 +362,8 @@ export class Agent {
       // Other errors might indicate verification failed
       console.error('Verification error:', error);
       return false;
-    }
   }
-
+}
   /**
    * Feedback API
    */
@@ -440,5 +452,253 @@ export class Agent {
       return await reputationClient.giveClientFeedback(feedbackParams);
     },
   };
+}
+
+/**
+ * Build a detailed Agent view using a provided AgenticTrustClient.
+ * This is the core implementation used by admin and other services.
+ */
+export async function buildAgentDetail(
+  client: AgenticTrustClient,
+  agentIdentifier: AgentIdentifier,
+  chainId: number = DEFAULT_CHAIN_ID,
+): Promise<AgentDetail> {
+  const isDid =
+    typeof agentIdentifier === 'string' && agentIdentifier.trim().startsWith('did:8004:');
+
+  let resolvedChainId = chainId;
+  let agentId: string;
+  let agentIdBigInt: bigint;
+  let did8004: string | undefined;
+
+  if (isDid) {
+    did8004 = decodeURIComponent((agentIdentifier as string).trim());
+    const parsed = parse8004Did(did8004);
+    resolvedChainId = parsed.chainId;
+    agentId = parsed.agentId;
+    try {
+      agentIdBigInt = BigInt(agentId);
+    } catch {
+      throw new Error(`Invalid agentId in did:8004 identifier: ${did8004}`);
+    }
+  } else {
+    const agentIdInput = agentIdentifier;
+    agentIdBigInt =
+      typeof agentIdInput === 'bigint'
+        ? agentIdInput
+        : (() => {
+            try {
+              return BigInt(agentIdInput);
+            } catch {
+              throw new Error(`Invalid agentId: ${agentIdInput}`);
+            }
+          })();
+    agentId = agentIdBigInt.toString();
+  }
+
+  const identityClient = await getIdentityClient(resolvedChainId);
+
+  const tokenURI = await identityClient.getTokenURI(agentIdBigInt);
+
+  const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
+  type MetadataKeys = (typeof METADATA_KEYS)[number];
+  const metadata: Record<MetadataKeys, string> = {} as Record<MetadataKeys, string>;
+  for (const key of METADATA_KEYS) {
+    try {
+      const value = await identityClient.getMetadata(agentIdBigInt, key);
+      if (value) {
+        metadata[key] = value;
+      }
+    } catch (error) {
+      console.warn(`Failed to get metadata key ${key}:`, error);
+    }
+  }
+
+  const identityMetadata = {
+    tokenURI,
+    metadata,
+  };
+
+  let identityRegistration: {
+    tokenURI: string;
+    registration: Record<string, unknown> | null;
+  } | null =
+    null;
+  if (tokenURI) {
+    try {
+      const ipfsStorage = getIPFSStorage();
+      const registration = (await ipfsStorage.getJson(tokenURI)) as Record<string, unknown> | null;
+      identityRegistration = {
+        tokenURI,
+        registration,
+      };
+    } catch (error) {
+      console.warn('Failed to get IPFS registration:', error);
+      identityRegistration = {
+        tokenURI,
+        registration: null,
+      };
+    }
+  }
+
+  let discovery: Record<string, unknown> | null = null;
+  try {
+    const agentsApi = client.agents as any;
+    if (did8004 && typeof agentsApi.getAgentFromDiscoveryByDid === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscoveryByDid(
+        did8004,
+      )) as unknown as Record<string, unknown> | null;
+    } else if (typeof agentsApi.getAgentFromDiscovery === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscovery(
+        resolvedChainId,
+        agentId,
+      )) as unknown as Record<string, unknown> | null;
+    } else {
+      discovery = null;
+    }
+  } catch (error) {
+    console.warn('Failed to get GraphQL agent data:', error);
+    discovery = null;
+  }
+
+  const flattened: Record<string, unknown> = {};
+
+  if (
+    identityRegistration?.registration &&
+    typeof identityRegistration.registration === 'object'
+  ) {
+    const reg = identityRegistration.registration as Record<string, unknown>;
+    if (typeof reg.name === 'string') flattened.name = reg.name;
+    if (typeof reg.description === 'string') flattened.description = reg.description;
+    if (typeof reg.image === 'string') flattened.image = reg.image;
+    if (typeof reg.agentAccount === 'string') flattened.agentAccount = reg.agentAccount;
+    if (reg.endpoints) flattened.endpoints = reg.endpoints;
+    if (reg.supportedTrust) flattened.supportedTrust = reg.supportedTrust;
+    if (typeof reg.createdAt !== 'undefined') flattened.createdAt = reg.createdAt;
+    if (typeof reg.updatedAt !== 'undefined') flattened.updatedAt = reg.updatedAt;
+  }
+
+  if (metadata.agentName && !flattened.name) flattened.name = metadata.agentName;
+  if (metadata.agentName) flattened.agentName = metadata.agentName;
+  if (metadata.agentAccount) flattened.agentAccount = metadata.agentAccount;
+
+  if (discovery && typeof discovery === 'object') {
+    const discoveryRecord = discovery as Record<string, unknown>;
+
+    const agentNameFromDiscovery =
+      typeof discoveryRecord.agentName === 'string'
+        ? (discoveryRecord.agentName as string)
+        : undefined;
+    if (agentNameFromDiscovery && !flattened.name) flattened.name = agentNameFromDiscovery;
+    if (agentNameFromDiscovery && !flattened.agentName) flattened.agentName = agentNameFromDiscovery;
+
+    const a2aEndpointFromDiscovery =
+      typeof discoveryRecord.a2aEndpoint === 'string'
+        ? (discoveryRecord.a2aEndpoint as string)
+        : undefined;
+    if (a2aEndpointFromDiscovery) flattened.a2aEndpoint = a2aEndpointFromDiscovery;
+
+    const createdAtTimeFromDiscovery =
+      typeof discoveryRecord.createdAtTime !== 'undefined'
+        ? discoveryRecord.createdAtTime
+        : undefined;
+    if (createdAtTimeFromDiscovery !== undefined) flattened.createdAtTime = createdAtTimeFromDiscovery;
+
+    const updatedAtTimeFromDiscovery =
+      typeof discoveryRecord.updatedAtTime !== 'undefined'
+        ? discoveryRecord.updatedAtTime
+        : undefined;
+    if (updatedAtTimeFromDiscovery !== undefined) flattened.updatedAtTime = updatedAtTimeFromDiscovery;
+
+    Object.keys(discoveryRecord).forEach((key) => {
+      if (key !== 'agentId' && flattened[key] === undefined) {
+        flattened[key] = discoveryRecord[key];
+      }
+    });
+  }
+
+  const discoveryRecord = (discovery as Record<string, unknown>) || {};
+
+  const agentNameValue =
+    (flattened.agentName as string | undefined) ??
+    (flattened.name as string | undefined) ??
+    (discoveryRecord.agentName as string | undefined) ??
+    '';
+
+  const agentAccountValue =
+    (flattened.agentAccount as string | undefined) ??
+    (discoveryRecord.agentAccount as string | undefined) ??
+    '';
+
+  const agentOwnerValue =
+    (discoveryRecord.agentOwner as string | undefined) ?? '';
+
+  const detail: AgentDetail = {
+    // AgentInfo fields
+    agentId,
+    agentName: agentNameValue,
+    chainId: resolvedChainId,
+    agentAccount: agentAccountValue,
+    agentOwner: agentOwnerValue,
+    didIdentity: (discoveryRecord.didIdentity as string | null | undefined) ?? null,
+    didAccount: (discoveryRecord.didAccount as string | null | undefined) ?? null,
+    didName: (discoveryRecord.didName as string | null | undefined) ?? null,
+    metadataURI: (discoveryRecord.metadataURI as string | null | undefined) ?? null,
+    createdAtBlock:
+      typeof discoveryRecord.createdAtBlock === 'number' ? discoveryRecord.createdAtBlock : 0,
+    createdAtTime:
+      typeof discoveryRecord.createdAtTime === 'number'
+        ? discoveryRecord.createdAtTime
+        : (flattened.createdAtTime as number | undefined) ?? 0,
+    updatedAtTime:
+      typeof discoveryRecord.updatedAtTime === 'number'
+        ? discoveryRecord.updatedAtTime
+        : (flattened.updatedAtTime as number | undefined) ?? null,
+    type: (discoveryRecord.type as string | null | undefined) ?? null,
+    description:
+      (flattened.description as string | undefined) ??
+      (discoveryRecord.description as string | undefined) ??
+      null,
+    image:
+      (flattened.image as string | undefined) ??
+      (discoveryRecord.image as string | undefined) ??
+      null,
+    a2aEndpoint:
+      (flattened.a2aEndpoint as string | undefined) ??
+      (discoveryRecord.a2aEndpoint as string | undefined) ??
+      null,
+    ensEndpoint: (discoveryRecord.ensEndpoint as string | null | undefined) ?? null,
+    agentAccountEndpoint:
+      (discoveryRecord.agentAccountEndpoint as string | null | undefined) ?? null,
+    supportedTrust:
+      (flattened.supportedTrust as string | undefined) ??
+      (discoveryRecord.supportedTrust as string | undefined) ??
+      null,
+    rawJson: (discoveryRecord.rawJson as string | null | undefined) ?? null,
+    did: (discoveryRecord.did as string | null | undefined) ?? null,
+    mcp:
+      typeof discoveryRecord.mcp === 'boolean'
+        ? discoveryRecord.mcp
+        : (discoveryRecord.mcp as boolean | null | undefined) ?? null,
+    x402support:
+      typeof discoveryRecord.x402support === 'boolean'
+        ? discoveryRecord.x402support
+        : (discoveryRecord.x402support as boolean | null | undefined) ?? null,
+    active:
+      typeof discoveryRecord.active === 'boolean'
+        ? discoveryRecord.active
+        : (discoveryRecord.active as boolean | null | undefined) ?? null,
+
+    // AgentDetail-specific fields
+    success: true,
+    identityMetadata,
+    identityRegistration,
+    discovery,
+
+    // Flattened extra fields
+    ...flattened,
+  };
+
+  return detail;
 }
 

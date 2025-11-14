@@ -19,8 +19,8 @@ export type {
 } from './lib/types';
 
 export {
-  fetchAgentCard,
-} from './lib/agentCard';
+  fetchA2AAgentCard,
+} from './lib/a2aAgentCard';
 
 export {
   Agent,
@@ -57,8 +57,12 @@ export {
   uploadRegistration,
   getRegistration,
   createRegistrationJSON,
-  type AgentRegistrationJSON,
-} from './lib/registration';
+} from './lib/agentRegistration';
+
+export {
+  type AgentRegistrationInfo,
+} from './models/agentRegistrationInfo';
+
 
 export {
   getAgentAccountByAgentName,
@@ -99,8 +103,15 @@ export {
   discoverAgents,
   type DiscoverRequest,
   type DiscoverResponse,
-  type DiscoverAgent,
 } from './lib/discover';
+export type { AgentInfo } from './models/agentInfo';
+export type {
+  AgentDetail,
+  AgentIdentifier,
+} from './models/agentDetail';
+export {
+  buildAgentDetail,
+} from './lib/agent';
 export {
   getIdentityClient,
   isIdentityClientInitialized,
@@ -172,7 +183,7 @@ export {
   type AddToL1OrgPKParams,
   type SetL1NameInfoPKParams,
   type ExecuteEnsTxResult,
-} from './lib/ensActions';
+} from './lib/names';
 
 // Session package utilities (Node.js fs access)
 export type { SessionPackage, DelegationSetup } from './lib/sessionPackage';

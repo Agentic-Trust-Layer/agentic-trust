@@ -463,7 +463,14 @@ export class AIAgentDiscoveryClient {
     if (!strategy) {
       if (hasQuery) {
         try {
-          console.log('>>>>>>>>>>>>>>>>>> SearchAgentsFallback', trimmedQuery, limit, offset, options.orderBy, options.orderDirection);
+          console.log(
+            '>>>>>>>>>>>>>>>>>> SearchAgentsFallback',
+            trimmedQuery,
+            limit,
+            offset,
+            options.orderBy,
+            options.orderDirection,
+          );
           const queryText = `
             query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
               searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
@@ -507,6 +514,38 @@ export class AIAgentDiscoveryClient {
             const normalizedList = list
               .filter(Boolean)
               .map((item) => this.normalizeAgent(item as AgentData));
+
+            // Ensure fallback respects the requested ordering, even if the
+            // underlying searchAgents resolver uses its own default order.
+            const orderBy = typeof options.orderBy === 'string' ? options.orderBy.trim() : undefined;
+            const orderDirectionRaw =
+              typeof options.orderDirection === 'string'
+                ? options.orderDirection.toUpperCase()
+                : 'ASC';
+            const orderDirection = orderDirectionRaw === 'DESC' ? 'DESC' : 'ASC';
+
+            if (orderBy === 'agentName') {
+              normalizedList.sort((a, b) => {
+                const aName = (a.agentName ?? '').toLowerCase();
+                const bName = (b.agentName ?? '').toLowerCase();
+                return orderDirection === 'ASC'
+                  ? aName.localeCompare(bName)
+                  : bName.localeCompare(aName);
+              });
+            } else if (orderBy === 'agentId') {
+              normalizedList.sort((a, b) => {
+                const idA =
+                  typeof a.agentId === 'number'
+                    ? a.agentId
+                    : Number(a.agentId ?? 0) || 0;
+                const idB =
+                  typeof b.agentId === 'number'
+                    ? b.agentId
+                    : Number(b.agentId ?? 0) || 0;
+                return orderDirection === 'ASC' ? idA - idB : idB - idA;
+              });
+            }
+
             return { agents: normalizedList, total: undefined };
           }
         } catch (error) {

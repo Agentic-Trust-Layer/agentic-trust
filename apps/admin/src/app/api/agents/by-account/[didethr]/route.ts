@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAddress } from 'viem';
-import { getENSClient } from '@agentic-trust/core/server';
+import { getENSClient, buildAgentDetail, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
 import { getAdminClient } from '@/lib/client';
-import { buildAgentRecord, DEFAULT_CHAIN_ID } from '../../_lib/agentRecord';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,7 +24,7 @@ function parseDidEthr(raw: string): { chainId: number; account: `0x${string}` } 
   }
 
   const remaining = segments.slice(2, -1);
-  let chainId = DEFAULT_CHAIN_ID;
+  let chainId: number = DEFAULT_CHAIN_ID;
 
   for (let i = remaining.length - 1; i >= 0; i -= 1) {
     const value = remaining[i];
@@ -134,7 +133,7 @@ export async function GET(
     const effectiveChainId =
       Number.isFinite(chainId) && chainId > 0 ? chainId : DEFAULT_CHAIN_ID;
 
-    const payload = await buildAgentRecord(agentId, effectiveChainId);
+    const payload = await buildAgentDetail(adminClient as any, agentId, effectiveChainId);
     return NextResponse.json(payload);
   } catch (error) {
     console.error('Error resolving agent by DID:', error);

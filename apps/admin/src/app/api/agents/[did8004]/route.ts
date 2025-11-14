@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildAgentRecord } from '../_lib/agentRecord';
+import { buildAgentDetail } from '@agentic-trust/core/server';
+import { getAdminClient } from '@/lib/client';
 
 export async function GET(
   request: NextRequest,
@@ -8,7 +9,8 @@ export async function GET(
   try {
     const { 'did:8004': didAgent } = await params;
 
-    const payload = await buildAgentRecord(didAgent);
+    const client = await getAdminClient();
+    const payload = await buildAgentDetail(client as any, didAgent);
 
     return NextResponse.json(payload);
   } catch (error) {

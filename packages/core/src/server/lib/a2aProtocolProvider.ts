@@ -4,7 +4,8 @@
  */
 
 import type { GraphQLClient } from 'graphql-request';
-import { fetchAgentCard, type AgentCard } from './agentCard';
+import { fetchA2AAgentCard } from './a2aAgentCard';
+import type { A2AAgentCard } from '../models/a2aAgentCardInfo';
 import type { VeramoAgent } from './veramo';
 
 export interface AgentProvider {
@@ -154,7 +155,7 @@ export class A2AProtocolProviderAPI {
  */
 export class A2AProtocolProvider {
   private providerUrl: string;
-  private agentCard: AgentCard | null = null;
+  private agentCard: A2AAgentCard | null = null;
   private a2aEndpoint: string | null = null;
   private veramoAgent: VeramoAgent | null = null;
   private authenticated: boolean = false;
@@ -209,14 +210,14 @@ export class A2AProtocolProvider {
   /**
    * Fetch and cache the agent card from /.well-known/agent-card.json
    */
-  async fetchAgentCard(): Promise<AgentCard | null> {
+  async fetchAgentCard(): Promise<A2AAgentCard | null> {
     if (this.agentCard) {
       return this.agentCard;
     }
 
     try {
       console.log(`Fetching agent card from: ${this.providerUrl}`);
-      const card = await fetchAgentCard(this.providerUrl);
+      const card = await fetchA2AAgentCard(this.providerUrl);
       console.log(`Agent card: ${JSON.stringify(card)}`);
       if (card) {
         this.agentCard = card;
@@ -251,7 +252,7 @@ export class A2AProtocolProvider {
   /**
    * Get the cached agent card (call fetchAgentCard first)
    */
-  getAgentCard(): AgentCard | null {
+  getAgentCard(): A2AAgentCard | null {
     return this.agentCard;
   }
 
@@ -270,7 +271,10 @@ export class A2AProtocolProvider {
     }
 
     // Verify endpoint is absolute before returning
-    if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
+    if (
+      !this.a2aEndpoint ||
+      (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://'))
+    ) {
       console.log(`Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got: ${this.a2aEndpoint}`);
     }
 

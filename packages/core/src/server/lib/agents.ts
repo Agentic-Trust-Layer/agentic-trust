@@ -63,9 +63,7 @@ import {
   BaseIdentityClient,
 } from '@agentic-trust/8004-sdk';
 import { Agent } from './agent';
-import { A2AProtocolProvider } from './a2aProtocolProvider';
-import type { AgentCard, AgentSkill, AgentCapabilities } from './agentCard';
-import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
+
 import { getDiscoveryClient } from '../singletons/discoveryClient';
 import {
   getChainEnvVar,
@@ -77,14 +75,14 @@ import {
   isL1,
   getChainConfig,
 } from './chainConfig';
-import { uploadRegistration, createRegistrationJSON } from './registration';
+import { uploadRegistration, createRegistrationJSON } from './agentRegistration';
 import { createPublicClient, http } from 'viem';
 import type { Address } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { createBundlerClient } from 'viem/account-abstraction';
-import { addToL1OrgPK } from './ensActions';
+import { addToL1OrgPK } from './names';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/accountClient';
 import type { Chain } from 'viem';
 import { getENSClient } from '../singletons/ensClient';

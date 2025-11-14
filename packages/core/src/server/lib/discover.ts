@@ -10,6 +10,7 @@ import type {
   DiscoverAgentsOptions,
   DiscoverParams,
 } from './agents';
+import type { AgentInfo } from '../models/agentInfo';
 import { DEFAULT_CHAIN_ID } from './chainConfig';
 
 // Lightweight interface for the server client to avoid heavy coupling here.
@@ -26,35 +27,11 @@ export type DiscoverRequest = {
   orderDirection?: 'ASC' | 'DESC';
 };
 
-export type DiscoverAgent = {
-  agentId: string;
-  agentName: string;
-  chainId: number;
-  agentAccount: string;
-  agentOwner: string;
-  didIdentity?: string | null;
-  didAccount?: string | null;
-  didName?: string | null;
-  metadataURI?: string | null;
-  createdAtBlock: number;
-  createdAtTime: number;
-  updatedAtTime?: number | null;
-  type?: string | null;
-  description?: string | null;
-  image?: string | null;
-  a2aEndpoint?: string | null;
-  ensEndpoint?: string | null;
-  agentAccountEndpoint?: string | null;
-  supportedTrust?: string | null;
-  rawJson?: string | null;
-  did?: string | null;
-  mcp?: boolean | null;
-  x402support?: boolean | null;
-  active?: boolean | null;
-};
+// Alias the core AgentInfo model for discovery responses
+export type Agent = AgentInfo;
 
 export type DiscoverResponse = {
-  agents: DiscoverAgent[];
+  agents: Agent[];
   total: number;
   page?: number;
   pageSize?: number;

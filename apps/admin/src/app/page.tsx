@@ -18,11 +18,8 @@ import {
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
 import { build8004Did } from '@agentic-trust/core';
 import { buildEnsDidFromAgentAndOrg } from '@/app/api/names/_lib/ensDid';
-import type { DiscoverParams as AgentSearchParams, DiscoverAgent } from '@agentic-trust/core/server';
-
-
-type Agent = DiscoverAgent;
-
+import type { DiscoverParams as AgentSearchParams, DiscoverResponse } from '@agentic-trust/core/server';
+type Agent = DiscoverResponse['agents'][number];
 export default function AdminPage() {
 
   const web3AuthCtx = useWeb3Auth() as any;
@@ -558,12 +555,32 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           });
         }
         
-        // Extract discovery (GraphQL) data
-        if (data.discovery) {
-          setGraphQLData({
-            agentData: data.discovery,
-          });
-        }
+        // Extract discovery (GraphQL) data from AgentInfo portion
+        setGraphQLData({
+          agentData: {
+            agentId: data.agentId,
+            agentName: data.agentName,
+            chainId: data.chainId,
+            agentAccount: data.agentAccount,
+            a2aEndpoint: data.a2aEndpoint,
+            createdAtTime: data.createdAtTime,
+            updatedAtTime: data.updatedAtTime,
+            type: data.type,
+            description: data.description,
+            image: data.image,
+            metadataURI: data.metadataURI,
+            ensEndpoint: data.ensEndpoint,
+            agentAccountEndpoint: data.agentAccountEndpoint,
+            supportedTrust: data.supportedTrust,
+            didIdentity: data.didIdentity,
+            didAccount: data.didAccount,
+            didName: data.didName,
+            did: data.did,
+            mcp: data.mcp,
+            x402support: data.x402support,
+            active: data.active,
+          },
+        });
       } else {
         console.warn('Failed to fetch agent info:', response.status, response.statusText);
       }
@@ -766,31 +783,67 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       // Use the agent account from the form by default
       let agentAccountToUse = createForm.agentAccount as `0x${string}`;
 
-      // If using AA, the agent account should already be populated by the useEffect
+      // If using AA, compute or confirm the AA address
       if (useAA) {
-        // Compute AA address using wallet provider (client-side)
-        // This uses the wallet (Web3Auth/MetaMask) to compute the counterfactual address
-        if (!eip1193Provider) {
-          throw new Error('Wallet provider is required to compute AA address. Please connect your wallet.');
+        if (privateKeyMode) {
+          // Private key mode: prefer already-computed AA address from state,
+          // otherwise call the server-side endpoint to compute it.
+          let computedAa = aaAddress;
+
+          if (!computedAa) {
+            const resp = await fetch('/api/accounts/counterfactual-account', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                agentName: createForm.agentName,
+                chainId: selectedChainId || undefined,
+              }),
+            });
+
+            if (!resp.ok) {
+              const err = await resp.json().catch(() => ({}));
+              throw new Error(
+                err?.message ||
+                  err?.error ||
+                  'Server-side AA address computation failed. Ensure private key mode is configured.',
+              );
+            }
+
+            const data = await resp.json();
+            computedAa = (data?.address as string) || '';
+          }
+
+          if (!computedAa || !computedAa.startsWith('0x')) {
+            throw new Error('Failed to compute AA address. Please retry.');
+          }
+
+          setAaAddress(computedAa);
+          agentAccountToUse = computedAa as `0x${string}`;
+          setSuccess('Using Account Abstraction address (server-side)…');
+        } else {
+          // Wallet mode: compute AA address using wallet provider (client-side)
+          if (!eip1193Provider) {
+            throw new Error('Wallet provider is required to compute AA address. Please connect your wallet.');
+          }
+          if (!eoaAddress) {
+            throw new Error('EOA address is required to compute AA address.');
+          }
+
+          const computedAa = await getCounterfactualAAAddressByAgentName(
+            createForm.agentName,
+            eoaAddress as `0x${string}`,
+            {
+              ethereumProvider: eip1193Provider as any,
+              chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
+            },
+          );
+          if (!computedAa || !computedAa.startsWith('0x')) {
+            throw new Error('Failed to compute AA address. Please retry.');
+          }
+          setAaAddress(computedAa);
+          agentAccountToUse = computedAa as `0x${string}`;
+          setSuccess('Using Account Abstraction address...');
         }
-        if (!eoaAddress) {
-          throw new Error('EOA address is required to compute AA address.');
-        }
-        
-        const computedAa = await getCounterfactualAAAddressByAgentName(
-          createForm.agentName,
-          eoaAddress as `0x${string}`,
-          {
-            ethereumProvider: eip1193Provider as any,
-            chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
-          },
-        );
-        if (!computedAa || !computedAa.startsWith('0x')) {
-          throw new Error('Failed to compute AA address. Please retry.');
-        }
-        setAaAddress(computedAa);
-        agentAccountToUse = computedAa as `0x${string}`;
-        setSuccess('Using Account Abstraction address...');
       }
 
       // Validate agentAccountToUse before proceeding

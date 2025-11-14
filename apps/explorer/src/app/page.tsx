@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { DiscoverAgent, DiscoverParams } from '@agentic-trust/core/server';
+import type { DiscoverParams, DiscoverResponse } from '@agentic-trust/core/server';
 import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
 import { getExplorerClient } from '@/lib/server-client';
 import {
@@ -45,6 +45,8 @@ type SearchFilters = {
   agentId?: string;
   account?: string;
 };
+
+type CoreAgent = DiscoverResponse['agents'][number];
 
 async function fetchAgentsServer(params: {
   page: number;
@@ -162,7 +164,7 @@ function extractErrorMessage(error: unknown): string {
   return baseMessage;
 }
 
-function normalizeAgent(agent: DiscoverAgent): NormalizedAgent {
+function normalizeAgent(agent: CoreAgent): NormalizedAgent {
   const id = typeof agent.agentId === 'string' ? agent.agentId : String(agent.agentId ?? '');
 
   return {

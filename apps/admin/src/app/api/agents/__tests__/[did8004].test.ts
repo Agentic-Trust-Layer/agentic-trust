@@ -171,12 +171,10 @@ describe('GET /api/agents/[did:8004]', () => {
     expect(data.identityRegistration?.registration).toHaveProperty('endpoints');
     expect(data.identityRegistration?.registration).toHaveProperty('supportedTrust');
     
-    // Verify discovery data is included (from GraphQL)
-    expect(data).toHaveProperty('discovery');
-    expect(data.discovery).not.toBeNull();
-    expect(data.discovery).toHaveProperty('agentName', TEST_AGENT_NAME);
-    expect(data.discovery).toHaveProperty('a2aEndpoint', TEST_A2A_ENDPOINT);
-    expect(data.discovery).toHaveProperty('agentId', TEST_AGENT_ID);
+    // Verify discovery data is reflected in AgentInfo fields
+    expect(data).toHaveProperty('agentName', TEST_AGENT_NAME);
+    expect(data).toHaveProperty('a2aEndpoint', TEST_A2A_ENDPOINT);
+    expect(data).toHaveProperty('agentId', TEST_AGENT_ID);
     
     // Verify flattened fields from registration (top-level fields)
     expect(data).toHaveProperty('name', TEST_AGENT_NAME);
