@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/core",
-  "version": "1.0.7",
+  "version": "1.0.11",
   "description": "Core SDK for agentic trust systems",
   "type": "module",
   "main": "./dist/index.js",

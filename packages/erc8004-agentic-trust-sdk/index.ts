@@ -41,13 +41,13 @@ export {
   ViemAccountProvider,
   type ViemAccountProviderOptions,
 } from '@agentic-trust/8004-sdk';
-
 export {
-  build8004Did,
-  parse8004Did,
-  type Parsed8004Did,
-  type Build8004DidOptions,
-} from './utils/erc8004Did';
+  buildDid8004,
+  parseDid8004,
+  resolveDid8004,
+  type ParsedDid8004,
+  type BuildDid8004Options,
+} from './utils/did8004';
 
 export {
   buildEnsDid,
@@ -55,11 +55,11 @@ export {
   parseEnsDid,
   type ParsedEnsDid,
   type BuildEnsDidOptions,
-} from './utils/ensDid';
+} from './utils/didEns';
 
 export {
   buildEthrDid,
   parseEthrDid,
   type ParsedEthrDid,
   type BuildEthrDidOptions,
-} from './utils/ethrDid';
+} from './utils/didEthr';

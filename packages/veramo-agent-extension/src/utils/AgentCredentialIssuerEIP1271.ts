@@ -51,7 +51,7 @@ const chain = sepolia
 
 import { getEthTypesFromInputDoc } from 'eip-712-types-generation'
 import { getRegistryAgent } from './IdentityRegistry.js'
-import { parse8004Did } from '@agentic-trust/8004-ext-sdk';
+import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 
 // Extracts the numeric agentId from a verificationMethod object.
 // Accepts fields like:
@@ -125,7 +125,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
     console.info("Creating Verifiable Credential EIP1271 with issuer:", issuer)
     const identifier = await context.agent.didManagerGet({ did: issuer.id })
 
-    const did8004 = parse8004Did(identifier.did);
+    const did8004 = parseDid8004(identifier.did);
 
     let chainId
     try {
@@ -226,7 +226,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
 
     console.info("identifier: ", identifier)
 
-    const did8004 = parse8004Did(identifier.did);
+    const did8004 = parseDid8004(identifier.did);
 
     let chainId
     try {
@@ -328,7 +328,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
     const did = (credential.issuer as any).id
     console.info(">>>>>>>>>>>> credential issuer did: ", did)
     
-    const agentId = parse8004Did(did as `${string}`).agentId;
+    const agentId = parseDid8004(did as `${string}`).agentId;
     console.info("agentId used to validate signature: ", agentId)
 
     // Resolve smart account address from ERC-8004 Identity Registry using agentId
@@ -424,7 +424,7 @@ export class AgentCredentialIssuerEIP1271 implements IAgentPlugin {
 
 
 
-    const agentId = parse8004Did(presentation.holder).agentId;
+    const agentId = parseDid8004(presentation.holder).agentId;
 
         // Resolve smart account address from ERC-8004 Identity Registry using agentId
     const registryAddress = "0xD3Ef59f3Bbc1d766E3Ba463Be134B5eB29e907A0"

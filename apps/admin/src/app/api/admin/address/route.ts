@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/client';
+import { getAdminClient } from '@/lib/server/adminClient';
 
 export async function GET() {
   try {

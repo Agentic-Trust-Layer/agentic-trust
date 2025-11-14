@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isENSNameAvailable } from '@agentic-trust/core/server';
-import { parseDidEns } from '../_lib/ensDid';
+import { parseDidEns } from '../_lib/didEns';
 
 export async function GET(
   request: NextRequest,

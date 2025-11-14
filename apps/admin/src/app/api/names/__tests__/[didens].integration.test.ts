@@ -14,7 +14,7 @@ import { shouldSkipIntegrationTests, hasRequiredEnvVars } from '../../../../../v
 import { createMockRequest, createMockParamsAsync, assertJsonResponse } from '../../__tests__/helpers';
 import { GET } from '../[did:ens]/route';
 import { TEST_AGENT_NAME, TEST_CHAIN_ID } from '../../__tests__/test-data';
-import { buildDidEns } from '../_lib/ensDid';
+import { buildDidEns } from '../_lib/didEns';
 
 const skip = shouldSkipIntegrationTests();
 

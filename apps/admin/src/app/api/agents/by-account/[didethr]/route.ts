@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAddress } from 'viem';
 import { getENSClient, buildAgentDetail, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
-import { getAdminClient } from '@/lib/client';
+import { getAdminClient } from '@/lib/server/adminClient';
 
 export const dynamic = 'force-dynamic';
 

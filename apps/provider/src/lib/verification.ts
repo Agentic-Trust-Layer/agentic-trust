@@ -3,8 +3,8 @@
  * Verifies raw signatures over canonical challenges
  */
 
-import type { VeramoAgent } from '@agentic-trust/core';
-import { verifyMessage } from 'viem';
+
+
 
 interface AuthChallenge {
   did: string;
@@ -18,6 +18,7 @@ interface AuthChallenge {
 /**
  * Verify a signed challenge
  */
+/*
 export async function verifyChallenge(
   agent: VeramoAgent,
   auth: AuthChallenge,
@@ -195,6 +196,7 @@ export async function verifyChallenge(
     };
   }
 }
+  */
 
 /**
  * Nonce store for replay protection (in-memory, should be persistent in production)

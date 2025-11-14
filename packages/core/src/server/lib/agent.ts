@@ -18,10 +18,10 @@ import type {
   AgentData as DiscoveryAgentData,
   GiveFeedbackParams,
 } from '@agentic-trust/8004-ext-sdk';
-import { parse8004Did } from '@agentic-trust/8004-ext-sdk';
+import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 import { getProviderApp } from '../userApps/providerApp';
 import { getReputationClient } from '../singletons/reputationClient';
-import { getIPFSStorage } from '../../storage/ipfs';
+import { getIPFSStorage } from './ipfs';
 import { getIdentityClient } from '../singletons/identityClient';
 import { DEFAULT_CHAIN_ID } from './chainConfig';
 import type { AgentDetail, AgentIdentifier } from '../models/agentDetail';
@@ -473,7 +473,7 @@ export async function buildAgentDetail(
 
   if (isDid) {
     did8004 = decodeURIComponent((agentIdentifier as string).trim());
-    const parsed = parse8004Did(did8004);
+    const parsed = parseDid8004(did8004);
     resolvedChainId = parsed.chainId;
     agentId = parsed.agentId;
     try {

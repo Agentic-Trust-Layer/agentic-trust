@@ -1,6 +1,6 @@
 const DID_8004_PREFIX = 'did:8004:';
 
-export interface Parsed8004Did {
+export interface ParsedDid8004 {
   /**
    * DID without any URL fragment (decoded form)
    * e.g. did:8004:eip155:11155111:724
@@ -32,7 +32,10 @@ export interface Parsed8004Did {
   encoded: string;
 }
 
-export interface Build8004DidOptions {
+
+
+
+export interface BuildDid8004Options {
   namespace?: string;
   fragment?: string;
   /**
@@ -63,14 +66,14 @@ function encodeIfNeeded(value: string, encode: boolean | undefined): string {
  * @param namespaceOrOptions - optional namespace string or options bag
  * @param options - optional options when namespace is provided as third argument
  */
-export function build8004Did(
+export function buildDid8004(
   chainId: number | string,
   agentId: number | string,
-  namespaceOrOptions?: string | Build8004DidOptions,
-  options?: Build8004DidOptions,
+  namespaceOrOptions?: string | BuildDid8004Options,
+  options?: BuildDid8004Options,
 ): string {
   let namespace: string | undefined;
-  let opts: Build8004DidOptions | undefined;
+  let opts: BuildDid8004Options | undefined;
 
   if (typeof namespaceOrOptions === 'object' && namespaceOrOptions !== null) {
     opts = namespaceOrOptions;
@@ -101,7 +104,7 @@ export function build8004Did(
  * Accepts encoded or decoded strings and supports identifiers with or without
  * an intermediate namespace (e.g. did:8004:eip155:11155111:724).
  */
-export function parse8004Did(raw: string | undefined | null): Parsed8004Did {
+export function parseDid8004(raw: string | undefined | null): ParsedDid8004 {
   const encodedInput = (raw ?? '').toString().trim();
   if (!encodedInput) {
     throw new Error('Missing did:8004 identifier');
@@ -164,4 +167,37 @@ export function parse8004Did(raw: string | undefined | null): Parsed8004Did {
     encoded: encodeIfNeeded(baseDid + (fragment ? `#${fragment}` : ''), true),
   };
 }
+
+export function resolveDid8004(did: string): any {
+
+  console.info(`Resolving DID 222: ${did}`)
+
+  const parts = did.split(':').slice(1)
+  const [method, networkId, agentId] = parts
+
+  if (method !== 'contract') {
+    throw new Error(`Unsupported DID method: ${method}`)
+  }
+
+  if (!agentId) {
+    throw new Error(`Missing agentId in DID: ${did}`)
+  }
+
+  const controllerAddress = agentId.toLowerCase()
+
+  return {
+    '@context': ['https://www.w3.org/ns/did/v1'],
+    id: did,
+    verificationMethod: [
+      {
+        id: `${did}#controller`,
+        type: 'EcdsaSecp256k1RecoveryMethod2020',
+        controller: did,
+        agentId: `${controllerAddress}@eip155:${networkId}`,
+      },
+    ],
+    authentication: [`${did}#controller`],
+  }
+}
+
 

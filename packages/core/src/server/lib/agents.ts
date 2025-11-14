@@ -1,4 +1,4 @@
-import { parse8004Did } from '@agentic-trust/8004-ext-sdk';
+import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 
 async function getAccountNonce(accountClient: any): Promise<bigint | undefined> {
   if (typeof accountClient?.getNonce === 'function') {
@@ -216,8 +216,8 @@ export class AgentsAPI {
     return new Agent(agentData, this.client);
   }
 
-  async getAgentByDid(erc8004Did: string): Promise<Agent | null> {
-    const { agentId, chainId } = parse8004Did(erc8004Did);
+  async getAgentByDid(did8004: string): Promise<Agent | null> {
+    const { agentId, chainId } = parseDid8004(did8004);
     return this.getAgent(agentId, chainId);
   }
 
@@ -234,8 +234,8 @@ export class AgentsAPI {
     }
   }
 
-  async getAgentFromDiscoveryByDid(erc8004Did: string): Promise<AgentData | null> {
-    const { agentId, chainId } = parse8004Did(erc8004Did);
+  async getAgentFromDiscoveryByDid(did8004: string): Promise<AgentData | null> {
+    const { agentId, chainId } = parseDid8004(did8004);
     return this.getAgentFromDiscovery(chainId, agentId);
   }
 
@@ -255,7 +255,7 @@ export class AgentsAPI {
   }
 
   async refreshAgentByDid(agentDid: string): Promise<any> {
-    const { agentId, chainId } = parse8004Did(agentDid);
+    const { agentId, chainId } = parseDid8004(agentDid);
     return this.refreshAgent(agentId, chainId);
   }
 
@@ -1578,7 +1578,7 @@ export class AgentsAPI {
         chainId?: number;
       } = {},
     ): Promise<{ txHash: string }> => {
-      const { agentId, chainId } = parse8004Did(agentDid);
+      const { agentId, chainId } = parseDid8004(agentDid);
       return this.admin.updateAgent({
         agentId,
         chainId: params.chainId ?? chainId,
@@ -1633,7 +1633,7 @@ export class AgentsAPI {
       agentDid: string,
       options: { chainId?: number } = {},
     ): Promise<{ txHash: string }> => {
-      const { agentId, chainId } = parse8004Did(agentDid);
+      const { agentId, chainId } = parseDid8004(agentDid);
       return this.admin.deleteAgent({
         agentId,
         chainId: options.chainId ?? chainId,
@@ -1686,7 +1686,7 @@ export class AgentsAPI {
       agentDid: string,
       params: { to: `0x${string}`; chainId?: number },
     ): Promise<{ txHash: string }> => {
-      const { agentId, chainId } = parse8004Did(agentDid);
+      const { agentId, chainId } = parseDid8004(agentDid);
       return this.admin.transferAgent({
         agentId,
         chainId: params.chainId ?? chainId,

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/client';
+import { getAdminClient } from '@/lib/server/adminClient';
 import type { DiscoverParams } from '@agentic-trust/core/server';
 import { discoverAgents, type DiscoverRequest } from '@agentic-trust/core/server';
 

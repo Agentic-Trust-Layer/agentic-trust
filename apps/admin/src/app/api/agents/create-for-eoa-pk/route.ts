@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAdminClient } from '@/lib/client';
+import { getAdminClient } from '@/lib/server/adminClient';
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 

@@ -83,9 +83,11 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
         // For Web3Auth, we can get the private key from the provider
         // Note: This is only available server-side or through Web3Auth's SDK
         // We'll use the provider to get the address first
-        const accounts = await provider.request({ method: 'eth_accounts' });
-        if (accounts && accounts.length > 0) {
-          setAddress(accounts[0]);
+        const accounts = (await provider.request({
+          method: 'eth_accounts',
+        })) as string[] | undefined;
+        if (Array.isArray(accounts) && accounts.length > 0) {
+          setAddress(accounts[0] as string);
         }
 
         // Get private key from Web3Auth

@@ -10,14 +10,14 @@ vi.mock('@agentic-trust/core/server', () => ({
   isENSNameAvailable: vi.fn(),
 }));
 
-vi.mock('../_lib/ensDid', () => ({
+vi.mock('../_lib/didEns', () => ({
   parseDidEns: vi.fn(),
 }));
 
 // Import the route AFTER mocks are set up
 import { GET } from '../[did:ens]/route';
 import { isENSNameAvailable } from '@agentic-trust/core/server';
-import { parseDidEns } from '../_lib/ensDid';
+import { parseDidEns } from '../_lib/didEns';
 
 describe('GET /api/names/[did:ens]', () => {
   beforeEach(() => {

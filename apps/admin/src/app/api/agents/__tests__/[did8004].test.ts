@@ -40,7 +40,7 @@ vi.mock('@agentic-trust/core/server', () => ({
   })),
 }));
 
-vi.mock('../../../../lib/client', () => ({
+vi.mock('../../../../lib/server/client', () => ({
   getAdminClient: vi.fn(() => Promise.resolve({
     agents: {
       getAgentFromDiscovery: vi.fn().mockResolvedValue(null),
@@ -55,7 +55,7 @@ import { GET } from '../[did:8004]/route';
 import { parseDid8004 } from '@agentic-trust/core';
 import { getIdentityClient } from '@agentic-trust/core/server';
 import { getIPFSStorage } from '@agentic-trust/core';
-import { getAdminClient } from '../../../../lib/client';
+import { getAdminClient } from '../../../../lib/server/client';
 
 describe('GET /api/agents/[did:8004]', () => {
   beforeEach(() => {
@@ -67,8 +67,8 @@ describe('GET /api/agents/[did:8004]', () => {
   });
 
   it('should return 400 for invalid 8004 DID', async () => {
-    const mockParse8004Did = vi.mocked(parseDid8004);
-    mockParse8004Did.mockImplementation(() => {
+    const mockParseDid800 = vi.mocked(parseDid8004);
+    mockParseDid8004.mockImplementation(() => {
       throw new Error('Invalid 8004 DID format');
     });
 
@@ -87,8 +87,8 @@ describe('GET /api/agents/[did:8004]', () => {
 
   it('should return agent record for valid 8004 DID with real data', async () => {
     // Set up mocks for this test
-    const mockParse8004Did = vi.mocked(parseDid8004);
-    mockParse8004Did.mockReturnValue({
+    const mockParseDid8004 = vi.mocked(parseDid8004);
+    mockParseDid8004.mockReturnValue({
       did: `did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`,
       method: '8004',
       namespace: undefined,
@@ -216,8 +216,8 @@ describe('GET /api/agents/[did:8004]', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const mockParse8004Did = vi.mocked(parseDid8004);
-      mockParse8004Did.mockReturnValue({
+      const mockParseDid8004 = vi.mocked(parseDid8004);
+      mockParseDid8004.mockReturnValue({
         did: 'did:8004:11155111:123',
         method: '8004',
         namespace: undefined,

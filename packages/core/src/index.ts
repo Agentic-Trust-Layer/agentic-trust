@@ -53,6 +53,20 @@ export {
   type BuildDidEthrOptions,
 } from './shared/didEthr';
 
+// Chain / Web3Auth config helpers (safe for both client and server)
+export {
+  DEFAULT_CHAIN_ID,
+  getChainRpcUrl,
+  getChainBundlerUrl,
+  isPrivateKeyMode,
+  getEnsOrgName,
+  getWeb3AuthClientId,
+  getWeb3AuthNetwork,
+  getChainDisplayMetadata,
+  getWeb3AuthChainSettings,
+  getChainIdHex,
+} from './server/lib/chainConfig';
+
 // Legacy export for backward compatibility (deprecated - use ViemAccountProvider instead)
 export { ViemAdapter } from '@agentic-trust/8004-sdk';
 
@@ -76,39 +90,10 @@ export type {
   MessageResponse,
 } from './server/lib/agent';
 
-export type {
-  AgentProvider,
-  A2ARequest,
-  A2AResponse,
-  ProviderEndpoint,
-} from './server/lib/a2aProtocolProvider';
-
-export type {
-  VeramoAgent,
-  AuthChallenge,
-  ChallengeVerificationResult,
-} from './server/lib/veramo';
-
-export type {
-  Challenge,
-  ChallengeRequest,
-  SignedChallenge,
-  VerificationRequest,
-  VerificationResult,
-} from './server/lib/verification';
 
 export type { ApiClientConfig } from './server/lib/types';
 
-// Export IPFS storage
-export {
-  createIPFSStorage,
-  getIPFSStorage,
-  isIPFSStorageInitialized,
-  resetIPFSStorage,
-  type IPFSStorage,
-  type IPFSConfig,
-  type UploadResult,
-} from './storage/ipfs';
+
 
 // Note: Server-only functionality is exported from '@agentic-trust/core/server'
 

@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/8004-ext-sdk",
-  "version": "1.0.7",
+  "version": "1.0.11",
   "description": "ERC-8004 Agentic Trust SDK - A TypeScript SDK for managing AI agents with ENS integration, identity management, and reputation systems",
   "type": "module",
   "main": "./dist/index.js",
@@ -11,9 +11,9 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     },
-    "./utils/erc8004Did": {
-      "import": "./dist/utils/erc8004Did.js",
-      "types": "./dist/utils/erc8004Did.d.ts"
+    "./utils/did8004": {
+      "import": "./dist/utils/did8004.js",
+      "types": "./dist/utils/did8004.d.ts"
     },
     "./package.json": "./package.json",
     "./abis/*.json": {

@@ -6,10 +6,12 @@
  */
 
 // Types for Web3Auth (not imported at module level to prevent SSR execution)
-type Web3Auth = any;
-type WALLET_ADAPTERS = any;
+import { WALLET_ADAPTERS } from '@web3auth/base';
+import { Web3Auth } from '@web3auth/modal';
 
-import { getWeb3AuthClientId, getChainRpcUrl, getWeb3AuthChainSettings } from '@agentic-trust/core/server';
+
+
+import { getWeb3AuthClientId, getChainRpcUrl, getWeb3AuthChainSettings } from '@agentic-trust/core';
 
 // Lazy-loaded Web3Auth instance (client-side only)
 let web3AuthInstance: Web3Auth | null = null;
@@ -159,19 +161,20 @@ async function ensureInitialized(): Promise<void> {
   
   // Get Web3Auth instance and verify it's ready
   const web3Auth = await getWeb3Auth();
+  const web3AuthAny = web3Auth as any;
   
   // Check if Web3Auth has a ready property (Web3Auth v8)
   // If not, we'll rely on the delay in initWeb3Auth
-  if (typeof web3Auth.ready !== 'undefined') {
+  if (typeof web3AuthAny.ready !== 'undefined') {
     // Poll for ready state with timeout
     let attempts = 0;
     const maxAttempts = 30; // 3 seconds total (30 * 100ms)
-    while (!web3Auth.ready && attempts < maxAttempts) {
+    while (!web3AuthAny.ready && attempts < maxAttempts) {
       await new Promise(resolve => setTimeout(resolve, 100));
       attempts++;
     }
     
-    if (!web3Auth.ready) {
+    if (!web3AuthAny.ready) {
       throw new Error('Web3Auth is not ready. Please wait and try again.');
     }
   }
@@ -188,7 +191,7 @@ export async function loginWithSocial(provider: 'google' | 'facebook' | 'twitter
   // Ensure Web3Auth is fully initialized before connecting
   await ensureInitialized();
   
-  const { WALLET_ADAPTERS } = await import('@web3auth/base');
+
   const web3Auth = await getWeb3Auth();
   
   try {

@@ -5,7 +5,7 @@
  * Stored on IPFS and referenced via Identity Token tokenURI
  */
 
-import { getIPFSStorage, type IPFSStorage } from '../../storage/ipfs';
+import { getIPFSStorage, type IPFSStorage } from './ipfs';
 import type { AgentRegistrationInfo } from '../models/agentRegistrationInfo';
 
 /**

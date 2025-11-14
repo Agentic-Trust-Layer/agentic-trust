@@ -177,6 +177,17 @@ export {
   type SupportedChainId,
 } from './lib/chainConfig';
 
+// Export IPFS storage (server-backed implementation)
+export {
+  createIPFSStorage,
+  getIPFSStorage,
+  isIPFSStorageInitialized,
+  resetIPFSStorage,
+  type IPFSStorage,
+  type IPFSConfig,
+  type UploadResult,
+} from './lib/ipfs';
+
 export {
   addToL1OrgPK,
   setL1NameInfoPK,
@@ -192,6 +203,25 @@ export {
   validateSessionPackage,
   buildDelegationSetup,
 } from './lib/sessionPackage';
+
+
+
+export type {
+  AgentProvider,
+  A2ARequest,
+  A2AResponse,
+  ProviderEndpoint,
+} from './lib/a2aProtocolProvider';
+
+
+
+export type {
+  Challenge,
+  ChallengeRequest,
+  SignedChallenge,
+  VerificationRequest,
+  VerificationResult,
+} from './lib/verification';
 
 // AA utilities that rely on server-side contexts
 export { buildAgentAccountFromSession } from './lib/sessionPackage';
