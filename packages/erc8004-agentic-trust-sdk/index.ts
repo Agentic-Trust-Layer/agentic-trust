@@ -48,3 +48,18 @@ export {
   type Parsed8004Did,
   type Build8004DidOptions,
 } from './utils/erc8004Did';
+
+export {
+  buildEnsDid,
+  buildEnsDidFromAgentAndOrg,
+  parseEnsDid,
+  type ParsedEnsDid,
+  type BuildEnsDidOptions,
+} from './utils/ensDid';
+
+export {
+  buildEthrDid,
+  parseEthrDid,
+  type ParsedEthrDid,
+  type BuildEthrDidOptions,
+} from './utils/ethrDid';

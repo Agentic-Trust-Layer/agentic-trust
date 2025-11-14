@@ -14,7 +14,7 @@ import { shouldSkipIntegrationTests, hasRequiredEnvVars } from '../../../../../v
 import { createMockRequest, createMockParamsAsync, assertJsonResponse } from '../../__tests__/helpers';
 import { GET } from '../[did:ens]/route';
 import { TEST_AGENT_NAME, TEST_CHAIN_ID } from '../../__tests__/test-data';
-import { buildEnsDid } from '../_lib/ensDid';
+import { buildDidEns } from '../_lib/ensDid';
 
 const skip = shouldSkipIntegrationTests();
 
@@ -27,7 +27,7 @@ describe.skipIf(skip)('GET /api/names/[did:ens] (Integration)', () => {
 
   it('should check ENS availability for existing name', async () => {
     // Check availability for a known existing name
-    const encodedDid = buildEnsDid(TEST_CHAIN_ID, TEST_AGENT_NAME);
+    const encodedDid = buildDidEns(TEST_CHAIN_ID, TEST_AGENT_NAME);
     const request = createMockRequest(`http://test.example/api/names/${encodedDid}`);
     const params = createMockParamsAsync({ 'did:ens': encodedDid });
 
@@ -44,7 +44,7 @@ describe.skipIf(skip)('GET /api/names/[did:ens] (Integration)', () => {
   it('should check ENS availability for non-existent name', async () => {
     // Use a name that definitely doesn't exist
     const nonExistentName = `test-${Date.now()}-${Math.random().toString(36).substring(7)}.8004-agent.eth`;
-    const encodedDid = buildEnsDid(TEST_CHAIN_ID, nonExistentName);
+    const encodedDid = buildDidEns(TEST_CHAIN_ID, nonExistentName);
     const request = createMockRequest(`http://test.example/api/names/${encodedDid}`);
     const params = createMockParamsAsync({ 'did:ens': encodedDid });
 

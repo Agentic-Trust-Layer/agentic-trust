@@ -4,7 +4,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentTrustClient } from '@/lib/server-client';
-import { parse8004Did } from '@agentic-trust/core';
+import { parseDid8004 } from '@agentic-trust/core';
 
 export async function POST(
   request: NextRequest,
@@ -13,7 +13,7 @@ export async function POST(
   try {
     let parsed;
     try {
-      parsed = parse8004Did(params['did:8004']);
+      parsed = parseDid8004(params['did:8004']);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';

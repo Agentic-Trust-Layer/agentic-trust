@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import { parse8004Did } from '@agentic-trust/core';
+import { parseDid8004 } from '@agentic-trust/core';
 
 export async function DELETE(
   request: NextRequest,
@@ -13,7 +13,7 @@ export async function DELETE(
       typeof adminAgents.deleteAgentByDid === 'function'
         ? adminAgents.deleteAgentByDid.bind(adminAgents)
         : async (did: string) => {
-            const parsed = parse8004Did(did);
+            const parsed = parseDid8004(did);
             return client.agents.admin.deleteAgent({
               agentId: parsed.agentId,
               chainId: parsed.chainId,

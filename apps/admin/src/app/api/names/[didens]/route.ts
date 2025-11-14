@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isENSNameAvailable } from '@agentic-trust/core/server';
-import { parseEnsDid } from '../_lib/ensDid';
+import { parseDidEns } from '../_lib/ensDid';
 
 export async function GET(
   request: NextRequest,
@@ -9,7 +9,7 @@ export async function GET(
   try {
     let parsed;
     try {
-      parsed = parseEnsDid((await params)['did:ens']);
+      parsed = parseDidEns((await params)['did:ens']);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid ENS DID';

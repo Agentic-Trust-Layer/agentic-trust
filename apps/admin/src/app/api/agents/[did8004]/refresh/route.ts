@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import { build8004Did, parse8004Did } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
 
 export async function POST(
   request: NextRequest,
@@ -10,7 +10,7 @@ export async function POST(
     let parsed;
     const didParam = params['did:8004'];
     try {
-      parsed = parse8004Did(didParam);
+      parsed = parseDid8004(didParam);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
@@ -38,12 +38,12 @@ export async function POST(
     const effectiveDid =
       chainIdToUse === parsed.chainId
         ? didParam
-        : build8004Did(chainIdToUse, parsed.agentId);
+        : buildDid8004(chainIdToUse, parsed.agentId);
     const refreshFn =
       typeof (client.agents as any).refreshAgentByDid === 'function'
         ? (client.agents as any).refreshAgentByDid.bind(client.agents)
         : async (did: string) => {
-            const { agentId, chainId } = parse8004Did(did);
+            const { agentId, chainId } = parseDid8004(did);
             return client.agents.refreshAgent(agentId, chainId);
           };
 

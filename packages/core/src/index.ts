@@ -31,11 +31,27 @@ export {
 } from '@agentic-trust/8004-sdk';
 
 export {
-  build8004Did,
-  parse8004Did,
-  type Build8004DidOptions,
-  type Parsed8004Did,
-} from '@agentic-trust/8004-ext-sdk';
+  // Preferred Did-then-method names only
+  buildDid8004,
+  parseDid8004,
+  type BuildDid8004Options,
+  type ParsedDid8004,
+} from './shared/did8004';
+
+export {
+  buildDidEns,
+  buildDidEnsFromAgentAndOrg,
+  parseDidEns,
+  type ParsedDidEns,
+  type BuildDidEnsOptions,
+} from './shared/didEns';
+
+export {
+  buildDidEthr,
+  parseDidEthr,
+  type ParsedDidEthr,
+  type BuildDidEthrOptions,
+} from './shared/didEthr';
 
 // Legacy export for backward compatibility (deprecated - use ViemAccountProvider instead)
 export { ViemAdapter } from '@agentic-trust/8004-sdk';

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminClient } from '@/lib/client';
-import { parse8004Did } from '@agentic-trust/core';
+import { parseDid8004 } from '@agentic-trust/core';
 
 export async function PUT(
   request: NextRequest,
@@ -10,7 +10,7 @@ export async function PUT(
     const agentDid = params['did:8004'];
     let parsed;
     try {
-      parsed = parse8004Did(agentDid);
+      parsed = parseDid8004(agentDid);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
@@ -39,7 +39,7 @@ export async function PUT(
       typeof adminAgents.updateAgentByDid === 'function'
         ? adminAgents.updateAgentByDid.bind(adminAgents)
         : (async (did: string, options: { chainId: number; tokenURI?: string; metadata?: Array<{ key: string; value: string }> }) => {
-            const parsedDid = parse8004Did(did);
+            const parsedDid = parseDid8004(did);
             return client.agents.admin.updateAgent({
               agentId: parsedDid.agentId,
               chainId: options.chainId,

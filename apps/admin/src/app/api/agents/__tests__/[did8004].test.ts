@@ -21,7 +21,7 @@ import {
 
 // Mock dependencies BEFORE importing the route
 vi.mock('@agentic-trust/core', () => ({
-  parse8004Did: vi.fn(),
+  parseDid8004: vi.fn(),
 }));
 
 // Mock core dependencies
@@ -52,7 +52,7 @@ vi.mock('../../../../lib/client', () => ({
 
 // Import the route AFTER mocks are set up
 import { GET } from '../[did:8004]/route';
-import { parse8004Did } from '@agentic-trust/core';
+import { parseDid8004 } from '@agentic-trust/core';
 import { getIdentityClient } from '@agentic-trust/core/server';
 import { getIPFSStorage } from '@agentic-trust/core';
 import { getAdminClient } from '../../../../lib/client';
@@ -67,7 +67,7 @@ describe('GET /api/agents/[did:8004]', () => {
   });
 
   it('should return 400 for invalid 8004 DID', async () => {
-    const mockParse8004Did = vi.mocked(parse8004Did);
+    const mockParse8004Did = vi.mocked(parseDid8004);
     mockParse8004Did.mockImplementation(() => {
       throw new Error('Invalid 8004 DID format');
     });
@@ -87,7 +87,7 @@ describe('GET /api/agents/[did:8004]', () => {
 
   it('should return agent record for valid 8004 DID with real data', async () => {
     // Set up mocks for this test
-    const mockParse8004Did = vi.mocked(parse8004Did);
+    const mockParse8004Did = vi.mocked(parseDid8004);
     mockParse8004Did.mockReturnValue({
       did: `did:8004:${TEST_CHAIN_ID}:${TEST_AGENT_ID}`,
       method: '8004',
@@ -216,7 +216,7 @@ describe('GET /api/agents/[did:8004]', () => {
     const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
-      const mockParse8004Did = vi.mocked(parse8004Did);
+      const mockParse8004Did = vi.mocked(parseDid8004);
       mockParse8004Did.mockReturnValue({
         did: 'did:8004:11155111:123',
         method: '8004',

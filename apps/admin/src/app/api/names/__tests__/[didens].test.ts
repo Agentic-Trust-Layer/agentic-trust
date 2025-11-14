@@ -11,13 +11,13 @@ vi.mock('@agentic-trust/core/server', () => ({
 }));
 
 vi.mock('../_lib/ensDid', () => ({
-  parseEnsDid: vi.fn(),
+  parseDidEns: vi.fn(),
 }));
 
 // Import the route AFTER mocks are set up
 import { GET } from '../[did:ens]/route';
 import { isENSNameAvailable } from '@agentic-trust/core/server';
-import { parseEnsDid } from '../_lib/ensDid';
+import { parseDidEns } from '../_lib/ensDid';
 
 describe('GET /api/names/[did:ens]', () => {
   beforeEach(() => {
@@ -25,7 +25,7 @@ describe('GET /api/names/[did:ens]', () => {
   });
 
   it('should return 400 for invalid ENS DID', async () => {
-    const mockParseEnsDid = vi.mocked(parseEnsDid);
+    const mockParseEnsDid = vi.mocked(parseDidEns);
     mockParseEnsDid.mockImplementation(() => {
       throw new Error('Invalid ENS DID format');
     });
@@ -43,7 +43,7 @@ describe('GET /api/names/[did:ens]', () => {
   });
 
   it('should return 400 for ENS DID without .eth suffix', async () => {
-    const mockParseEnsDid = vi.mocked(parseEnsDid);
+    const mockParseEnsDid = vi.mocked(parseDidEns);
     mockParseEnsDid.mockImplementation(() => {
       throw new Error('Invalid ENS name in ENS DID: did:ens:11155111:test-agent.8004-agent. ENS name must end with .eth');
     });
@@ -65,7 +65,7 @@ describe('GET /api/names/[did:ens]', () => {
     const mockEnsName = 'test-agent.8004-agent.eth';
     const mockChainId = 11155111;
 
-    const mockParseEnsDid = vi.mocked(parseEnsDid);
+    const mockParseEnsDid = vi.mocked(parseDidEns);
     mockParseEnsDid.mockReturnValue({
       ensName: mockEnsName,
       chainId: mockChainId,
@@ -91,7 +91,7 @@ describe('GET /api/names/[did:ens]', () => {
     const mockEnsName = 'taken-name.8004-agent.eth';
     const mockChainId = 11155111;
 
-    const mockParseEnsDid = vi.mocked(parseEnsDid);
+    const mockParseEnsDid = vi.mocked(parseDidEns);
     mockParseEnsDid.mockReturnValue({
       ensName: mockEnsName,
       chainId: mockChainId,
@@ -121,7 +121,7 @@ describe('GET /api/names/[did:ens]', () => {
       const mockEnsName = 'test-agent.8004-agent.eth';
       const mockChainId = 11155111;
 
-      const mockParseEnsDid = vi.mocked(parseEnsDid);
+      const mockParseEnsDid = vi.mocked(parseDidEns);
       mockParseEnsDid.mockReturnValue({
         ensName: mockEnsName,
         chainId: mockChainId,
