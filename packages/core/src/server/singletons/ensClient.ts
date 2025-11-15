@@ -16,7 +16,7 @@ import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
-import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 
 // Singleton instances by chainId
 let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
@@ -380,9 +380,6 @@ export async function createENSName(
       paymasterContext: { mode: 'SPONSORED' },
     } as any);
                 
-    const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
-      feature: 'ENS client L1 org registration',
-    });
 
     const orgAccountClient = await toMetaMaskSmartAccount({
       address: orgOwnerAddress as `0x${string}`,
@@ -579,15 +576,13 @@ export async function addAgentNameToL1Org(params: AddAgentToOrgL2Params): Promis
           transport: http(rpcUrl),
         });
 
-        const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
-          feature: 'ENS client L1 org submission',
-        });
+
 
         const orgAccountClient = await toMetaMaskSmartAccount({
           address: orgAddress as `0x${string}`,
           client: publicClient,
           implementation: Implementation.Hybrid,
-          signatory: { walletClient: walletClient as any },
+          signer: { walletClient: walletClient as any },
         } as any);
 
         const pimlicoClient = createPimlicoClient({ transport: http(bundlerUrl) } as any);

@@ -9,7 +9,7 @@
  */
 
 import { keccak256, stringToHex, createPublicClient, http, type PublicClient } from 'viem';
-import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
 import { getIdentityClient } from '../singletons/identityClient';
 import { getENSClient } from '../singletons/ensClient';
 import { getDiscoveryClient } from '../singletons/discoveryClient';
@@ -349,9 +349,6 @@ export async function getCounterfactualAAAddressByAgentName(
     ? { walletClient: adminApp.walletClient as any }
     : { account: adminApp.account! }; // Non-null assertion is safe because we check above
 
-  const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
-    feature: 'Admin counterfactual AA address computation',
-  });
 
   const clientConfig: Record<string, unknown> = {
     client: publicClient,

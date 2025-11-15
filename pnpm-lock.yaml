@@ -316,7 +316,7 @@ importers:
         specifier: ^3.0.0
         version: 3.7.0(typescript@5.9.3)(viem@2.39.0)
       '@metamask/delegation-toolkit':
-        specifier: '*'
+        specifier: ^0.13.0
         version: 0.13.0(viem@2.39.0)
       '@veramo/core':
         specifier: ^6.0.0

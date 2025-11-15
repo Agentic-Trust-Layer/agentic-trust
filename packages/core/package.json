@@ -34,6 +34,7 @@
     "@ensdomains/ensjs": "^3.0.0",
     "@agentic-trust/8004-ext-sdk": "workspace:*",
     "@agentic-trust/8004-sdk": "workspace:*",
+    "@metamask/delegation-toolkit": "^0.13.0",
     "@veramo/did-manager": "^6.0.0",
     "@veramo/did-provider-ethr": "^6.0.0",
     "@veramo/did-resolver": "^6.0.0",
@@ -49,13 +50,7 @@
     "web3.storage": "^4.5.5"
   },
   "peerDependencies": {
-    "@metamask/delegation-toolkit": "*",
     "@veramo/core": "^6.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@metamask/delegation-toolkit": {
-      "optional": true
-    }
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

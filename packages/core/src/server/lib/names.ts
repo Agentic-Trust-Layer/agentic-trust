@@ -15,7 +15,7 @@ import {
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
 } from '../../client/accountClient';
-import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
 
 export type AddToL1OrgPKParams = {
   orgName: string;
@@ -84,9 +84,7 @@ async function executeEnsCallsWithOrgPK(params: { calls: { to: `0x${string}`; da
     transport: http(rpcUrl),
   });
 
-  const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
-    feature: 'ENS name management',
-  });
+
 
   const orgAccountClient = await toMetaMaskSmartAccount({
     address: orgAddress as `0x${string}`,
