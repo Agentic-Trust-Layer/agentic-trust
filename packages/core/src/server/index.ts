@@ -80,6 +80,7 @@ export {
   getAdminAddress,
   isAdminAppInitialized,
   resetAdminApp,
+  hasAdminPrivateKey,
 } from './userApps/adminApp';
 
 export {

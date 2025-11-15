@@ -27,7 +27,7 @@ vi.mock('@agentic-trust/core/server', async () => {
   return {
     ...actual,
     getCounterfactualAAAddressByAgentName: async (agentName: string, chainId?: number) => {
-      const key = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY || '0x0';
+      const key = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY ||  '0x0';
       const normalized = key.startsWith('0x') ? key : `0x${key}`;
       const owner = privateKeyToAccount(normalized as `0x${string}`).address;
       const data = `${agentName}:${chainId ?? 11155111}:${owner}`;
@@ -46,7 +46,7 @@ import { TEST_CHAIN_ID, TEST_AGENT_NAME } from '../../__tests__/test-data';
 const skip = shouldSkipIntegrationTests();
 
 async function ensureAdminAppInitialized(): Promise<void> {
-  const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+  const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
   if (!privateKey) {
     throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set in process.env. Check vitest.integration.config.ts to ensure .env is loaded.');
   }

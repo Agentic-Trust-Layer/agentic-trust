@@ -313,7 +313,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   useEffect(() => {
     if (!useAA) {
       setAaAddress(null);
-      setCreateForm(prev => ({ ...prev, agentAccount: '' }));
       return;
     }
     

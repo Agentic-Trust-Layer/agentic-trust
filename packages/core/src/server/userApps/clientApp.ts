@@ -39,12 +39,12 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
   // Start initialization
   initializationPromise = (async () => {
     try {
-      const privateKey = process.env.AGENTIC_TRUST_PRIVATE_KEY;
+      const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
       const { getChainRpcUrl, DEFAULT_CHAIN_ID } = await import('../lib/chainConfig');
       const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
       if (!privateKey) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_PRIVATE_KEY');
+        throw new Error('Missing required environment variable: AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
       }
 
       if (!rpcUrl) {

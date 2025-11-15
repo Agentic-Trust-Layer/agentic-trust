@@ -26,6 +26,17 @@ const adminAppInstances = new Map<string, AdminAppInstance>();
 const initializationPromises = new Map<string, Promise<AdminAppInstance>>();
 
 /**
+ * Check if the dedicated admin private key is configured in environment.
+ *
+ * This checks AGENTIC_TRUST_ADMIN_PRIVATE_KEY only. It does not consider
+ * session-provided keys or AGENTIC_TRUST_ADMIN_PRIVATE_KEY.
+ */
+export function hasAdminPrivateKey(): boolean {
+  const value = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/**
  * Get or create the AdminApp instance for a specific private key
  * Initializes from private key in cookies (Web3Auth/wallet) or environment variables
  * 
@@ -34,6 +45,8 @@ const initializationPromises = new Map<string, Promise<AdminAppInstance>>();
 export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT_CHAIN_ID): Promise<AdminAppInstance | undefined> {
   // Resolve the private key first
   let resolvedPrivateKey: string | undefined = privateKey;
+
+  let walletAddress: string | undefined;
 
 
   if (!resolvedPrivateKey) {
@@ -53,20 +66,19 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
       // If cookies() fails (e.g., not in Next.js context), fall back to environment variable
       // This is expected in non-Next.js contexts
     }
-    console.log('______________ resolvedPrivateKey after cookies: ', resolvedPrivateKey);
     
     // Fall back to environment variable if no session key
     if (!resolvedPrivateKey) {
       // Check environment variables directly
-      const envPrivateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
-      console.log('______________ envPrivateKey check: ', envPrivateKey ? `SET (length: ${envPrivateKey.length})` : 'NOT SET');
+      const envPrivateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
       resolvedPrivateKey = envPrivateKey;
     }
-    console.log('______________ resolvedPrivateKey FINAL: ', resolvedPrivateKey ? `SET (length: ${resolvedPrivateKey.length})` : 'NOT SET');
   }
+  
+
 
   // Check if we have a wallet address from MetaMask (no private key available)
-  let walletAddress: string | undefined;
+  
   if (!resolvedPrivateKey) {
     // Try to get wallet address from session (for MetaMask)
     try {
@@ -95,6 +107,7 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
     // (prepare transactions, encode calldata, etc.) but not sign/send transactions
     // This is handled by checking hasPrivateKey before attempting to sign
   }
+
   
   // Determine instance key - use wallet address if available, otherwise use private key address
   let instanceKeyBase: string;
@@ -161,7 +174,9 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
       let account: Account | undefined;
       let walletClient: WalletClient | undefined;
       let address: `0x${string}`;
-      const hasPrivateKey = !!resolvedPrivateKey;
+      // hasPrivateKey reflects strictly whether the dedicated admin private
+      // key env var is present, not whether a session/cookie key exists.
+      const hasPrivateKey = hasAdminPrivateKey();
 
       if (resolvedPrivateKey) {
         // Create wallet client and account from private key

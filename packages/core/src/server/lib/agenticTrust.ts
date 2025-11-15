@@ -12,7 +12,7 @@ import { getChainRpcUrl, DEFAULT_CHAIN_ID } from './chainConfig';
  * Create an AgenticTrustClient using environment configuration.
  *
  * - Uses AGENTIC_TRUST_DISCOVERY_URL and AGENTIC_TRUST_DISCOVERY_API_KEY for GraphQL.
- * - Uses AGENTIC_TRUST_ADMIN_PRIVATE_KEY or AGENTIC_TRUST_PRIVATE_KEY for signing.
+ * - Uses AGENTIC_TRUST_ADMIN_PRIVATE_KEY for signing.
  * - Derives RPC URL, identity registry, and reputation registry from chain config helpers.
  * - Optionally wires a session package when AGENTIC_TRUST_SESSION_PACKAGE_PATH and
  *   AGENTIC_TRUST_ENS_REGISTRY are configured.
@@ -23,8 +23,7 @@ export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
     const apiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
 
     const privateKey =
-      process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY ||
-      process.env.AGENTIC_TRUST_PRIVATE_KEY;
+      process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
 
     const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 

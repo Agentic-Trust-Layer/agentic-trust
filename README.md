@@ -174,7 +174,7 @@ export async function getServerClient(): Promise<AgenticTrustClient> {
     serverClient = await AgenticTrustClient.create({
       graphQLUrl: process.env.AGENTIC_TRUST_DISCOVERY_URL!,
       apiKey: process.env.AGENTIC_TRUST_DISCOVERY_API_KEY,
-      privateKey: process.env.AGENTIC_TRUST_PRIVATE_KEY,
+      privateKey: process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY,
       rpcUrl: process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA,
     });
   }
@@ -187,7 +187,7 @@ export async function getServerClient(): Promise<AgenticTrustClient> {
 **Client App (web):**
 ```bash
 AGENTIC_TRUST_IS_CLIENT_APP=true
-AGENTIC_TRUST_PRIVATE_KEY=0x...
+AGENTIC_TRUST_ADMIN_PRIVATE_KEY=0x...
 # Chain-specific RPC URLs (required)
 AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
 AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA=https://sepolia.base.org

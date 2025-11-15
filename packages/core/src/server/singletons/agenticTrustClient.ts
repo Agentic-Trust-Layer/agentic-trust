@@ -41,7 +41,7 @@ export class AgenticTrustClient {
    * @throws Error if AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set or invalid
    */
   async getAdminEOAAddress(): Promise<`0x${string}`> {
-    const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.AGENTIC_TRUST_PRIVATE_KEY;
+    const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
 
     if (!privateKey) {
       throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY environment variable is required');
@@ -378,7 +378,7 @@ export class AgenticTrustClient {
         'Cannot initialize reputation client: No wallet available. ' +
         'Provide either:\n' +
         '  1. Wallet connection (MetaMask/Web3Auth) - AdminApp will be used\n' +
-        '  2. Private key via AGENTIC_TRUST_PRIVATE_KEY or config.privateKey\n' +
+        '  2. Private key via AGENTIC_TRUST_ADMIN_PRIVATE_KEY or config.privateKey\n' +
         '  3. ClientApp initialization (set AGENTIC_TRUST_IS_CLIENT_APP=true)'
       );
     }

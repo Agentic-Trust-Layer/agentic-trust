@@ -39,15 +39,8 @@ export async function POST(
       chainIdToUse === parsed.chainId
         ? didParam
         : buildDid8004(chainIdToUse, parsed.agentId);
-    const refreshFn =
-      typeof (client.agents as any).refreshAgentByDid === 'function'
-        ? (client.agents as any).refreshAgentByDid.bind(client.agents)
-        : async (did: string) => {
-            const { agentId, chainId } = parseDid8004(did);
-            return client.agents.refreshAgent(agentId, chainId);
-          };
 
-    const result = await refreshFn(effectiveDid);
+    const result = await client.agents.refreshAgentByDid(effectiveDid);
 
     return NextResponse.json({
       success: true,

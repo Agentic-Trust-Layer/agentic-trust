@@ -41,7 +41,7 @@ PORT=3001
 
 # Optional: Ethereum private key for Veramo agent DID
 # If not provided, a key will be generated for the session
-AGENTIC_TRUST_PRIVATE_KEY=0x...
+AGENTIC_TRUST_ADMIN_PRIVATE_KEY=0x...
 
 # Optional: Session Package Configuration
 # Path to session package file (for delegation-based authentication)

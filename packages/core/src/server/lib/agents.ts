@@ -75,6 +75,7 @@ import {
   isL1,
   getChainConfig,
 } from './chainConfig';
+import { parseEthrDid } from './accounts';
 import { uploadRegistration, createRegistrationJSON } from './agentRegistration';
 import { createPublicClient, http } from 'viem';
 import type { Address } from 'viem';
@@ -1683,14 +1684,25 @@ export class AgentsAPI {
     },
 
     transferAgentByDid: async (
-      agentDid: string,
-      params: { to: `0x${string}`; chainId?: number },
+      fromDid: string,
+      toDid: string,
     ): Promise<{ txHash: string }> => {
-      const { agentId, chainId } = parseDid8004(agentDid);
+      const { agentId, chainId } = parseDid8004(fromDid);
+
+      // For now we support toDid as did:ethr:... and derive the destination
+      // account from it. Other DID methods can be added later as needed.
+      if (!toDid.startsWith('did:ethr:')) {
+        throw new Error(
+          `Unsupported toDid format for transferAgentByDid: ${toDid}. Expected did:ethr:...`,
+        );
+      }
+
+      const { account } = parseEthrDid(toDid);
+
       return this.admin.transferAgent({
         agentId,
-        chainId: params.chainId ?? chainId,
-        to: params.to,
+        chainId,
+        to: account,
       });
     },
   };

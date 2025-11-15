@@ -40,24 +40,13 @@ export async function POST(
 
     const client = await getAgenticTrustClient();
 
-    // Transfer agent using admin API
-    const adminAgents = client.agents.admin as any;
-    const transferFn =
-      typeof adminAgents.transferAgentByDid === 'function'
-        ? adminAgents.transferAgentByDid.bind(adminAgents)
-        : async (agentDidParam: string, opts: { to: `0x${string}`; chainId: number }) => {
-            const parsedDid = parseDid8004(agentDidParam);
-            return client.agents.admin.transferAgent({
-              agentId: parsedDid.agentId,
-              chainId: opts.chainId,
-              to: opts.to,
-            });
-          };
-
-    const result = await transferFn(agentDid, {
-      chainId: parsed.chainId,
-      to: to as `0x${string}`,
-    });
+    // Transfer agent using admin API. We construct a did:ethr DID for
+    // the destination account so core can derive the target address.
+    const toDid = `did:ethr:${parsed.chainId}:${to}`;
+    const result = await client.agents.admin.transferAgentByDid(
+      agentDid,
+      toDid as string,
+    );
 
     return NextResponse.json({
       success: true,
