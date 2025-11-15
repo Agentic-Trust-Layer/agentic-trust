@@ -49,11 +49,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const res = await fetch('/api/admin/address', { method: 'GET' });
-        if (res.ok) {
-          setServerPrivateKeyMode(true);
+        if (!res.ok) {
+          setServerPrivateKeyMode(false);
+          return;
         }
+        const data = await res.json().catch(() => null);
+        setServerPrivateKeyMode(Boolean(data?.hasPrivateKey));
       } catch {
-        // ignore
+        setServerPrivateKeyMode(false);
       }
     })();
   }, []);

@@ -36,15 +36,6 @@ export {
   getCounterfactualAAAddressByAgentName,
 } from './accountClient';
 
-async function detectServerPrivateKeyMode(): Promise<boolean> {
-  try {
-    const res = await fetch('/api/admin/address', { method: 'GET' });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 function resolveEthereumProvider(providedProvider?: any): any {
   if (providedProvider) return providedProvider;
   if (typeof window !== 'undefined') {
@@ -762,13 +753,14 @@ export async function createAgentWithWalletForAA(
       onStatusUpdate?.(
         'Creating ENS subdomain for agent: ' + options.agentData.agentName
       );
-      const pkModeDetected =
-        (await detectServerPrivateKeyMode()) || isPrivateKeyMode();
+      const pkModeDetected = isPrivateKeyMode();
+
+      console.log("createAgentWithWalletForAA: pkModeDetected", pkModeDetected);
       const addEndpoint = pkModeDetected
         ? '/api/names/add-to-l1-org-pk'
         : '/api/names/add-to-l1-org';
       console.info(
-        `[ENS][L1] ${pkModeDetected ? 'PK mode detected' : 'Client mode'} - calling ${addEndpoint}`
+        `[ENS][L1] ${pkModeDetected ? 'PK mode detected 11111' : 'Client mode'} - calling ${addEndpoint}`
       );
       const ensResponse = await fetch(addEndpoint, {
         method: 'POST',
@@ -793,7 +785,7 @@ export async function createAgentWithWalletForAA(
         ? '/api/names/set-l1-name-info-pk'
         : '/api/names/set-l1-name-info';
       console.info(
-        `[ENS][L1] ${pkModeDetected ? 'PK mode detected' : 'Client mode'} - calling ${infoEndpoint}`
+        `[ENS][L1] ${pkModeDetected ? 'PK mode detected 22222' : 'Client mode'} - calling ${infoEndpoint}`
       );
       const infoResponse = await fetch(infoEndpoint, {
         method: 'POST',

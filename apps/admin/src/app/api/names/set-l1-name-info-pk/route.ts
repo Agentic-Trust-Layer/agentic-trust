@@ -33,7 +33,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       userOpHash,
-      receipt,
+      receipt: receipt
+        ? {
+            ...receipt,
+            gasUsed:
+              typeof receipt.gasUsed === 'bigint'
+                ? receipt.gasUsed.toString()
+                : receipt.gasUsed ?? null,
+            cumulativeGasUsed:
+              typeof receipt.cumulativeGasUsed === 'bigint'
+                ? receipt.cumulativeGasUsed.toString()
+                : receipt.cumulativeGasUsed ?? null,
+            effectiveGasPrice:
+              typeof receipt.effectiveGasPrice === 'bigint'
+                ? receipt.effectiveGasPrice.toString()
+                : receipt.effectiveGasPrice ?? null,
+          }
+        : null,
     });
   } catch (error) {
     console.error('Error in setL1NameInfoPK:', error);

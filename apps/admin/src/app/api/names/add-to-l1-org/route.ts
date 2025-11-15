@@ -7,6 +7,7 @@ import {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("addAgentNameToL1Org: ", request);
     const body = await request.json();
     const {
       agentAccount,
@@ -37,6 +38,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log("addAgentNameToL1Org: isDelegationToolkitAvailable");
     const toolkitAvailable = await isDelegationToolkitAvailable();
     if (!toolkitAvailable) {
       return NextResponse.json(
@@ -50,6 +52,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    console.log("addAgentNameToL1Org: ", agentAccount, orgName, agentName, agentUrl, chainId);
     const result = await addAgentNameToL1Org({
       agentAddress: agentAccount as `0x${string}`,
       orgName,

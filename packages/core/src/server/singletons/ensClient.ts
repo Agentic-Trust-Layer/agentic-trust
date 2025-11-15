@@ -533,6 +533,7 @@ export interface PrepareL2AgentNameInfoResult {
 
 export async function addAgentNameToL1Org(params: AddAgentToOrgL2Params): Promise<string> {
   const { agentAddress, orgName, agentName, agentUrl } = params;
+  console.log("addAgentNameToL1Org: ", agentAddress, orgName, agentName, agentUrl);
 
   if (!agentName || !orgName || !agentAddress) {
     throw new Error('agentName, orgName, and agentAddress are required to add an agent name to an org');

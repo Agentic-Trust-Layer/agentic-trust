@@ -408,6 +408,7 @@ export function getChainBundlerUrl(chainId: number): string {
  * @returns True if private key mode is enabled
  */
 export function isPrivateKeyMode(): boolean {
+  console.log("isPrivateKeyMode: ", process.env.NEXT_PUBLIC_AGENTIC_TRUST_USE_PRIVATE_KEY);
   return process.env.NEXT_PUBLIC_AGENTIC_TRUST_USE_PRIVATE_KEY === 'true';
 }
 

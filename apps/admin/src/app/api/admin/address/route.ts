@@ -3,14 +3,14 @@ import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function GET() {
   try {
-  // Check if private key mode is enabled (server-side check)
-  const usePrivateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY ? true : false;
+    const usePrivateKey = !!process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
 
     if (!usePrivateKey) {
-      return NextResponse.json(
-        { error: 'Private key mode not enabled' },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        address: null,
+        mode: 'wallet',
+        hasPrivateKey: false,
+      });
     }
 
     const client = await getAgenticTrustClient();
@@ -18,7 +18,8 @@ export async function GET() {
 
     return NextResponse.json({
       address: adminAddress,
-      mode: 'private_key'
+      mode: 'private_key',
+      hasPrivateKey: true,
     });
   } catch (error) {
     console.error('Error getting admin address:', error);
