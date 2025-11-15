@@ -42,11 +42,6 @@ export async function requireDelegationToolkit(options?: {
   return module;
 }
 
-export async function tryDelegationToolkit(): Promise<DelegationToolkitModule | null> {
-  return await loadToolkitModule();
-}
 
-export async function isDelegationToolkitAvailable(): Promise<boolean> {
-  return (await loadToolkitModule()) !== null;
-}
+
 

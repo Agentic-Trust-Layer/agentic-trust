@@ -19,6 +19,7 @@
   "dependencies": {
     "@agentic-trust/core": "workspace:*",
     "@agentic-trust/veramo-agent-extension": "workspace:*",
+    "@metamask/delegation-toolkit": "^0.13.0",
     "@emotion/cache": "^11.11.3",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.3",
