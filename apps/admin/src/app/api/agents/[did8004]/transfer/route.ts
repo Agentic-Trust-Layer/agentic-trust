@@ -4,12 +4,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 
+const DID_PARAM_KEYS = ['did:8004', 'did8004', 'did꞉8004'] as const;
+
+function getDidParam(params: Record<string, string | undefined>): string {
+  for (const key of DID_PARAM_KEYS) {
+    const value = params[key];
+    if (value) {
+      return decodeURIComponent(value);
+    }
+  }
+  throw new Error('Missing did:8004 parameter');
+}
+
 export async function POST(
   request: NextRequest,
-  { params }: { params: { 'did:8004': string } }
+  { params }: { params: Record<string, string | undefined> },
 ) {
   try {
-    const agentDid = params['did:8004'];
+    const agentDid = getDidParam(params);
     let parsed;
     try {
       parsed = parseDid8004(agentDid);

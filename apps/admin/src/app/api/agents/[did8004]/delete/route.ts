@@ -4,9 +4,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 
+const DID_PARAM_KEYS = ['did:8004', 'did8004', 'did꞉8004'] as const;
+
+function getDidParam(params: Record<string, string | undefined>): string {
+  for (const key of DID_PARAM_KEYS) {
+    const value = params[key];
+    if (value) {
+      return decodeURIComponent(value);
+    }
+  }
+  throw new Error('Missing did:8004 parameter');
+}
+
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { 'did:8004': string } }
+  { params }: { params: Record<string, string | undefined> },
 ) {
   try {
     const client = await getAgenticTrustClient();
@@ -23,7 +35,7 @@ export async function DELETE(
           };
 
     // Delete agent using admin API (transfers to address(0))
-    const result = await deleteFn(params['did:8004']);
+    const result = await deleteFn(getDidParam(params));
 
     return NextResponse.json({
       success: true,
