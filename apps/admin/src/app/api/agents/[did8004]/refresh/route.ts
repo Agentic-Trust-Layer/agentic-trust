@@ -1,24 +1,28 @@
-export const dynamic = 'force-dynamic';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
 
+const DID_PARAM_KEYS = ['did:8004', 'did8004', 'did꞉8004'] as const;
+
+function getDidParam(params: Record<string, string | undefined>): string {
+  for (const key of DID_PARAM_KEYS) {
+    const value = params[key];
+    if (value) {
+      return decodeURIComponent(value);
+    }
+  }
+  throw new Error('Missing did:8004 parameter');
+}
+
 export async function POST(
   request: NextRequest,
-  { params }: { params: Record<string, string> }
+  { params }: { params: Record<string, string | undefined> },
 ) {
   try {
-    console.log('[api/agents/[did:8004]/refresh] raw params:', params);
     let parsed;
-    const rawDidParam =
-      params['did:8004'] ??
-      // Some filesystems encode ":" as U+F03A (Private Use)
-      params['did8004'] ??
-      params['did%3A8004'] ??
-      '';
+    const decodedDidParam = getDidParam(params);
     try {
-      parsed = parseDid8004(rawDidParam);
+      parsed = parseDid8004(decodedDidParam);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
@@ -41,20 +45,13 @@ export async function POST(
     }
 
     const chainIdToUse = chainIdOverride ?? parsed.chainId;
-    const canonicalDid = buildDid8004(parsed.chainId, parsed.agentId);
 
     const client = await getAgenticTrustClient();
     const effectiveDid =
       chainIdToUse === parsed.chainId
-        ? canonicalDid
+        ? decodedDidParam
         : buildDid8004(chainIdToUse, parsed.agentId);
 
-    console.log(
-      '[api/agents/[did:8004]/refresh] refreshing DID:',
-      effectiveDid,
-      'chainId override:',
-      chainIdOverride,
-    );
     const result = await client.agents.refreshAgentByDid(effectiveDid);
 
     return NextResponse.json({
@@ -75,3 +72,4 @@ export async function POST(
     );
   }
 }
+

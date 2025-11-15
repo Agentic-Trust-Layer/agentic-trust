@@ -9,14 +9,26 @@ import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import type { MessageRequest } from '@agentic-trust/core';
 import { parseDid8004 } from '@agentic-trust/core';
 
+const DID_PARAM_KEYS = ['did:8004', 'did8004', 'did꞉8004'] as const;
+
+function getDidParam(params: Record<string, string | undefined>): string {
+  for (const key of DID_PARAM_KEYS) {
+    const value = params[key];
+    if (value) {
+      return decodeURIComponent(value);
+    }
+  }
+  throw new Error('Missing did:8004 parameter');
+}
+
 export async function POST(
   request: NextRequest,
-  { params }: { params: { 'did:8004': string } }
+  { params }: { params: Record<string, string | undefined> },
 ) {
   try {
     let parsed;
     try {
-      parsed = parseDid8004(params['did:8004']);
+      parsed = parseDid8004(getDidParam(params));
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
