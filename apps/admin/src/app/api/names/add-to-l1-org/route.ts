@@ -7,6 +7,8 @@ import {
   isDelegationToolkitAvailable,
 } from '@agentic-trust/core/server';
 
+
+
 export async function POST(request: NextRequest) {
   try {
     console.log("addAgentNameToL1Org: ", request);
@@ -40,19 +42,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    console.log("addAgentNameToL1Org: isDelegationToolkitAvailable");
-    const toolkitAvailable = await isDelegationToolkitAvailable();
-    if (!toolkitAvailable) {
-      return NextResponse.json(
-        {
-          error: 'ENS L1 automation unavailable',
-          message:
-            'This deployment was built without @metamask/delegation-toolkit, so server-side ENS registration cannot run. Deploy with the dependency installed or skip L1 ENS automation.',
-          requiresDelegationToolkit: true,
-        },
-        { status: 501 },
-      );
-    }
 
     console.log("addAgentNameToL1Org: ", agentAccount, orgName, agentName, agentUrl, chainId);
     const result = await addAgentNameToL1Org({
@@ -71,22 +60,13 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Error creating ENS record:', error);
-    if (error instanceof DelegationToolkitUnavailableError) {
-      return NextResponse.json(
-        {
-          error: 'ENS L1 automation unavailable',
-          message: error.message,
-          requiresDelegationToolkit: true,
-        },
-        { status: 501 },
-      );
-    }
+    
     return NextResponse.json(
       {
         error: 'Failed to add agent name to ENS org',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 500 }
+      { status: 521 }
     );
   }
 }
