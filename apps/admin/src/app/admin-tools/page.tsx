@@ -49,27 +49,8 @@ export default function AdminPage() {
   const createOnlyMode = modeParam === 'create';
   const showCreatePane = !isEditMode;
   const showManagementPanes = !createOnlyMode;
-  
-  
-  const PAGE_SIZE = 10;
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [agentsPage, setAgentsPage] = useState(1);
-  const [agentsTotal, setAgentsTotal] = useState(0);
-  const [agentsTotalPages, setAgentsTotalPages] = useState(1);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeSearchParams, setActiveSearchParams] = useState<AgentSearchParams | undefined>(undefined);
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
-  const [showAgentDialog, setShowAgentDialog] = useState(false);
-  const [pageLoading, setPageLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  
-  // Agent data from different sources
-  const [contractData, setContractData] = useState<any>(null);
-  const [ipfsData, setIpfsData] = useState<any>(null);
-  const [graphQLData, setGraphQLData] = useState<any>(null);
-  const [loadingData, setLoadingData] = useState(false);
 
   // Create agent form state
   const [createForm, setCreateForm] = useState({
@@ -136,7 +117,6 @@ export default function AdminPage() {
 
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
   const adminReady = authPrivateKeyMode || authConnected;
-  const gridTemplateColumns = showCreatePane && showManagementPanes ? '1fr 1fr' : '1fr';
   const adminGate = (
     <section
       style={{
@@ -316,44 +296,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     to: '',
   });
 
-  const hydrateFormsFromSelection = useCallback(async (agentId: string, chainId: number) => {
-    try {
-      const response = await fetch('/api/agents/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          page: 1,
-          pageSize: 1,
-          params: {
-            agentId,
-            chains: [chainId],
-          } as AgentSearchParams,
-        }),
-      });
-
-      if (!response.ok) {
-        console.warn('[admin-tools] Unable to fetch agent details for edit mode');
-        return;
-      }
-
-      const data = await response.json();
-      const nextAgent = Array.isArray(data?.agents) ? (data.agents as Agent[])[0] : undefined;
-      if (nextAgent) {
-        setSelectedAgent(nextAgent);
-      }
-    } catch (fetchError) {
-      console.warn('[admin-tools] Failed to hydrate agent selection', fetchError);
-    }
-  }, []);
-
-  // Fetch agents on mount (only if connected)
-  useEffect(() => {
-    if (eoaConnected && !loading) {
-      fetchAgents({ page: 1 });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eoaConnected, loading]);
-
   useEffect(() => {
     if (!isEditMode || !queryAgentId || !queryChainId) {
       return;
@@ -378,8 +320,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       chainId: queryChainId,
       to: '',
     });
-    hydrateFormsFromSelection(queryAgentId, parsedChainId);
-  }, [hydrateFormsFromSelection, isEditMode, queryAgentId, queryChainId]);
+  }, [isEditMode, queryAgentId, queryChainId]);
 
   useEffect(() => {
     if (!eip1193Provider && !eoaConnected) {
@@ -610,212 +551,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   }, [selectedChainId]);
 
-  // Handle agent row click
-  const handleAgentClick = async (agent: Agent) => {
-    setSelectedAgent(agent);
-    setShowAgentDialog(true);
-    // Clear any previous error/success messages when opening dialog
-    setError(null);
-    setSuccess(null);
-    
-  // Reset data sources
-  setContractData(null);
-  setIpfsData(null);
-  setGraphQLData(null);
-  
-  // Fetch data from consolidated route
-  if (agent.agentId) {
-    setLoadingData(true);
-    try {
-      const agentChainId =
-        typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
-          ? agent.chainId
-          : DEFAULT_CHAIN_ID;
-      const did8004 = buildDid8004(agentChainId, agent.agentId ?? '');
-
-      setUpdateForm((prev) => ({
-        ...prev,
-        agentId: agent.agentId ? String(agent.agentId) : prev.agentId,
-        chainId: agentChainId.toString(),
-      }));
-      setDeleteForm((prev) => ({
-        ...prev,
-        agentId: agent.agentId ? String(agent.agentId) : prev.agentId,
-        chainId: agentChainId.toString(),
-      }));
-      setTransferForm((prev) => ({
-        ...prev,
-        agentId: agent.agentId ? String(agent.agentId) : prev.agentId,
-        chainId: agentChainId.toString(),
-      }));
-
-      // Fetch from consolidated route
-      const response = await fetch(`/api/agents/${did8004}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Extract identity metadata (contract) data
-        if (data.identityMetadata) {
-          setContractData({
-            agentId: data.agentId,
-            tokenURI: data.identityMetadata.tokenURI,
-            metadata: data.identityMetadata.metadata,
-          });
-        }
-        
-        // Extract identity registration (IPFS) data
-        if (data.identityRegistration) {
-          setIpfsData({
-            tokenURI: data.identityRegistration.tokenURI,
-            registration: data.identityRegistration.registration,
-          });
-        }
-        
-        // Extract discovery (GraphQL) data from AgentInfo portion
-        setGraphQLData({
-          agentData: {
-            agentId: data.agentId,
-            agentName: data.agentName,
-            chainId: data.chainId,
-            agentAccount: data.agentAccount,
-            a2aEndpoint: data.a2aEndpoint,
-            createdAtTime: data.createdAtTime,
-            updatedAtTime: data.updatedAtTime,
-            type: data.type,
-            description: data.description,
-            image: data.image,
-            metadataURI: data.metadataURI,
-            ensEndpoint: data.ensEndpoint,
-            agentAccountEndpoint: data.agentAccountEndpoint,
-            supportedTrust: data.supportedTrust,
-            didIdentity: data.didIdentity,
-            didAccount: data.didAccount,
-            didName: data.didName,
-            did: data.did,
-            mcp: data.mcp,
-            x402support: data.x402support,
-            active: data.active,
-          },
-        });
-      } else {
-        console.warn('Failed to fetch agent info:', response.status, response.statusText);
-      }
-    } catch (err) {
-      console.error('Error fetching agent data:', err);
-    } finally {
-      setLoadingData(false);
-    }
-  }
-  };
-
-  const fetchAgents = useCallback(
-    async (options?: {
-      page?: number;
-      searchParams?: AgentSearchParams | undefined;
-      queryOverride?: string;
-    }) => {
-      try {
-        setPageLoading(true);
-        setError(null);
-
-        const searchParamsToUse =
-          options && 'searchParams' in options ? options.searchParams : activeSearchParams;
-        const pageParam =
-          options && typeof options.page === 'number' ? options.page : agentsPage || 1;
-        const safePage = Math.max(pageParam, 1);
-
-        const trimmedQuery =
-          options && typeof options.queryOverride === 'string'
-            ? options.queryOverride
-            : searchQuery.trim();
-        const payload: {
-          page: number;
-          pageSize: number;
-          query?: string;
-          params?: AgentSearchParams;
-          orderBy?: string;
-          orderDirection?: 'ASC' | 'DESC';
-        } = {
-          page: safePage,
-          pageSize: PAGE_SIZE,
-          orderBy: 'agentName',
-          orderDirection: 'ASC',
-        };
-
-        if (trimmedQuery.length > 0) {
-          payload.query = trimmedQuery;
-  }
-
-        if (searchParamsToUse && Object.keys(searchParamsToUse).length > 0) {
-          payload.params = searchParamsToUse;
-        }
-
-        const response = await fetch('/api/agents/search', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload),
-        });
-
-      if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
-      }
-
-             const data = await response.json();
-        const agentsList = (data.agents as Agent[]) || [];
-             setAgents(agentsList);
-        setAgentsPage(data.page ?? safePage);
-        setAgentsTotal(data.total ?? agentsList.length);
-        setAgentsTotalPages(data.totalPages ?? 1);
-           } catch (err) {
-             console.error('Failed to fetch agents:', err);
-             setError(err instanceof Error ? err.message : 'Failed to fetch agents');
-           } finally {
-             setPageLoading(false);
-           }
-    },
-    [activeSearchParams, agentsPage, searchQuery],
-  );
-
-  useEffect(() => {
-    // Initial load with default paging and current search state
-    fetchAgents({ page: 1 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSearchSubmit = useCallback(() => {
-    const trimmed = searchQuery.trim();
-    if (!trimmed) {
-      setActiveSearchParams(undefined);
-      setAgentsPage(1);
-      fetchAgents({ page: 1, searchParams: undefined, queryOverride: '' });
-      return;
-    }
-
-    // Simple search should use free-text query only; avoid restrictive params
-    setActiveSearchParams(undefined);
-    setAgentsPage(1);
-    fetchAgents({ page: 1, searchParams: undefined, queryOverride: trimmed });
-  }, [fetchAgents, searchQuery]);
-
-  const handleClearSearch = useCallback(() => {
-    setSearchQuery('');
-    setActiveSearchParams(undefined);
-    setAgentsPage(1);
-    fetchAgents({ page: 1, searchParams: undefined, queryOverride: '' });
-  }, [fetchAgents]);
-
-  const handlePageChange = useCallback(
-    (nextPage: number) => {
-      const safePage = Math.min(Math.max(nextPage, 1), agentsTotalPages || 1);
-      setAgentsPage(safePage);
-      fetchAgents({ page: safePage });
-    },
-    [agentsTotalPages, fetchAgents],
-  );
 
   const handleCreateAgent = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1051,7 +786,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       
       // Refresh agents list after a short delay to allow indexing
       setTimeout(() => {
-        fetchAgents();
       }, 2000);
     } catch (err) {
       console.error('Error creating agent:', err);
@@ -1101,7 +835,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         metadataKey: '',
         metadataValue: '',
       });
-      fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update agent');
     }
@@ -1134,7 +867,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       const data = await response.json();
       setSuccess(`Agent deleted successfully! TX: ${data.txHash}`);
       setDeleteForm({ agentId: '', chainId: DEFAULT_CHAIN_ID.toString() });
-      fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete agent');
     }
@@ -1169,7 +901,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       const data = await response.json();
       setSuccess(`Agent transferred successfully! TX: ${data.txHash}`);
       setTransferForm({ agentId: '', chainId: DEFAULT_CHAIN_ID.toString(), to: '' });
-      fetchAgents(); // Refresh list
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to transfer agent');
     }
@@ -1235,33 +966,32 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             <div style={{ fontWeight: 700, color: '#1d4ed8' }}>
               Editing agent #{queryAgentId} (chain {queryChainId})
             </div>
-            <p style={{ margin: 0, color: '#1e3a8a', fontSize: '0.9rem' }}>
-              The create panel is hidden while you review update, delete, or transfer actions.
-            </p>
+
           </div>
-          <button
-            type="button"
-            onClick={() => router.push('/admin-tools')}
-            style={{
-              padding: '0.65rem 1.25rem',
-              borderRadius: '999px',
-              border: '1px solid #1d4ed8',
-              backgroundColor: '#fff',
-              color: '#1d4ed8',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            Exit edit mode
-          </button>
+
         </div>
       )}
 
 
 
-      <div style={{ display: 'grid', gridTemplateColumns, gap: '2rem', marginBottom: '2rem' }}>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+          gap: '1.5rem',
+          marginBottom: '2rem',
+        }}
+      >
         {showCreatePane && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
+        <div
+          style={{
+            gridColumn: showManagementPanes ? '1 / -1' : 'auto',
+            padding: '1.5rem',
+            backgroundColor: '#fff',
+            borderRadius: '8px',
+            border: '1px solid #ddd',
+          }}
+        >
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Create Agent</h2>
 
           {/* Chain Selection */}
@@ -1693,472 +1423,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         )}
       </div>
 
-      {/* Agents List */}
-      <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ fontSize: '1.5rem' }}>Agents List</h2>
-          <button
-            onClick={() => fetchAgents()}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#6c757d',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-            }}
-          >
-            Refresh
-          </button>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSearchSubmit();
-          }}
-          style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem', flexWrap: 'wrap' }}
-        >
-          <input
-            type="text"
-            placeholder="Search agents by name, ENS, owner, wallet address..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              flex: '1 1 280px',
-              minWidth: '220px',
-              padding: '0.75rem',
-              border: '1px solid #ddd',
-              borderRadius: '4px',
-              fontSize: '1rem',
-            }}
-          />
-          <button
-            type="submit"
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: '#0d6efd',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-            }}
-          >
-            Search
-          </button>
-          <button
-            type="button"
-            onClick={handleClearSearch}
-            style={{
-              padding: '0.75rem 1.5rem',
-              backgroundColor: '#6c757d',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '1rem',
-            }}
-          >
-            Clear
-          </button>
-        </form>
-        {pageLoading ? (
-          <div style={{ padding: '2rem', textAlign: 'center' }}>Loading agents...</div>
-        ) : agents.length === 0 ? (
-          <div style={{ padding: '2rem', textAlign: 'center', color: '#666' }}>
-            {activeSearchParams ? 'No agents found for the selected filters.' : 'No agents found.'}
-          </div>
-        ) : (
-          <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #ddd' }}>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Agent ID</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Agent Name</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Agent Account</th>
-                  <th style={{ padding: '0.75rem', textAlign: 'left', fontWeight: 'bold' }}>Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agents.map((agent, index) => (
-                  <tr 
-                    key={`agent-${agent.agentId !== undefined ? agent.agentId : 'unknown'}-${index}`} 
-                    onClick={() => handleAgentClick(agent)}
-                    style={{ 
-                      borderBottom: '1px solid #eee',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#f5f5f5';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }}
-                  >
-                    <td style={{ padding: '0.75rem' }}>{agent.agentId}</td>
-                    <td style={{ padding: '0.75rem' }}>{agent.agentName || 'N/A'}</td>
-                    <td style={{ padding: '0.75rem', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
-                      {(() => {
-                        const accountValue =
-                          typeof agent.agentAccount === 'string' && agent.agentAccount
-                            ? agent.agentAccount
-                            : null;
-                        if (!accountValue) {
-                          return 'N/A';
-                        }
-                        return accountValue.length > 12
-                          ? `${accountValue.slice(0, 6)}…${accountValue.slice(-4)}`
-                          : accountValue;
-                      })()}
-                    </td>
-                    <td style={{ padding: '0.75rem', fontSize: '0.85rem' }}>
-                      {agent.createdAtTime != null
-                        ? new Date(Number(agent.createdAtTime) * 1000).toLocaleString()
-                        : 'N/A'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginTop: '1rem',
-            flexWrap: 'wrap',
-            gap: '0.5rem',
-          }}
-        >
-          <div style={{ color: '#555', fontSize: '0.9rem' }}>
-            Showing page {agentsPage} of {Math.max(agentsTotalPages, 1)} — {agentsTotal}{' '}
-            agent{agentsTotal === 1 ? '' : 's'} total
-          </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              type="button"
-              onClick={() => handlePageChange(agentsPage - 1)}
-              disabled={agentsPage <= 1 || pageLoading}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: agentsPage <= 1 ? '#e9ecef' : '#0d6efd',
-                color: agentsPage <= 1 ? '#6c757d' : '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: agentsPage <= 1 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Previous
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePageChange(agentsPage + 1)}
-              disabled={agentsPage >= agentsTotalPages || pageLoading}
-              style={{
-                padding: '0.5rem 1rem',
-                backgroundColor: agentsPage >= agentsTotalPages ? '#e9ecef' : '#0d6efd',
-                color: agentsPage >= agentsTotalPages ? '#6c757d' : '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: agentsPage >= agentsTotalPages ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      </div>
 
-      {/* Agent Details Dialog */}
-      {showAgentDialog && selectedAgent && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => setShowAgentDialog(false)}
-        >
-          <div
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: '8px',
-              padding: '2rem',
-              maxWidth: '1400px',
-              width: '95%',
-              maxHeight: '90vh',
-              overflowY: 'auto',
-              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-              <h2 style={{ fontSize: '1.5rem', margin: 0 }}>Agent Details</h2>
-              <button
-                onClick={() => setShowAgentDialog(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '1.5rem',
-                  cursor: 'pointer',
-                  color: '#666',
-                  padding: '0.25rem 0.5rem',
-                }}
-              >
-                ×
-              </button>
-            </div>
-            
-            {loadingData ? (
-              <div style={{ padding: '2rem', textAlign: 'center' }}>Loading agent data...</div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                {/* Contract Data */}
-                <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>Contract Data</h3>
-                  {contractData ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
-                        <div style={{ fontFamily: 'monospace', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                          {contractData.agentId || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {contractData.tokenURI || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Metadata</strong>
-                        <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', maxHeight: '200px', overflowY: 'auto' }}>
-                          <pre style={{ margin: 0, fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                            {JSON.stringify(contractData.metadata || {}, null, 2)}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ color: '#999', fontSize: '0.9rem' }}>No contract data available</div>
-                  )}
-                </div>
-                
-                {/* IPFS Data */}
-                <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>IPFS Registration</h3>
-                  {ipfsData ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
-                      {ipfsData.registration ? (
-                        <>
-                          <div>
-                            <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
-                            <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                              {ipfsData.tokenURI || 'N/A'}
-                            </div>
-                          </div>
-                          <div>
-                            <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Registration JSON</strong>
-                            <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', maxHeight: '400px', overflowY: 'auto' }}>
-                              <pre style={{ margin: 0, fontSize: '0.75rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                                {JSON.stringify(ipfsData.registration, null, 2)}
-                              </pre>
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{ color: '#999', fontSize: '0.9rem' }}>
-                          {ipfsData.error || 'No registration data found'}
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ color: '#999', fontSize: '0.9rem' }}>No IPFS data available</div>
-                  )}
-                </div>
-                
-                {/* GraphQL Data */}
-                <div style={{ border: '1px solid #ddd', borderRadius: '8px', padding: '1rem', backgroundColor: '#f9f9f9' }}>
-                  <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>GraphQL Indexer</h3>
-                  {graphQLData?.agentData ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
-                        <div style={{ fontFamily: 'monospace', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                          {graphQLData.agentData.agentId || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent Name</strong>
-                        <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                          {graphQLData.agentData.agentName || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent Account</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {graphQLData.agentData.agentAccount || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Agent Owner</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {graphQLData.agentData.agentOwner || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Identity DID</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {graphQLData.agentData.didIdentity || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Account DID</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {graphQLData.agentData.didAccount || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Name DID</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.8rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {graphQLData.agentData.didName || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>A2A Endpoint</strong>
-                        <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', wordBreak: 'break-all' }}>
-                          {graphQLData.agentData.a2aEndpoint || 'N/A'}
-                        </div>
-                      </div>
-                      <div>
-                        <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Created At</strong>
-                        <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                          {graphQLData.agentData.createdAtTime !== undefined && graphQLData.agentData.createdAtTime !== null
-                            ? new Date(Number(graphQLData.agentData.createdAtTime) * 1000).toLocaleString()
-                            : 'N/A'}
-                        </div>
-                      </div>
-                      {graphQLData.agentData.updatedAtTime !== undefined && graphQLData.agentData.updatedAtTime !== null && (
-                        <div>
-                          <strong style={{ color: '#666', display: 'block', marginBottom: '0.25rem' }}>Updated At</strong>
-                          <div style={{ backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px' }}>
-                            {new Date(Number(graphQLData.agentData.updatedAtTime) * 1000).toLocaleString()}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div style={{ color: '#999', fontSize: '0.9rem' }}>No GraphQL data available</div>
-                  )}
-                </div>
-              </div>
-            )}
-            
-            {/* Original Agent Data (from list) */}
-            <div style={{ marginTop: '1rem', padding: '1rem', backgroundColor: '#f0f0f0', borderRadius: '8px' }}>
-              <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', color: '#333' }}>List Data (from initial fetch)</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.9rem' }}>
-                <div><strong>Agent ID:</strong> {selectedAgent.agentId || 'N/A'}</div>
-                <div><strong>Agent Name:</strong> {selectedAgent.agentName || 'N/A'}</div>
-                <div><strong>Agent Account:</strong> {selectedAgent?.agentAccount || 'N/A'}</div>
-                <div><strong>Agent Owner:</strong> {selectedAgent?.agentOwner || 'N/A'}</div>
-                <div><strong>Identity DID:</strong> {selectedAgent?.didIdentity || 'N/A'}</div>
-                <div><strong>Account DID:</strong> {selectedAgent?.didAccount || 'N/A'}</div>
-                <div><strong>Name DID:</strong> {selectedAgent?.didName || 'N/A'}</div>
-                <div><strong>A2A Endpoint:</strong> {selectedAgent.a2aEndpoint || 'N/A'}</div>
-                <div><strong>Created At:</strong> {selectedAgent.createdAtTime !== undefined && selectedAgent.createdAtTime !== null ? new Date(Number(selectedAgent.createdAtTime) * 1000).toLocaleString() : 'N/A'}</div>
-              </div>
-            </div>
-            
-            {(error || success) && (
-              <div style={{
-                marginTop: '1rem',
-                padding: '0.75rem',
-                backgroundColor: error ? '#ffebee' : '#e8f5e9',
-                borderRadius: '4px',
-                border: `1px solid ${error ? '#f44336' : '#4caf50'}`,
-                color: error ? '#c62828' : '#2e7d32',
-                fontSize: '0.9rem',
-              }}>
-                {error || success}
-              </div>
-            )}
-            
-            <div style={{ marginTop: '1.5rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end' }}>
-              <button
-                onClick={async () => {
-                  if (!selectedAgent?.agentId) return;
-                  try {
-                    setRefreshing(true);
-                    setError(null);
-                    setSuccess(null);
-                    const refreshChainId =
-                      typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
-                        ? selectedAgent.chainId
-                        : DEFAULT_CHAIN_ID;
-                    const did8004 = buildDid8004(refreshChainId, selectedAgent.agentId);
-                    const response = await fetch(`/api/agents/${did8004}/refresh`, {
-                      method: 'POST',
-                    });
-                    if (!response.ok) {
-                      const errorData = await response.json();
-                      throw new Error(errorData.message || errorData.error || 'Failed to refresh agent');
-                    }
-                    const data = await response.json();
-                    setSuccess(`Agent ${selectedAgent.agentId} refreshed successfully!`);
-                    // Optionally refresh the agent list to show updated data
-                    fetchAgents();
-                  } catch (err) {
-                    console.error('Error refreshing agent:', err);
-                    setError(err instanceof Error ? err.message : 'Failed to refresh agent');
-                  } finally {
-                    setRefreshing(false);
-                  }
-                }}
-                disabled={refreshing || !selectedAgent?.agentId}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: refreshing ? '#6c757d' : '#007bff',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: refreshing || !selectedAgent?.agentId ? 'not-allowed' : 'pointer',
-                  fontSize: '0.9rem',
-                  opacity: refreshing || !selectedAgent?.agentId ? 0.6 : 1,
-                }}
-              >
-                {refreshing ? 'Refreshing...' : 'Refresh in Indexer'}
-              </button>
-              <button
-                onClick={() => setShowAgentDialog(false)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#6c757d',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '0.9rem',
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
           </>
         )}
 
