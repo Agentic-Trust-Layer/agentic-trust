@@ -64,6 +64,7 @@ export {
   getWeb3AuthClientId,
   getWeb3AuthNetwork,
   getChainDisplayMetadata,
+  getSupportedChainIds,
   getWeb3AuthChainSettings,
   getChainIdHex,
 } from './server/lib/chainConfig';

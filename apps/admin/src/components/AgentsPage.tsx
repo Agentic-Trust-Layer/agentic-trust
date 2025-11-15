@@ -3,7 +3,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
 
-type Agent = {
+export type AgentsPageAgent = {
   agentId: string;
   chainId: number;
   agentName?: string | null;
@@ -15,6 +15,8 @@ type Agent = {
   a2aEndpoint?: string | null;
   did?: string | null;
 };
+
+type Agent = AgentsPageAgent;
 
 type ChainOption = {
   id: number;

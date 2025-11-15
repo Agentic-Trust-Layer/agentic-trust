@@ -3,20 +3,24 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPublicClient, http, type PublicClient, type Address } from 'viem';
 import { useRouter } from 'next/navigation';
-import type { DiscoverParams, DiscoverResponse } from '@agentic-trust/core/server';
-import {
-  getSupportedChainIds,
-  getChainDisplayMetadata,
-} from '@agentic-trust/core/server';
-import { getChainRpcUrl } from '@agentic-trust/core';
+import { getSupportedChainIds, getChainDisplayMetadata, getChainRpcUrl } from '@agentic-trust/core';
 
 import { Header } from '@/components/Header';
-import { AgentsPage, type AgentsPageFilters } from '@/components/AgentsPage';
+import {
+  AgentsPage,
+  type AgentsPageAgent,
+  type AgentsPageFilters,
+} from '@/components/AgentsPage';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 
-type Agent = DiscoverResponse['agents'][number] & {
-  contractAddress?: string | null;
+type Agent = AgentsPageAgent;
+
+type DiscoverParams = {
+  chains?: number[];
+  agentAccount?: Address;
+  agentName?: string;
+  agentId?: string;
 };
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
@@ -80,7 +84,7 @@ export default function AgentsRoute() {
   const supportedChainIds = getSupportedChainIds();
   const chainOptions = useMemo(
     () =>
-      supportedChainIds.map(chainId => {
+      supportedChainIds.map((chainId: number) => {
         const metadata = getChainDisplayMetadata(chainId);
         const label = metadata?.displayName || metadata?.chainName || `Chain ${chainId}`;
         return { id: chainId, label };
