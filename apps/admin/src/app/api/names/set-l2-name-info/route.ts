@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { prepareL2AgentNameInfoCalls } from '@agentic-trust/core/server';
 
@@ -43,4 +45,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

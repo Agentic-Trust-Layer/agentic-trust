@@ -264,8 +264,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
           </h2>
           <p style={{ marginTop: '1rem', fontSize: '1.1rem', color: palette.textSecondary }}>
             Register, discover, and manage AI agents with verifiable ownership,
-            ENS integration, and cross-chain support. This console exposes the
-            same primitives that power the public Agent Explorer.
+            ENS integration, and cross-chain support. 
           </p>
           <div
             style={{

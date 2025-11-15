@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side API route for submitting feedback
  * Handles reputation contract calls on the server side
@@ -63,4 +65,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

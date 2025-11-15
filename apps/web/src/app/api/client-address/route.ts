@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side API route for getting the client address
  * Returns the address associated with the private key from the ClientApp singleton
@@ -38,4 +40,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-

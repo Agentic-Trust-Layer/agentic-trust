@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 
@@ -111,4 +113,3 @@ function extractAddressFromPrivateKey(privateKey: string): string {
   // For now, return a partial hash for display purposes only
   return '0x' + privateKey.slice(2, 42).padEnd(40, '0');
 }
-

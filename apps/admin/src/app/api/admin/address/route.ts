@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
 

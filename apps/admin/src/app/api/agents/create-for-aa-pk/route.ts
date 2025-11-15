@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
@@ -67,5 +69,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
 

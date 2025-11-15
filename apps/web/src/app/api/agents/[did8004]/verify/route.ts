@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side API route for verifying an agent
  */
@@ -56,4 +58,3 @@ export async function POST(
     );
   }
 }
-

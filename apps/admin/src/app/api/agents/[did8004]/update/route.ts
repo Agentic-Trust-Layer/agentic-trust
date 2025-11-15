@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
@@ -72,4 +74,3 @@ export async function PUT(
     );
   }
 }
-

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side API route for fetching agent card
  */
@@ -68,4 +70,3 @@ export async function GET(
     );
   }
 }
-

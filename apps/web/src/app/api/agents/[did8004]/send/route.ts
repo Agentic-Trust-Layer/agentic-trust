@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side API route for sending messages to agents
  */
@@ -117,4 +119,3 @@ export async function POST(
     );
   }
 }
-

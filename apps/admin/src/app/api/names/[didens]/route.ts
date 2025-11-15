@@ -1,15 +1,33 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { isENSNameAvailable } from '@agentic-trust/core/server';
 import { parseDidEns } from '../_lib/didEns';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ 'did:ens': string }> }
+  {
+    params,
+  }: {
+    params: { [key: string]: string | undefined };
+  },
 ) {
   try {
+    const rawDidParam =
+      params['did:ens'] ??
+      params['didens'] ??
+      params['did꞉ens']; // handle private-use colon fallbacks
+
+    if (!rawDidParam) {
+      return NextResponse.json(
+        { error: 'Missing ENS DID parameter' },
+        { status: 400 },
+      );
+    }
+
     let parsed;
     try {
-      parsed = parseDidEns((await params)['did:ens']);
+      parsed = parseDidEns(decodeURIComponent(rawDidParam));
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid ENS DID';

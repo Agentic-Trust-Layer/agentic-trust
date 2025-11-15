@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import { buildAgentDetail, getAgenticTrustClient } from '@agentic-trust/core/server';
 
@@ -34,4 +36,3 @@ export async function GET(
     );
   }
 }
-

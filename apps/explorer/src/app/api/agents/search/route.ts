@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import { NextRequest, NextResponse } from 'next/server';
 import type { DiscoverParams } from '@agentic-trust/core/server';
 import { discoverAgents, type DiscoverRequest, getAgenticTrustClient } from '@agentic-trust/core/server';
@@ -124,4 +126,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

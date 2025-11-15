@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 /**
  * Server-side API route for agent operations
  * Handles listAgents and searchAgents
@@ -98,4 +100,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-
