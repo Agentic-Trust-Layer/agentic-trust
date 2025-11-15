@@ -1084,7 +1084,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666' }}>
               {useAA 
                 ? 'Agent Account will be computed from Agent Name (tries ENS resolution first, then deterministic computation).'
-                : 'Use your connected wallet address as the Agent Account (EOA).'}
+                : 'Use your connected wallet address as the controller of the agent account.'}
             </p>
           </div>
 

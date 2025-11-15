@@ -1,9 +1,11 @@
 'use client';
 
+import { useMemo, useState, useEffect } from 'react';
 import type { DiscoverResponse } from '@agentic-trust/core/server';
 
 type Agent = DiscoverResponse['agents'][number] & {
   contractAddress?: string | null;
+  did?: string | null;
 };
 
 type ChainOption = {
@@ -33,6 +35,17 @@ type AgentsPageProps = {
   onEditAgent?: (agent: Agent) => void;
 };
 
+type AgentActionType = 'info' | 'registration' | 'card' | 'did-web' | 'did-agent' | 'a2a';
+
+const ACTION_LABELS: Record<AgentActionType, string> = {
+  info: 'Info',
+  registration: 'Reg',
+  card: 'Card',
+  'did-web': 'DID:Web',
+  'did-agent': 'DID:Agent',
+  a2a: 'A2A',
+};
+
 export function AgentsPage({
   agents,
   filters,
@@ -44,13 +57,248 @@ export function AgentsPage({
   onClear,
   onEditAgent,
 }: AgentsPageProps) {
+
+  const [activeDialog, setActiveDialog] = useState<{ agent: Agent; action: AgentActionType } | null>(null);
+  const [registrationPreview, setRegistrationPreview] = useState<{
+    key: string | null;
+    loading: boolean;
+    error: string | null;
+    text: string | null;
+  }>({
+    key: null,
+    loading: false,
+    error: null,
+    text: null,
+  });
+
   const EXPLORER_BY_CHAIN: Record<number, string> = {
     1: 'https://etherscan.io',
     11155111: 'https://sepolia.etherscan.io',
     84532: 'https://sepolia.basescan.org',
     11155420: 'https://sepolia-optimism.etherscan.io',
   };
+
+  const ENS_APP_BY_CHAIN: Record<number, string> = {
+    1: 'https://app.ens.domains',
+    11155111: 'https://app.ens.domains',
+    84532: 'https://app.ens.domains',
+    11155420: 'https://app.ens.domains',
+  };
+
+  const getEnsNameLink = (agent: Agent): { name: string; href: string } | null => {
+    const did = agent.did;
+    if (!did || !did.startsWith('did:ens:')) {
+      return null;
+    }
+    const name = did.slice('did:ens:'.length);
+    const base = ENS_APP_BY_CHAIN[agent.chainId] ?? 'https://app.ens.domains';
+    return { name, href: `${base}/${name}` };
+  };
+
+  const openActionDialog = (agent: Agent, action: AgentActionType) => {
+    setActiveDialog({ agent, action });
+  };
+
+  const closeDialog = () => setActiveDialog(null);
+
+  useEffect(() => {
+    if (!activeDialog || activeDialog.action !== 'registration') {
+      return;
+    }
+    const { agent } = activeDialog;
+    const key = `${agent.chainId}:${agent.agentId}`;
+    const metadataUri = agent.metadataURI;
+    if (!metadataUri) {
+      setRegistrationPreview({
+        key,
+        loading: false,
+        error: 'No registration URI available for this agent.',
+        text: null,
+      });
+      return;
+    }
+    let cancelled = false;
+    setRegistrationPreview({
+      key,
+      loading: true,
+      error: null,
+      text: null,
+    });
+    (async () => {
+      try {
+        const text = await loadRegistrationContent(metadataUri);
+        if (cancelled) return;
+        setRegistrationPreview({
+          key,
+          loading: false,
+          error: null,
+          text,
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setRegistrationPreview({
+          key,
+          loading: false,
+          error: error?.message ?? 'Unable to load registration JSON.',
+          text: null,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDialog]);
+
+  const dialogContent = useMemo(() => {
+    if (!activeDialog) {
+      return null;
+    }
+    const { agent, action } = activeDialog;
+    const baseInfo = (
+      <ul style={{ paddingLeft: '1.25rem', margin: '0.5rem 0', color: '#0f172a' }}>
+        <li><strong>Agent ID:</strong> {agent.agentId}</li>
+        <li><strong>Chain:</strong> {agent.chainId}</li>
+        {agent.agentAccount ? <li><strong>Account:</strong> {agent.agentAccount}</li> : null}
+      </ul>
+    );
+
+    switch (action) {
+      case 'info':
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              High-level details for <strong>{agent.agentName || 'Unnamed Agent'}</strong>.
+            </p>
+            {baseInfo}
+            {agent.description && (
+              <p style={{ color: '#475569' }}>{agent.description}</p>
+            )}
+          </>
+        );
+      case 'registration': {
+        const previewMatchesAgent = registrationPreview.key === `${agent.chainId}:${agent.agentId}`;
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              The registration (tokenURI) reference for this agent.
+            </p>
+            {agent.metadataURI ? (
+              <a
+                href={agent.metadataURI}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#2563eb', wordBreak: 'break-all' }}
+              >
+                {agent.metadataURI}
+              </a>
+            ) : (
+              <p style={{ color: '#dc2626' }}>No registration URI available.</p>
+            )}
+            <div
+              style={{
+                marginTop: '1rem',
+                border: '1px solid #e2e8f0',
+                borderRadius: '10px',
+                padding: '0.75rem',
+                backgroundColor: '#f8fafc',
+                maxHeight: '500px',
+                overflow: 'auto',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: '0.85rem',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {!previewMatchesAgent || registrationPreview.loading ? (
+                <span style={{ color: '#475569' }}>Loading registration JSON…</span>
+              ) : registrationPreview.error ? (
+                <span style={{ color: '#dc2626' }}>{registrationPreview.error}</span>
+              ) : registrationPreview.text ? (
+                registrationPreview.text
+              ) : (
+                <span style={{ color: '#475569' }}>No JSON preview available.</span>
+              )}
+            </div>
+          </>
+        );
+      }
+      case 'card':
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              Agent Card endpoints describe A2A capabilities.
+            </p>
+            {agent.a2aEndpoint ? (
+              <a
+                href={agent.a2aEndpoint}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#2563eb', wordBreak: 'break-all' }}
+              >
+                {agent.a2aEndpoint}
+              </a>
+            ) : (
+              <p style={{ color: '#dc2626' }}>No Agent Card endpoint configured.</p>
+            )}
+          </>
+        );
+      case 'did-web':
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              DID:Web references allow browsers to resolve the agent&apos;s identity via HTTPS.
+            </p>
+            <p>
+              Suggested identifier:{' '}
+              <code>did:web:{agent.agentName?.replace(/\.eth$/i, '') || 'agent.example.com'}</code>
+            </p>
+            <p style={{ color: '#64748b' }}>
+              Configure a <code>.well-known/did.json</code> file on the agent&apos;s domain to publish the record.
+            </p>
+          </>
+        );
+      case 'did-agent':
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              DID:Agent binds ERC-8004 identities directly to smart accounts.
+            </p>
+            <p>
+              Suggested identifier:{' '}
+              <code>did:agent:eip155:{agent.chainId}:{agent.agentId}</code>
+            </p>
+            <p style={{ color: '#64748b' }}>
+              Use your preferred wallet to generate a signed DID document containing the ERC-8004 registry information.
+            </p>
+          </>
+        );
+      case 'a2a':
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              A2A endpoints surface JSON capabilities for client-to-agent discovery.
+            </p>
+            {agent.a2aEndpoint ? (
+              <a
+                href={agent.a2aEndpoint}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: '#2563eb', wordBreak: 'break-all' }}
+              >
+                {agent.a2aEndpoint}
+              </a>
+            ) : (
+              <p style={{ color: '#dc2626' }}>No A2A endpoint is available for this agent.</p>
+            )}
+          </>
+        );
+      default:
+        return null;
+    }
+  }, [activeDialog, registrationPreview]);
+
   return (
+    <>
     <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
 
@@ -268,71 +516,85 @@ export function AgentsPage({
                     ✏️
                   </button>
                 )}
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                  <div style={{ display: 'flex', gap: '0.85rem' }}>
-                    {imageUrl && (
-                      <img
-                        src={imageUrl}
-                        alt={agent.agentName || 'Agent'}
+                <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
+                  {imageUrl && (
+                    <img
+                      src={imageUrl}
+                      alt={agent.agentName || 'Agent'}
+                      style={{
+                        width: '64px',
+                        height: '64px',
+                        borderRadius: '14px',
+                        objectFit: 'cover',
+                        border: '1px solid #e2e8f0',
+                      }}
+                    />
+                  )}
+                  <div>
+                  {nftUrl ? (
+                      <a
+                        href={nftUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         style={{
-                          width: '56px',
-                          height: '56px',
-                          borderRadius: '12px',
-                          objectFit: 'cover',
-                          border: '1px solid #e2e8f0',
+                          display: 'inline-block',
+                          fontSize: '0.8rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          color: '#2563eb',
+                          marginBottom: '0.25rem',
+                          textDecoration: 'none',
+                          fontWeight: 600,
                         }}
-                      />
+                      >
+                        Agent #{agent.agentId}
+                      </a>
+                    ) : (
+                      <p
+                        style={{
+                          fontSize: '0.8rem',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          color: '#94a3b8',
+                          marginBottom: '0.25rem',
+                        }}
+                      >
+                        Agent #{agent.agentId}
+                      </p>
                     )}
-                    <div>
-                      {nftUrl ? (
+                  </div>
+                  
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                    
+                    <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
+                      {agent.agentName || 'Unnamed Agent'}
+                    </h4>
+                    {(() => {
+                      const ensLink = getEnsNameLink(agent);
+                      if (!ensLink) return null;
+                      return (
                         <a
-                          href={nftUrl}
+                          href={ensLink.href}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
                             display: 'inline-block',
-                            fontSize: '0.8rem',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                            color: '#2563eb',
-                            marginBottom: '0.25rem',
+                            marginTop: '0.25rem',
+                            color: '#0f172a',
                             textDecoration: 'none',
+                            borderBottom: '1px dashed rgba(15,23,42,0.3)',
+                            fontSize: '0.95rem',
                             fontWeight: 600,
+                            wordBreak: 'break-all',
                           }}
                         >
-                          Agent #{agent.agentId}
+                          {ensLink.name}
                         </a>
-                      ) : (
-                        <p
-                          style={{
-                            fontSize: '0.8rem',
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                            color: '#94a3b8',
-                            marginBottom: '0.25rem',
-                          }}
-                        >
-                          Agent #{agent.agentId}
-                        </p>
-                      )}
-                      <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
-                        {agent.agentName || 'Unnamed Agent'}
-                      </h4>
-                    </div>
+                      );
+                    })()}
+                    
                   </div>
-                  <span
-                    style={{
-                      padding: '0.25rem 0.75rem',
-                      borderRadius: '999px',
-                      backgroundColor: '#eef2ff',
-                      color: '#4338ca',
-                      fontSize: '0.85rem',
-                      alignSelf: 'flex-start',
-                    }}
-                  >
-                    Chain {agent.chainId}
-                  </span>
-                </div>
                 <p
                   style={{
                     margin: 0,
@@ -345,39 +607,158 @@ export function AgentsPage({
                 <div
                   style={{
                     display: 'flex',
-                    gap: '0.5rem',
                     flexWrap: 'wrap',
+                    gap: '0.75rem',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
                   }}
                 >
-                  <span
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    
+                    {typeof agent.agentAccount === 'string' && agent.agentAccount && (
+                      <a
+                        href={`${explorerBase}/address/${agent.agentAccount}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          padding: '0.3rem 0.75rem',
+                          backgroundColor: '#fef2f2',
+                          color: '#b91c1c',
+                          borderRadius: '999px',
+                          fontSize: '0.8rem',
+                          fontFamily: 'monospace',
+                          textDecoration: 'none',
+                        }}
+                      >
+                        {agent.agentAccount.slice(0, 6)}...{agent.agentAccount.slice(-4)}
+                      </a>
+                    )}
+                  </div>
+                  <div
                     style={{
-                      padding: '0.3rem 0.75rem',
-                      backgroundColor: '#ecfeff',
-                      color: '#0e7490',
-                      borderRadius: '999px',
-                      fontSize: '0.8rem',
+                      display: 'flex',
+                      gap: '0.4rem',
+                      flexWrap: 'wrap',
+                      justifyContent: 'flex-end',
                     }}
                   >
-                    On-chain Identity
-                  </span>
-                  {typeof agent.agentAccount === 'string' && agent.agentAccount && (
-                    <a
-                      href={`${explorerBase}/address/${agent.agentAccount}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openActionDialog(agent, 'info');
+                      }}
                       style={{
-                        padding: '0.3rem 0.75rem',
-                        backgroundColor: '#fef2f2',
-                        color: '#b91c1c',
-                        borderRadius: '999px',
-                        fontSize: '0.8rem',
-                        fontFamily: 'monospace',
-                        textDecoration: 'none',
+                        padding: '0.25rem 0.6rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5f5',
+                        backgroundColor: '#fff',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
                       }}
                     >
-                      {agent.agentAccount.slice(0, 6)}...{agent.agentAccount.slice(-4)}
-                    </a>
-                  )}
+                      {ACTION_LABELS.info}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openActionDialog(agent, 'registration');
+                      }}
+                      style={{
+                        padding: '0.25rem 0.6rem',
+                        borderRadius: '8px',
+                        border: '1px solid #cbd5f5',
+                        backgroundColor: '#fff',
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        cursor: agent.metadataURI ? 'pointer' : 'not-allowed',
+                        opacity: agent.metadataURI ? 1 : 0.5,
+                      }}
+                      disabled={!agent.metadataURI}
+                    >
+                      {ACTION_LABELS.registration}
+                    </button>
+                    {isOwned && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            openActionDialog(agent, 'card');
+                          }}
+                          style={{
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5f5',
+                            backgroundColor: '#fff',
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {ACTION_LABELS.card}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            openActionDialog(agent, 'did-web');
+                          }}
+                          style={{
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5f5',
+                            backgroundColor: '#fff',
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {ACTION_LABELS['did-web']}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            openActionDialog(agent, 'did-agent');
+                          }}
+                          style={{
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '8px',
+                            border: '1px solid #cbd5f5',
+                            backgroundColor: '#fff',
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {ACTION_LABELS['did-agent']}
+                        </button>
+                      </>
+                    )}
+                    {agent.a2aEndpoint && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          openActionDialog(agent, 'a2a');
+                        }}
+                        style={{
+                          padding: '0.25rem 0.6rem',
+                          borderRadius: '8px',
+                          border: '1px solid #cbd5f5',
+                          backgroundColor: '#fff',
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {ACTION_LABELS.a2a}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </article>
             );
@@ -385,6 +766,123 @@ export function AgentsPage({
         </div>
       </div>
     </section>
+    {activeDialog && dialogContent && (() => {
+      const { agent, action } = activeDialog;
+      return (
+        <div
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(15,23,42,0.48)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+          onClick={closeDialog}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: '16px',
+              padding: '1.5rem',
+              width: 'min(800px, 100%)',
+              minHeight: '500px',
+              boxShadow: '0 20px 45px rgba(15,23,42,0.25)',
+              position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+            onClick={event => event.stopPropagation()}
+          >
+            <h3 style={{ marginTop: 0 }}>
+              {ACTION_LABELS[action]} — {agent.agentName || `Agent #${agent.agentId}`}
+            </h3>
+            <div style={{ fontSize: '0.9rem', lineHeight: 1.5, flex: 1, overflowY: 'auto' }}>{dialogContent}</div>
+            <button
+              type="button"
+              onClick={closeDialog}
+              style={{
+                marginTop: '1.5rem',
+                padding: '0.6rem 1.2rem',
+                borderRadius: '10px',
+                border: 'none',
+                backgroundColor: '#2563eb',
+                color: '#fff',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      );
+    })()}
+    </>
   );
+}
+
+function formatJsonIfPossible(text: string): string {
+  try {
+    const parsed = JSON.parse(text);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    return text;
+  }
+}
+
+async function loadRegistrationContent(uri: string): Promise<string> {
+  const trimmed = uri?.trim();
+  if (!trimmed) {
+    throw new Error('Registration URI is empty.');
+  }
+
+  if (trimmed.startsWith('data:')) {
+    const commaIndex = trimmed.indexOf(',');
+    if (commaIndex === -1) {
+      throw new Error('Malformed data URI.');
+    }
+    const header = trimmed.slice(0, commaIndex);
+    const payload = trimmed.slice(commaIndex + 1);
+    const isBase64 = /;base64/i.test(header);
+
+    if (isBase64) {
+      try {
+        const decoded = typeof window !== 'undefined' && typeof window.atob === 'function'
+          ? window.atob(payload)
+          : payload;
+        return formatJsonIfPossible(decoded);
+      } catch (error) {
+        throw new Error('Unable to decode base64 data URI.');
+      }
+    }
+    try {
+      const decoded = decodeURIComponent(payload);
+      return formatJsonIfPossible(decoded);
+    } catch {
+      return formatJsonIfPossible(payload);
+    }
+  }
+
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    return formatJsonIfPossible(trimmed);
+  }
+
+  let resolvedUrl = trimmed;
+  if (trimmed.startsWith('ipfs://')) {
+    const path = trimmed.slice('ipfs://'.length);
+    resolvedUrl = `https://ipfs.io/ipfs/${path}`;
+  }
+
+  const response = await fetch(resolvedUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch registration (HTTP ${response.status}).`);
+  }
+  const text = await response.text();
+  return formatJsonIfPossible(text);
 }
 
