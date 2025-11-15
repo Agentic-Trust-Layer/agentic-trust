@@ -3,12 +3,25 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { buildAgentDetail, getAgenticTrustClient } from '@agentic-trust/core/server';
 
+const DID_PARAM_KEYS = ['did:8004', 'did8004', 'did꞉8004'] as const;
+
+async function getDidParam(params: Promise<Record<string, string | undefined>>): Promise<string> {
+  const resolved = await params;
+  for (const key of DID_PARAM_KEYS) {
+    const value = resolved[key];
+    if (value) {
+      return decodeURIComponent(value);
+    }
+  }
+  throw new Error('Missing did:8004 parameter');
+}
+
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ 'did:8004': string }> }
+  { params }: { params: Promise<Record<string, string | undefined>> },
 ) {
   try {
-    const { 'did:8004': didAgent } = await params;
+    const didAgent = await getDidParam(params);
 
     const client = await getAgenticTrustClient();
     const agentDetail = await buildAgentDetail(client as any, didAgent);
