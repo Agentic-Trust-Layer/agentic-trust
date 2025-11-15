@@ -28,6 +28,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   address: '',
   name: '',
   agentId: '',
+  mineOnly: false,
 };
 
 const PAGE_SIZE = 18;
@@ -100,8 +101,9 @@ export default function AgentsRoute() {
         params.chains = [parsed];
       }
     }
-    if (source.address.trim()) {
-      params.agentAccount = source.address.trim() as Address;
+    const addressQuery = source.address.trim();
+    if (addressQuery && /^0x[a-fA-F0-9]{40}$/.test(addressQuery)) {
+      params.agentAccount = addressQuery as Address;
     }
     if (source.name.trim()) {
       params.agentName = source.name.trim();
@@ -302,7 +304,7 @@ export default function AgentsRoute() {
           onFilterChange={(key, value) => {
             setFilters(prev => ({ ...prev, [key]: value }));
           }}
-          onSearch={() => searchAgents(filters)}
+          onSearch={override => searchAgents(override ?? filters)}
           onClear={() => {
             setFilters(DEFAULT_FILTERS);
             searchAgents(DEFAULT_FILTERS);

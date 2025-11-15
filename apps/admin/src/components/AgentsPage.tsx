@@ -28,6 +28,7 @@ export type AgentsPageFilters = {
   address: string;
   name: string;
   agentId: string;
+  mineOnly: boolean;
 };
 
 type AgentsPageProps = {
@@ -40,17 +41,16 @@ type AgentsPageProps = {
     key: K,
     value: AgentsPageFilters[K],
   ) => void;
-  onSearch: () => void;
+  onSearch: (filtersOverride?: AgentsPageFilters) => void;
   onClear: () => void;
   onEditAgent?: (agent: Agent) => void;
 };
 
-type AgentActionType = 'info' | 'registration' | 'card' | 'did-web' | 'did-agent' | 'a2a';
+type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a';
 
 const ACTION_LABELS: Record<AgentActionType, string> = {
   info: 'Info',
   registration: 'Reg',
-  card: 'Card',
   'did-web': 'DID:Web',
   'did-agent': 'DID:Agent',
   a2a: 'A2A',
@@ -70,6 +70,17 @@ export function AgentsPage({
 
   const [activeDialog, setActiveDialog] = useState<{ agent: Agent; action: AgentActionType } | null>(null);
   const [registrationPreview, setRegistrationPreview] = useState<{
+    key: string | null;
+    loading: boolean;
+    error: string | null;
+    text: string | null;
+  }>({
+    key: null,
+    loading: false,
+    error: null,
+    text: null,
+  });
+  const [a2aPreview, setA2APreview] = useState<{
     key: string | null;
     loading: boolean;
     error: string | null;
@@ -122,6 +133,20 @@ export function AgentsPage({
     return { name, href: `${base}/${name}` };
   };
 
+  const filteredAgents = useMemo(() => {
+    let result = agents;
+    const addressQuery = filters.address.trim().toLowerCase();
+    if (addressQuery) {
+      result = result.filter(agent =>
+        (agent.agentAccount ?? '').toLowerCase().includes(addressQuery),
+      );
+    }
+    if (filters.mineOnly) {
+      result = result.filter(agent => ownedMap[`${agent.chainId}:${agent.agentId}`]);
+    }
+    return result;
+  }, [agents, filters.address, filters.mineOnly, ownedMap]);
+
   const openActionDialog = (agent: Agent, action: AgentActionType) => {
     setActiveDialog({ agent, action });
   };
@@ -167,6 +192,54 @@ export function AgentsPage({
           key,
           loading: false,
           error: error?.message ?? 'Unable to load registration JSON.',
+          text: null,
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDialog]);
+
+  useEffect(() => {
+    if (!activeDialog || activeDialog.action !== 'a2a') {
+      return;
+    }
+    const { agent } = activeDialog;
+    const key = `${agent.chainId}:${agent.agentId}`;
+    const endpoint = agent.a2aEndpoint;
+    if (!endpoint) {
+      setA2APreview({
+        key,
+        loading: false,
+        error: 'No Agent Card endpoint configured for this agent.',
+        text: null,
+      });
+      return;
+    }
+    let cancelled = false;
+    setA2APreview({
+      key,
+      loading: true,
+      error: null,
+      text: null,
+    });
+    (async () => {
+      try {
+        const text = await loadAgentCardContent(endpoint);
+        if (cancelled) return;
+        setA2APreview({
+          key,
+          loading: false,
+          error: null,
+          text,
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setA2APreview({
+          key,
+          loading: false,
+          error: error?.message ?? 'Unable to load agent card JSON.',
           text: null,
         });
       }
@@ -249,26 +322,6 @@ export function AgentsPage({
           </>
         );
       }
-      case 'card':
-        return (
-          <>
-            <p style={{ marginTop: 0 }}>
-              Agent Card endpoints describe A2A capabilities.
-            </p>
-            {agent.a2aEndpoint ? (
-              <a
-                href={agent.a2aEndpoint}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: palette.accent, wordBreak: 'break-all' }}
-              >
-                {agent.a2aEndpoint}
-              </a>
-            ) : (
-              <p style={{ color: palette.dangerText }}>No Agent Card endpoint configured.</p>
-            )}
-          </>
-        );
       case 'did-web':
         return (
           <>
@@ -300,6 +353,7 @@ export function AgentsPage({
           </>
         );
       case 'a2a':
+        const a2aMatchesAgent = a2aPreview.key === `${agent.chainId}:${agent.agentId}`;
         return (
           <>
             <p style={{ marginTop: 0 }}>
@@ -317,12 +371,39 @@ export function AgentsPage({
             ) : (
               <p style={{ color: palette.dangerText }}>No A2A endpoint is available for this agent.</p>
             )}
+            <div
+              style={{
+                marginTop: '1rem',
+                border: `1px solid ${palette.border}`,
+                borderRadius: '10px',
+                padding: '0.75rem',
+                backgroundColor: palette.surfaceMuted,
+                maxHeight: '500px',
+                overflow: 'auto',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: '0.85rem',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {!agent.a2aEndpoint ? (
+                <span style={{ color: palette.textSecondary }}>No endpoint to preview.</span>
+              ) : !a2aMatchesAgent || a2aPreview.loading ? (
+                <span style={{ color: palette.textSecondary }}>Loading agent card…</span>
+              ) : a2aPreview.error ? (
+                <span style={{ color: palette.dangerText }}>{a2aPreview.error}</span>
+              ) : a2aPreview.text ? (
+                a2aPreview.text
+              ) : (
+                <span style={{ color: palette.textSecondary }}>No JSON preview available.</span>
+              )}
+            </div>
           </>
         );
       default:
         return null;
     }
-  }, [activeDialog, registrationPreview]);
+  }, [activeDialog, registrationPreview, a2aPreview]);
 
   return (
     <>
@@ -356,7 +437,11 @@ export function AgentsPage({
           >
             <select
               value={filters.chainId}
-              onChange={event => onFilterChange('chainId', event.target.value)}
+              onChange={event => {
+                const nextValue = event.target.value;
+                onFilterChange('chainId', nextValue);
+                onSearch({ ...filters, chainId: nextValue });
+              }}
               onKeyDown={event => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
@@ -456,7 +541,22 @@ export function AgentsPage({
             }}
           >
             <button
-              onClick={onSearch}
+              type="button"
+              onClick={() => onFilterChange('mineOnly', !filters.mineOnly)}
+              style={{
+                padding: '0.75rem 1.2rem',
+                borderRadius: '10px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: filters.mineOnly ? palette.accent : palette.surfaceMuted,
+                color: filters.mineOnly ? palette.surface : palette.textPrimary,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              my Agents
+            </button>
+            <button
+              onClick={() => onSearch()}
               disabled={loading}
               style={{
                 padding: '0.75rem 1.5rem',
@@ -500,7 +600,7 @@ export function AgentsPage({
             gap: '1.5rem',
           }}
         >
-          {agents.length === 0 && (
+          {filteredAgents.length === 0 && (
             <div
               style={{
                 gridColumn: '1 / -1',
@@ -515,7 +615,7 @@ export function AgentsPage({
             </div>
           )}
 
-          {agents.map(agent => {
+          {filteredAgents.map(agent => {
             const ownershipKey = `${agent.chainId}:${agent.agentId}`;
             const isOwned = Boolean(ownedMap[ownershipKey]);
             const imageUrl =
@@ -739,25 +839,6 @@ export function AgentsPage({
                           type="button"
                           onClick={event => {
                             event.stopPropagation();
-                            openActionDialog(agent, 'card');
-                          }}
-                          style={{
-                            padding: '0.25rem 0.6rem',
-                            borderRadius: '8px',
-                            border: `1px solid ${palette.border}`,
-                            backgroundColor: palette.surface,
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            color: palette.textPrimary,
-                          }}
-                        >
-                          {ACTION_LABELS.card}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={event => {
-                            event.stopPropagation();
                             openActionDialog(agent, 'did-web');
                           }}
                           style={{
@@ -942,4 +1023,9 @@ async function loadRegistrationContent(uri: string): Promise<string> {
   const text = await response.text();
   return formatJsonIfPossible(text);
 }
+
+async function loadAgentCardContent(uri: string): Promise<string> {
+  return loadRegistrationContent(uri);
+}
+
 
