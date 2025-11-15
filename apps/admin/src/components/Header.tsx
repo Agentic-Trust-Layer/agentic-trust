@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
 
 const NAV_ITEMS = [
@@ -30,6 +30,71 @@ export function Header({
   rightSlot,
 }: HeaderProps) {
   const pathname = usePathname() ?? '/';
+  const [graphLoading, setGraphLoading] = useState(false);
+
+  const canRequestGraphql = Boolean(displayAddress);
+
+  const graphiqlFallback = useMemo(() => {
+    const candidates = [
+      process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL,
+      process.env.AGENTIC_TRUST_DISCOVERY_URL,
+      process.env.NEXT_PUBLIC_GRAPHQL_API_URL,
+      process.env.GRAPHQL_API_URL,
+    ];
+    const raw = candidates.find(value => typeof value === 'string' && value?.trim());
+    if (!raw) {
+      return 'https://agentictrust.io/graphiql';
+    }
+    return raw
+      .trim()
+      .replace(/\/+$/, '')
+      .replace(/\/(graphql|graphiql)\/?$/i, '/graphiql');
+  }, []);
+
+  const handleOpenGraphQL = useCallback(async () => {
+    if (!displayAddress) {
+      alert('Connect a wallet or log in to open the GraphQL explorer.');
+      return;
+    }
+    setGraphLoading(true);
+    try {
+      const response = await fetch('/api/getAccessCode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ address: displayAddress }),
+      });
+
+      const payload = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const message =
+          typeof payload?.error === 'string' && payload.error.trim().length > 0
+            ? payload.error
+            : 'Failed to fetch GraphQL access code.';
+        throw new Error(message);
+      }
+
+      const accessCode = typeof payload?.accessCode === 'string' ? payload.accessCode.trim() : '';
+      if (!accessCode) {
+        throw new Error('GraphQL access code was not returned by the server.');
+      }
+
+      const graphiqlUrl =
+        typeof payload?.graphiqlUrl === 'string' && payload.graphiqlUrl.trim().length > 0
+          ? payload.graphiqlUrl.trim()
+          : graphiqlFallback;
+
+      const target = `${graphiqlUrl.replace(/\/+$/, '')}?accessCode=${encodeURIComponent(
+        accessCode,
+      )}`;
+      window.open(target, '_blank', 'noopener,noreferrer');
+    } catch (error) {
+      console.error('[Header] Failed to open GraphQL explorer', error);
+      alert(error instanceof Error ? error.message : 'Unable to open GraphQL explorer.');
+    } finally {
+      setGraphLoading(false);
+    }
+  }, [displayAddress, graphiqlFallback]);
 
   return (
     <header
@@ -48,11 +113,36 @@ export function Header({
           gap: '1.25rem',
         }}
       >
-        <Link href="/" style={{ textDecoration: 'none', color: 'inherit', minWidth: '240px' }}>
-          <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 500 }}>
-            Agentic Trust
-          </h1>
-        </Link>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', minWidth: '240px' }}>
+            <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 500 }}>
+              Agentic Trust
+            </h1>
+          </Link>
+          <button
+            type="button"
+            onClick={handleOpenGraphQL}
+            disabled={!canRequestGraphql || graphLoading}
+            style={{
+              padding: '0.4rem 1rem',
+              borderRadius: '999px',
+              border: `1px solid ${palette.borderStrong}`,
+              backgroundColor: canRequestGraphql && !graphLoading ? palette.surfaceMuted : palette.border,
+              color: palette.textPrimary,
+              fontWeight: 600,
+              fontSize: '0.9rem',
+              cursor: canRequestGraphql && !graphLoading ? 'pointer' : 'not-allowed',
+              opacity: canRequestGraphql && !graphLoading ? 1 : 0.6,
+            }}
+            title={
+              canRequestGraphql
+                ? 'Open Agentic Trust GraphQL explorer'
+                : 'Connect to request a GraphQL access code'
+            }
+          >
+            {graphLoading ? 'Opening…' : 'GraphQL'}
+          </button>
+        </div>
 
         <div
           style={{
