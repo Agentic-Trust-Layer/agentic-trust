@@ -10,8 +10,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineChain, http, createPublicClient, type Chain, type PublicClient } from 'viem';
 import { privateKeyToAccount, type Account } from 'viem/accounts';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { getChainEnvVar } from './chainConfig';
+import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
 
 type Hex = `0x${string}`;
 
@@ -225,6 +225,10 @@ export async function buildAgentAccountFromSession(sessionPackage?: SessionPacka
   const agentOwnerEOA = privateKeyToAccount(delegationSetup.sessionKey.privateKey);
 
   const agentOwnerAddress = delegationSetup.sessionAA || delegationSetup.aa;
+
+  const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+    feature: 'Session package utilities',
+  });
 
   const agentAccountClient = await toMetaMaskSmartAccount({
     address: agentOwnerAddress as `0x${string}`,

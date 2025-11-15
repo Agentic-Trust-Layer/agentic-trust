@@ -15,8 +15,8 @@ import { getProviderApp } from '../userApps/providerApp';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
+import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
 
 // Singleton instances by chainId
 let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
@@ -380,6 +380,10 @@ export async function createENSName(
       paymasterContext: { mode: 'SPONSORED' },
     } as any);
                 
+    const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+      feature: 'ENS client L1 org registration',
+    });
+
     const orgAccountClient = await toMetaMaskSmartAccount({
       address: orgOwnerAddress as `0x${string}`,
       client: l1PublicClient,
@@ -572,6 +576,10 @@ export async function addAgentNameToL1Org(params: AddAgentToOrgL2Params): Promis
           account: orgEOA,
           chain: sepolia,
           transport: http(rpcUrl),
+        });
+
+        const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+          feature: 'ENS client L1 org submission',
         });
 
         const orgAccountClient = await toMetaMaskSmartAccount({

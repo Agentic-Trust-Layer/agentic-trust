@@ -11,11 +11,11 @@ import {
 } from './chainConfig';
 import { createPublicClient, createWalletClient, http, type Chain } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import {
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
 } from '../../client/accountClient';
+import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
 
 export type AddToL1OrgPKParams = {
   orgName: string;
@@ -82,6 +82,10 @@ async function executeEnsCallsWithOrgPK(params: { calls: { to: `0x${string}`; da
     account: walletAccount,
     chain: chain as any,
     transport: http(rpcUrl),
+  });
+
+  const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+    feature: 'ENS name management',
   });
 
   const orgAccountClient = await toMetaMaskSmartAccount({

@@ -1,9 +1,9 @@
 import { keccak256, stringToHex, createPublicClient, http, zeroAddress, createWalletClient, custom, type Address, type Chain } from 'viem';
 import { sepolia } from 'viem/chains';
 import type { PublicClient, WalletClient } from 'viem';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { getChainRpcUrl } from '../server/lib/chainConfig';
+import { requireDelegationToolkit } from '../shared/optionalDelegationToolkit';
 
 
 type GetAAAccountClientOptions = {
@@ -79,6 +79,9 @@ export async function getCounterfactualAccountClientByAgentName(
   }
   
   const salt: `0x${string}` = keccak256(stringToHex(agentName)) as `0x${string}`;
+  const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+    feature: 'Client AA counterfactual account computation',
+  });
   const clientConfig: Record<string, unknown> = {
     client: publicClient,
     implementation: Implementation.Hybrid,
@@ -139,6 +142,9 @@ export async function getDeployedAccountClientByAgentName(
   }
 
   const salt: `0x${string}` = keccak256(stringToHex(agentName)) as `0x${string}`;
+  const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+    feature: 'Client AA deployed account detection',
+  });
   const clientConfig: Record<string, unknown> = {
     client: publicClient,
     implementation: Implementation.Hybrid,

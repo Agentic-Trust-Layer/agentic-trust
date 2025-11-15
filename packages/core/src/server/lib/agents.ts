@@ -81,7 +81,7 @@ import { createPublicClient, http } from 'viem';
 import type { Address } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { requireDelegationToolkit } from '../../shared/optionalDelegationToolkit';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { addToL1OrgPK } from './names';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/accountClient';
@@ -657,6 +657,10 @@ export class AgentsAPI {
     // Deterministic salt based on agentName (matches client computation)
     const { keccak256, stringToHex } = await import('viem');
     const deploySalt = keccak256(stringToHex(params.agentName)) as `0x${string}`;
+
+    const { toMetaMaskSmartAccount, Implementation } = await requireDelegationToolkit({
+      feature: 'Admin agent AA creation',
+    });
 
     const accountClient = await toMetaMaskSmartAccount({
       client: adminApp.publicClient as any,
