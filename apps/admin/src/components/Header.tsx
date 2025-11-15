@@ -73,17 +73,6 @@ export function Header({
             justifyContent: 'flex-end',
           }}
         >
-          {displayAddress && (
-            <div
-              style={{
-                fontSize: '0.9rem',
-                color: '#475569',
-                fontFamily: 'monospace',
-              }}
-            >
-              {displayAddress.slice(0, 6)}...{displayAddress.slice(-4)}
-            </div>
-          )}
 
           
           <nav
@@ -150,20 +139,107 @@ export function Header({
               Server-admin mode
             </div>
           ) : isConnected ? (
-            <button
-              onClick={onDisconnect}
-              style={{
-                padding: '0.5rem 1.25rem',
-                backgroundColor: '#dc2626',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Logout
-            </button>
+            <div style={{ position: 'relative' }} className="account-dropdown">
+              <details>
+                <summary
+                  style={{
+                    listStyle: 'none',
+                    margin: 0,
+                    padding: '0.45rem 0.9rem',
+                    borderRadius: '999px',
+                    border: '1px solid #94a3b8',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    cursor: 'pointer',
+                    backgroundColor: '#f8fafc',
+                    fontWeight: 600,
+                  }}
+                >
+                  <span style={{ fontSize: '0.85rem', color: '#059669' }}>Connected</span>
+                  <span style={{ fontFamily: 'monospace', color: '#1f2937' }}>
+                    {displayAddress ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}` : ''}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: '#475569' }}>▾</span>
+                </summary>
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    marginTop: '0.5rem',
+                    backgroundColor: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '12px',
+                    boxShadow: '0 8px 24px rgba(15, 23, 42, 0.1)',
+                    minWidth: '220px',
+                    zIndex: 5,
+                    padding: '0.75rem 1rem',
+                  }}
+                >
+                  <p style={{ margin: 0, fontSize: '0.75rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    Connected
+                  </p>
+                  <p style={{ margin: '0.35rem 0 0.75rem', fontFamily: 'monospace', fontSize: '0.9rem', color: '#0f172a' }}>
+                    {displayAddress ? `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}` : ''}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (displayAddress) {
+                        navigator.clipboard.writeText(displayAddress).catch(() => {});
+                      }
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      backgroundColor: '#f8fafc',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    Copy Address
+                  </button>
+                  <a
+                    href={displayAddress ? `https://etherscan.io/address/${displayAddress}` : '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: 'block',
+                      textAlign: 'center',
+                      padding: '0.5rem',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      backgroundColor: '#f8fafc',
+                      fontWeight: 600,
+                      color: '#1d4ed8',
+                      textDecoration: 'none',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    View on Explorer
+                  </a>
+                  <button
+                    type="button"
+                    onClick={onDisconnect}
+                    style={{
+                      width: '100%',
+                      padding: '0.5rem',
+                      borderRadius: '8px',
+                      border: 'none',
+                      backgroundColor: '#dc2626',
+                      color: '#fff',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              </details>
+            </div>
           ) : (
             <button
               onClick={onConnect}
