@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
         error: 'Failed to add agent name to ENS org',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
-      { status: 521 }
+      { status: 531 }
     );
   }
 }
