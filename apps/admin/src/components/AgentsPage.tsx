@@ -1,11 +1,18 @@
 'use client';
 
 import { useMemo, useState, useEffect } from 'react';
-import type { DiscoverResponse } from '@agentic-trust/core/server';
 import { grayscalePalette as palette } from '@/styles/palette';
 
-type Agent = DiscoverResponse['agents'][number] & {
+type Agent = {
+  agentId: string;
+  chainId: number;
+  agentName?: string | null;
+  agentAccount?: string | null;
+  metadataURI?: string | null;
+  description?: string | null;
+  image?: string | null;
   contractAddress?: string | null;
+  a2aEndpoint?: string | null;
   did?: string | null;
 };
 
@@ -317,7 +324,7 @@ export function AgentsPage({
 
   return (
     <>
-    <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
 
       <div
@@ -348,6 +355,12 @@ export function AgentsPage({
             <select
               value={filters.chainId}
               onChange={event => onFilterChange('chainId', event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  onSearch();
+                }
+              }}
               aria-label="Chain"
               style={{
                 width: '100%',
@@ -371,6 +384,12 @@ export function AgentsPage({
             <input
               value={filters.address}
               onChange={event => onFilterChange('address', event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  onSearch();
+                }
+              }}
               placeholder="Agent address"
               aria-label="Agent address"
               style={{
@@ -386,6 +405,12 @@ export function AgentsPage({
             <input
               value={filters.name}
               onChange={event => onFilterChange('name', event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  onSearch();
+                }
+              }}
               placeholder="Agent name"
               aria-label="Agent name"
               style={{
@@ -401,6 +426,12 @@ export function AgentsPage({
             <input
               value={filters.agentId}
               onChange={event => onFilterChange('agentId', event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  onSearch();
+                }
+              }}
               placeholder="Agent ID"
               aria-label="Agent ID"
               style={{
