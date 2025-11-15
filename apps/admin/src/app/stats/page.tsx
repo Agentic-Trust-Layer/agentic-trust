@@ -1,12 +1,12 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import React from 'react';
+
 import { Header } from '@/components/Header';
-import { HomePage } from '@/components/HomePage';
+import { StatsPage } from '@/components/StatsPage';
 import { useAuth } from '@/components/AuthProvider';
 
-export default function LandingPage() {
-  const router = useRouter();
+export default function StatsRoute() {
   const {
     isConnected,
     privateKeyMode,
@@ -27,11 +27,7 @@ export default function LandingPage() {
         disableConnect={loading}
       />
       <main style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-        <HomePage
-          onNavigateAgents={() => router.push('/agents')}
-          onOpenAdminTools={() => router.push('/admin-tools?mode=create')}
-          isConnected={isConnected}
-        />
+        <StatsPage />
       </main>
     </>
   );

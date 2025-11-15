@@ -1,4 +1,4 @@
-# Agent Admin App
+# Agent Explorer App
 
 Next.js application for agent administration - create, update, delete, and transfer agents.
 

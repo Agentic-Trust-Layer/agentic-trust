@@ -95,6 +95,7 @@ export async function discoverAgents(
         agentId: stringOrNull(raw?.agentId) ?? '',
         agentAccount: String(raw?.agentAccount ?? ''),
         agentOwner: String(raw?.agentOwner ?? ''),
+        contractAddress: stringOrNull(raw?.contractAddress) ?? undefined,
         agentName: String(raw?.agentName ?? ''),
         didIdentity: stringOrNull(raw?.didIdentity) ?? undefined,
         didAccount: stringOrNull(raw?.didAccount) ?? undefined,

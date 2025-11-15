@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 import dynamic from 'next/dynamic';
 
+import { AuthProvider } from '@/components/AuthProvider';
+
 // Dynamically import providers to prevent SSR execution
 const Web3AuthProvider = dynamic(
   () => import('@/components/Web3AuthProvider').then((mod) => mod.Web3AuthProvider),
@@ -14,8 +16,8 @@ const WalletProvider = dynamic(
 );
 
 export const metadata: Metadata = {
-  title: 'Agent Admin',
-  description: 'Agent Administration - Create, Update, Delete, and Transfer Agents',
+  title: 'Agent Explorer',
+  description: 'Agent Explorer - Create, Update, Delete, and Transfer Agents',
 };
 
 export default function RootLayout({
@@ -28,7 +30,7 @@ export default function RootLayout({
       <body>
         <Web3AuthProvider>
           <WalletProvider>
-            {children}
+            <AuthProvider>{children}</AuthProvider>
           </WalletProvider>
         </Web3AuthProvider>
       </body>
