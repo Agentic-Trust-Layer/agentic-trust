@@ -183,6 +183,12 @@ export {
   type SupportedChainId,
 } from './lib/chainConfig';
 
+export {
+  DelegationToolkitUnavailableError,
+  isDelegationToolkitAvailable,
+  tryDelegationToolkit,
+} from '../shared/optionalDelegationToolkit';
+
 // Export IPFS storage (server-backed implementation)
 export {
   createIPFSStorage,

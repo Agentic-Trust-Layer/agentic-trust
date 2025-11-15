@@ -8,9 +8,10 @@ export async function POST(
 ) {
   try {
     let parsed;
-    const didParam = params['did:8004'];
+    const rawDidParam = params['did:8004'];
+    const decodedDidParam = decodeURIComponent(rawDidParam ?? '');
     try {
-      parsed = parseDid8004(didParam);
+      parsed = parseDid8004(decodedDidParam);
     } catch (parseError) {
       const message =
         parseError instanceof Error ? parseError.message : 'Invalid 8004 DID';
@@ -37,7 +38,7 @@ export async function POST(
     const client = await getAgenticTrustClient();
     const effectiveDid =
       chainIdToUse === parsed.chainId
-        ? didParam
+        ? decodedDidParam
         : buildDid8004(chainIdToUse, parsed.agentId);
 
     const result = await client.agents.refreshAgentByDid(effectiveDid);

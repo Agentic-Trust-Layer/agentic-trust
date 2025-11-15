@@ -1,5 +1,18 @@
 type DelegationToolkitModule = typeof import('@metamask/delegation-toolkit');
 
+export class DelegationToolkitUnavailableError extends Error {
+  feature?: string;
+
+  constructor(feature?: string) {
+    super(
+      `${feature ?? 'Account abstraction features'} require '@metamask/delegation-toolkit'. ` +
+        'Install the dependency or disable the feature in this deployment.',
+    );
+    this.name = 'DelegationToolkitUnavailableError';
+    this.feature = feature;
+  }
+}
+
 let toolkitPromise: Promise<DelegationToolkitModule | null> | null = null;
 
 async function loadToolkitModule(): Promise<DelegationToolkitModule | null> {
@@ -24,15 +37,16 @@ export async function requireDelegationToolkit(options?: {
 }): Promise<DelegationToolkitModule> {
   const module = await loadToolkitModule();
   if (!module) {
-    const feature = options?.feature ?? 'Account abstraction features';
-    throw new Error(
-      `${feature} require '@metamask/delegation-toolkit'. Install the dependency or disable the feature in this deployment.`,
-    );
+    throw new DelegationToolkitUnavailableError(options?.feature);
   }
   return module;
 }
 
 export async function tryDelegationToolkit(): Promise<DelegationToolkitModule | null> {
   return await loadToolkitModule();
+}
+
+export async function isDelegationToolkitAvailable(): Promise<boolean> {
+  return (await loadToolkitModule()) !== null;
 }
 
