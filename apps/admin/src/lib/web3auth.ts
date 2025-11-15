@@ -273,7 +273,16 @@ export async function loginWithMetaMask(): Promise<void> {
  */
 export async function logout(): Promise<void> {
   const web3Auth = await getWeb3Auth();
-  await web3Auth.logout();
+  try {
+    await web3Auth.logout();
+  } catch (error: any) {
+    const message = (error?.message || '').toLowerCase();
+    if (message.includes('wallet is not connected')) {
+      console.info('[web3auth] logout called while already disconnected');
+      return;
+    }
+    throw error;
+  }
 }
 
 /**

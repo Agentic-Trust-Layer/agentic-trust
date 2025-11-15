@@ -21,6 +21,24 @@ import { buildDid8004 } from '@agentic-trust/core';
 import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse } from '@agentic-trust/core/server';
 type Agent = DiscoverResponse['agents'][number];
+
+const CHAIN_SUFFIX_MAP: Record<number, string> = {
+  11155111: 'SEPOLIA',
+  84532: 'BASE_SEPOLIA',
+  11155420: 'OPTIMISM_SEPOLIA',
+};
+
+const getEnvVarHints = (chainId: number) => {
+  const suffix = CHAIN_SUFFIX_MAP[chainId];
+  if (!suffix) return null;
+  return {
+    rpcClient: `NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_${suffix}`,
+    rpcServer: `AGENTIC_TRUST_RPC_URL_${suffix}`,
+    bundlerClient: `NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_${suffix}`,
+    bundlerServer: `AGENTIC_TRUST_BUNDLER_URL_${suffix}`,
+  };
+};
+
 export default function AdminPage() {
 
   // Get consolidated wallet state from useWallet hook
@@ -331,6 +349,20 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
         setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet.');
+        const chainMeta = CHAIN_METADATA[selectedChainId];
+        const chainLabel = chainMeta?.displayName || chainMeta?.chainName || `chain ${selectedChainId}`;
+        try {
+          const envNames = getEnvVarHints(selectedChainId);
+          if (envNames) {
+            console.error(
+              `[chain] Auto-switch failed for ${chainLabel}. Ensure RPC env vars ` +
+                `${envNames.rpcClient} (client) and ${envNames.rpcServer} (server) are configured. ` +
+                `If you use AA, also set ${envNames.bundlerClient} and ${envNames.bundlerServer}.`,
+            );
+          }
+        } catch (envErr) {
+          console.error('[chain] Unable to provide env hint for chain', selectedChainId, envErr);
+        }
       }
     })();
   }, [selectedChainId, synchronizeProvidersWithChain, eip1193Provider, eoaConnected]);

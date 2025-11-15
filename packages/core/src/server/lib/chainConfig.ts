@@ -130,6 +130,32 @@ export function getChainEnvVar(baseName: string, chainId: number): string {
   return getChainEnvVarDetails(baseName, chainId).value;
 }
 
+type ChainEnvVarNames = {
+  rpcServer: string;
+  rpcClient: string;
+  bundlerServer: string;
+  bundlerClient: string;
+  ensOrgAddressServer: string;
+  ensOrgNameClient: string;
+  ensPrivateKeyServer: string;
+};
+
+export function getChainEnvVarNames(chainId: number): ChainEnvVarNames {
+  const cfg = CHAIN_CONFIG[chainId as SupportedChainId];
+  if (!cfg) {
+    throw new Error(`Unsupported chainId: ${chainId}`);
+  }
+  return {
+    rpcServer: `AGENTIC_TRUST_RPC_URL_${cfg.suffix}`,
+    rpcClient: `NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_${cfg.suffix}`,
+    bundlerServer: `AGENTIC_TRUST_BUNDLER_URL_${cfg.suffix}`,
+    bundlerClient: `NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_${cfg.suffix}`,
+    ensOrgAddressServer: `AGENTIC_TRUST_ENS_ORG_ADDRESS_${cfg.suffix}`,
+    ensOrgNameClient: `NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_${cfg.suffix}`,
+    ensPrivateKeyServer: `AGENTIC_TRUST_ENS_PRIVATE_KEY_${cfg.suffix}`,
+  };
+}
+
 export function requireChainEnvVar(baseName: string, chainId: number): string {
   const { value, chainKey } = getChainEnvVarDetails(baseName, chainId);
   if (!value) {
@@ -233,10 +259,14 @@ export function getChainRpcUrl(chainId: number): string {
     );
 
     // No generic fallbacks - throw error if chain-specific variable not configured
-    const expectedVar = isBrowser
-      ? `NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}`
-      : `AGENTIC_TRUST_RPC_URL_${chainConfig.suffix}`;
-
+    const envNames = getChainEnvVarNames(chainId);
+    const mask = (val?: string) => (val ? '<set>' : '<missing>');
+    const expectedVar = isBrowser ? envNames.rpcClient : envNames.rpcServer;
+    console.error(
+      `[chainConfig] Missing RPC URL for chain ${chainId} (${chainConfig.name}). Checked env vars ` +
+        `${envNames.rpcServer}=${mask(serverValue)} and ${envNames.rpcClient}=${mask(clientValue)}. ` +
+        `Set ${isBrowser ? envNames.rpcClient : `${envNames.rpcServer} (server) or ${envNames.rpcClient}`}.`,
+    );
     throw new Error(
       `Missing required RPC URL for chain ${chainId} (${chainConfig.name}). ` +
       `Set ${expectedVar} environment variable.`
@@ -357,9 +387,14 @@ export function getChainBundlerUrl(chainId: number): string {
       if (clientValue) return clientValue;
     }
 
-    const expectedVar = isBrowser
-      ? `NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_${chainConfig.suffix}`
-      : `AGENTIC_TRUST_BUNDLER_URL_${chainConfig.suffix}`;
+    const envNames = getChainEnvVarNames(chainId);
+    const mask = (val?: string) => (val ? '<set>' : '<missing>');
+    const expectedVar = isBrowser ? envNames.bundlerClient : envNames.bundlerServer;
+    console.error(
+      `[chainConfig] Missing bundler URL for chain ${chainId} (${chainConfig.name}). Checked env vars ` +
+        `${envNames.bundlerServer}=${mask(SERVER_CHAIN_BUNDLER_ENV[chainId as SupportedChainId])} ` +
+        `and ${envNames.bundlerClient}=${mask(CLIENT_CHAIN_BUNDLER_ENV[chainId as SupportedChainId])}.`,
+    );
     throw new Error(
       `Missing required bundler URL for chain ${chainId} (${chainConfig.name}). ` +
       `Set ${expectedVar} environment variable.`

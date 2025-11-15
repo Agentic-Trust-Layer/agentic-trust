@@ -187,9 +187,19 @@ export async function getWalletAddress(): Promise<Address | null> {
 export async function disconnectWallet(): Promise<void> {
   walletClient = null;
   
-  // Note: EIP-1193 doesn't have a standard disconnect method
-  // The wallet client is just cleared from memory
-  // The browser extension connection remains active
+  // Attempt to revoke permissions so MetaMask shows as disconnected
+  if (typeof window !== 'undefined' && window.ethereum?.request) {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_revokePermissions',
+        params: [{ eth_accounts: {} }],
+      });
+      // Verify revocation by triggering accounts check
+      await window.ethereum.request({ method: 'eth_accounts' });
+    } catch (error) {
+      console.warn('Unable to revoke wallet permissions (disconnect). User may need to disconnect manually.', error);
+    }
+  }
 }
 
 /**

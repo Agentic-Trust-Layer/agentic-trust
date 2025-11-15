@@ -159,6 +159,7 @@ export {
 export {
   getChainEnvVar,
   getChainEnvVarDetails,
+  getChainEnvVarNames,
   requireChainEnvVar,
   getChainById,
   getSupportedChainIds,

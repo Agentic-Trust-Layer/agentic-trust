@@ -67,6 +67,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   
   // Determine the EIP-1193 provider
   // Priority: Web3Auth provider > MetaMask provider > null (if private key mode)
+  const tagWeb3AuthProvider = (provider: any) => {
+    if (provider && typeof provider === 'object') {
+      (provider as any).isWeb3Auth = true;
+    }
+    return provider;
+  };
+
   const eip1193Provider = useMemo(() => {
     // If in private key mode, provider should be null
     if (privateKeyMode) {
@@ -75,7 +82,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     
     // Prefer Web3Auth provider if connected
     if (web3AuthConnected && web3AuthProvider) {
-      return web3AuthProvider;
+      return tagWeb3AuthProvider(web3AuthProvider);
     }
     
     // Fall back to MetaMask if available and connected
@@ -88,7 +95,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     
     // Return Web3Auth provider if available (even if not connected yet)
     if (web3AuthProvider) {
-      return web3AuthProvider;
+      return tagWeb3AuthProvider(web3AuthProvider);
     }
     
     // Return MetaMask provider if available (even if not connected yet)
