@@ -1,77 +1,306 @@
 'use client';
 
-export function StatsPage() {
-  return (
-    <section
-      style={{
-        backgroundColor: '#fff',
-        borderRadius: '16px',
-        border: '1px solid #e2e8f0',
-        padding: '2rem',
-        boxShadow: '0 10px 30px rgba(15,23,42,0.08)',
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '1rem',
-          marginBottom: '2rem',
-        }}
-      >
-        <div>
-          <p
-            style={{
-              fontSize: '0.8rem',
-              textTransform: 'uppercase',
-              letterSpacing: '0.08em',
-              color: '#94a3b8',
-              marginBottom: '0.25rem',
-            }}
-          >
-            Analytics Preview
-          </p>
-          <h2 style={{ margin: 0, fontSize: '2rem' }}>Stats Dashboard</h2>
-          <p style={{ margin: '0.5rem 0 0', color: '#475569' }}>
-            Track agent registrations, active chains, and on-chain interactions. Detailed analytics
-            will live here soon.
-          </p>
-        </div>
-      </div>
+import * as React from 'react';
+import {
+  Box,
+  Paper,
+  Typography,
+  Grid,
+  Card,
+  CardContent,
+  Chip,
+  CircularProgress,
+  Alert,
+} from '@mui/material';
+import { TrendingUp, Storage, Language } from '@mui/icons-material';
+import { grayscalePalette as palette } from '@/styles/palette';
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          gap: '1.5rem',
-        }}
-      >
-        {[
-          { label: 'Total Agents', value: '—', hint: 'Coming soon' },
-          { label: 'Chains Supported', value: '—', hint: 'Coming soon' },
-          { label: 'ENS Names', value: '—', hint: 'Coming soon' },
-          { label: 'Recent Mints', value: '—', hint: 'Coming soon' },
-        ].map(card => (
-          <div
-            key={card.label}
-            style={{
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0',
-              padding: '1.25rem',
-              backgroundColor: '#f8fafc',
-            }}
-          >
-            <p style={{ margin: 0, color: '#64748b', fontWeight: 600 }}>{card.label}</p>
-            <div style={{ fontSize: '2rem', fontWeight: 700, margin: '0.25rem 0' }}>
-              {card.value}
-            </div>
-            <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.9rem' }}>{card.hint}</p>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
+interface StatsData {
+  summary: {
+    totalAgents: number;
+    totalChains: number;
+    chains: Array<{
+      chainId: number;
+      chainName: string;
+      agentCount: number;
+    }>;
+  };
+  metadata: {
+    chains: Array<{
+      chainId: number;
+      chainName: string;
+      withMetadata: number;
+      withoutMetadata: number;
+      metadataPercentage: number;
+    }>;
+  };
+  ens: {
+    chains: Array<{
+      chainId: number;
+      chainName: string;
+      withENS: number;
+      withoutENS: number;
+      ensPercentage: number;
+    }>;
+  };
+  activity: {
+    recent24h: Array<{
+      chainId: number;
+      chainName: string;
+      recentCount: number;
+    }>;
+  };
+  topAgents: Array<{
+    chainId: number;
+    chainName: string;
+    agentId: string;
+    agentName: string;
+    ensName: string | null;
+  }>;
 }
 
+export function StatsPage() {
+  const [stats, setStats] = React.useState<StatsData | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    let cancelled = false;
+
+    const fetchStats = async () => {
+      try {
+        if (!cancelled) {
+          setLoading(true);
+          setError(null);
+        }
+        const response = await fetch('/api/stats');
+        if (!response.ok) {
+          throw new Error('Failed to fetch stats');
+        }
+        const data = (await response.json()) as StatsData;
+        if (!cancelled) {
+          setStats(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load statistics');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 30000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: 3,
+        borderRadius: 3,
+        border: `1px solid ${palette.border}`,
+        backgroundColor: palette.surface,
+      }}
+    >
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: '0.08em' }}>
+          Network Analytics
+        </Typography>
+        <Typography variant="h4" fontWeight={700}>
+          ERC-8004 Agent Statistics
+        </Typography>
+        <Typography variant="body2" color="text.secondary">
+          Real-time insights across the discovery indexer: agent registrations, metadata coverage,
+          ENS adoption, and recent network activity.
+        </Typography>
+      </Box>
+
+      {loading && (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 4 }}>
+          <CircularProgress size={24} sx={{ mr: 2 }} />
+          <Typography variant="body2" color="text.secondary">
+            Loading statistics...
+          </Typography>
+        </Box>
+      )}
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          Failed to load statistics: {error}
+        </Alert>
+      )}
+
+      {stats && !loading && !error && (
+        <>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider' }}>
+                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Storage sx={{ mr: 1, color: palette.textSecondary }} />
+                    <Typography variant="body2" color="text.secondary">
+                      Total Agents
+                    </Typography>
+                  </Box>
+                  <Typography variant="h4" fontWeight={600}>
+                    {stats.summary.totalAgents.toLocaleString()}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider' }}>
+                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <TrendingUp sx={{ mr: 1, color: palette.textSecondary }} />
+                    <Typography variant="body2" color="text.secondary">
+                      Active Chains
+                    </Typography>
+                  </Box>
+                  <Typography variant="h4" fontWeight={600}>
+                    {stats.summary.totalChains}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} sm={6} md={3}>
+              <Card elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider' }}>
+                <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Language sx={{ mr: 1, color: palette.textSecondary }} />
+                    <Typography variant="body2" color="text.secondary">
+                      With ENS
+                    </Typography>
+                  </Box>
+                  <Typography variant="h4" fontWeight={600}>
+                    {stats.ens.chains
+                      .reduce((sum, chain) => sum + chain.withENS, 0)
+                      .toLocaleString()}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
+
+          <Grid container spacing={2}>
+            {stats.summary.chains.map(chain => {
+              const metadataStats = stats.metadata.chains.find(m => m.chainId === chain.chainId);
+              const ensStats = stats.ens.chains.find(e => e.chainId === chain.chainId);
+              const activityStats = stats.activity.recent24h.find(
+                a => a.chainId === chain.chainId,
+              );
+              return (
+                <Grid item xs={12} md={6} key={chain.chainId}>
+                  <Card elevation={0} sx={{ p: 2, border: '1px solid', borderColor: 'divider' }}>
+                    <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                      <Box
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          mb: 2,
+                        }}
+                      >
+                        <Typography variant="h6" fontWeight={600}>
+                          {chain.chainName}
+                        </Typography>
+                    <Chip
+                      label={`${chain.agentCount} agents`}
+                      size="small"
+                      color="default"
+                      sx={{
+                        borderRadius: '999px',
+                        backgroundColor: palette.surfaceMuted,
+                        border: `1px solid ${palette.border}`,
+                        color: palette.textPrimary,
+                      }}
+                    />
+                      </Box>
+
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          Metadata: {metadataStats?.withMetadata ?? 0} / {chain.agentCount} (
+                          {metadataStats?.metadataPercentage ?? 0}%)
+                        </Typography>
+                      </Box>
+                      <Box sx={{ mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary">
+                          ENS Names: {ensStats?.withENS ?? 0} / {chain.agentCount} (
+                          {ensStats?.ensPercentage ?? 0}%)
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Recent (24h): {activityStats?.recentCount ?? 0} new agents
+                        </Typography>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              );
+            })}
+          </Grid>
+
+          {stats.topAgents.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>
+                Recent Agents
+              </Typography>
+              <Grid container spacing={1}>
+                {stats.topAgents.slice(0, 6).map(agent => (
+                  <Grid item xs={12} sm={6} md={4} key={`${agent.chainId}-${agent.agentId}`}>
+                    <Card elevation={0} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider' }}>
+                      <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                        <Box
+                          sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            mb: 1,
+                          }}
+                        >
+                          <Typography variant="body2" fontWeight={600} noWrap>
+                            Agent #{agent.agentId}
+                          </Typography>
+                      <Chip
+                        label={agent.chainName}
+                        size="small"
+                        color="default"
+                        sx={{
+                          fontSize: '0.7rem',
+                          borderRadius: '999px',
+                          backgroundColor: palette.surfaceMuted,
+                          border: `1px solid ${palette.border}`,
+                          color: palette.textPrimary,
+                        }}
+                      />
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" noWrap>
+                          {agent.agentName}
+                        </Typography>
+                        {agent.ensName && (
+                          <Typography variant="caption" color="primary.main" noWrap>
+                            {agent.ensName}
+                          </Typography>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+        </>
+      )}
+    </Paper>
+  );
+}

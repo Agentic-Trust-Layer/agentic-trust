@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useEffect } from 'react';
 import type { DiscoverResponse } from '@agentic-trust/core/server';
+import { grayscalePalette as palette } from '@/styles/palette';
 
 type Agent = DiscoverResponse['agents'][number] & {
   contractAddress?: string | null;
@@ -77,6 +78,23 @@ export function AgentsPage({
     84532: 'https://sepolia.basescan.org',
     11155420: 'https://sepolia-optimism.etherscan.io',
   };
+
+  const [gridColumns, setGridColumns] = useState(1);
+
+  useEffect(() => {
+    const updateColumns = () => {
+      if (typeof window === 'undefined') {
+        return;
+      }
+      const width = window.innerWidth;
+      const computed = Math.min(3, Math.max(1, Math.floor(width / 420)));
+      setGridColumns(computed);
+    };
+
+    updateColumns();
+    window.addEventListener('resize', updateColumns);
+    return () => window.removeEventListener('resize', updateColumns);
+  }, []);
 
   const ENS_APP_BY_CHAIN: Record<number, string> = {
     1: 'https://app.ens.domains',
@@ -155,7 +173,7 @@ export function AgentsPage({
     }
     const { agent, action } = activeDialog;
     const baseInfo = (
-      <ul style={{ paddingLeft: '1.25rem', margin: '0.5rem 0', color: '#0f172a' }}>
+      <ul style={{ paddingLeft: '1.25rem', margin: '0.5rem 0', color: palette.textPrimary }}>
         <li><strong>Agent ID:</strong> {agent.agentId}</li>
         <li><strong>Chain:</strong> {agent.chainId}</li>
         {agent.agentAccount ? <li><strong>Account:</strong> {agent.agentAccount}</li> : null}
@@ -171,7 +189,7 @@ export function AgentsPage({
             </p>
             {baseInfo}
             {agent.description && (
-              <p style={{ color: '#475569' }}>{agent.description}</p>
+              <p style={{ color: palette.textSecondary }}>{agent.description}</p>
             )}
           </>
         );
@@ -187,20 +205,20 @@ export function AgentsPage({
                 href={agent.metadataURI}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: '#2563eb', wordBreak: 'break-all' }}
+                style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
                 {agent.metadataURI}
               </a>
             ) : (
-              <p style={{ color: '#dc2626' }}>No registration URI available.</p>
+              <p style={{ color: palette.dangerText }}>No registration URI available.</p>
             )}
             <div
               style={{
                 marginTop: '1rem',
-                border: '1px solid #e2e8f0',
+                border: `1px solid ${palette.border}`,
                 borderRadius: '10px',
                 padding: '0.75rem',
-                backgroundColor: '#f8fafc',
+                backgroundColor: palette.surfaceMuted,
                 maxHeight: '500px',
                 overflow: 'auto',
                 fontFamily: 'ui-monospace, monospace',
@@ -210,13 +228,13 @@ export function AgentsPage({
               }}
             >
               {!previewMatchesAgent || registrationPreview.loading ? (
-                <span style={{ color: '#475569' }}>Loading registration JSON…</span>
+                <span style={{ color: palette.textSecondary }}>Loading registration JSON…</span>
               ) : registrationPreview.error ? (
-                <span style={{ color: '#dc2626' }}>{registrationPreview.error}</span>
+                <span style={{ color: palette.dangerText }}>{registrationPreview.error}</span>
               ) : registrationPreview.text ? (
                 registrationPreview.text
               ) : (
-                <span style={{ color: '#475569' }}>No JSON preview available.</span>
+                <span style={{ color: palette.textSecondary }}>No JSON preview available.</span>
               )}
             </div>
           </>
@@ -233,12 +251,12 @@ export function AgentsPage({
                 href={agent.a2aEndpoint}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: '#2563eb', wordBreak: 'break-all' }}
+                style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
                 {agent.a2aEndpoint}
               </a>
             ) : (
-              <p style={{ color: '#dc2626' }}>No Agent Card endpoint configured.</p>
+              <p style={{ color: palette.dangerText }}>No Agent Card endpoint configured.</p>
             )}
           </>
         );
@@ -252,7 +270,7 @@ export function AgentsPage({
               Suggested identifier:{' '}
               <code>did:web:{agent.agentName?.replace(/\.eth$/i, '') || 'agent.example.com'}</code>
             </p>
-            <p style={{ color: '#64748b' }}>
+            <p style={{ color: palette.textSecondary }}>
               Configure a <code>.well-known/did.json</code> file on the agent&apos;s domain to publish the record.
             </p>
           </>
@@ -267,7 +285,7 @@ export function AgentsPage({
               Suggested identifier:{' '}
               <code>did:agent:eip155:{agent.chainId}:{agent.agentId}</code>
             </p>
-            <p style={{ color: '#64748b' }}>
+            <p style={{ color: palette.textSecondary }}>
               Use your preferred wallet to generate a signed DID document containing the ERC-8004 registry information.
             </p>
           </>
@@ -283,12 +301,12 @@ export function AgentsPage({
                 href={agent.a2aEndpoint}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: '#2563eb', wordBreak: 'break-all' }}
+                style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
                 {agent.a2aEndpoint}
               </a>
             ) : (
-              <p style={{ color: '#dc2626' }}>No A2A endpoint is available for this agent.</p>
+              <p style={{ color: palette.dangerText }}>No A2A endpoint is available for this agent.</p>
             )}
           </>
         );
@@ -304,10 +322,10 @@ export function AgentsPage({
 
       <div
         style={{
-          backgroundColor: '#fff',
+          backgroundColor: palette.surface,
           padding: '1.5rem',
           borderRadius: '12px',
-          border: '1px solid #e2e8f0',
+          border: `1px solid ${palette.border}`,
           boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
         }}
       >
@@ -335,10 +353,10 @@ export function AgentsPage({
                 width: '100%',
                 padding: '0.85rem',
                 borderRadius: '10px',
-                border: '1px solid #cbd5f5',
-                backgroundColor: '#fdfdff',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
                 fontWeight: 600,
-                color: '#0f172a',
+                color: palette.textPrimary,
                 boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
               }}
             >
@@ -359,8 +377,8 @@ export function AgentsPage({
                 width: '100%',
                 padding: '0.85rem',
                 borderRadius: '10px',
-                border: '1px solid #cbd5f5',
-                backgroundColor: '#fdfdff',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
                 boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
               }}
             />
@@ -374,8 +392,8 @@ export function AgentsPage({
                 width: '100%',
                 padding: '0.85rem',
                 borderRadius: '10px',
-                border: '1px solid #cbd5f5',
-                backgroundColor: '#fdfdff',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
                 boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
               }}
             />
@@ -389,8 +407,8 @@ export function AgentsPage({
                 width: '100%',
                 padding: '0.85rem',
                 borderRadius: '10px',
-                border: '1px solid #cbd5f5',
-                backgroundColor: '#fdfdff',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
                 boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
               }}
             />
@@ -409,8 +427,8 @@ export function AgentsPage({
               disabled={loading}
               style={{
                 padding: '0.75rem 1.5rem',
-                backgroundColor: '#2563eb',
-                color: '#fff',
+                backgroundColor: palette.accent,
+                color: palette.surface,
                 border: 'none',
                 borderRadius: '10px',
                 fontWeight: 600,
@@ -425,9 +443,9 @@ export function AgentsPage({
               disabled={loading}
               style={{
                 padding: '0.75rem 1.5rem',
-                backgroundColor: '#f1f5f9',
-                color: '#0f172a',
-                border: 'none',
+                backgroundColor: palette.surfaceMuted,
+                color: palette.textPrimary,
+                border: `1px solid ${palette.border}`,
                 borderRadius: '10px',
                 fontWeight: 600,
                 cursor: loading ? 'not-allowed' : 'pointer',
@@ -445,7 +463,7 @@ export function AgentsPage({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+            gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
             gap: '1.5rem',
           }}
         >
@@ -456,8 +474,8 @@ export function AgentsPage({
                 padding: '2rem',
                 textAlign: 'center',
                 borderRadius: '12px',
-                border: '1px dashed #cbd5f5',
-                color: '#475569',
+                border: `1px dashed ${palette.border}`,
+                color: palette.textSecondary,
               }}
             >
               {loading ? 'Loading agents...' : 'No agents found for the selected filters.'}
@@ -481,9 +499,9 @@ export function AgentsPage({
                 key={`${agent.chainId}-${agent.agentId}`}
                 style={{
                   borderRadius: '16px',
-                  border: '1px solid #e2e8f0',
+                  border: `1px solid ${palette.border}`,
                   padding: '1.5rem',
-                  backgroundColor: '#fff',
+                  backgroundColor: palette.surface,
                   boxShadow: '0 6px 16px rgba(15,23,42,0.06)',
                   display: 'flex',
                   flexDirection: 'column',
@@ -504,8 +522,8 @@ export function AgentsPage({
                       width: '32px',
                       height: '32px',
                       borderRadius: '999px',
-                      border: '1px solid #cbd5f5',
-                      backgroundColor: '#ffffffee',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surface,
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -526,7 +544,7 @@ export function AgentsPage({
                         height: '64px',
                         borderRadius: '14px',
                         objectFit: 'cover',
-                        border: '1px solid #e2e8f0',
+                        border: `1px solid ${palette.border}`,
                       }}
                     />
                   )}
@@ -541,7 +559,7 @@ export function AgentsPage({
                           fontSize: '0.8rem',
                           textTransform: 'uppercase',
                           letterSpacing: '0.05em',
-                          color: '#2563eb',
+                          color: palette.accent,
                           marginBottom: '0.25rem',
                           textDecoration: 'none',
                           fontWeight: 600,
@@ -555,7 +573,7 @@ export function AgentsPage({
                           fontSize: '0.8rem',
                           textTransform: 'uppercase',
                           letterSpacing: '0.05em',
-                          color: '#94a3b8',
+                          color: palette.textMuted,
                           marginBottom: '0.25rem',
                         }}
                       >
@@ -581,7 +599,7 @@ export function AgentsPage({
                           style={{
                             display: 'inline-block',
                             marginTop: '0.25rem',
-                            color: '#0f172a',
+                            color: palette.textPrimary,
                             textDecoration: 'none',
                             borderBottom: '1px dashed rgba(15,23,42,0.3)',
                             fontSize: '0.95rem',
@@ -598,7 +616,7 @@ export function AgentsPage({
                 <p
                   style={{
                     margin: 0,
-                    color: '#475569',
+                    color: palette.textSecondary,
                     minHeight: '3.5rem',
                   }}
                 >
@@ -622,8 +640,8 @@ export function AgentsPage({
                         rel="noopener noreferrer"
                         style={{
                           padding: '0.3rem 0.75rem',
-                          backgroundColor: '#fef2f2',
-                          color: '#b91c1c',
+                          backgroundColor: palette.dangerSurface,
+                          color: palette.dangerText,
                           borderRadius: '999px',
                           fontSize: '0.8rem',
                           fontFamily: 'monospace',
@@ -651,11 +669,12 @@ export function AgentsPage({
                       style={{
                         padding: '0.25rem 0.6rem',
                         borderRadius: '8px',
-                        border: '1px solid #cbd5f5',
-                        backgroundColor: '#fff',
+                        border: `1px solid ${palette.border}`,
+                        backgroundColor: palette.surface,
                         fontSize: '0.7rem',
                         fontWeight: 600,
                         cursor: 'pointer',
+                        color: palette.textPrimary,
                       }}
                     >
                       {ACTION_LABELS.info}
@@ -669,12 +688,13 @@ export function AgentsPage({
                       style={{
                         padding: '0.25rem 0.6rem',
                         borderRadius: '8px',
-                        border: '1px solid #cbd5f5',
-                        backgroundColor: '#fff',
+                        border: `1px solid ${palette.border}`,
+                        backgroundColor: palette.surface,
                         fontSize: '0.7rem',
                         fontWeight: 600,
                         cursor: agent.metadataURI ? 'pointer' : 'not-allowed',
                         opacity: agent.metadataURI ? 1 : 0.5,
+                        color: palette.textPrimary,
                       }}
                       disabled={!agent.metadataURI}
                     >
@@ -691,11 +711,12 @@ export function AgentsPage({
                           style={{
                             padding: '0.25rem 0.6rem',
                             borderRadius: '8px',
-                            border: '1px solid #cbd5f5',
-                            backgroundColor: '#fff',
+                            border: `1px solid ${palette.border}`,
+                            backgroundColor: palette.surface,
                             fontSize: '0.7rem',
                             fontWeight: 600,
                             cursor: 'pointer',
+                            color: palette.textPrimary,
                           }}
                         >
                           {ACTION_LABELS.card}
@@ -709,11 +730,12 @@ export function AgentsPage({
                           style={{
                             padding: '0.25rem 0.6rem',
                             borderRadius: '8px',
-                            border: '1px solid #cbd5f5',
-                            backgroundColor: '#fff',
+                            border: `1px solid ${palette.border}`,
+                            backgroundColor: palette.surface,
                             fontSize: '0.7rem',
                             fontWeight: 600,
                             cursor: 'pointer',
+                            color: palette.textPrimary,
                           }}
                         >
                           {ACTION_LABELS['did-web']}
@@ -727,11 +749,12 @@ export function AgentsPage({
                           style={{
                             padding: '0.25rem 0.6rem',
                             borderRadius: '8px',
-                            border: '1px solid #cbd5f5',
-                            backgroundColor: '#fff',
+                            border: `1px solid ${palette.border}`,
+                            backgroundColor: palette.surface,
                             fontSize: '0.7rem',
                             fontWeight: 600,
                             cursor: 'pointer',
+                            color: palette.textPrimary,
                           }}
                         >
                           {ACTION_LABELS['did-agent']}
@@ -748,11 +771,12 @@ export function AgentsPage({
                         style={{
                           padding: '0.25rem 0.6rem',
                           borderRadius: '8px',
-                          border: '1px solid #cbd5f5',
-                          backgroundColor: '#fff',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surface,
                           fontSize: '0.7rem',
                           fontWeight: 600,
                           cursor: 'pointer',
+                          color: palette.textPrimary,
                         }}
                       >
                         {ACTION_LABELS.a2a}
@@ -786,7 +810,7 @@ export function AgentsPage({
         >
           <div
             style={{
-              backgroundColor: '#fff',
+              backgroundColor: palette.surface,
               borderRadius: '16px',
               padding: '1.5rem',
               width: 'min(800px, 100%)',
@@ -810,8 +834,8 @@ export function AgentsPage({
                 padding: '0.6rem 1.2rem',
                 borderRadius: '10px',
                 border: 'none',
-                backgroundColor: '#2563eb',
-                color: '#fff',
+                backgroundColor: palette.accent,
+                color: palette.surface,
                 fontWeight: 600,
                 cursor: 'pointer',
               }}

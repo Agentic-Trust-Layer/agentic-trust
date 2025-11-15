@@ -8,8 +8,18 @@ import { cookies } from 'next/headers';
  * DELETE /api/auth/session - Clear session
  */
 export async function POST(request: NextRequest) {
+  let body: { privateKey?: string };
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch (error) {
+    console.error('Invalid JSON payload for session:', error);
+    return NextResponse.json(
+      { error: 'Invalid or missing JSON body' },
+      { status: 400 },
+    );
+  }
+
+  try {
     const { privateKey } = body;
 
     if (!privateKey || typeof privateKey !== 'string') {

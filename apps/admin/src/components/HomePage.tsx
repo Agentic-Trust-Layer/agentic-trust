@@ -3,6 +3,19 @@
 import { useState } from 'react';
 import { useWeb3Auth } from './Web3AuthProvider';
 import { useWallet } from './WalletProvider';
+import { grayscalePalette as palette } from '@/styles/palette';
+
+const neutralButtonStyle = (disabled?: boolean) => ({
+  padding: '1rem',
+  backgroundColor: disabled ? palette.accentMuted : palette.accent,
+  color: palette.surface,
+  border: `1px solid ${palette.borderStrong}`,
+  borderRadius: '8px',
+  fontSize: '1rem',
+  fontWeight: 'bold',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  opacity: disabled ? 0.65 : 1,
+});
 
 type LoginModalProps = {
   onClose?: () => void;
@@ -55,9 +68,10 @@ export function LoginModal({ onClose }: LoginModalProps) {
         style={{
           position: 'relative',
           padding: '3rem',
-          backgroundColor: '#fff',
+          backgroundColor: palette.surface,
           borderRadius: '12px',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+          border: `1px solid ${palette.border}`,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           maxWidth: '500px',
           width: '100%',
         }}
@@ -73,7 +87,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
               background: 'transparent',
               fontSize: '1.25rem',
               cursor: 'pointer',
-              color: '#666',
+              color: palette.textMuted,
             }}
             aria-label="Close login modal"
           >
@@ -97,10 +111,10 @@ export function LoginModal({ onClose }: LoginModalProps) {
             style={{
               marginBottom: '1.5rem',
               padding: '1rem',
-              backgroundColor: '#ffebee',
+              backgroundColor: palette.dangerSurface,
               borderRadius: '4px',
-              color: '#c62828',
-              border: '1px solid #f44336',
+              color: palette.dangerText,
+              border: `1px solid ${palette.borderStrong}`,
             }}
           >
             {error}
@@ -113,17 +127,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           <button
             onClick={() => handleSocialLogin('google')}
             disabled={loading || connecting}
-            style={{
-              padding: '1rem',
-              backgroundColor: '#4285f4',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: loading || connecting ? 'not-allowed' : 'pointer',
-              opacity: loading || connecting ? 0.6 : 1,
-            }}
+            style={neutralButtonStyle(loading || connecting)}
           >
             {connecting ? 'Connecting...' : 'Continue with Google'}
           </button>
@@ -131,17 +135,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           <button
             onClick={() => handleSocialLogin('github')}
             disabled={loading || connecting}
-            style={{
-              padding: '1rem',
-              backgroundColor: '#24292e',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: loading || connecting ? 'not-allowed' : 'pointer',
-              opacity: loading || connecting ? 0.6 : 1,
-            }}
+            style={neutralButtonStyle(loading || connecting)}
           >
             {connecting ? 'Connecting...' : 'Continue with GitHub'}
           </button>
@@ -149,17 +143,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           <button
             onClick={() => handleSocialLogin('twitter')}
             disabled={loading || connecting}
-            style={{
-              padding: '1rem',
-              backgroundColor: '#1da1f2',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: loading || connecting ? 'not-allowed' : 'pointer',
-              opacity: loading || connecting ? 0.6 : 1,
-            }}
+            style={neutralButtonStyle(loading || connecting)}
           >
             {connecting ? 'Connecting...' : 'Continue with Twitter'}
           </button>
@@ -167,17 +151,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           <button
             onClick={() => handleSocialLogin('facebook')}
             disabled={loading || connecting}
-            style={{
-              padding: '1rem',
-              backgroundColor: '#1877f2',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor: loading || connecting ? 'not-allowed' : 'pointer',
-              opacity: loading || connecting ? 0.6 : 1,
-            }}
+            style={neutralButtonStyle(loading || connecting)}
           >
             {connecting ? 'Connecting...' : 'Continue with Facebook'}
           </button>
@@ -191,11 +165,11 @@ export function LoginModal({ onClose }: LoginModalProps) {
             }}
           >
             <div
-              style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }}
+              style={{ flex: 1, height: '1px', backgroundColor: palette.border }}
             />
-            <span style={{ color: '#666' }}>OR</span>
+            <span style={{ color: palette.textMuted }}>OR</span>
             <div
-              style={{ flex: 1, height: '1px', backgroundColor: '#ddd' }}
+              style={{ flex: 1, height: '1px', backgroundColor: palette.border }}
             />
           </div>
 
@@ -216,21 +190,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
               }
             }}
             disabled={walletLoading || connecting || walletConnected}
-            style={{
-              padding: '1rem',
-              backgroundColor: '#627EEA',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontSize: '1rem',
-              fontWeight: 'bold',
-              cursor:
-                walletLoading || connecting || walletConnected
-                  ? 'not-allowed'
-                  : 'pointer',
-              opacity:
-                walletLoading || connecting || walletConnected ? 0.6 : 1,
-            }}
+            style={neutralButtonStyle(walletLoading || connecting || walletConnected)}
           >
             {walletConnected
               ? 'Wallet Connected'
@@ -244,7 +204,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
           style={{
             marginTop: '2rem',
             fontSize: '0.85rem',
-            color: '#666',
+            color: palette.textMuted,
             textAlign: 'center',
           }}
         >
@@ -266,9 +226,9 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
     <section
       style={{
         padding: '3rem',
-        background: 'linear-gradient(135deg, #f0f9ff, #e0f2fe)',
+        background: 'linear-gradient(135deg, #f6f6f6, #e7e7e7)',
         borderRadius: '24px',
-        border: '1px solid #bae6fd',
+        border: `1px solid ${palette.border}`,
         boxShadow: '0 24px 60px rgba(15,23,42,0.12)',
       }}
     >
@@ -285,7 +245,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
             style={{
               letterSpacing: '0.15em',
               textTransform: 'uppercase',
-              color: '#2563eb',
+              color: palette.textMuted,
               fontWeight: 700,
               marginBottom: '0.75rem',
             }}
@@ -296,13 +256,13 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
             style={{
               fontSize: '2.75rem',
               margin: 0,
-              color: '#0f172a',
+              color: palette.textPrimary,
               lineHeight: 1.2,
             }}
           >
             On-chain identity tooling for ERC-8004 agents.
           </h2>
-          <p style={{ marginTop: '1rem', fontSize: '1.1rem', color: '#475569' }}>
+          <p style={{ marginTop: '1rem', fontSize: '1.1rem', color: palette.textSecondary }}>
             Register, discover, and manage AI agents with verifiable ownership,
             ENS integration, and cross-chain support. This console exposes the
             same primitives that power the public Agent Explorer.
@@ -321,8 +281,8 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
                 padding: '0.9rem 2rem',
                 borderRadius: '999px',
                 border: 'none',
-                backgroundColor: '#2563eb',
-                color: '#fff',
+                backgroundColor: palette.accent,
+                color: palette.surface,
                 fontSize: '1rem',
                 fontWeight: 600,
                 cursor: 'pointer',
@@ -336,9 +296,9 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
                 style={{
                   padding: '0.9rem 2rem',
                   borderRadius: '999px',
-                  border: '1px solid #2563eb',
-                  backgroundColor: '#fff',
-                  color: '#2563eb',
+                  border: `1px solid ${palette.borderStrong}`,
+                  backgroundColor: palette.surface,
+                  color: palette.textPrimary,
                   fontSize: '1rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -352,10 +312,10 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
 
         <div
           style={{
-            backgroundColor: '#fff',
+            backgroundColor: palette.surface,
             borderRadius: '20px',
             padding: '1.5rem',
-            border: '1px solid #e2e8f0',
+            border: `1px solid ${palette.border}`,
             boxShadow: '0 16px 40px rgba(15,23,42,0.08)',
           }}
         >
@@ -363,7 +323,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
             style={{
               marginTop: 0,
               marginBottom: '1rem',
-              color: '#0f172a',
+              color: palette.textPrimary,
               fontSize: '1.25rem',
             }}
           >
@@ -377,7 +337,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
               display: 'flex',
               flexDirection: 'column',
               gap: '0.75rem',
-              color: '#334155',
+              color: palette.textSecondary,
             }}
           >
             <li>• Mint ERC-8004 agents with deterministic AA or EOA accounts.</li>
@@ -391,7 +351,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
               display: 'flex',
               gap: '0.5rem',
               flexWrap: 'wrap',
-              color: '#475569',
+              color: palette.textSecondary,
               fontSize: '0.95rem',
             }}
           >
@@ -399,7 +359,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
             <a
               href="/admin-tools?mode=create"
               style={{
-                color: '#2563eb',
+                color: palette.accent,
                 fontWeight: 600,
                 textDecoration: 'none',
               }}

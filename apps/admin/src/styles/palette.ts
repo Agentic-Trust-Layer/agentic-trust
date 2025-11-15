@@ -1,0 +1,20 @@
+export const grayscalePalette = {
+  background: '#f7f7f7',
+  backgroundMuted: '#efefef',
+  surface: '#ffffff',
+  surfaceMuted: '#f4f4f4',
+  border: '#d7d7d7',
+  borderStrong: '#b5b5b5',
+  textPrimary: '#1f1f1f',
+  textSecondary: '#4b4b4b',
+  textMuted: '#6b6b6b',
+  accent: '#2f2f2f',
+  accentSoft: '#5a5a5a',
+  accentMuted: '#7d7d7d',
+  focus: '#8a8a8a',
+  successSurface: '#f0f0f0',
+  successText: '#333333',
+  dangerSurface: '#f3f3f3',
+  dangerText: '#3a3a3a',
+};
+

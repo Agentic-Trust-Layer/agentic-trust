@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
@@ -22,28 +22,9 @@ import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse } from '@agentic-trust/core/server';
 type Agent = DiscoverResponse['agents'][number];
 
-const CREATE_STEPS = ['Name', 'Information', 'Protocols', 'Trust Model', 'Review'] as const;
-
-const TRUST_MODEL_OPTIONS = [
-  {
-    key: 'reputation',
-    label: 'Reputation-Based Trust',
-    description:
-      "Build trust through historical behavior and community feedback. Your agent's reputation will be tracked on-chain through the ERC-8004 Reputation Registry.",
-  },
-  {
-    key: 'cryptoEconomic',
-    label: 'Crypto-Economic Security',
-    description:
-      'Require economic stakes or collateral for high-value operations. Provides financial accountability through slashing conditions and bonded commitments.',
-  },
-  {
-    key: 'teeAttestation',
-    label: 'TEE Attestation',
-    description:
-      'Run your agent in a Trusted Execution Environment (TEE) with hardware-backed security guarantees. Provides cryptographic proof of code execution integrity.',
-  },
-] as const;
+const CREATE_STEPS = ['Name', 'Information', 'Protocols', 'Review & Register'] as const;
+const REGISTRATION_PROGRESS_DURATION_MS = 60_000;
+const REGISTRATION_UPDATE_INTERVAL_MS = 200;
 
 const CHAIN_SUFFIX_MAP: Record<number, string> = {
   11155111: 'SEPOLIA',
@@ -101,6 +82,9 @@ export default function AdminPage() {
     image: '',
     agentUrl: '',
   });
+  const [imagePreviewError, setImagePreviewError] = useState(false);
+  const handleImagePreviewLoad = useCallback(() => setImagePreviewError(false), []);
+  const handleImagePreviewError = useCallback(() => setImagePreviewError(true), []);
   const [createStep, setCreateStep] = useState(0);
   const [protocolSettings, setProtocolSettings] = useState({
     publishA2A: true,
@@ -108,14 +92,46 @@ export default function AdminPage() {
     a2aEndpoint: '',
     mcpEndpoint: '',
   });
-  const [trustModels, setTrustModels] = useState<Record<string, boolean>>({
-    reputation: false,
-    cryptoEconomic: false,
-    teeAttestation: false,
-  });
-  const [trustNotes, setTrustNotes] = useState('');
+  const [registering, setRegistering] = useState(false);
+  const [registerProgress, setRegisterProgress] = useState(0);
+  const registerTimerRef = useRef<number | null>(null);
   const totalCreateSteps = CREATE_STEPS.length;
   const isReviewStep = createStep === totalCreateSteps - 1;
+
+  const resetRegistrationProgress = useCallback(() => {
+    if (registerTimerRef.current) {
+      clearInterval(registerTimerRef.current);
+      registerTimerRef.current = null;
+    }
+    setRegistering(false);
+    setRegisterProgress(0);
+  }, []);
+
+  const startRegistrationProgress = useCallback(() => {
+    if (registerTimerRef.current) {
+      clearInterval(registerTimerRef.current);
+      registerTimerRef.current = null;
+    }
+    setRegistering(true);
+    setRegisterProgress(0);
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const startTime = Date.now();
+    registerTimerRef.current = window.setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(100, (elapsed / REGISTRATION_PROGRESS_DURATION_MS) * 100);
+      setRegisterProgress(pct);
+      if (pct >= 100 && registerTimerRef.current) {
+        clearInterval(registerTimerRef.current);
+        registerTimerRef.current = null;
+      }
+    }, REGISTRATION_UPDATE_INTERVAL_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => resetRegistrationProgress();
+  }, [resetRegistrationProgress]);
 
   // Get admin EOA for private key mode display
   const [adminEOA, setAdminEOA] = useState<string | null>(null);
@@ -141,6 +157,19 @@ export default function AdminPage() {
   const [selectedChainId, setSelectedChainId] = useState<number>(DEFAULT_CHAIN_ID);
 
   const supportedChainIds = React.useMemo(() => getSupportedChainIds(), []);
+  const registerChainIds = React.useMemo(
+    () => supportedChainIds.filter(id => id !== 11155420),
+    [supportedChainIds],
+  );
+
+  useEffect(() => {
+    if (registerChainIds.length === 0) {
+      return;
+    }
+    if (!registerChainIds.includes(selectedChainId)) {
+      setSelectedChainId(registerChainIds[0]);
+    }
+  }, [registerChainIds, selectedChainId]);
 
   const CHAIN_METADATA = React.useMemo((): Record<number, ReturnType<typeof getChainDisplayMetadata>> => {
     const entries: Record<number, ReturnType<typeof getChainDisplayMetadata>> = {};
@@ -176,10 +205,10 @@ export default function AdminPage() {
   const adminGate = (
     <section
       style={{
-        background: 'linear-gradient(135deg, #fef3c7, #fffbeb)',
+        background: 'linear-gradient(135deg, #f6f6f6, #f9f9f9)',
         borderRadius: '24px',
         padding: '3rem',
-        border: '1px solid #fde68a',
+        border: '1px solid #ededed',
         textAlign: 'center',
       }}
     >
@@ -187,17 +216,17 @@ export default function AdminPage() {
         style={{
           letterSpacing: '0.12em',
           textTransform: 'uppercase',
-          color: '#d97706',
+          color: '#4f4f4f',
           fontWeight: 700,
           marginBottom: '1rem',
         }}
       >
         Admin Tools
       </p>
-      <h2 style={{ margin: 0, fontSize: '2.25rem', color: '#92400e' }}>
+      <h2 style={{ margin: 0, fontSize: '2.25rem', color: '#4a4a4a' }}>
         Connect a wallet or admin key to manage agents.
       </h2>
-      <p style={{ marginTop: '1rem', color: '#854d0e', fontSize: '1.05rem' }}>
+      <p style={{ marginTop: '1rem', color: '#4a4a4a', fontSize: '1.05rem' }}>
         Create, update, delete, and transfer ERC-8004 agents once authenticated.
       </p>
       <div style={{ marginTop: '2rem' }}>
@@ -207,7 +236,7 @@ export default function AdminPage() {
             padding: '0.85rem 2rem',
             borderRadius: '999px',
             border: 'none',
-            backgroundColor: '#d97706',
+            backgroundColor: '#4f4f4f',
             color: '#fff',
             fontSize: '1rem',
             fontWeight: 600,
@@ -609,6 +638,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     }
   }, [useAA]);
 
+  useEffect(() => {
+    setImagePreviewError(false);
+  }, [createForm.image]);
+
   // Keep ENS org name in sync with selected chain
   useEffect(() => {
     try {
@@ -665,14 +698,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         }
         return true;
       }
-      case 3: {
-        if (!Object.values(trustModels).some(Boolean)) {
-          setError('Select at least one trust model to continue.');
-          return false;
-        }
-        return true;
-      }
-      case 4:
+      case 3:
       default:
         return true;
     }
@@ -689,9 +715,6 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     protocolSettings.mcpEndpoint,
     createENS,
     ensOrgName,
-    trustModels.reputation,
-    trustModels.cryptoEconomic,
-    trustModels.teeAttestation,
   ]);
 
   const handleNextStep = useCallback(() => {
@@ -717,10 +740,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     [createStep],
   );
 
-  const handleCreateAgent = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleRegisterAgent = async () => {
+    if (registering) {
+      return;
+    }
     if (!isReviewStep) {
-      handleNextStep();
+      setCreateStep(totalCreateSteps - 1);
       return;
     }
     if (!validateCurrentStep()) {
@@ -729,35 +754,35 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     try {
       setError(null);
       setSuccess(null);
-      
-
+      startRegistrationProgress();
 
       if (!privateKeyMode) {
-      const ready = await synchronizeProvidersWithChain(selectedChainId);
-      if (!ready) {
-        setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
-        return;
-      }
-      // Ensure provider is authorized before any core calls
-      try {
-        if (eip1193Provider && typeof eip1193Provider.request === 'function') {
-          // Switch to selected chain (if wallet supports it)
-          const chainIdHex = getChainIdHex(selectedChainId);
-          try {
-            const current = await eip1193Provider.request({ method: 'eth_chainId' }).catch(() => null);
-            if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
-              await eip1193Provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
-            }
-          } catch {
-            // ignore; core will also attempt chain selection
-          }
-          const accs = await eip1193Provider.request({ method: 'eth_accounts' }).catch(() => []);
-          if (!Array.isArray(accs) || accs.length === 0) {
-            await eip1193Provider.request({ method: 'eth_requestAccounts' });
-          }
+        const ready = await synchronizeProvidersWithChain(selectedChainId);
+        if (!ready) {
+          resetRegistrationProgress();
+          setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet and retry.');
+          return;
         }
-      } catch {
-        // ignore; core will also attempt authorization
+        // Ensure provider is authorized before any core calls
+        try {
+          if (eip1193Provider && typeof eip1193Provider.request === 'function') {
+            // Switch to selected chain (if wallet supports it)
+            const chainIdHex = getChainIdHex(selectedChainId);
+            try {
+              const current = await eip1193Provider.request({ method: 'eth_chainId' }).catch(() => null);
+              if (!current || current.toLowerCase() !== chainIdHex.toLowerCase()) {
+                await eip1193Provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: chainIdHex }] });
+              }
+            } catch {
+              // ignore; core will also attempt chain selection
+            }
+            const accs = await eip1193Provider.request({ method: 'eth_accounts' }).catch(() => []);
+            if (!Array.isArray(accs) || accs.length === 0) {
+              await eip1193Provider.request({ method: 'eth_requestAccounts' });
+            }
+          }
+        } catch {
+          // ignore; core will also attempt authorization
         }
       }
 
@@ -957,14 +982,19 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       setAaAddress(null);
       setCreateStep(0);
       setProtocolSettings({ publishA2A: true, publishMcp: true, a2aEndpoint: '', mcpEndpoint: '' });
-      setTrustModels({ reputation: false, cryptoEconomic: false, teeAttestation: false });
-      setTrustNotes('');
-      
-      // Refresh agents list after a short delay to allow indexing
+
+      setRegisterProgress(100);
+      if (registerTimerRef.current) {
+        clearInterval(registerTimerRef.current);
+        registerTimerRef.current = null;
+      }
       setTimeout(() => {
-      }, 2000);
+        resetRegistrationProgress();
+        router.push('/agents');
+      }, 800);
     } catch (err) {
       console.error('Error creating agent:', err);
+      resetRegistrationProgress();
       setError(err instanceof Error ? err.message : 'Failed to create agent');
     }
   };
@@ -1017,27 +1047,37 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   };
 
   const normalizedAgentBaseUrl = (createForm.agentUrl || '').trim().replace(/\/$/, '');
+  const imagePreviewUrl = (createForm.image || '').trim();
   const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent-card.json` : '';
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/mcp` : '';
+  const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
   const ensFullNamePreview =
     createENS && createForm.agentName && ensOrgName
       ? `${createForm.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth`
       : null;
 
   useEffect(() => {
+    const prevDefaults = previousDefaultsRef.current;
     setProtocolSettings(prev => {
       const next: typeof prev = { ...prev };
       let changed = false;
-      if (prev.publishA2A && !prev.a2aEndpoint && defaultA2AEndpoint) {
-        next.a2aEndpoint = defaultA2AEndpoint;
-        changed = true;
+      if (prev.publishA2A && defaultA2AEndpoint) {
+        const shouldUpdate = !prev.a2aEndpoint || prev.a2aEndpoint === prevDefaults.a2a;
+        if (shouldUpdate) {
+          next.a2aEndpoint = defaultA2AEndpoint;
+          changed = true;
+        }
       }
-      if (prev.publishMcp && !prev.mcpEndpoint && defaultMcpEndpoint) {
-        next.mcpEndpoint = defaultMcpEndpoint;
-        changed = true;
+      if (prev.publishMcp && defaultMcpEndpoint) {
+        const shouldUpdate = !prev.mcpEndpoint || prev.mcpEndpoint === prevDefaults.mcp;
+        if (shouldUpdate) {
+          next.mcpEndpoint = defaultMcpEndpoint;
+          changed = true;
+        }
       }
       return changed ? next : prev;
     });
+    previousDefaultsRef.current = { a2a: defaultA2AEndpoint, mcp: defaultMcpEndpoint };
   }, [defaultA2AEndpoint, defaultMcpEndpoint]);
 
   const renderStepContent = () => {
@@ -1064,9 +1104,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                   setAaAddress(null);
                   synchronizeProvidersWithChain(nextChainId);
                 }}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               >
-                {supportedChainIds.map(chainId => {
+                {(registerChainIds.length ? registerChainIds : supportedChainIds).map(chainId => {
                   const metadata = CHAIN_METADATA[chainId];
                   const label = metadata?.displayName || metadata?.chainName || `Chain ${chainId}`;
                   return (
@@ -1077,78 +1117,56 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 })}
               </select>
             </div>
-            <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #e1e4e8' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={useAA}
-                  onChange={(e) => {
-                    setUseAA(e.target.checked);
-                    if (!e.target.checked) {
-                      if (eoaAddress) {
-                        setCreateForm(prev => ({ ...prev, agentAccount: eoaAddress }));
-                      }
-                      setAaAddress(null);
+            <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f5f5f5', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
+              <p style={{ margin: 0, fontWeight: 600, color: '#1f1f1f', marginBottom: '0.5rem' }}>Agent Owner Type</p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUseAA(false);
+                    if (eoaAddress) {
+                      setCreateForm(prev => ({ ...prev, agentAccount: eoaAddress }));
                     }
+                    setAaAddress(null);
                   }}
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                />
-                <span style={{ fontWeight: 'bold' }}>Use Account Abstraction (AA)</span>
-              </label>
-              <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666' }}>
+                  style={{
+                    flex: '1 1 160px',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '10px',
+                    border: '1px solid',
+                    borderColor: useAA ? '#dcdcdc' : '#2f2f2f',
+                    backgroundColor: useAA ? '#fff' : '#2f2f2f',
+                    color: useAA ? '#2a2a2a' : '#fff',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  EOA Agent Owner
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setUseAA(true)}
+                  style={{
+                    flex: '1 1 160px',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '10px',
+                    border: '1px solid',
+                    borderColor: useAA ? '#2f2f2f' : '#dcdcdc',
+                    backgroundColor: useAA ? '#2f2f2f' : '#fff',
+                    color: useAA ? '#fff' : '#2a2a2a',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Smart Account Agent Owner
+                </button>
+              </div>
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
                 {useAA
-                  ? 'Agent account will be computed from the agent name. Ownership is managed through a smart account.'
-                  : 'Use your connected wallet address as the controller of the agent account.'}
+                  ? 'Agent ownership is managed through a smart account generated from the agent name.'
+                  : 'Use your connected wallet address as the agent owner (EOA).'}
               </p>
             </div>
-            {useAA && (
-              <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f8f9fa', borderRadius: '4px', border: '1px solid #e1e4e8' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                  <input
-                    type="checkbox"
-                    checked={createENS}
-                    onChange={(e) => setCreateENS(e.target.checked)}
-                    style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  />
-                  <span style={{ fontWeight: 'bold' }}>Publish ENS Name</span>
-                </label>
-                <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666' }}>
-                  Create an ENS subdomain record for this agent (e.g., agentname.orgname.eth). Only available for Account Abstraction agents.
-                </p>
-                {createENS && (
-                  <div style={{ marginTop: '0.5rem', marginLeft: '1.75rem' }}>
-                    <label style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                      ENS Org Name (parent domain):
-                    </label>
-                    <input
-                      type="text"
-                      value={ensOrgName}
-                      onChange={(e) => setEnsOrgName(e.target.value)}
-                      placeholder="8004-agent"
-                      style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px', fontSize: '0.85rem' }}
-                    />
-                    <p style={{ marginTop: '0.25rem', fontSize: '0.75rem', color: '#666' }}>
-                      Full ENS name will be: {ensFullNamePreview || 'agentname.orgname.eth'}
-                    </p>
-                    {ensChecking && (
-                      <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#007bff' }}>
-                        Checking ENS availability...
-                      </p>
-                    )}
-                    {ensAvailable === true && (
-                      <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#28a745' }}>
-                        ✓ ENS name is available
-                      </p>
-                    )}
-                    {ensAvailable === false && (
-                      <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#dc3545' }}>
-                        ✗ ENS name is not available
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
                 Agent Name *
@@ -1158,49 +1176,98 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={createForm.agentName}
                 onChange={(e) => setCreateForm({ ...createForm, agentName: e.target.value })}
                 required
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+              <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 'bold' }}>
                 Agent Account (0x...) {useAA ? '(Auto-generated)' : '*'}
               </label>
-              <input
-                type="text"
-                value={createForm.agentAccount}
-                onChange={(e) => {
-                  if (!useAA) {
-                    setCreateForm({ ...createForm, agentAccount: e.target.value });
-                  }
-                }}
-                required={!useAA}
-                disabled={useAA}
-                pattern="^0x[a-fA-F0-9]{40}$"
+              <div
                 style={{
                   width: '100%',
-                  padding: '0.5rem',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
+                  padding: '0.6rem 0.75rem',
+                  border: '1px solid #dcdcdc',
+                  borderRadius: '6px',
                   fontFamily: 'monospace',
-                  backgroundColor: useAA ? '#f8f9fa' : '#fff',
-                  cursor: useAA ? 'not-allowed' : 'text',
+                  backgroundColor: '#f6f6f6',
+                  color: '#1f1f1f',
+                  minHeight: '44px',
+                  display: 'flex',
+                  alignItems: 'center',
                 }}
-              />
-              {useAA && !aaAddress && !aaComputing && (
-                <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#dc3545' }}>
-                  Enter an Agent Name above to generate the AA address.
+              >
+                {useAA
+                  ? aaAddress || (createForm.agentName ? 'Generating smart account...' : 'Enter an agent name to generate address')
+                  : createForm.agentAccount || eoaAddress || 'Connect a wallet to populate owner address'}
+              </div>
+              {!useAA && !createForm.agentAccount && (
+                <p style={{ marginTop: '0.3rem', fontSize: '0.85rem', color: '#3a3a3a' }}>
+                  Connect a wallet to set the owning EOA address.
                 </p>
               )}
               {useAA && aaComputing && (
-                <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#007bff' }}>
-                  Computing AA address from agent name...
+                <p style={{ marginTop: '0.3rem', fontSize: '0.85rem', color: '#2f2f2f' }}>
+                  Computing smart account address from agent name...
                 </p>
               )}
               {useAA && existingAgentInfo && (
-                <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#856404' }}>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#505050' }}>
                   Existing agent detected at <span style={{ fontFamily: 'monospace' }}>{existingAgentInfo?.account}</span>
                   {existingAgentInfo?.method ? ` (resolved via ${existingAgentInfo.method})` : ''}. Creating a new agent will overwrite on-chain metadata for this name.
                 </p>
+              )}
+            </div>
+            <div style={{ marginBottom: '1rem', padding: '0.85rem', backgroundColor: '#f5f5f5', borderRadius: '6px', border: '1px solid #dcdcdc' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: useAA ? 'pointer' : 'not-allowed' }}>
+                <input
+                  type="checkbox"
+                  checked={createENS}
+                  disabled={!useAA}
+                  onChange={(e) => setCreateENS(e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: useAA ? 'pointer' : 'not-allowed' }}
+                />
+                <span style={{ fontWeight: 'bold' }}>Register ENS Name</span>
+              </label>
+              <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666666' }}>
+                {useAA
+                  ? 'Create an ENS subdomain for this smart-account-owned agent (agentname.orgname.eth).'
+                  : 'ENS registration is only available for Smart Account agent owners.'}
+              </p>
+              {useAA && createENS && (
+                <div style={{ marginTop: '0.5rem', marginLeft: '1.75rem' }}>
+                  <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 'bold' }}>ENS Org Name (parent domain)</p>
+                  <div
+                    style={{
+                      marginTop: '0.35rem',
+                      padding: '0.5rem 0.75rem',
+                      border: '1px solid #dcdcdc',
+                      borderRadius: '6px',
+                      backgroundColor: '#fff',
+                      fontFamily: 'monospace',
+                    }}
+                  >
+                    {ensOrgName || 'Not configured'}
+                  </div>
+                  <p style={{ marginTop: '0.35rem', fontSize: '0.8rem', color: '#4f4f4f' }}>
+                    Full ENS name will be: {ensFullNamePreview || 'agentname.orgname.eth'}
+                  </p>
+                  {ensChecking && (
+                    <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#2f2f2f' }}>
+                      Checking ENS availability...
+                    </p>
+                  )}
+                  {ensAvailable === true && (
+                    <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#3c3c3c' }}>
+                      ✓ ENS name is available
+                    </p>
+                  )}
+                  {ensAvailable === false && (
+                    <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#3a3a3a' }}>
+                      ✗ ENS name is not available
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </>
@@ -1217,7 +1284,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                 rows={3}
                 placeholder="A natural language description of the agent..."
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px', fontFamily: 'inherit' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', fontFamily: 'inherit' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1229,9 +1296,43 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={createForm.image}
                 onChange={(e) => setCreateForm({ ...createForm, image: e.target.value })}
                 placeholder="https://example.com/agent-image.png"
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
+              {imagePreviewUrl && (
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    border: '1px solid #dcdcdc',
+                    borderRadius: '8px',
+                    padding: '0.75rem',
+                    backgroundColor: '#f6f6f6',
+                  }}
+                >
+                  <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#4f4f4f' }}>Preview</p>
+                  {!imagePreviewError ? (
+                    <img
+                      src={imagePreviewUrl}
+                      alt="Agent preview"
+                      style={{ width: '100%', maxHeight: '240px', objectFit: 'cover', borderRadius: '6px' }}
+                      onLoad={handleImagePreviewLoad}
+                      onError={handleImagePreviewError}
+                    />
+                  ) : (
+                    <p style={{ margin: 0, fontSize: '0.85rem', color: '#3a3a3a' }}>
+                      Unable to load preview. Please check the image URL.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
+            <p style={{ marginTop: '0.5rem', marginBottom: '0', fontSize: '0.85rem', color: '#666666' }}>
+              Registration JSON will be automatically created and uploaded to IPFS per ERC-8004 specification.
+            </p>
+          </>
+        );
+      case 2:
+        return (
+          <>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
                 Agent URL (Base URL)
@@ -1241,21 +1342,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={createForm.agentUrl}
                 onChange={(e) => setCreateForm({ ...createForm, agentUrl: e.target.value })}
                 placeholder="https://agent.example.com"
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666' }}>
-                Used to automatically derive A2A and MCP endpoints (configured in the Protocols step).
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
+                This base URL seeds the default A2A (`/.well-known/agent-card.json`) and MCP (`/mcp`) endpoints below.
               </p>
             </div>
-            <p style={{ marginTop: '0.5rem', marginBottom: '0', fontSize: '0.85rem', color: '#666' }}>
-              Registration JSON will be automatically created and uploaded to IPFS per ERC-8004 specification.
-            </p>
-          </>
-        );
-      case 2:
-        return (
-          <>
-            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
@@ -1273,10 +1366,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 />
                 <span style={{ fontWeight: 600 }}>A2A Protocol Endpoint</span>
               </label>
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#475569' }}>
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#4f4f4f' }}>
                 {defaultA2AEndpoint
                   ? `Default: ${defaultA2AEndpoint}`
-                  : 'Set an Agent URL in the Information step to preview the agent card endpoint.'}
+                  : 'Set an Agent URL above to preview the agent card endpoint.'}
               </p>
               {protocolSettings.publishA2A && (
                 <div style={{ marginTop: '0.75rem' }}>
@@ -1290,12 +1383,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                       setProtocolSettings(prev => ({ ...prev, a2aEndpoint: e.target.value }))
                     }
                     placeholder={defaultA2AEndpoint || 'https://agent.example.com/.well-known/agent-card.json'}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                   />
                 </div>
               )}
             </div>
-            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#fdf2f8', borderRadius: '8px', border: '1px solid #fbcfe8' }}>
+            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #f6f6f6' }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
                 <input
                   type="checkbox"
@@ -1313,10 +1406,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 />
                 <span style={{ fontWeight: 600 }}>MCP Protocol Endpoint</span>
               </label>
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#9d174d' }}>
+              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#4c4c4c' }}>
                 {defaultMcpEndpoint
                   ? `Default: ${defaultMcpEndpoint}`
-                  : 'Set an Agent URL in the Information step to preview the MCP endpoint.'}
+                  : 'Set an Agent URL above to preview the MCP endpoint.'}
               </p>
               {protocolSettings.publishMcp && (
                 <div style={{ marginTop: '0.75rem' }}>
@@ -1330,99 +1423,66 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                       setProtocolSettings(prev => ({ ...prev, mcpEndpoint: e.target.value }))
                     }
                     placeholder={defaultMcpEndpoint || 'https://agent.example.com/mcp'}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d1d5db', borderRadius: '6px' }}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                   />
                 </div>
               )}
             </div>
           </>
         );
-      case 3:
+      case 3: {
         return (
           <>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
-              {TRUST_MODEL_OPTIONS.map(option => (
-                <label
-                  key={option.key}
+            <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#1f1f1f' }}>Agent Overview</h3>
+              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Chain:</strong> {CHAIN_METADATA[selectedChainId]?.displayName || selectedChainId}</p>
+              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Name:</strong> {createForm.agentName || '—'}</p>
+              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}>
+                <strong>ENS:</strong>{' '}
+                {createENS && ensFullNamePreview
+                  ? `${ensFullNamePreview}${ensAvailable === false ? ' (unavailable)' : ''}`
+                  : createENS
+                    ? 'Pending agent details'
+                    : 'Not registering'}
+              </p>
+              <p style={{ margin: '0.25rem 0', color: '#4f4f4f', fontFamily: 'monospace' }}><strong>Account:</strong> {createForm.agentAccount || '—'}</p>
+              {imagePreviewUrl && (
+                <div
                   style={{
-                    display: 'flex',
-                    alignItems: 'flex-start',
-                    gap: '0.75rem',
-                    padding: '0.85rem',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    backgroundColor: trustModels[option.key] ? '#eef2ff' : '#fff',
-                    cursor: 'pointer',
+                    margin: '0.75rem 0',
+                    borderRadius: '10px',
+                    border: '1px solid #dcdcdc',
+                    overflow: 'hidden',
+                    backgroundColor: '#fff',
                   }}
                 >
-                  <input
-                    type="checkbox"
-                    checked={!!trustModels[option.key]}
-                    onChange={(e) =>
-                      setTrustModels(prev => ({ ...prev, [option.key]: e.target.checked }))
-                    }
-                    style={{ marginTop: '0.35rem', width: '18px', height: '18px' }}
-                  />
-                  <span>
-                    <span style={{ fontWeight: 600, display: 'block', color: '#0f172a' }}>
-                      {option.label}
-                    </span>
-                    <span style={{ fontSize: '0.9rem', color: '#475569' }}>{option.description}</span>
-                  </span>
-                </label>
-              ))}
+                  {!imagePreviewError ? (
+                    <img
+                      src={imagePreviewUrl}
+                      alt="Agent preview"
+                      style={{ width: '100%', maxHeight: '240px', objectFit: 'cover', display: 'block' }}
+                      onLoad={handleImagePreviewLoad}
+                      onError={handleImagePreviewError}
+                    />
+                  ) : (
+                    <p style={{ margin: '0.75rem', color: '#3a3a3a', fontSize: '0.9rem' }}>
+                      Unable to load agent image preview.
+                    </p>
+                  )}
+                </div>
+              )}
+              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Description:</strong> {createForm.description || '—'}</p>
             </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Trust Notes
-              </label>
-              <textarea
-                value={trustNotes}
-                onChange={(e) => setTrustNotes(e.target.value)}
-                rows={3}
-                placeholder="Describe how this agent earns or maintains trust."
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px', fontFamily: 'inherit' }}
-              />
-            </div>
-          </>
-        );
-      case 4: {
-        const selectedTrustModels = TRUST_MODEL_OPTIONS.filter(option => trustModels[option.key]);
-        return (
-          <>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f8fafc' }}>
-              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#0f172a' }}>Agent Overview</h3>
-              <p style={{ margin: '0.25rem 0', color: '#475569' }}><strong>Name:</strong> {createForm.agentName || '—'}</p>
-              <p style={{ margin: '0.25rem 0', color: '#475569' }}><strong>Chain:</strong> {CHAIN_METADATA[selectedChainId]?.displayName || selectedChainId}</p>
-              <p style={{ margin: '0.25rem 0', color: '#475569', fontFamily: 'monospace' }}><strong>Account:</strong> {createForm.agentAccount || '—'}</p>
-              <p style={{ margin: '0.25rem 0', color: '#475569' }}><strong>Description:</strong> {createForm.description || '—'}</p>
-            </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f0fdf4' }}>
-              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#064e3b' }}>Protocols</h3>
-              <p style={{ margin: '0.25rem 0', color: '#065f46' }}>
+            <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#2f2f2f' }}>Protocols</h3>
+              <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
                 <strong>Agent Card:</strong> {protocolSettings.publishA2A ? protocolSettings.a2aEndpoint || defaultA2AEndpoint || 'Pending Agent URL' : 'Disabled'}
               </p>
-              <p style={{ margin: '0.25rem 0', color: '#065f46' }}>
+              <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
                 <strong>MCP:</strong> {protocolSettings.publishMcp ? protocolSettings.mcpEndpoint || defaultMcpEndpoint || 'Pending Agent URL' : 'Disabled'}
               </p>
-              <p style={{ margin: '0.25rem 0', color: '#065f46' }}>
-                <strong>ENS:</strong> {ensFullNamePreview ? `${ensFullNamePreview} (${ensAvailable ? 'available' : 'pending'})` : 'Disabled'}
-              </p>
             </div>
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: '10px', padding: '1rem', backgroundColor: '#eef2ff' }}>
-              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#1e1b4b' }}>Trust Model</h3>
-              {selectedTrustModels.length > 0 ? (
-                <ul style={{ margin: '0.25rem 0', paddingLeft: '1.25rem', color: '#312e81' }}>
-                  {selectedTrustModels.map(option => (
-                    <li key={option.key}>{option.label}</li>
-                  ))}
-                </ul>
-              ) : (
-                <p style={{ margin: '0.25rem 0', color: '#312e81' }}><strong>Model:</strong> None selected</p>
-              )}
-              <p style={{ margin: '0.25rem 0', color: '#312e81' }}><strong>Notes:</strong> {trustNotes ? trustNotes : '—'}</p>
-            </div>
-            <p style={{ marginTop: '1rem', fontSize: '0.95rem', color: '#475569' }}>
+            <p style={{ marginTop: '1rem', fontSize: '0.95rem', color: '#4f4f4f' }}>
               Review the details above. When ready, click <strong>Register Agent</strong> to publish this agent to the selected chain.
             </p>
           </>
@@ -1518,10 +1578,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           <div style={{ 
             marginBottom: '1rem', 
             padding: '1rem', 
-            backgroundColor: '#ffebee', 
+            backgroundColor: '#f5f5f5', 
             borderRadius: '4px', 
-            border: '1px solid #f44336',
-            color: '#c62828'
+            border: '1px solid #3a3a3a',
+            color: '#3a3a3a'
           }}>
             Error: {error}
           </div>
@@ -1531,10 +1591,10 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         <div style={{ 
           marginBottom: '1rem', 
           padding: '1rem', 
-          backgroundColor: '#e8f5e9', 
+          backgroundColor: '#f2f2f2', 
           borderRadius: '4px', 
-          border: '1px solid #4caf50',
-          color: '#2e7d32'
+          border: '1px solid #3c3c3c',
+          color: '#3c3c3c'
         }}>
           Success: {success}
         </div>
@@ -1546,8 +1606,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             marginBottom: '1.5rem',
             padding: '1rem 1.5rem',
             borderRadius: '14px',
-            border: '1px solid #bfdbfe',
-            backgroundColor: '#eff6ff',
+            border: '1px solid #dadada',
+            backgroundColor: '#f3f3f3',
             display: 'flex',
             flexWrap: 'wrap',
             gap: '1rem',
@@ -1556,7 +1616,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           }}
         >
           <div>
-            <div style={{ fontWeight: 700, color: '#1d4ed8' }}>
+            <div style={{ fontWeight: 700, color: '#2f2f2f' }}>
               Editing agent #{queryAgentId} (chain {queryChainId})
             </div>
 
@@ -1582,11 +1642,11 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             padding: '1.5rem',
             backgroundColor: '#fff',
             borderRadius: '8px',
-            border: '1px solid #ddd',
+            border: '1px solid #dcdcdc',
           }}
         >
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Create Agent</h2>
-          <form onSubmit={handleCreateAgent}>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Register Agent</h2>
+          <form onSubmit={(event) => event.preventDefault()}>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
               {CREATE_STEPS.map((label, index) => {
                 const isActive = index === createStep;
@@ -1607,9 +1667,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                       padding: '0.5rem 0.75rem',
                       borderRadius: '999px',
                       border: '1px solid',
-                      borderColor: isActive ? '#2563eb' : isComplete ? '#10b981' : '#e2e8f0',
-                      backgroundColor: isActive ? '#eff6ff' : isComplete ? '#ecfdf5' : '#fff',
-                      color: isActive ? '#1d4ed8' : isComplete ? '#0f766e' : '#475569',
+                      borderColor: isActive ? '#2f2f2f' : isComplete ? '#3c3c3c' : '#dcdcdc',
+                      backgroundColor: isActive ? '#f3f3f3' : isComplete ? '#f4f4f4' : '#fff',
+                      color: isActive ? '#2f2f2f' : isComplete ? '#3c3c3c' : '#4f4f4f',
                       fontWeight: 600,
                       cursor: index > createStep ? 'not-allowed' : 'pointer',
                       opacity: index > createStep ? 0.6 : 1,
@@ -1641,9 +1701,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     flex: '1 1 160px',
                     padding: '0.75rem',
                     borderRadius: '8px',
-                    border: '1px solid #cbd5f5',
+                    border: '1px solid #dcdcdc',
                     backgroundColor: '#fff',
-                    color: '#1e293b',
+                    color: '#2a2a2a',
                     fontWeight: 600,
                     cursor: 'pointer',
                   }}
@@ -1660,7 +1720,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     padding: '0.75rem',
                     borderRadius: '8px',
                     border: 'none',
-                    backgroundColor: '#2563eb',
+                    backgroundColor: '#2f2f2f',
                     color: '#fff',
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -1670,29 +1730,56 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 </button>
               ) : (
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={handleRegisterAgent}
+                  disabled={registering}
                   style={{
                     flex: '1 1 240px',
                     padding: '0.85rem',
                     borderRadius: '8px',
                     border: 'none',
-                    backgroundColor: '#007bff',
+                    backgroundColor: registering ? '#787878' : '#2f2f2f',
                     color: '#fff',
                     fontSize: '1rem',
                     fontWeight: 'bold',
-                    cursor: 'pointer',
+                    cursor: registering ? 'not-allowed' : 'pointer',
+                    opacity: registering ? 0.7 : 1,
                   }}
                 >
                   Register Agent
                 </button>
               )}
             </div>
+            {registering && (
+              <div style={{ width: '100%', marginTop: '1rem' }}>
+                <div
+                  style={{
+                    height: '8px',
+                    borderRadius: '999px',
+                    backgroundColor: '#dedede',
+                    overflow: 'hidden',
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${registerProgress}%`,
+                      height: '100%',
+                      backgroundColor: '#2a2a2a',
+                      transition: 'width 0.2s ease',
+                    }}
+                  />
+                </div>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#4f4f4f' }}>
+                  Registering agent… {Math.round(registerProgress)}%
+                </p>
+              </div>
+            )}
           </form>
         </div>
         )}
 
         {showManagementPanes && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
+        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Update Agent</h2>
           <form onSubmit={handleUpdateAgent}>
             <div style={{ marginBottom: '1rem' }}>
@@ -1704,7 +1791,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={updateForm.agentId}
                 onChange={(e) => setUpdateForm({ ...updateForm, agentId: e.target.value })}
                 required
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1719,7 +1806,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 }
                 required
                 min={0}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1730,7 +1817,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 type="text"
                 value={updateForm.tokenURI}
                 onChange={(e) => setUpdateForm({ ...updateForm, tokenURI: e.target.value })}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1741,7 +1828,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 type="text"
                 value={updateForm.metadataKey}
                 onChange={(e) => setUpdateForm({ ...updateForm, metadataKey: e.target.value })}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1752,7 +1839,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 type="text"
                 value={updateForm.metadataValue}
                 onChange={(e) => setUpdateForm({ ...updateForm, metadataValue: e.target.value })}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <button
@@ -1760,7 +1847,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               style={{
                 width: '100%',
                 padding: '0.75rem',
-                backgroundColor: '#28a745',
+                backgroundColor: '#3c3c3c',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '4px',
@@ -1775,8 +1862,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         </div>
         )}
         {showManagementPanes && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#dc3545' }}>Delete Agent</h2>
+        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#3a3a3a' }}>Delete Agent</h2>
           <form onSubmit={handleDeleteAgent}>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
@@ -1787,7 +1874,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={deleteForm.agentId}
                 onChange={(e) => setDeleteForm({ ...deleteForm, agentId: e.target.value })}
                 required
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1802,7 +1889,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 }
                 required
                 min={0}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <button
@@ -1810,7 +1897,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               style={{
                 width: '100%',
                 padding: '0.75rem',
-                backgroundColor: '#dc3545',
+                backgroundColor: '#3a3a3a',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '4px',
@@ -1826,7 +1913,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         )}
 
         {showManagementPanes && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #ddd' }}>
+        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Transfer Agent</h2>
           <form onSubmit={handleTransferAgent}>
             <div style={{ marginBottom: '1rem' }}>
@@ -1838,7 +1925,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 value={transferForm.agentId}
                 onChange={(e) => setTransferForm({ ...transferForm, agentId: e.target.value })}
                 required
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1853,7 +1940,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 }
                 required
                 min={0}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
@@ -1866,7 +1953,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })}
                 required
                 pattern="^0x[a-fA-F0-9]{40}$"
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #ddd', borderRadius: '4px', fontFamily: 'monospace' }}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', fontFamily: 'monospace' }}
               />
             </div>
             <button
@@ -1874,7 +1961,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               style={{
                 width: '100%',
                 padding: '0.75rem',
-                backgroundColor: '#ffc107',
+                backgroundColor: '#d4d4d4',
                 color: '#000',
                 border: 'none',
                 borderRadius: '4px',
