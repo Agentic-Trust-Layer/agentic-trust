@@ -100,6 +100,8 @@ export function AgentsPage({
   };
 
   const [gridColumns, setGridColumns] = useState(1);
+  const [isMobile, setIsMobile] = useState(false);
+  const [singleQuery, setSingleQuery] = useState('');
 
   useEffect(() => {
     const updateColumns = () => {
@@ -109,6 +111,7 @@ export function AgentsPage({
       const width = window.innerWidth;
       const computed = Math.min(3, Math.max(1, Math.floor(width / 420)));
       setGridColumns(computed);
+      setIsMobile(width <= 640);
     };
 
     updateColumns();
@@ -420,34 +423,23 @@ export function AgentsPage({
           boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
         }}
       >
-        <div
-          style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '1rem',
-            alignItems: 'flex-end',
-          }}
-        >
-          <div
-            style={{
-              flex: '1 1 220px',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-              gap: '1rem',
-            }}
-          >
-            <select
+        {isMobile ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', width: '100%' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(120px, 0.6fr) 1fr',
+                gap: '0.75rem',
+                alignItems: 'end',
+                width: '100%',
+              }}
+            >
+              <select
               value={filters.chainId}
               onChange={event => {
                 const nextValue = event.target.value;
                 onFilterChange('chainId', nextValue);
                 onSearch({ ...filters, chainId: nextValue });
-              }}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  onSearch();
-                }
               }}
               aria-label="Chain"
               style={{
@@ -464,22 +456,25 @@ export function AgentsPage({
               <option value="all">Chain (All)</option>
               {chainOptions.map(option => (
                 <option key={option.id} value={option.id}>
-                  {option.label}
+                  {option.label
+                    .replace(/Ethereum/i, 'ETH')
+                    .replace(/Optimism/i, 'OP')
+                    .replace(/Base/i, 'Base')
+                    .replace(/Sepolia/i, 'Sep')}
                 </option>
               ))}
-            </select>
-
-            <input
-              value={filters.address}
-              onChange={event => onFilterChange('address', event.target.value)}
+              </select>
+              <input
+              value={singleQuery}
+              onChange={e => setSingleQuery(e.target.value)}
               onKeyDown={event => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
-                  onSearch();
+                  onSearch({ ...filters, name: singleQuery });
                 }
               }}
-              placeholder="Agent address"
-              aria-label="Agent address"
+              placeholder="Search by address, name, or ID"
+              aria-label="Search"
               style={{
                 width: '100%',
                 padding: '0.85rem',
@@ -489,106 +484,230 @@ export function AgentsPage({
                 boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
               }}
             />
-
-            <input
-              value={filters.name}
-              onChange={event => onFilterChange('name', event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  onSearch();
-                }
-              }}
-              placeholder="Agent name"
-              aria-label="Agent name"
-              style={{
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '10px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: palette.surfaceMuted,
-                boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-              }}
-            />
-
-            <input
-              value={filters.agentId}
-              onChange={event => onFilterChange('agentId', event.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  onSearch();
-                }
-              }}
-              placeholder="Agent ID"
-              aria-label="Agent ID"
-              style={{
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '10px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: palette.surfaceMuted,
-                boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-              }}
-            />
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => onFilterChange('mineOnly', !filters.mineOnly)}
+                style={{
+                  padding: '0.75rem 1.2rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: filters.mineOnly ? palette.accent : palette.surfaceMuted,
+                  color: filters.mineOnly ? palette.surface : palette.textPrimary,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                my Agents
+              </button>
+              <button
+                onClick={() => onSearch({ ...filters, name: singleQuery })}
+                disabled={loading}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: palette.accent,
+                  color: palette.surface,
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.7 : 1,
+                }}
+              >
+                {loading ? 'Searching...' : 'Search'}
+              </button>
+              <button
+                onClick={() => {
+                  setSingleQuery('');
+                  onClear();
+                }}
+                disabled={loading}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: palette.surfaceMuted,
+                  color: palette.textPrimary,
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Clear
+              </button>
+            </div>
           </div>
-
+        ) : (
           <div
             style={{
               display: 'flex',
-              gap: '0.75rem',
-              marginLeft: 'auto',
               flexWrap: 'wrap',
+              gap: '1rem',
+              alignItems: 'flex-end',
             }}
           >
-            <button
-              type="button"
-              onClick={() => onFilterChange('mineOnly', !filters.mineOnly)}
+            <div
               style={{
-                padding: '0.75rem 1.2rem',
-                borderRadius: '10px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: filters.mineOnly ? palette.accent : palette.surfaceMuted,
-                color: filters.mineOnly ? palette.surface : palette.textPrimary,
-                fontWeight: 600,
-                cursor: 'pointer',
+                flex: '1 1 220px',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '1rem',
               }}
             >
-              my Agents
-            </button>
-            <button
-              onClick={() => onSearch()}
-              disabled={loading}
+              <select
+                value={filters.chainId}
+                onChange={event => {
+                  const nextValue = event.target.value;
+                  onFilterChange('chainId', nextValue);
+                  onSearch({ ...filters, chainId: nextValue });
+                }}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    onSearch();
+                  }
+                }}
+                aria-label="Chain"
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  fontWeight: 600,
+                  color: palette.textPrimary,
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                }}
+              >
+                <option value="all">Chain (All)</option>
+                {chainOptions.map(option => (
+                  <option key={option.id} value={option.id}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+
+              <input
+                value={filters.address}
+                onChange={event => onFilterChange('address', event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    onSearch();
+                  }
+                }}
+                placeholder="Agent address"
+                aria-label="Agent address"
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                }}
+              />
+
+              <input
+                value={filters.name}
+                onChange={event => onFilterChange('name', event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    onSearch();
+                  }
+                }}
+                placeholder="Agent name"
+                aria-label="Agent name"
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                }}
+              />
+
+              <input
+                value={filters.agentId}
+                onChange={event => onFilterChange('agentId', event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    onSearch();
+                  }
+                }}
+                placeholder="Agent ID"
+                aria-label="Agent ID"
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                }}
+              />
+            </div>
+
+            <div
               style={{
-                padding: '0.75rem 1.5rem',
-                backgroundColor: palette.accent,
-                color: palette.surface,
-                border: 'none',
-                borderRadius: '10px',
-                fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
-                opacity: loading ? 0.7 : 1,
+                display: 'flex',
+                gap: '0.75rem',
+                marginLeft: 'auto',
+                flexWrap: 'wrap',
               }}
             >
-              {loading ? 'Searching...' : 'Search'}
-            </button>
-            <button
-              onClick={onClear}
-              disabled={loading}
-              style={{
-                padding: '0.75rem 1.5rem',
-                backgroundColor: palette.surfaceMuted,
-                color: palette.textPrimary,
-                border: `1px solid ${palette.border}`,
-                borderRadius: '10px',
-                fontWeight: 600,
-                cursor: loading ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Clear
-            </button>
+              <button
+                type="button"
+                onClick={() => onFilterChange('mineOnly', !filters.mineOnly)}
+                style={{
+                  padding: '0.75rem 1.2rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: filters.mineOnly ? palette.accent : palette.surfaceMuted,
+                  color: filters.mineOnly ? palette.surface : palette.textPrimary,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                my Agents
+              </button>
+              <button
+                onClick={() => onSearch()}
+                disabled={loading}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: palette.accent,
+                  color: palette.surface,
+                  border: 'none',
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                  opacity: loading ? 0.7 : 1,
+                }}
+              >
+                {loading ? 'Searching...' : 'Search'}
+              </button>
+              <button
+                onClick={onClear}
+                disabled={loading}
+                style={{
+                  padding: '0.75rem 1.5rem',
+                  backgroundColor: palette.surfaceMuted,
+                  color: palette.textPrimary,
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '10px',
+                  fontWeight: 600,
+                  cursor: loading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Clear
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>

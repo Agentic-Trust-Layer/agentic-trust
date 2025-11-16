@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
 
 const NAV_ITEMS = [
@@ -31,8 +31,20 @@ export function Header({
 }: HeaderProps) {
   const pathname = usePathname() ?? '/';
   const [graphLoading, setGraphLoading] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const canRequestGraphql = Boolean(displayAddress);
+
+  // detect mobile width
+  useEffect(() => {
+    const onResize = () => {
+      if (typeof window === 'undefined') return;
+      setIsMobile(window.innerWidth <= 640);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const graphiqlFallback = useMemo(() => {
     const candidates = [
@@ -50,6 +62,13 @@ export function Header({
       .replace(/\/+$/, '')
       .replace(/\/(graphql|graphiql)\/?$/i, '/graphiql');
   }, []);
+
+  const navItems = useMemo(() => {
+    if (isMobile) {
+      return NAV_ITEMS.filter(item => item.href !== '/stats');
+    }
+    return NAV_ITEMS;
+  }, [isMobile]);
 
   const handleOpenGraphQL = useCallback(async () => {
     if (!displayAddress) {
@@ -114,11 +133,12 @@ export function Header({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', minWidth: '240px' }}>
-            <h1 style={{ margin: 0, fontSize: '2rem', fontWeight: 500 }}>
+          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', minWidth: isMobile ? '160px' : '240px' }}>
+            <h1 style={{ margin: 0, fontSize: isMobile ? '1.35rem' : '2rem', fontWeight: 500 }}>
               Agentic Trust
             </h1>
           </Link>
+          {!isMobile && (
           <button
             type="button"
             onClick={handleOpenGraphQL}
@@ -142,6 +162,7 @@ export function Header({
           >
             {graphLoading ? 'Opening…' : 'GraphQL'}
           </button>
+          )}
         </div>
 
         <div
@@ -169,19 +190,19 @@ export function Header({
                 href="/admin-tools?mode=create"
                 style={{
                   textDecoration: 'none',
-                  padding: '0.45rem 1.25rem',
+                  padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
                   borderRadius: '999px',
                   border: `1px solid ${palette.borderStrong}`,
                   backgroundColor: pathname.startsWith('/admin-tools') ? palette.accent : palette.surfaceMuted,
                   color: pathname.startsWith('/admin-tools') ? palette.surface : palette.textPrimary,
                   fontWeight: 600,
-                  fontSize: '0.95rem',
+                  fontSize: isMobile ? '0.9rem' : '0.95rem',
                 }}
               >
-                Agent Registration
+                {isMobile ? 'Register' : 'Agent Registration'}
               </Link>
             )}
-            {NAV_ITEMS.map(item => {
+            {navItems.map(item => {
               const isActive =
                 item.href === '/'
                   ? pathname === '/'
@@ -192,13 +213,13 @@ export function Header({
                   href={item.href}
                   style={{
                     textDecoration: 'none',
-                    padding: '0.45rem 1.25rem',
+                    padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
                     borderRadius: '999px',
                     border: `1px solid ${palette.borderStrong}`,
                     backgroundColor: isActive ? palette.accent : palette.surfaceMuted,
                     color: isActive ? palette.surface : palette.textPrimary,
                     fontWeight: 600,
-                    fontSize: '0.95rem',
+                    fontSize: isMobile ? '0.9rem' : '0.95rem',
                   }}
                 >
                   {item.label}
@@ -209,49 +230,92 @@ export function Header({
           {privateKeyMode ? (
             <div
               style={{
-                padding: '0.45rem 1rem',
+                padding: isMobile ? '0.35rem 0.75rem' : '0.45rem 1rem',
                 backgroundColor: palette.accent,
                 color: palette.surface,
                 borderRadius: '999px',
-                fontSize: '0.85rem',
+                fontSize: isMobile ? '0.8rem' : '0.85rem',
                 fontWeight: 600,
               }}
             >
               Server-admin mode
             </div>
           ) : isConnected ? (
-            <button
-              type="button"
-              onClick={onDisconnect}
-              style={{
-                padding: '0.5rem 1.25rem',
-                backgroundColor: palette.accent,
-                color: palette.surface,
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-              Disconnect
-            </button>
+            isMobile ? (
+              <button
+                type="button"
+                aria-label="Disconnect"
+                title="Disconnect"
+                onClick={onDisconnect}
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '999px',
+                  border: `1px solid ${palette.borderStrong}`,
+                  backgroundColor: palette.accent,
+                  color: palette.surface,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                ⏏️
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onDisconnect}
+                style={{
+                  padding: '0.5rem 1.25rem',
+                  backgroundColor: palette.accent,
+                  color: palette.surface,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Disconnect
+              </button>
+            )
           ) : (
-            <button
-              onClick={onConnect}
-              disabled={disableConnect}
-              style={{
-                padding: '0.5rem 1.5rem',
-                backgroundColor: disableConnect ? palette.borderStrong : palette.accent,
-                color: palette.surface,
-                border: 'none',
-                borderRadius: '8px',
-                fontWeight: 600,
-                cursor: disableConnect ? 'not-allowed' : 'pointer',
-                opacity: disableConnect ? 0.7 : 1,
-              }}
-            >
-              Connect
-            </button>
+            isMobile ? (
+              <button
+                onClick={onConnect}
+                aria-label="Connect"
+                title="Connect"
+                disabled={disableConnect}
+                style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '999px',
+                  border: `1px solid ${palette.borderStrong}`,
+                  backgroundColor: disableConnect ? palette.borderStrong : palette.accent,
+                  color: palette.surface,
+                  fontWeight: 700,
+                  cursor: disableConnect ? 'not-allowed' : 'pointer',
+                  opacity: disableConnect ? 0.7 : 1,
+                }}
+              >
+                🔌
+              </button>
+            ) : (
+              <button
+                onClick={onConnect}
+                disabled={disableConnect}
+                style={{
+                  padding: '0.5rem 1.5rem',
+                  backgroundColor: disableConnect ? palette.borderStrong : palette.accent,
+                  color: palette.surface,
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  cursor: disableConnect ? 'not-allowed' : 'pointer',
+                  opacity: disableConnect ? 0.7 : 1,
+                }}
+              >
+                Connect
+              </button>
+            )
           )}
 
           {rightSlot}

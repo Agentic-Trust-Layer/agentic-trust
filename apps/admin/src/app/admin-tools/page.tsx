@@ -102,6 +102,26 @@ export default function AdminPage() {
   const registerTimerRef = useRef<number | null>(null);
   const totalCreateSteps = CREATE_STEPS.length;
   const isReviewStep = createStep === totalCreateSteps - 1;
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const onResize = () => {
+      if (typeof window === 'undefined') return;
+      setIsMobile(window.innerWidth <= 640);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const getStepLabel = useCallback(
+    (label: (typeof CREATE_STEPS)[number]) => {
+      if (!isMobile) return label;
+      if (label === 'Information') return 'Info';
+      if (label === 'Protocols') return "Prot's";
+      if (label === 'Review & Register') return 'Review';
+      return label;
+    },
+    [isMobile],
+  );
 
   const resetRegistrationProgress = useCallback(() => {
     if (registerTimerRef.current) {
@@ -1159,7 +1179,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.9rem', color: 'green', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <span style={{ fontFamily: 'monospace' }}>
-                  {ensFullNamePreview || 'Enter an agent name to generate ENS name'}
+                  {ensFullNamePreview || 'Enter an agent name to check ENS availability'}
                 </span>
                 <span style={{ fontSize: '0.85rem', color: ensChecking ? '#4f4f4f' : (ensAvailable === true ? '#2a2a2a' : (ensAvailable === false ? '#5a5a5a' : '#4f4f4f')) }}>
                   {ensChecking
@@ -1464,7 +1484,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     <img
                       src={imagePreviewUrl}
                       alt="Agent preview"
-                      style={{ height: '240px', width: 'auto', display: 'block' }}
+                      style={{ height: '80px', width: 'auto', display: 'block' }}
                       onLoad={handleImagePreviewLoad}
                       onError={handleImagePreviewError}
                     />
@@ -1643,15 +1663,15 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         <div
           style={{
             gridColumn: showManagementPanes ? '1 / -1' : 'auto',
-            padding: '1.5rem',
-            backgroundColor: '#fff',
-            borderRadius: '8px',
-            border: '1px solid #dcdcdc',
+            padding: isMobile ? '0' : '1.5rem',
+            backgroundColor: isMobile ? 'transparent' : '#fff',
+            borderRadius: isMobile ? '0' : '8px',
+            border: isMobile ? 'none' : '1px solid #dcdcdc',
           }}
         >
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Registration</h2>
+          {!isMobile && <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Registration</h2>}
           <form onSubmit={(event) => event.preventDefault()}>
-            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', gap: isMobile ? '0.35rem' : '0.5rem', flexWrap: isMobile ? 'nowrap' : 'wrap', marginBottom: isMobile ? '0.75rem' : '1.0rem', overflowX: isMobile ? 'auto' : undefined }}>
               {CREATE_STEPS.map((label, index) => {
                 const isActive = index === createStep;
                 const isComplete = index < createStep;
@@ -1662,25 +1682,29 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     onClick={() => handleJumpToStep(index)}
                     disabled={index > createStep}
                     style={{
-                      flex: '1 1 140px',
-                      minWidth: '140px',
+                      flex: isMobile ? '1 1 0' : '1 1 140px',
+                      minWidth: isMobile ? '0' : '140px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       gap: '0.35rem',
-                      padding: '0.5rem 0.75rem',
+                      padding: isMobile ? '0.4rem 0.6rem' : '0.5rem 0.75rem',
                       borderRadius: '999px',
                       border: '1px solid',
                       borderColor: isActive ? '#2f2f2f' : isComplete ? '#3c3c3c' : '#dcdcdc',
                       backgroundColor: isActive ? '#f3f3f3' : isComplete ? '#f4f4f4' : '#fff',
                       color: isActive ? '#2f2f2f' : isComplete ? '#3c3c3c' : '#4f4f4f',
                       fontWeight: 600,
+                      fontSize: isMobile ? '0.85rem' : '1rem',
+                      whiteSpace: 'nowrap',
                       cursor: index > createStep ? 'not-allowed' : 'pointer',
                       opacity: index > createStep ? 0.6 : 1,
                     }}
                   >
-                    <span style={{ fontWeight: 700 }}>{index + 1}.</span>
-                    {label}
+                    {!isMobile && (
+                      <span style={{ fontWeight: 700, fontSize: '1rem' }}>{index + 1}.</span>
+                    )}
+                    <span style={{ fontSize: isMobile ? '0.85rem' : '1rem' }}>{getStepLabel(label)}</span>
                   </button>
                 );
               })}
@@ -1689,18 +1713,18 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                gap: '1rem',
-                padding: '1.25rem',
-                border: '1px solid #dcdcdc',
-                borderRadius: '12px',
-                backgroundColor: '#f8f8f8',
+                gap: isMobile ? '0.5rem' : '1rem',
+                padding: isMobile ? '0.5rem' : '1.25rem',
+                border: isMobile ? 'none' : '1px solid #dcdcdc',
+                borderRadius: isMobile ? '0' : '12px',
+                backgroundColor: isMobile ? 'transparent' : '#f8f8f8',
               }}
             >
               {renderStepContent()}
             </div>
             <div
               style={{
-                marginTop: '1.5rem',
+                marginTop: isMobile ? '0.75rem' : '1.5rem',
                 display: 'flex',
                 justifyContent: 'space-between',
                 gap: '1rem',
@@ -1742,7 +1766,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     opacity: isCurrentStepValid ? 1 : 0.6,
                   }}
                 >
-                  Next: {CREATE_STEPS[createStep + 1]}
+                  Next: {getStepLabel(CREATE_STEPS[createStep + 1])}
                 </button>
               ) : (
                 <button
@@ -1762,7 +1786,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     opacity: registering ? 0.7 : 1,
                   }}
                 >
-                  Agent Registration
+                  {isMobile ? 'Register' : 'Agent Registration'}
                 </button>
               )}
             </div>
