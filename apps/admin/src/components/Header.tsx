@@ -178,7 +178,7 @@ export function Header({
                   fontSize: '0.95rem',
                 }}
               >
-                Register Agent
+                Agent Registration
               </Link>
             )}
             {NAV_ITEMS.map(item => {

@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getENSInfo } from '@agentic-trust/core/server';
-import { parseDidEns } from '../_lib/didEns';
+import { isENSNameAvailable } from '@agentic-trust/core/server';
+import { parseDidEns } from '../../_lib/didEns';
 
 export async function GET(
   request: NextRequest,
@@ -38,16 +38,29 @@ export async function GET(
     }
 
     const { ensName, chainId } = parsed;
-    const nameInfo = await getENSInfo(ensName, chainId);
-    return NextResponse.json({ nameInfo });
+    const isAvailable = await isENSNameAvailable(ensName, chainId);
+
+    if (isAvailable === null) {
+      return NextResponse.json(
+        {
+          error: 'Failed to check ENS availability',
+          message: 'Unable to determine availability',
+        },
+        { status: 500 }
+      );
+    }
+
+    return NextResponse.json({ available: isAvailable });
   } catch (error) {
-    console.error('Error fetching ENS name info:', error);
+    console.error('Error checking ENS availability:', error);
     return NextResponse.json(
       {
-        error: 'Failed to fetch ENS name info',
+        error: 'Failed to check ENS availability',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }
     );
   }
 }
+
+

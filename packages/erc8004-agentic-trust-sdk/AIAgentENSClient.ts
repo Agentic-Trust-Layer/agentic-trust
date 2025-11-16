@@ -417,7 +417,25 @@ export class AIAgentENSClient {
    */
   async getAgentAccountByName(name: string): Promise<`0x${string}` | null> {
 
-    const universalResolverAbi = parseAbi([
+
+
+    let ensName = name.trim().toLowerCase();
+    ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
+    ensName = ensName + '.eth';
+
+    
+    const normalizedName = normalize(ensName)
+    const addr = await this.publicClient?.getEnsAddress({
+      name: normalizedName
+    });
+
+    console.log('*********** zzz getAgentAccountByName normalizedName', normalizedName);
+    console.log('*********** zzz getAgentAccountByName addr', addr);
+    return addr as `0x${string}` | null;
+
+    /*
+
+        const universalResolverAbi = parseAbi([
       'error ResolverNotFound(bytes name)',
       'error ResolverNotContract(bytes name, address resolver)',
       'error UnsupportedResolverProfile(bytes4 selector)',
@@ -428,19 +446,15 @@ export class AIAgentENSClient {
       'function reverse(bytes lookupAddress, uint256 coinType) view returns (string primary, address resolver, address reverseResolver)',
     ])
 
-
-    let ensName = name.trim().toLowerCase();
-    ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
-    ensName = ensName + '.eth';
-
-
     // universal resolver
     const resolverAddr: `0x${string}` = "0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe";
     
 
     try {
 
-      const simpleResolverAbi = parseAbi([
+
+      // construct data read
+      const simpleResolverAbi1 = parseAbi([
         'function addr(bytes32 node) view returns (address)',
         'function text(bytes32 node, string key) view returns (string)',
       ])
@@ -450,85 +464,171 @@ export class AIAgentENSClient {
       ])
        
       const name = normalize(ensName)
-      const node = namehash(name)
+      const node1 = namehash(name)
        
-      const resolverCalls = [
+      const resolverCalls1 = [
         {
-          abi: simpleResolverAbi,
+          abi: simpleResolverAbi1,
           functionName: 'addr',
-          args: [node],
+          args: [node1],
         },
         {
-          abi: simpleResolverAbi,
+          abi: simpleResolverAbi1,
           functionName: 'text',
-          args: [node, 'description'],
+          args: [node1, 'description'],
         },
       ] as const
        
-      const callData = encodeFunctionData({
+      const data = encodeFunctionData({
         abi: multicallAbi,
         functionName: 'multicall',
-        args: [resolverCalls.map((call) => encodeFunctionData(call))],
+        args: [resolverCalls1.map((call) => encodeFunctionData(call))],
       })
+ 
+      const universalResolverAbi = parseAbi([
+        'error ResolverNotFound(bytes name)',
+        'error ResolverNotContract(bytes name, address resolver)',
+        'error UnsupportedResolverProfile(bytes4 selector)',
+        'error ResolverError(bytes errorData)',
+        'error ReverseAddressMismatch(string primary, bytes primaryAddress)',
+        'error HttpError(uint16 status, string message)',
+        'function resolve(bytes name, bytes data) view returns (bytes result, address resolver)',
+        'function reverse(bytes lookupAddress, uint256 coinType) view returns (string primary, address resolver, address reverseResolver)',
+      ])
+      
+      console.info('*********** zzz getAgentAccountByName chain id', await this.publicClient?.getChainId());
+      
+
+      const dnsEncodedName = toHex(packetToBytes(name))
+
+      const resolveRes = await this.publicClient?.readContract({
+        abi: universalResolverAbi,
+        address: '0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe',
+        functionName: 'resolve',
+        args: [dnsEncodedName, data],
+      })
+      
+      if (!resolveRes) {
+        return null;
+      }
+
+      const decodedMulticall = decodeFunctionResult({
+        abi: multicallAbi,
+        functionName: 'multicall',
+        data: resolveRes[0] as `0x${string}`,
+      }) as `0x${string}`[];
+      
+      console.log('*********** zzz getAgentAccountByName decodedMulticall', decodedMulticall);
+      const decodedRes = (decodedMulticall || []).map((res, i) => {
+        console.log('*********** zzz getAgentAccountByName res', res);
+        const call = resolverCalls1[i];
+        if (!call) {
+          return null;
+        }
+        const fn = (call.functionName === 'addr' ? 'addr' : 'text') as 'addr' | 'text';
+        console.log('*********** zzz getAgentAccountByName fn', fn);
+        return decodeFunctionResult({
+          abi: simpleResolverAbi1,
+          functionName: fn,
+          data: res,
+        });
+      }).filter(Boolean)
 
 
-      // DNS wire-format encode of the ENS name for Universal Resolver
-      const dnsEncodedName = toHex(packetToBytes(ensName))
 
-      const resolveResult = await this.publicClient?.readContract({
+
+
+
+
+
+
+
+
+
+
+
+
+
+      const simpleResolverAbi = parseAbi([
+        'function addr(bytes32 node) view returns (address)',
+        'function text(bytes32 node, string key) view returns (string)',
+      ])
+       
+      console.log('*********** zzz getAgentAccountByName ensName', ensName);
+      const name = normalize(ensName);
+      console.log('*********** zzz getAgentAccountByName normalized name', name);
+      const node = namehash(name);
+
+      // DNS wire-format encode of the ENS name for Universal Resolver (use normalized form)
+      const dnsEncodedName = toHex(packetToBytes(name));
+
+      // Resolve addr(name) via Universal Resolver
+      const addrCallData = encodeFunctionData({
+        abi: simpleResolverAbi,
+        functionName: 'addr',
+        args: [node],
+      });
+      const addrResolve = await this.publicClient?.readContract({
         address: resolverAddr,
         abi: universalResolverAbi,
         functionName: 'resolve',
-        args: [dnsEncodedName, callData],
+        args: [dnsEncodedName, addrCallData],
       }).catch(() => null) as readonly [`0x${string}`, `0x${string}`] | null;
 
-
-      let addrFromMulticall: string | null = null;
-      let descriptionFromMulticall: string | null = null;
-      if (resolveResult) {
+      console.log('*********** zzz getAgentAccountByName addrResolve', addrResolve);
+      let addrFromResolver: string | null = null;
+      if (addrResolve) {
+        console.log('*********** zzz getAgentAccountByName addrResolve[0]', addrResolve[0]);
         try {
-          const resultsBytes = decodeFunctionResult({
-            abi: multicallAbi,
-            functionName: 'multicall',
-            data: resolveResult[0],
-          }) as `0x${string}`[];
-
-          const addrBytes = resultsBytes?.[0];
-          const textBytes = resultsBytes?.[1];
-
-          const addrDecoded = addrBytes
-            ? (decodeFunctionResult({
-                abi: simpleResolverAbi,
-                functionName: 'addr',
-                data: addrBytes,
-              }) as string)
-            : null;
-
-          const textDecoded = textBytes
-            ? (decodeFunctionResult({
-                abi: simpleResolverAbi,
-                functionName: 'text',
-                data: textBytes,
-              }) as string)
-            : null;
-
-          addrFromMulticall = addrDecoded ?? null;
-          descriptionFromMulticall = (textDecoded || '').length ? textDecoded : null;
-          console.info("decodedRes addr/text: ", addrFromMulticall, descriptionFromMulticall);
+          const decoded = decodeFunctionResult({
+            abi: simpleResolverAbi,
+            functionName: 'addr',
+            data: addrResolve[0],
+          }) as string;
+          console.log('*********** zzz getAgentAccountByName decoded', decoded);
+          addrFromResolver = decoded ?? null;
         } catch (e) {
-          console.warn("UniversalResolver decode failed", e);
+          console.warn("UniversalResolver decode addr failed", e);
         }
       }
 
-      const addr = addrFromMulticall;
+      // Best-effort: resolve text(name,'description') for metadata (non-blocking)
+      const textCallData = encodeFunctionData({
+        abi: simpleResolverAbi,
+        functionName: 'text',
+        args: [node, 'description'],
+      });
+      const textResolve = await this.publicClient?.readContract({
+        address: resolverAddr,
+        abi: universalResolverAbi,
+        functionName: 'resolve',
+        args: [dnsEncodedName, textCallData],
+      }).catch(() => null);
+
+      if (textResolve) {
+        try {
+          const textDecoded = decodeFunctionResult({
+            abi: simpleResolverAbi,
+            functionName: 'text',
+            data: textResolve[0] as `0x${string}`,
+          }) as string;
+          console.log('*********** zzz getAgentAccountByName description text', textDecoded);
+        } catch (e) {
+          console.warn('UniversalResolver decode text(description) failed', e);
+        }
+      }
+
+      const addr = addrFromResolver;
       if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr) && addr !== '0x0000000000000000000000000000000000000000') {
         return addr as `0x${string}`;
       }
+     
     } catch (error) {
       console.error("Error getting agent account by name: ", error);
     }
 
     return null;
+    */
   }
 
   /**

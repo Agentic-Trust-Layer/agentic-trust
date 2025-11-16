@@ -136,6 +136,7 @@ export {
   resetENSClient,
   isENSAvailable,
   isENSNameAvailable,
+  getENSInfo,
   addAgentNameToL1Org,
   addAgentNameToL2Org,
   prepareL1AgentNameInfoCalls,

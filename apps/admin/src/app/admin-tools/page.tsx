@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address } from 'viem';
-import { createAgentWithWalletForEOA, createAgentWithWalletForAA, getCounterfactualAAAddressByAgentName } from '@agentic-trust/core/client';
+import { createAgentWithWalletForAA, getCounterfactualAAAddressByAgentName } from '@agentic-trust/core/client';
 import type { Chain } from 'viem';
 import {
   getEnsOrgName,
@@ -75,16 +75,21 @@ export default function AdminPage() {
   const [success, setSuccess] = useState<string | null>(null);
 
   // Create agent form state
+  const getDefaultImageUrl = () => (typeof window !== 'undefined' ? `${window.location.origin}/8004Agent.png` : '/8004Agent.png');
   const [createForm, setCreateForm] = useState({
     agentName: '',
     agentAccount: '',
     description: '',
-    image: '',
+    image: getDefaultImageUrl(),
     agentUrl: '',
   });
   const [imagePreviewError, setImagePreviewError] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageFileInputRef = useRef<HTMLInputElement | null>(null);
   const handleImagePreviewLoad = useCallback(() => setImagePreviewError(false), []);
   const handleImagePreviewError = useCallback(() => setImagePreviewError(true), []);
+  const [ensExisting, setEnsExisting] = useState<{ image: string | null; url: string | null; description: string | null } | null>(null);
   const [createStep, setCreateStep] = useState(0);
   const [protocolSettings, setProtocolSettings] = useState({
     publishA2A: true,
@@ -132,6 +137,16 @@ export default function AdminPage() {
   useEffect(() => {
     return () => resetRegistrationProgress();
   }, [resetRegistrationProgress]);
+
+  // Ensure absolute default image URL on the client
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    if (createForm.image === '/8004Agent.png') {
+      setCreateForm(prev => ({ ...prev, image: `${window.location.origin}/8004Agent.png` }));
+    }
+  }, [createForm.image]);
 
   // Get admin EOA for private key mode display
   const [adminEOA, setAdminEOA] = useState<string | null>(null);
@@ -350,8 +365,7 @@ export default function AdminPage() {
   );
 
   // Toggle states for Create Agent
-  const [useAA, setUseAA] = useState(false);
-  const [createENS, setCreateENS] = useState(false);
+  const useAA = true;
   const [ensOrgName, setEnsOrgName] = useState(getEnsOrgName(DEFAULT_CHAIN_ID)); // Default org name
   const [ensChecking, setEnsChecking] = useState(false);
   const [ensAvailable, setEnsAvailable] = useState<boolean | null>(null);
@@ -575,11 +589,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     };
   }, [useAA, privateKeyMode, eip1193Provider, eoaAddress, createForm.agentName, selectedChainId, CHAIN_OBJECTS]);
 
-  // Check ENS availability when createENS is enabled and agent name changes
-  // Only check if AA is enabled (ENS only makes sense for AA agents)
+  // Check ENS availability when agent name changes
   useEffect(() => {
-    if (!useAA || !createENS || !createForm.agentName || !ensOrgName) {
+    if (!createForm.agentName || !ensOrgName) {
       setEnsAvailable(null);
+      setEnsChecking(false);
+      setEnsExisting(null);
       return;
     }
 
@@ -588,14 +603,12 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
 
     (async () => {
       try {
-        // Build ENS DID from agent name and org name
         const encodedEnsDid = buildDidEnsFromAgentAndOrg(
           selectedChainId,
           createForm.agentName,
           ensOrgName
         );
 
-        // Check ENS availability via API
         const response = await fetch(`/api/names/${encodedEnsDid}`, {
           method: 'GET',
           headers: {
@@ -608,15 +621,26 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         }
 
         const data = await response.json();
-        const isAvailable = data.available;
+        const info = data?.nameInfo;
+        const isAvailable = info?.available === true;
         
         if (!cancelled) {
           setEnsAvailable(isAvailable);
+          if (isAvailable === false) {
+            setEnsExisting({
+              image: info?.image ?? null,
+              url: info?.url ?? null,
+              description: info?.description ?? null,
+            });
+          } else {
+            setEnsExisting(null);
+          }
         }
       } catch (error) {
         console.error('Error checking ENS availability:', error);
         if (!cancelled) {
           setEnsAvailable(null);
+          setEnsExisting(null);
         }
       } finally {
         if (!cancelled) {
@@ -628,15 +652,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     return () => {
       cancelled = true;
     };
-  }, [useAA, createENS, createForm.agentName, ensOrgName, selectedChainId]);
-  
-
-  // Reset ENS toggle when AA is disabled
-  useEffect(() => {
-    if (!useAA) {
-      setCreateENS(false);
-    }
-  }, [useAA]);
+  }, [createForm.agentName, ensOrgName, selectedChainId]);
 
   useEffect(() => {
     setImagePreviewError(false);
@@ -655,52 +671,52 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   }, [selectedChainId]);
 
 
-  const validateCurrentStep = useCallback((): boolean => {
-    setError(null);
+  const ensFullNamePreview =
+    createForm.agentName && ensOrgName
+      ? `${createForm.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth`
+      : '';
+
+  const computeStepValidation = useCallback((): { valid: boolean; message?: string } => {
     switch (createStep) {
       case 0: {
         if (!createForm.agentName.trim()) {
-          setError('Agent name is required.');
-          return false;
+          return { valid: false, message: 'Agent name is required.' };
         }
-        if (!useAA) {
-          const account = createForm.agentAccount.trim();
-          if (!/^0x[a-fA-F0-9]{40}$/.test(account)) {
-            setError('Provide a valid agent account address or enable Account Abstraction.');
-            return false;
-          }
+        if (!ensFullNamePreview) {
+          return { valid: false, message: 'ENS name is required.' };
         }
-        return true;
+        if (ensAvailable !== true) {
+          return { valid: false, message: 'ENS name must be available.' };
+        }
+        return { valid: true };
       }
       case 1: {
         if (!createForm.description.trim()) {
-          setError('Please provide a description for your agent.');
-          return false;
+          return { valid: false, message: 'Please provide a description for your agent.' };
         }
-        return true;
+        return { valid: true };
       }
       case 2: {
-        if ((protocolSettings.publishA2A || protocolSettings.publishMcp) && !createForm.agentUrl.trim()) {
-          setError('Agent URL is required to configure protocol endpoints.');
-          return false;
+        if (!createForm.agentUrl.trim()) {
+          return { valid: false, message: 'Agent URL is required.' };
+        }
+        if (!protocolSettings.publishA2A && !protocolSettings.publishMcp) {
+          return { valid: false, message: 'Enable at least one protocol (A2A or MCP).' };
         }
         if (protocolSettings.publishA2A && !protocolSettings.a2aEndpoint.trim()) {
-          setError('Provide an A2A protocol endpoint URL.');
-          return false;
+          return { valid: false, message: 'Provide an A2A protocol endpoint URL.' };
         }
         if (protocolSettings.publishMcp && !protocolSettings.mcpEndpoint.trim()) {
-          setError('Provide an MCP protocol endpoint URL.');
-          return false;
+          return { valid: false, message: 'Provide an MCP protocol endpoint URL.' };
         }
-        if (createENS && !ensOrgName.trim()) {
-          setError('ENS parent name is required when ENS publishing is enabled.');
-          return false;
+        if (!ensOrgName.trim()) {
+          return { valid: false, message: 'ENS parent name is required when ENS publishing is enabled.' };
         }
-        return true;
+        return { valid: true };
       }
       case 3:
       default:
-        return true;
+        return { valid: true };
     }
   }, [
     createStep,
@@ -708,14 +724,29 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     createForm.agentAccount,
     createForm.description,
     createForm.agentUrl,
-    useAA,
     protocolSettings.publishA2A,
     protocolSettings.publishMcp,
     protocolSettings.a2aEndpoint,
     protocolSettings.mcpEndpoint,
-    createENS,
     ensOrgName,
+    ensAvailable,
+    ensFullNamePreview,
   ]);
+
+  const validateCurrentStep = useCallback((): boolean => {
+    const result = computeStepValidation();
+    if (!result.valid) {
+      setError(result.message ?? 'Please complete all required fields.');
+      return false;
+    }
+    setError(null);
+    return true;
+  }, [computeStepValidation]);
+
+  const isCurrentStepValid = useMemo(
+    () => computeStepValidation().valid,
+    [computeStepValidation],
+  );
 
   const handleNextStep = useCallback(() => {
     if (!validateCurrentStep()) {
@@ -858,62 +889,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       }
 
 
-      // Use core utility to create agent (handles API call, signing, and refresh)
-      // Only agentData is required - account, chain, and provider are auto-detected
-      if (useAA == false) {
-        // EOA agent creation
-        if (privateKeyMode) {
-          // Server-only path (admin private key signs on server)
-          const resp = await fetch('/api/agents/create-for-eoa-pk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              agentName: createForm.agentName,
-              agentAccount: agentAccountToUse,
-              description: createForm.description || undefined,
-              image: createForm.image || undefined,
-              agentUrl: createForm.agentUrl || undefined,
-              chainId: selectedChainId,
-            }),
-          });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error(err?.message || err?.error || 'Server EOA agent creation failed');
-          }
-          const data = await resp.json();
-          if (data?.agentId) {
-            setSuccess(`Agent created successfully! Agent ID: ${data.agentId}, TX: ${data.txHash}`);
-          } else if (data?.txHash) {
-            setSuccess(`Agent creation transaction confirmed! TX: ${data.txHash} (Agent ID will be available after indexing)`);
-          } else {
-            setSuccess('Agent creation requested. Check server logs for details.');
-          }
-        } else {
-          // Client path (requires connected wallet/provider)
-        const result = await createAgentWithWalletForEOA({
-          agentData: {
-              agentName: createForm.agentName,
-            agentAccount: agentAccountToUse,
-            description: createForm.description || undefined,
-            image: createForm.image || undefined,
-            agentUrl: createForm.agentUrl || undefined,
-          },
-          account: eoaAddress as Address,
-          ethereumProvider: eip1193Provider as any,
-          onStatusUpdate: setSuccess,
-          useAA: useAA || undefined,
-          chainId: selectedChainId,
-        });
-
-        if (result.agentId) {
-          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
-        } else {
-          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
-          }
-        }
-      }
-      else {
-        // Account Abstraction (AA) creation
+      // Use Account Abstraction (AA) creation path
         if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
           const resp = await fetch('/api/agents/create-for-aa-pk', {
@@ -927,8 +903,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               agentUrl: createForm.agentUrl || undefined,
               chainId: selectedChainId,
               ensOptions: {
-                enabled: !!createENS,
-                orgName: createENS ? ensOrgName : undefined,
+                enabled: true,
+                orgName: ensOrgName,
               },
             }),
           });
@@ -942,7 +918,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           } else if (data?.txHash) {
             setSuccess(`Agent creation transaction confirmed! TX: ${data.txHash} (Agent ID will be available after indexing)`);
           } else {
-            setSuccess('Agent AA creation requested. Check server logs for details.');
+              setSuccess('Agent AA creation requested. Check server logs for details.');
           }
         } else {
           // Client path (requires connected wallet/provider)
@@ -957,11 +933,11 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           account: eoaAddress as Address,
           ethereumProvider: eip1193Provider as any,
           onStatusUpdate: setSuccess,
-          useAA: useAA || undefined,
-          ensOptions: {
-            enabled: !!createENS,
-            orgName: createENS ? ensOrgName : undefined,
-          },
+          useAA: true,
+              ensOptions: {
+                enabled: true,
+                orgName: ensOrgName,
+              },
           chainId: selectedChainId,
         });
 
@@ -971,14 +947,11 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
           }
         }
-      }
       
 
       
       
-      setCreateForm({ agentName: '', agentAccount: '', description: '', image: '', agentUrl: '' });
-      setUseAA(false);
-      setCreateENS(false);
+      setCreateForm({ agentName: '', agentAccount: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
       setAaAddress(null);
       setCreateStep(0);
       setProtocolSettings({ publishA2A: true, publishMcp: true, a2aEndpoint: '', mcpEndpoint: '' });
@@ -1047,14 +1020,62 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   };
 
   const normalizedAgentBaseUrl = (createForm.agentUrl || '').trim().replace(/\/$/, '');
-  const imagePreviewUrl = (createForm.image || '').trim();
+  const ipfsGateway = (process.env.NEXT_PUBLIC_IPFS_GATEWAY_URL || 'https://gateway.pinata.cloud/ipfs/').replace(/\/+$/, '');
+
+  const imagePreviewUrl = useMemo(() => {
+    const trimmed = (createForm.image || '').trim();
+    if (!trimmed) {
+      return '';
+    }
+    if (trimmed.startsWith('ipfs://')) {
+      const cid = trimmed.replace('ipfs://', '').replace(/^\/+/, '');
+      const base = ipfsGateway.replace(/\/+$/, '');
+      return `${base}/${cid}`;
+    }
+    return trimmed;
+  }, [createForm.image, ipfsGateway]);
+  const handleImageUploadClick = () => {
+    setImageUploadError(null);
+    imageFileInputRef.current?.click();
+  };
+
+  const handleImageFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    setUploadingImage(true);
+    setImageUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file, file.name);
+      const response = await fetch('/api/ipfs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(body?.error || body?.message || 'Upload failed');
+      }
+      setCreateForm(prev => ({
+        ...prev,
+        image: body?.tokenURI || body?.url || prev.image,
+      }));
+    } catch (uploadError) {
+      console.error('Image upload failed', uploadError);
+      setImageUploadError(
+        uploadError instanceof Error ? uploadError.message : 'Image upload failed. Please try again.',
+      );
+    } finally {
+      setUploadingImage(false);
+      if (event.target) {
+        event.target.value = '';
+      }
+    }
+  };
   const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent-card.json` : '';
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
-  const ensFullNamePreview =
-    createENS && createForm.agentName && ensOrgName
-      ? `${createForm.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth`
-      : null;
 
   useEffect(() => {
     const prevDefaults = previousDefaultsRef.current;
@@ -1085,7 +1106,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       case 0:
         return (
           <>
-            <div style={{ marginBottom: '1rem' }}>
+            <div style={{ marginBottom: '1rem', display: 'inline-block' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
                 Chain
               </label>
@@ -1104,7 +1125,13 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                   setAaAddress(null);
                   synchronizeProvidersWithChain(nextChainId);
                 }}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
+                style={{
+                  padding: '0.5rem 1.75rem 0.5rem 0.75rem',
+                  border: '1px solid #dcdcdc',
+                  borderRadius: '8px',
+                  minWidth: '220px',
+                  width: 'auto',
+                }}
               >
                 {(registerChainIds.length ? registerChainIds : supportedChainIds).map(chainId => {
                   const metadata = CHAIN_METADATA[chainId];
@@ -1117,57 +1144,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 })}
               </select>
             </div>
-            <div style={{ marginBottom: '1rem', padding: '0.75rem', backgroundColor: '#f5f5f5', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-              <p style={{ margin: 0, fontWeight: 600, color: '#1f1f1f', marginBottom: '0.5rem' }}>Agent Owner Type</p>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseAA(false);
-                    if (eoaAddress) {
-                      setCreateForm(prev => ({ ...prev, agentAccount: eoaAddress }));
-                    }
-                    setAaAddress(null);
-                  }}
-                  style={{
-                    flex: '1 1 160px',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '10px',
-                    border: '1px solid',
-                    borderColor: useAA ? '#dcdcdc' : '#2f2f2f',
-                    backgroundColor: useAA ? '#fff' : '#2f2f2f',
-                    color: useAA ? '#2a2a2a' : '#fff',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  EOA Agent Owner
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUseAA(true)}
-                  style={{
-                    flex: '1 1 160px',
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '10px',
-                    border: '1px solid',
-                    borderColor: useAA ? '#2f2f2f' : '#dcdcdc',
-                    backgroundColor: useAA ? '#2f2f2f' : '#fff',
-                    color: useAA ? '#fff' : '#2a2a2a',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Smart Account Agent Owner
-                </button>
-              </div>
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
-                {useAA
-                  ? 'Agent ownership is managed through a smart account generated from the agent name.'
-                  : 'Use your connected wallet address as the agent owner (EOA).'}
-              </p>
-            </div>
-            <div style={{ marginBottom: '1rem' }}>
+            <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
                 Agent Name *
               </label>
@@ -1180,8 +1157,44 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
+              <div style={{ fontSize: '0.9rem', color: 'green', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <span style={{ fontFamily: 'monospace' }}>
+                  {ensFullNamePreview || 'Enter an agent name to generate ENS name'}
+                </span>
+                <span style={{ fontSize: '0.85rem', color: ensChecking ? '#4f4f4f' : (ensAvailable === true ? '#2a2a2a' : (ensAvailable === false ? '#5a5a5a' : '#4f4f4f')) }}>
+                  {ensChecking
+                    ? 'Checking...'
+                    : ensAvailable === true
+                      ? 'Available'
+                      : ensAvailable === false
+                        ? 'Not available'
+                        : 'Awaiting input'}
+                </span>
+              </div>
+              {ensAvailable === false && ensExisting && (
+                <div style={{ marginTop: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '6px', padding: '0.5rem', backgroundColor: '#f7f7f7' }}>
+                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    {ensExisting.image && (
+                      <img src={ensExisting.image} alt="ENS avatar" style={{ height: '40px', width: 'auto', borderRadius: '6px' }} />
+                    )}
+                    <div style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontFamily: 'monospace', color: '#2a2a2a' }}>{ensFullNamePreview}</span>
+                      {ensExisting.url && (
+                        <a href={ensExisting.url} target="_blank" rel="noreferrer" style={{ color: '#2a2a2a', textDecoration: 'underline', fontSize: '0.85rem' }}>
+                          {ensExisting.url}
+                        </a>
+                      )}
+                      {ensExisting.description && (
+                        <span style={{ fontSize: '0.85rem', color: '#4f4f4f' }}>{ensExisting.description}</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.4rem', fontWeight: 'bold' }}>
-                Agent Account (0x...) {useAA ? '(Auto-generated)' : '*'}
+                Agent Account (auto-assigned)
               </label>
               <div
                 style={{
@@ -1201,73 +1214,16 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                   ? aaAddress || (createForm.agentName ? 'Generating smart account...' : 'Enter an agent name to generate address')
                   : createForm.agentAccount || eoaAddress || 'Connect a wallet to populate owner address'}
               </div>
-              {!useAA && !createForm.agentAccount && (
-                <p style={{ marginTop: '0.3rem', fontSize: '0.85rem', color: '#3a3a3a' }}>
-                  Connect a wallet to set the owning EOA address.
-                </p>
-              )}
-              {useAA && aaComputing && (
+              {aaComputing && (
                 <p style={{ marginTop: '0.3rem', fontSize: '0.85rem', color: '#2f2f2f' }}>
                   Computing smart account address from agent name...
                 </p>
               )}
-              {useAA && existingAgentInfo && (
+              {existingAgentInfo && (
                 <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#505050' }}>
                   Existing agent detected at <span style={{ fontFamily: 'monospace' }}>{existingAgentInfo?.account}</span>
                   {existingAgentInfo?.method ? ` (resolved via ${existingAgentInfo.method})` : ''}. Creating a new agent will overwrite on-chain metadata for this name.
                 </p>
-              )}
-            </div>
-            <div style={{ marginBottom: '1rem', padding: '0.85rem', backgroundColor: '#f5f5f5', borderRadius: '6px', border: '1px solid #dcdcdc' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: useAA ? 'pointer' : 'not-allowed' }}>
-                <input
-                  type="checkbox"
-                  checked={createENS}
-                  disabled={!useAA}
-                  onChange={(e) => setCreateENS(e.target.checked)}
-                  style={{ width: '18px', height: '18px', cursor: useAA ? 'pointer' : 'not-allowed' }}
-                />
-                <span style={{ fontWeight: 'bold' }}>Register ENS Name</span>
-              </label>
-              <p style={{ marginTop: '0.25rem', marginLeft: '1.75rem', fontSize: '0.85rem', color: '#666666' }}>
-                {useAA
-                  ? 'Create an ENS subdomain for this smart-account-owned agent (agentname.orgname.eth).'
-                  : 'ENS registration is only available for Smart Account agent owners.'}
-              </p>
-              {useAA && createENS && (
-                <div style={{ marginTop: '0.5rem', marginLeft: '1.75rem' }}>
-                  <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 'bold' }}>ENS Org Name (parent domain)</p>
-                  <div
-                    style={{
-                      marginTop: '0.35rem',
-                      padding: '0.5rem 0.75rem',
-                      border: '1px solid #dcdcdc',
-                      borderRadius: '6px',
-                      backgroundColor: '#fff',
-                      fontFamily: 'monospace',
-                    }}
-                  >
-                    {ensOrgName || 'Not configured'}
-                  </div>
-                  <p style={{ marginTop: '0.35rem', fontSize: '0.8rem', color: '#4f4f4f' }}>
-                    Full ENS name will be: {ensFullNamePreview || 'agentname.orgname.eth'}
-                  </p>
-                  {ensChecking && (
-                    <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#2f2f2f' }}>
-                      Checking ENS availability...
-                    </p>
-                  )}
-                  {ensAvailable === true && (
-                    <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#3c3c3c' }}>
-                      ✓ ENS name is available
-                    </p>
-                  )}
-                  {ensAvailable === false && (
-                    <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#3a3a3a' }}>
-                      ✗ ENS name is not available
-                    </p>
-                  )}
-                </div>
               )}
             </div>
           </>
@@ -1277,19 +1233,20 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           <>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Description
+                Agent Description *
               </label>
               <textarea
                 value={createForm.description}
                 onChange={(e) => setCreateForm({ ...createForm, description: e.target.value })}
                 rows={3}
                 placeholder="A natural language description of the agent..."
+                required
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', fontFamily: 'inherit' }}
               />
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Image URL
+                Agent Image *
               </label>
               <input
                 type="url"
@@ -1298,14 +1255,62 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 placeholder="https://example.com/agent-image.png"
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
+              <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  ref={imageFileInputRef}
+                  style={{ display: 'none' }}
+                  onChange={handleImageFileSelected}
+                />
+                <button
+                  type="button"
+                  onClick={handleImageUploadClick}
+                  disabled={uploadingImage}
+                  style={{
+                    padding: '0.45rem 0.9rem',
+                    borderRadius: '6px',
+                    border: '1px solid #dcdcdc',
+                    backgroundColor: uploadingImage ? '#e0e0e0' : '#f9f9f9',
+                    color: '#2a2a2a',
+                    fontWeight: 600,
+                    cursor: uploadingImage ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {uploadingImage ? 'Uploading…' : 'Upload & pin image'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageUploadError(null);
+                    setImagePreviewError(false);
+                    setCreateForm(prev => ({ ...prev, image: getDefaultImageUrl() }));
+                  }}
+                  style={{
+                    padding: '0.45rem 0.9rem',
+                    borderRadius: '6px',
+                    border: '1px solid #dcdcdc',
+                    backgroundColor: '#f9f9f9',
+                    color: '#2a2a2a',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Use default image
+                </button>
+                {imageUploadError && (
+                  <span style={{ color: '#a33c3c', fontSize: '0.85rem' }}>{imageUploadError}</span>
+                )}
+              </div>
               {imagePreviewUrl && (
                 <div
                   style={{
                     marginTop: '0.75rem',
                     border: '1px solid #dcdcdc',
                     borderRadius: '8px',
-                    padding: '0.75rem',
+                    padding: '0.5rem',
                     backgroundColor: '#f6f6f6',
+                    display: 'inline-block',
                   }}
                 >
                   <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: '#4f4f4f' }}>Preview</p>
@@ -1313,7 +1318,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     <img
                       src={imagePreviewUrl}
                       alt="Agent preview"
-                      style={{ width: '100%', maxHeight: '240px', objectFit: 'cover', borderRadius: '6px' }}
+                      style={{ height: '100px', width: 'auto', borderRadius: '6px' }}
                       onLoad={handleImagePreviewLoad}
                       onError={handleImagePreviewError}
                     />
@@ -1335,13 +1340,14 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
           <>
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Agent URL (Base URL)
+                Agent URL (Base URL for A2A and MCP endpoints) *
               </label>
               <input
                 type="url"
                 value={createForm.agentUrl}
                 onChange={(e) => setCreateForm({ ...createForm, agentUrl: e.target.value })}
                 placeholder="https://agent.example.com"
+                required
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
               <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
@@ -1439,11 +1445,9 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Name:</strong> {createForm.agentName || '—'}</p>
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}>
                 <strong>ENS:</strong>{' '}
-                {createENS && ensFullNamePreview
+                {ensFullNamePreview
                   ? `${ensFullNamePreview}${ensAvailable === false ? ' (unavailable)' : ''}`
-                  : createENS
-                    ? 'Pending agent details'
-                    : 'Not registering'}
+                  : 'Pending agent details'}
               </p>
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f', fontFamily: 'monospace' }}><strong>Account:</strong> {createForm.agentAccount || '—'}</p>
               {imagePreviewUrl && (
@@ -1460,7 +1464,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     <img
                       src={imagePreviewUrl}
                       alt="Agent preview"
-                      style={{ width: '100%', maxHeight: '240px', objectFit: 'cover', display: 'block' }}
+                      style={{ height: '240px', width: 'auto', display: 'block' }}
                       onLoad={handleImagePreviewLoad}
                       onError={handleImagePreviewError}
                     />
@@ -1645,7 +1649,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
             border: '1px solid #dcdcdc',
           }}
         >
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Register Agent</h2>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Registration</h2>
           <form onSubmit={(event) => event.preventDefault()}>
             <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1.5rem' }}>
               {CREATE_STEPS.map((label, index) => {
@@ -1681,7 +1685,17 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 );
               })}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '1rem',
+                padding: '1.25rem',
+                border: '1px solid #dcdcdc',
+                borderRadius: '12px',
+                backgroundColor: '#f8f8f8',
+              }}
+            >
               {renderStepContent()}
             </div>
             <div
@@ -1715,15 +1729,17 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                 <button
                   type="button"
                   onClick={handleNextStep}
+                  disabled={!isCurrentStepValid}
                   style={{
                     flex: '1 1 200px',
                     padding: '0.75rem',
                     borderRadius: '8px',
                     border: 'none',
-                    backgroundColor: '#2f2f2f',
+                    backgroundColor: isCurrentStepValid ? '#2f2f2f' : '#929292',
                     color: '#fff',
                     fontWeight: 600,
-                    cursor: 'pointer',
+                    cursor: isCurrentStepValid ? 'pointer' : 'not-allowed',
+                    opacity: isCurrentStepValid ? 1 : 0.6,
                   }}
                 >
                   Next: {CREATE_STEPS[createStep + 1]}
@@ -1746,7 +1762,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                     opacity: registering ? 0.7 : 1,
                   }}
                 >
-                  Register Agent
+                  Agent Registration
                 </button>
               )}
             </div>

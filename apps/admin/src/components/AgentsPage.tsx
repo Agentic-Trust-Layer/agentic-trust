@@ -352,7 +352,7 @@ export function AgentsPage({
             </p>
           </>
         );
-      case 'a2a':
+      case 'a2a': {
         const a2aMatchesAgent = a2aPreview.key === `${agent.chainId}:${agent.agentId}`;
         return (
           <>
@@ -400,6 +400,7 @@ export function AgentsPage({
             </div>
           </>
         );
+      }
       default:
         return null;
     }
@@ -674,9 +675,7 @@ export function AgentsPage({
                       alt={agent.agentName || 'Agent'}
                       style={{
                         width: '64px',
-                        height: '64px',
                         borderRadius: '14px',
-                        objectFit: 'cover',
                         border: `1px solid ${palette.border}`,
                       }}
                     />

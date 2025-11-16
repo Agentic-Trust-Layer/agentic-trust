@@ -206,6 +206,7 @@ export async function isENSNameAvailable(
     const fullName = normalizedName.endsWith('.eth') ? normalizedName : `${normalizedName}.eth`;
 
     // Check if ENS name is available
+    console.log('*********** zzz isENSNameAvailable fullName', fullName);
     const existingAccount = await ensClient.getAgentAccountByName(fullName);
     const isAvailable = !existingAccount || existingAccount === '0x0000000000000000000000000000000000000000';
 
@@ -242,6 +243,51 @@ export async function isENSAvailable(
   }
 }
 
+
+/**
+ * Get comprehensive ENS name info in one call.
+ * Returns account/address, image/avatar, url, description, and availability.
+ */
+export async function getENSInfo(
+  ensName: string,
+  chainId?: number
+): Promise<{
+  name: string;
+  chainId?: number;
+  available: boolean | null;
+  account: `0x${string}` | string | null;
+  image: string | null;
+  url: string | null;
+  description: string | null;
+}> {
+  const normalized = (ensName || '').trim().toLowerCase();
+  const fullName = normalized.endsWith('.eth') ? normalized : `${normalized}.eth`;
+
+  const [available, client] = await Promise.all([
+    isENSNameAvailable(fullName, chainId),
+    getENSClient(chainId),
+  ]);
+
+  console.log('*********** zzz getENSInfo fullName', fullName);
+  const [account, image, url, description] = await Promise.all([
+    client.getAgentAccountByName(fullName).catch(() => null),
+    client.getAgentImageByName(fullName).catch(() => null),
+    client.getAgentUrlByName(fullName).catch(() => null),
+    client.getAgentDescriptionByName(fullName).catch(() => null),
+  ]);
+
+  console.log('*********** zzz getENSInfo fullName', fullName, account, image, url, description);
+
+  return {
+    name: fullName,
+    chainId,
+    available,
+    account: account ?? null,
+    image: image ?? null,
+    url: url ?? null,
+    description: description ?? null,
+  };
+}
 
 export async function sendSponsoredUserOperation(params: {
   bundlerUrl: string,
