@@ -41,6 +41,9 @@ type AgentsPageProps = {
   isConnected?: boolean;
   provider?: any;
   walletAddress?: string | null;
+  total?: number;
+  currentPage?: number;
+  totalPages?: number;
   onFilterChange: <K extends keyof AgentsPageFilters>(
     key: K,
     value: AgentsPageFilters[K],
@@ -48,6 +51,7 @@ type AgentsPageProps = {
   onSearch: (filtersOverride?: AgentsPageFilters) => void;
   onClear: () => void;
   onEditAgent?: (agent: Agent) => void;
+  onPageChange?: (page: number) => void;
 };
 
 type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a' | 'session';
@@ -70,10 +74,14 @@ export function AgentsPage({
   isConnected = false,
   provider,
   walletAddress,
+  total,
+  currentPage = 1,
+  totalPages,
   onFilterChange,
   onSearch,
   onClear,
   onEditAgent,
+  onPageChange,
 }: AgentsPageProps) {
 
   const [activeDialog, setActiveDialog] = useState<{ agent: Agent; action: AgentActionType } | null>(null);
@@ -121,12 +129,6 @@ export function AgentsPage({
   const [gridColumns, setGridColumns] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
   const [singleQuery, setSingleQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(0);
-  const pageSize = useMemo(() => {
-    const columns = Math.max(1, gridColumns || 1);
-    const rows = isMobile ? 2 : 3;
-    return columns * rows;
-  }, [gridColumns, isMobile]);
 
   useEffect(() => {
     const updateColumns = () => {
@@ -143,18 +145,6 @@ export function AgentsPage({
     window.addEventListener('resize', updateColumns);
     return () => window.removeEventListener('resize', updateColumns);
   }, []);
-
-  useEffect(() => {
-    setCurrentPage(0);
-  }, [
-    filters.chainId,
-    filters.address,
-    filters.name,
-    filters.agentId,
-    filters.mineOnly,
-    agents.length,
-    pageSize,
-  ]);
 
   const ENS_APP_BY_CHAIN: Record<number, string> = {
     1: 'https://app.ens.domains',
@@ -173,6 +163,7 @@ export function AgentsPage({
     return { name, href: `${base}/${name}` };
   };
 
+  // Client-side filtering for address and mineOnly (these filters are applied on the client)
   const filteredAgents = useMemo(() => {
     let result = agents;
     const addressQuery = filters.address.trim().toLowerCase();
@@ -186,28 +177,6 @@ export function AgentsPage({
     }
     return result;
   }, [agents, filters.address, filters.mineOnly, ownedMap]);
-
-  const totalPages = pageSize > 0 ? Math.ceil(filteredAgents.length / pageSize) : 0;
-
-  const paginatedAgents = useMemo(() => {
-    if (pageSize <= 0) {
-      return filteredAgents;
-    }
-    const start = currentPage * pageSize;
-    return filteredAgents.slice(start, start + pageSize);
-  }, [filteredAgents, currentPage, pageSize]);
-
-  useEffect(() => {
-    if (totalPages === 0) {
-      if (currentPage !== 0) {
-        setCurrentPage(0);
-      }
-      return;
-    }
-    if (currentPage > totalPages - 1) {
-      setCurrentPage(totalPages - 1);
-    }
-  }, [totalPages, currentPage]);
 
   const openActionDialog = (agent: Agent, action: AgentActionType) => {
     setActiveDialog({ agent, action });
@@ -874,7 +843,7 @@ export function AgentsPage({
             </div>
           )}
 
-          {paginatedAgents.map(agent => {
+          {filteredAgents.map(agent => {
             const ownershipKey = `${agent.chainId}:${agent.agentId}`;
             const isOwned = Boolean(ownedMap[ownershipKey]);
             const imageUrl =
@@ -1180,7 +1149,7 @@ export function AgentsPage({
             );
           })}
         </div>
-        {filteredAgents.length > 0 && totalPages > 0 && (
+        {totalPages !== undefined && totalPages > 0 && onPageChange && (
           <div
             style={{
               display: 'flex',
@@ -1193,33 +1162,36 @@ export function AgentsPage({
           >
             <button
               type="button"
-              onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
-              disabled={currentPage === 0}
+              onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+              disabled={currentPage <= 1 || loading}
               style={{
                 padding: '0.6rem 1.2rem',
                 borderRadius: '10px',
                 border: `1px solid ${palette.border}`,
-                backgroundColor: currentPage === 0 ? palette.surfaceMuted : palette.surface,
+                backgroundColor: currentPage <= 1 || loading ? palette.surfaceMuted : palette.surface,
                 color: palette.textPrimary,
-                cursor: currentPage === 0 ? 'not-allowed' : 'pointer',
+                cursor: currentPage <= 1 || loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.7 : 1,
               }}
             >
               Previous
             </button>
             <span style={{ fontWeight: 600, color: palette.textSecondary }}>
-              Page {currentPage + 1} of {totalPages}
+              Page {currentPage} of {totalPages}
+              {total !== undefined && ` (${total} total)`}
             </span>
             <button
               type="button"
-              onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
-              disabled={currentPage >= totalPages - 1}
+              onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+              disabled={currentPage >= totalPages || loading}
               style={{
                 padding: '0.6rem 1.2rem',
                 borderRadius: '10px',
                 border: `1px solid ${palette.border}`,
-                backgroundColor: currentPage >= totalPages - 1 ? palette.surfaceMuted : palette.surface,
+                backgroundColor: currentPage >= totalPages || loading ? palette.surfaceMuted : palette.surface,
                 color: palette.textPrimary,
-                cursor: currentPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
+                cursor: currentPage >= totalPages || loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.7 : 1,
               }}
             >
               Next

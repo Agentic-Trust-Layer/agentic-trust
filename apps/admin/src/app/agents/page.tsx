@@ -80,6 +80,9 @@ export default function AgentsRoute() {
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ownedMap, setOwnedMap] = useState<Record<string, boolean>>({});
+  const [currentPage, setCurrentPage] = useState(1);
+  const [total, setTotal] = useState<number | undefined>(undefined);
+  const [totalPages, setTotalPages] = useState<number | undefined>(undefined);
   const clientCache = useRef<Record<number, PublicClient>>({});
 
   const supportedChainIds = getSupportedChainIds();
@@ -115,13 +118,13 @@ export default function AgentsRoute() {
   }, []);
 
   const searchAgents = useCallback(
-    async (sourceFilters: AgentsPageFilters) => {
+    async (sourceFilters: AgentsPageFilters, page: number = 1) => {
       try {
         setLoadingAgents(true);
         setError(null);
         const params = buildParams(sourceFilters);
         const payload = {
-          page: 1,
+          page,
           pageSize: PAGE_SIZE,
           orderBy: 'agentName',
           orderDirection: 'ASC' as const,
@@ -141,6 +144,9 @@ export default function AgentsRoute() {
 
         const data = await response.json();
         setAgents((data.agents as Agent[]) ?? []);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
+        setCurrentPage(data.page ?? page);
       } catch (err) {
         console.error('Failed to fetch agents:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch agents');
@@ -304,15 +310,26 @@ export default function AgentsRoute() {
           isConnected={isConnected}
           provider={eip1193Provider}
           walletAddress={walletAddress}
+          total={total}
+          currentPage={currentPage}
+          totalPages={totalPages}
           onFilterChange={(key, value) => {
             setFilters(prev => ({ ...prev, [key]: value }));
           }}
-          onSearch={override => searchAgents(override ?? filters)}
+          onSearch={override => {
+            setCurrentPage(1);
+            searchAgents(override ?? filters, 1);
+          }}
           onClear={() => {
             setFilters(DEFAULT_FILTERS);
-            searchAgents(DEFAULT_FILTERS);
+            setCurrentPage(1);
+            searchAgents(DEFAULT_FILTERS, 1);
           }}
           onEditAgent={handleEditAgent}
+          onPageChange={(page) => {
+            setCurrentPage(page);
+            searchAgents(filters, page);
+          }}
         />
       </main>
     </>
