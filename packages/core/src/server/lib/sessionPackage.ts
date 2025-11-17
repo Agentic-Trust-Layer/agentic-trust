@@ -25,7 +25,6 @@ export type DelegationSetup = {
   entryPoint: Hex;
   aa: Hex;
   sessionAA?: Hex;
-  reputationRegistry: Hex;
   selector: Hex;
   sessionKey: SessionPackage['sessionKey'];
   signedDelegation: SessionPackage['signedDelegation'];
@@ -62,7 +61,6 @@ export function buildSessionPackage(params: {
     chainId,
     aa,
     sessionAA,
-    reputationRegistry,
     selector,
     sessionKey,
     entryPoint,
@@ -76,7 +74,6 @@ export function buildSessionPackage(params: {
     chainId,
     aa,
     sessionAA,
-    reputationRegistry,
     selector,
     sessionKey,
     entryPoint,
@@ -154,7 +151,7 @@ export function validateSessionPackage(pkg: SessionPackage): void {
   
   // Check if reputationRegistry is in package or env var
   const envReputationRegistry = getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', pkg.chainId);
-  if (!pkg.reputationRegistry && !envReputationRegistry) {
+  if (!envReputationRegistry) {
     throw new Error('sessionPackage.reputationRegistry is required (or set AGENTIC_TRUST_REPUTATION_REGISTRY env var)');
   }
 }
@@ -196,7 +193,7 @@ export function buildDelegationSetup(
 
   // Reputation Registry: env var, then session package
   const envReputationRegistry = (getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', session.chainId) || undefined) as `0x${string}` | undefined;
-  const reputationRegistry = envReputationRegistry || session.reputationRegistry;
+  const reputationRegistry = envReputationRegistry;
 
   const chain = defineChain({
     id: session.chainId,
@@ -225,7 +222,6 @@ export function buildDelegationSetup(
     entryPoint: session.entryPoint,
     aa: session.aa,
     sessionAA: session.sessionAA,
-    reputationRegistry,
     selector: session.selector,
     sessionKey: session.sessionKey,
     signedDelegation: session.signedDelegation,
