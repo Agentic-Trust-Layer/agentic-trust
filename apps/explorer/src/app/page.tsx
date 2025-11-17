@@ -35,14 +35,13 @@ type NormalizedAgent = {
   didIdentity: string | null;
   didAccount: string | null;
   didName: string | null;
+  image: string | null;
 };
 
 const PAGE_SIZE = 10;
 
 type SearchFilters = {
-  name?: string;
-  agentId?: string;
-  account?: string;
+  query?: string;
 };
 
 type CoreAgent = DiscoverResponse['agents'][number];
@@ -52,52 +51,12 @@ async function fetchAgentsServer(params: {
   filters: SearchFilters;
 }): Promise<{ agents: NormalizedAgent[]; total: number; page: number; pageSize: number; totalPages: number; error?: string }> {
   try {
-    const { name, agentId, account } = params.filters;
-
-    // Build params for specific field searches
-    const queryParts: string[] = [];
-    const discoverParams: DiscoverParams & { agentId?: string; agentName?: string; agentAccount?: `0x${string}` } = {};
-
-    // agentId participates in both free-text query and structured filters
-    if (agentId?.trim()) {
-      const agentIdTrimmed = agentId.trim();
-      queryParts.push(agentIdTrimmed);
-      // Also send as a structured filter so the indexer can use AgentWhereInput.agentId
-      // when searchAgentsGraph is available.
-      discoverParams.agentId = agentIdTrimmed;
-    }
-    if (name?.trim()) {
-      const nameTrimmed = name.trim();
-      discoverParams.agentName = nameTrimmed;
-      // Also include name in the free-text query so it works even if the
-      // remote indexer doesn't support structured name filtering yet.
-      queryParts.push(nameTrimmed);
-    }
-    if (account?.trim()) {
-      const accountTrimmed = account.trim();
-      // Validate account address format (0x followed by 40 hex chars)
-      // Also accept partial addresses (0x followed by at least 2 hex chars)
-      if (/^0x[a-fA-F0-9]{2,}$/i.test(accountTrimmed)) {
-        // If it's a full address (40 hex chars), use walletAddress param for exact match
-        if (/^0x[a-fA-F0-9]{40}$/i.test(accountTrimmed)) {
-          discoverParams.agentAccount = accountTrimmed as `0x${string}`;
-        } else {
-          // For partial addresses, add to query for text search
-          queryParts.push(accountTrimmed);
-        }
-      } else {
-        // Invalid format, but still try to search it
-        queryParts.push(accountTrimmed);
-      }
-    }
-
-    const query = queryParts.length > 0 ? queryParts.join(' ') : undefined;
+    const query = params.filters.query?.trim() || undefined;
 
     const request: DiscoverRequest = {
       page: params.page,
       pageSize: PAGE_SIZE,
       query,
-      params: Object.keys(discoverParams).length > 0 ? discoverParams : undefined,
       orderBy: 'agentId',
       orderDirection: 'DESC',
     };
@@ -205,6 +164,10 @@ function normalizeAgent(agent: CoreAgent): NormalizedAgent {
       typeof agent.didName === 'string' && agent.didName.trim().length > 0
         ? agent.didName.trim()
         : null,
+    image:
+      typeof agent.image === 'string' && agent.image.trim().length > 0
+        ? agent.image.trim()
+        : null,
   };
 }
 
@@ -235,30 +198,14 @@ type PageParams = {
 };
 
 export default async function ExplorerPage({ searchParams }: PageParams) {
-  const nameRaw = searchParams?.name;
-  const agentIdRaw = searchParams?.agentId;
-  const accountRaw = searchParams?.account;
+  const queryRaw = searchParams?.query;
   const currentPageRaw = searchParams?.page;
 
-  const nameInput =
-    typeof nameRaw === 'string'
-      ? nameRaw.trim()
-      : Array.isArray(nameRaw)
-        ? nameRaw[0]?.trim() ?? ''
-        : '';
-
-  const agentIdInput =
-    typeof agentIdRaw === 'string'
-      ? agentIdRaw.trim()
-      : Array.isArray(agentIdRaw)
-        ? agentIdRaw[0]?.trim() ?? ''
-        : '';
-
-  const accountInput =
-    typeof accountRaw === 'string'
-      ? accountRaw.trim()
-      : Array.isArray(accountRaw)
-        ? accountRaw[0]?.trim() ?? ''
+  const queryInput =
+    typeof queryRaw === 'string'
+      ? queryRaw.trim()
+      : Array.isArray(queryRaw)
+        ? queryRaw[0]?.trim() ?? ''
         : '';
 
   const requestedPage =
@@ -271,9 +218,7 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
   const { agents, total, page, totalPages, error } = await fetchAgentsServer({
     page: requestedPage,
     filters: {
-      name: nameInput || undefined,
-      agentId: agentIdInput || undefined,
-      account: accountInput || undefined,
+      query: queryInput || undefined,
     },
   });
 
@@ -289,12 +234,12 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
 
   const filteredAgents = agents;
   const totalAgents = total;
-  const hasFilters = nameInput || agentIdInput || accountInput;
+  const hasFilters = !!queryInput;
 
   if (totalAgents === 0) {
     return (
       <Box component="section">
-        <SearchBar initialFilters={{ name: nameInput, agentId: agentIdInput, account: accountInput }} />
+        <SearchBar initialFilters={{ query: queryInput }} />
         <Box sx={{ py: 6 }}>
           <Alert severity="info" variant="outlined">
             {hasFilters
@@ -311,7 +256,7 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
 
   return (
     <Box component="section">
-      <SearchBar initialFilters={{ name: nameInput, agentId: agentIdInput, account: accountInput }} />
+      <SearchBar initialFilters={{ query: queryInput }} />
       <Box
         sx={{
           display: 'flex',
@@ -323,7 +268,7 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
         <PaginationLinks
           totalPages={totalPages}
           currentPage={safePage}
-          filters={{ name: nameInput, agentId: agentIdInput, account: accountInput }}
+          filters={{ query: queryInput }}
           totalAgents={totalAgents}
         />
       </Box>
@@ -372,6 +317,33 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
                 }
                 sx={{ pb: 0 }}
               />
+              {agent.image && (
+                <Box
+                  sx={{
+                    px: 2,
+                    pb: 2,
+                    display: 'flex',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Box
+                    component="img"
+                    src={agent.image}
+                    alt={agent.name}
+                    sx={{
+                      maxWidth: '100%',
+                      height: 'auto',
+                      maxHeight: '200px',
+                      borderRadius: 2,
+                      objectFit: 'contain',
+                    }}
+                    onError={(e) => {
+                      // Hide image if it fails to load
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </Box>
+              )}
               <CardContent
                 sx={{
                   display: 'flex',
@@ -579,48 +551,16 @@ function SearchBar({ initialFilters }: { initialFilters: SearchFilters }) {
           <Typography variant="h6" sx={{ mb: 1 }}>
             Search Agents
           </Typography>
-          <Grid container spacing={2}>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                name="name"
-                label="Agent Name"
-                placeholder="Enter agent name"
-                fullWidth
-                defaultValue={initialFilters.name || ''}
-                variant="outlined"
-                size="small"
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                name="agentId"
-                label="Agent ID"
-                placeholder="Enter agent ID"
-                fullWidth
-                defaultValue={initialFilters.agentId || ''}
-                variant="outlined"
-                size="small"
-                type="text"
-              />
-            </Grid>
-            <Grid item xs={12} sm={4}>
-              <TextField
-                name="account"
-                label="Account Address"
-                placeholder="0x..."
-                fullWidth
-                defaultValue={initialFilters.account || ''}
-                variant="outlined"
-                size="small"
-                helperText="Enter full or partial Ethereum address"
-                sx={{
-                  '& .MuiInputBase-input': {
-                    fontFamily: 'monospace',
-                  },
-                }}
-              />
-            </Grid>
-          </Grid>
+          <TextField
+            name="query"
+            label="Search"
+            placeholder="Search by name, ID, address, or any keyword"
+            fullWidth
+            defaultValue={initialFilters.query || ''}
+            variant="outlined"
+            size="small"
+            helperText="Enter agent name, ID, address, or any search term"
+          />
           <Stack direction="row" spacing={2} justifyContent="flex-end">
             <Button
               type="submit"
@@ -663,14 +603,8 @@ function PaginationLinks({ totalPages, currentPage, filters, totalAgents }: Pagi
 
   const createHref = (page: number) => {
     const params = new URLSearchParams();
-    if (filters.name?.trim()) {
-      params.set('name', filters.name.trim());
-    }
-    if (filters.agentId?.trim()) {
-      params.set('agentId', filters.agentId.trim());
-    }
-    if (filters.account?.trim()) {
-      params.set('account', filters.account.trim());
+    if (filters.query?.trim()) {
+      params.set('query', filters.query.trim());
     }
     if (page > 1) {
       params.set('page', String(page));

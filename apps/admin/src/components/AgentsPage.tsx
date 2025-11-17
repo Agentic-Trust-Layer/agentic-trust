@@ -118,6 +118,7 @@ export function AgentsPage({
     error: null,
     text: null,
   });
+  const [sessionProgress, setSessionProgress] = useState<Record<string, number>>({});
 
   const EXPLORER_BY_CHAIN: Record<number, string> = {
     1: 'https://etherscan.io',
@@ -280,6 +281,44 @@ export function AgentsPage({
     };
   }, [activeDialog]);
 
+  // Manage session progress timers
+  useEffect(() => {
+    const progressKeys = Object.keys(sessionProgress);
+    if (progressKeys.length === 0) return;
+
+    const interval = setInterval(() => {
+      setSessionProgress(prev => {
+        const updated = { ...prev };
+        let hasChanges = false;
+
+        for (const key of Object.keys(prev)) {
+          const current = prev[key];
+          if (current !== undefined && current < 100) {
+            // Increment by ~1.67% per second (100% / 60 seconds)
+            const newProgress = Math.min(100, current + (100 / 60));
+            updated[key] = newProgress;
+            hasChanges = true;
+
+            // Clean up when complete
+            if (newProgress >= 100) {
+              setTimeout(() => {
+                setSessionProgress(prevState => {
+                  const cleaned = { ...prevState };
+                  delete cleaned[key];
+                  return cleaned;
+                });
+              }, 100);
+            }
+          }
+        }
+
+        return hasChanges ? updated : prev;
+      });
+    }, 1000); // Update every second
+
+    return () => clearInterval(interval);
+  }, [sessionProgress]);
+
   const dialogContent = useMemo(() => {
     if (!activeDialog) {
       return null;
@@ -320,7 +359,9 @@ export function AgentsPage({
                 rel="noopener noreferrer"
                 style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
-                {agent.metadataURI}
+                {agent.metadataURI.length > 100
+                  ? `${agent.metadataURI.slice(0, 100)}...`
+                  : agent.metadataURI}
               </a>
             ) : (
               <p style={{ color: palette.dangerText }}>No registration URI available.</p>
@@ -473,6 +514,8 @@ export function AgentsPage({
 
   const handleOpenSession = useCallback(
     async (agent: Agent) => {
+      const agentKey = `${agent.chainId}:${agent.agentId}`;
+      
       try {
         if (!provider || !walletAddress) {
           throw new Error('Connect your wallet to generate a session package.');
@@ -486,6 +529,10 @@ export function AgentsPage({
         }
 
         const did8004 = `did:8004:${agent.chainId}:${agent.agentId}`;
+        
+        // Start progress bar
+        setSessionProgress(prev => ({ ...prev, [agentKey]: 0 }));
+        
         setSessionPreview(prev => ({ ...prev, key: did8004, loading: true, error: null, text: null }));
 
         const pkg = await generateSessionPackage({
@@ -496,6 +543,13 @@ export function AgentsPage({
           ownerAddress: walletAddress as `0x${string}`,
         });
 
+        // Complete progress
+        setSessionProgress(prev => {
+          const updated = { ...prev };
+          delete updated[agentKey];
+          return updated;
+        });
+
         setSessionPreview(prev => ({
           ...prev,
           loading: false,
@@ -504,6 +558,14 @@ export function AgentsPage({
         setActiveDialog({ agent, action: 'session' });
       } catch (error) {
         console.error('Error creating session package:', error);
+        
+        // Complete progress on error too
+        setSessionProgress(prev => {
+          const updated = { ...prev };
+          delete updated[agentKey];
+          return updated;
+        });
+        
         setSessionPreview(prev => ({
           ...prev,
           loading: false,
@@ -979,7 +1041,13 @@ export function AgentsPage({
                     minHeight: '3.5rem',
                   }}
                 >
-                  {agent.description || 'No description provided.'}
+                  {(() => {
+                    const desc = agent.description || 'No description provided.';
+                    if (desc.length > 500) {
+                      return `${desc.slice(0, 500)}...`;
+                    }
+                    return desc;
+                  })()}
                 </p>
                 <div
                   style={{
@@ -1011,25 +1079,53 @@ export function AgentsPage({
                       </a>
                     )}
                     {!isMobile && isOwned && typeof agent.agentAccount === 'string' && agent.agentAccount && (
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          void handleOpenSession(agent);
-                        }}
-                        style={{
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: '999px',
-                          border: `1px solid ${palette.border}`,
-                          backgroundColor: palette.surfaceMuted,
-                          fontSize: '0.7rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          color: palette.textPrimary,
-                        }}
-                      >
-                        Session package
-                      </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.stopPropagation();
+                            void handleOpenSession(agent);
+                          }}
+                          style={{
+                            padding: '0.25rem 0.6rem',
+                            borderRadius: '999px',
+                            border: `1px solid ${palette.border}`,
+                            backgroundColor: palette.surfaceMuted,
+                            fontSize: '0.7rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            color: palette.textPrimary,
+                          }}
+                        >
+                          Session package
+                        </button>
+                        {(() => {
+                          const agentKey = `${agent.chainId}:${agent.agentId}`;
+                          const progress = sessionProgress[agentKey];
+                          if (progress === undefined) return null;
+                          return (
+                            <div
+                              style={{
+                                width: '100%',
+                                height: '4px',
+                                backgroundColor: palette.surfaceMuted,
+                                borderRadius: '2px',
+                                overflow: 'hidden',
+                                minWidth: '120px',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: `${progress}%`,
+                                  height: '100%',
+                                  backgroundColor: palette.accent,
+                                  transition: 'width 0.3s ease-out',
+                                }}
+                              />
+                            </div>
+                          );
+                        })()}
+                      </div>
                     )}
                   </div>
                   <div
