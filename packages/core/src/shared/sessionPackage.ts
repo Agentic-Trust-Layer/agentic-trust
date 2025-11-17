@@ -3,7 +3,6 @@ export type SessionPackage = {
   chainId: number;
   aa: `0x${string}`;
   sessionAA?: `0x${string}`;
-  reputationRegistry: `0x${string}`;
   selector: `0x${string}`;
   sessionKey: {
     privateKey: `0x${string}`;
