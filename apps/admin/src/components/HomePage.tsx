@@ -250,7 +250,7 @@ export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: Ho
               marginBottom: '0.75rem',
             }}
           >
-            Agentic Trust Layer
+            Agentic Trust
           </p>
           <h2
             style={{

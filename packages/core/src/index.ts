@@ -95,6 +95,10 @@ export type {
 
 export type { ApiClientConfig } from './server/lib/types';
 
+export type { SessionPackage } from './shared/sessionPackage';
+
+export { generateSessionPackage } from './client/sessionPackageBuilder';
+
 
 
 // Note: Server-only functionality is exported from '@agentic-trust/core/server'

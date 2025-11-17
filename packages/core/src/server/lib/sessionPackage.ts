@@ -12,37 +12,9 @@ import { defineChain, http, createPublicClient, type Chain, type PublicClient } 
 import { privateKeyToAccount, type Account } from 'viem/accounts';
 import { getChainEnvVar } from './chainConfig';
 import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
+import type { SessionPackage } from '../../shared/sessionPackage';
 
 type Hex = `0x${string}`;
-
-export type SessionPackage = {
-  agentId: number;
-  chainId: number;
-  aa: Hex; // smart account (delegator)
-  sessionAA?: Hex; // delegate smart account (optional)
-  reputationRegistry: Hex;
-  selector: Hex;
-  sessionKey: {
-    privateKey: Hex;
-    address: Hex;
-    validAfter: number;
-    validUntil: number;
-  };
-  entryPoint: Hex;
-  bundlerUrl: string;
-  delegationRedeemData?: Hex; // optional pre-encoded redeemDelegations call data
-  signedDelegation: {
-    message: {
-      delegate: Hex;
-      delegator: Hex;
-      authority: Hex;
-      caveats: any[];
-      salt: Hex;
-      signature: Hex;
-    };
-    signature: Hex;
-  };
-};
 
 export type DelegationSetup = {
   agentId: number;
@@ -60,6 +32,59 @@ export type DelegationSetup = {
   delegationRedeemData?: Hex;
   publicClient: PublicClient;
 };
+
+/**
+ * Build an in-memory SessionPackage JSON object from the parameters produced by
+ * the session creation flow (AA, session AA, session key, delegation, etc.).
+ *
+ * This is the canonical shape used by auth/session and downstream helpers.
+ */
+export function buildSessionPackage(params: {
+  agentId: number;
+  chainId: number;
+  aa: Hex;
+  sessionAA?: Hex;
+  reputationRegistry: Hex;
+  selector: Hex;
+  sessionKey: {
+    privateKey: Hex;
+    address: Hex;
+    validAfter: number;
+    validUntil: number;
+  };
+  entryPoint: Hex;
+  bundlerUrl: string;
+  signedDelegation: SessionPackage['signedDelegation'];
+  delegationRedeemData?: Hex;
+}): SessionPackage {
+  const {
+    agentId,
+    chainId,
+    aa,
+    sessionAA,
+    reputationRegistry,
+    selector,
+    sessionKey,
+    entryPoint,
+    bundlerUrl,
+    signedDelegation,
+    delegationRedeemData,
+  } = params;
+
+  return {
+    agentId,
+    chainId,
+    aa,
+    sessionAA,
+    reputationRegistry,
+    selector,
+    sessionKey,
+    entryPoint,
+    bundlerUrl,
+    signedDelegation,
+    delegationRedeemData,
+  };
+}
 
 /**
  * Load session package from file

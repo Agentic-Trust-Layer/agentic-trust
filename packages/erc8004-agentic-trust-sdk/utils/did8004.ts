@@ -3,7 +3,7 @@ const DID_8004_PREFIX = 'did:8004:';
 export interface ParsedDid8004 {
   /**
    * DID without any URL fragment (decoded form)
-   * e.g. did:8004:eip155:11155111:724
+   * e.g. did:8004:11155111:724
    */
   did: string;
   /**
@@ -102,7 +102,7 @@ export function buildDid8004(
  * Parse a did:8004 identifier.
  *
  * Accepts encoded or decoded strings and supports identifiers with or without
- * an intermediate namespace (e.g. did:8004:eip155:11155111:724).
+ * an intermediate namespace (e.g. did:8004:11155111:724).
  */
 export function parseDid8004(raw: string | undefined | null): ParsedDid8004 {
   const encodedInput = (raw ?? '').toString().trim();

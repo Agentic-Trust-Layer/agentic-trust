@@ -301,6 +301,9 @@ export default function AgentsRoute() {
           chainOptions={chainOptions}
           loading={loadingAgents}
           ownedMap={ownedMap}
+          isConnected={isConnected}
+          provider={eip1193Provider}
+          walletAddress={walletAddress}
           onFilterChange={(key, value) => {
             setFilters(prev => ({ ...prev, [key]: value }));
           }}

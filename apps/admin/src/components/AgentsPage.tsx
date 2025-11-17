@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
+import { generateSessionPackage } from '@agentic-trust/core';
 
 export type AgentsPageAgent = {
   agentId: string;
@@ -37,6 +38,9 @@ type AgentsPageProps = {
   chainOptions: ChainOption[];
   loading: boolean;
   ownedMap?: Record<string, boolean>;
+  isConnected?: boolean;
+  provider?: any;
+  walletAddress?: string | null;
   onFilterChange: <K extends keyof AgentsPageFilters>(
     key: K,
     value: AgentsPageFilters[K],
@@ -46,7 +50,7 @@ type AgentsPageProps = {
   onEditAgent?: (agent: Agent) => void;
 };
 
-type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a';
+type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a' | 'session';
 
 const ACTION_LABELS: Record<AgentActionType, string> = {
   info: 'Info',
@@ -54,6 +58,7 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   'did-web': 'DID:Web',
   'did-agent': 'DID:Agent',
   a2a: 'A2A',
+  session: 'Session',
 };
 
 export function AgentsPage({
@@ -62,6 +67,9 @@ export function AgentsPage({
   chainOptions,
   loading,
   ownedMap = {},
+  isConnected = false,
+  provider,
+  walletAddress,
   onFilterChange,
   onSearch,
   onClear,
@@ -81,6 +89,17 @@ export function AgentsPage({
     text: null,
   });
   const [a2aPreview, setA2APreview] = useState<{
+    key: string | null;
+    loading: boolean;
+    error: string | null;
+    text: string | null;
+  }>({
+    key: null,
+    loading: false,
+    error: null,
+    text: null,
+  });
+  const [sessionPreview, setSessionPreview] = useState<{
     key: string | null;
     loading: boolean;
     error: string | null;
@@ -348,7 +367,7 @@ export function AgentsPage({
             </p>
             <p>
               Suggested identifier:{' '}
-              <code>did:agent:eip155:{agent.chainId}:{agent.agentId}</code>
+              <code>did:agent:{agent.chainId}:{agent.agentId}</code>
             </p>
             <p style={{ color: palette.textSecondary }}>
               Use your preferred wallet to generate a signed DID document containing the ERC-8004 registry information.
@@ -404,10 +423,88 @@ export function AgentsPage({
           </>
         );
       }
+      case 'session': {
+        const { agent } = activeDialog;
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              Session packages describe delegated AA access and can be used by tools to perform actions on behalf of this agent.
+            </p>
+            <div
+              style={{
+                marginTop: '1rem',
+                border: `1px solid ${palette.border}`,
+                borderRadius: '10px',
+                padding: '0.75rem',
+                backgroundColor: palette.surfaceMuted,
+                maxHeight: '500px',
+                overflow: 'auto',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: '0.85rem',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {sessionPreview.loading && <span style={{ color: palette.textSecondary }}>Loading session package…</span>}
+              {sessionPreview.error && <span style={{ color: palette.dangerText }}>{sessionPreview.error}</span>}
+              {!sessionPreview.loading && !sessionPreview.error && sessionPreview.text && (
+                <pre style={{ margin: 0 }}>{sessionPreview.text}</pre>
+              )}
+              {!sessionPreview.loading && !sessionPreview.error && !sessionPreview.text && (
+                <span style={{ color: palette.textSecondary }}>No session package loaded.</span>
+              )}
+            </div>
+          </>
+        );
+      }
       default:
         return null;
     }
-  }, [activeDialog, registrationPreview, a2aPreview]);
+  }, [activeDialog, registrationPreview, a2aPreview, sessionPreview]);
+
+  const handleOpenSession = useCallback(
+    async (agent: Agent) => {
+      try {
+        if (!provider || !walletAddress) {
+          throw new Error('Connect your wallet to generate a session package.');
+        }
+        if (!agent.agentAccount || !agent.agentAccount.startsWith('0x')) {
+          throw new Error('Agent account is missing or invalid.');
+        }
+        const agentIdNumeric = Number(agent.agentId);
+        if (!Number.isFinite(agentIdNumeric)) {
+          throw new Error('Agent id is invalid.');
+        }
+
+        const did8004 = `did:8004:${agent.chainId}:${agent.agentId}`;
+        setSessionPreview(prev => ({ ...prev, key: did8004, loading: true, error: null, text: null }));
+
+        const pkg = await generateSessionPackage({
+          agentId: agentIdNumeric,
+          chainId: agent.chainId,
+          agentAccount: agent.agentAccount as `0x${string}`,
+          provider,
+          ownerAddress: walletAddress as `0x${string}`,
+        });
+
+        setSessionPreview(prev => ({
+          ...prev,
+          loading: false,
+          text: JSON.stringify(pkg, null, 2),
+        }));
+        setActiveDialog({ agent, action: 'session' });
+      } catch (error) {
+        console.error('Error creating session package:', error);
+        setSessionPreview(prev => ({
+          ...prev,
+          loading: false,
+          error: error instanceof Error ? error.message : 'Failed to create session package',
+        }));
+        setActiveDialog(prev => (prev ? prev : { agent, action: 'session' }));
+      }
+    },
+    [provider, walletAddress],
+  );
 
   return (
     <>
@@ -435,24 +532,25 @@ export function AgentsPage({
               }}
             >
               <select
-              value={filters.chainId}
-              onChange={event => {
-                const nextValue = event.target.value;
-                onFilterChange('chainId', nextValue);
-                onSearch({ ...filters, chainId: nextValue });
-              }}
-              aria-label="Chain"
-              style={{
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '10px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: palette.surfaceMuted,
-                fontWeight: 600,
-                color: palette.textPrimary,
-                boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-              }}
-            >
+                value={filters.chainId}
+                onChange={event => {
+                  const nextValue = event.target.value;
+                  onFilterChange('chainId', nextValue);
+                  onSearch({ ...filters, chainId: nextValue });
+                }}
+                aria-label="Chain"
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  fontWeight: 600,
+                  color: palette.textPrimary,
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                  height: '44px',
+                }}
+              >
               <option value="all">Chain (All)</option>
               {chainOptions.map(option => (
                 <option key={option.id} value={option.id}>
@@ -465,25 +563,26 @@ export function AgentsPage({
               ))}
               </select>
               <input
-              value={singleQuery}
-              onChange={e => setSingleQuery(e.target.value)}
-              onKeyDown={event => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  onSearch({ ...filters, name: singleQuery });
-                }
-              }}
-              placeholder="Search by address, name, or ID"
-              aria-label="Search"
-              style={{
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '10px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: palette.surfaceMuted,
-                boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-              }}
-            />
+                value={singleQuery}
+                onChange={e => setSingleQuery(e.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    onSearch({ ...filters, name: singleQuery });
+                  }
+                }}
+                placeholder={isMobile ? 'Search by name' : 'Search by address, name, or ID'}
+                aria-label="Search"
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '10px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                  height: '44px',
+                }}
+              />
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
@@ -902,6 +1001,27 @@ export function AgentsPage({
                         {agent.agentAccount.slice(0, 6)}...{agent.agentAccount.slice(-4)}
                       </a>
                     )}
+                    {!isMobile && isOwned && typeof agent.agentAccount === 'string' && agent.agentAccount && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          void handleOpenSession(agent);
+                        }}
+                        style={{
+                          padding: '0.25rem 0.6rem',
+                          borderRadius: '999px',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surfaceMuted,
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          color: palette.textPrimary,
+                        }}
+                      >
+                        Session package
+                      </button>
+                    )}
                   </div>
                   <div
                     style={{
@@ -1054,8 +1174,36 @@ export function AgentsPage({
             }}
             onClick={event => event.stopPropagation()}
           >
-            <h3 style={{ marginTop: 0 }}>
-              {ACTION_LABELS[action]} — {agent.agentName || `Agent #${agent.agentId}`}
+            <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
+              <span>
+                {ACTION_LABELS[action]} — {agent.agentName || `Agent #${agent.agentId}`}
+              </span>
+              {action === 'session' && sessionPreview.text && (
+                <button
+                  type="button"
+                  aria-label="Copy session JSON"
+                  title="Copy session JSON"
+                  onClick={() => {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                      void navigator.clipboard.writeText(sessionPreview.text as string);
+                    }
+                  }}
+                  style={{
+                    width: '32px',
+                    height: '32px',
+                    borderRadius: '999px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  📋
+                </button>
+              )}
             </h3>
             <div style={{ fontSize: '0.9rem', lineHeight: 1.5, flex: 1, overflowY: 'auto' }}>{dialogContent}</div>
             <button

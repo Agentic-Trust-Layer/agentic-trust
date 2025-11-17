@@ -1,4 +1,5 @@
 import type { VeramoAgent } from './veramo';
+import type { SessionPackage } from '../../shared/sessionPackage';
 
 /**
  * Configuration for AgenticTrust API client
@@ -29,7 +30,7 @@ export interface ApiClientConfig {
     /** Path to session package JSON file */
     filePath?: string;
     /** Session package object (if already loaded) */
-    package?: import('./sessionPackage').SessionPackage;
+    package?: SessionPackage;
     /** ENS registry contract address (required if using session package) */
     ensRegistry?: `0x${string}`;
   };

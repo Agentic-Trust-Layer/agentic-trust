@@ -696,6 +696,23 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       ? `${createForm.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth`
       : '';
 
+  // DID previews (update as inputs change)
+  const didEnsPreview = useMemo(() => {
+    if (!ensFullNamePreview) return null;
+    return `did:ens:${selectedChainId}:${ensFullNamePreview}`;
+  }, [ensFullNamePreview, selectedChainId]);
+
+  const didEthrPreview = useMemo(() => {
+    const acct = (aaAddress || createForm.agentAccount || '').trim();
+    if (!acct || !acct.startsWith('0x') || acct.length !== 42) return null;
+    return `did:ethr:${selectedChainId}:${acct.toLowerCase()}`;
+  }, [aaAddress, createForm.agentAccount, selectedChainId]);
+
+  const didAgentPreview = useMemo(() => {
+    // AgentId is not known until after registration; show a placeholder
+    return `did:agent:${selectedChainId}:<agentId>`;
+  }, [selectedChainId]);
+
   const computeStepValidation = useCallback((): { valid: boolean; message?: string } => {
     switch (createStep) {
       case 0: {
@@ -1191,6 +1208,18 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
                         : 'Awaiting input'}
                 </span>
               </div>
+              <div style={{ marginTop: '0.25rem' }}>
+                {didEnsPreview && (
+                  <div style={{ fontSize: '0.8rem', color: '#6a6a6a', marginBottom: '0.1rem' }}>
+                    <span style={{ fontFamily: 'monospace' }}>{didEnsPreview}</span>
+                  </div>
+                )}
+                {didEthrPreview && (
+                  <div style={{ fontSize: '0.8rem', color: '#6a6a6a', marginBottom: '0' }}>
+                    <span style={{ fontFamily: 'monospace' }}>{didEthrPreview}</span>
+                  </div>
+                )}
+              </div>
               {ensAvailable === false && ensExisting && (
                 <div style={{ marginTop: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '6px', padding: '0.5rem', backgroundColor: '#f7f7f7' }}>
                   <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1463,13 +1492,19 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#1f1f1f' }}>Agent Overview</h3>
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Chain:</strong> {CHAIN_METADATA[selectedChainId]?.displayName || selectedChainId}</p>
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Name:</strong> {createForm.agentName || '—'}</p>
-              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}>
-                <strong>ENS:</strong>{' '}
-                {ensFullNamePreview
-                  ? `${ensFullNamePreview}${ensAvailable === false ? ' (unavailable)' : ''}`
-                  : 'Pending agent details'}
-              </p>
-              <p style={{ margin: '0.25rem 0', color: '#4f4f4f', fontFamily: 'monospace' }}><strong>Account:</strong> {createForm.agentAccount || '—'}</p>
+
+              {didEnsPreview && (
+                <p style={{ margin: '0.15rem 0', color: '#4f4f4f' }}>
+                  
+                  <span style={{ fontFamily: 'monospace' }}>{didEnsPreview}</span>
+                </p>
+              )}
+              {didEthrPreview && (
+                <p style={{ margin: '0.15rem 0', color: '#4f4f4f' }}>
+                  
+                  <span style={{ fontFamily: 'monospace' }}>{didEthrPreview}</span>
+                </p>
+              )}
               {imagePreviewUrl && (
                 <div
                   style={{

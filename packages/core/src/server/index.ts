@@ -206,11 +206,13 @@ export {
 } from './lib/names';
 
 // Session package utilities (Node.js fs access)
-export type { SessionPackage, DelegationSetup } from './lib/sessionPackage';
+export type { DelegationSetup } from './lib/sessionPackage';
+export type { SessionPackage } from '../shared/sessionPackage';
 export {
   loadSessionPackage,
   validateSessionPackage,
   buildDelegationSetup,
+  buildSessionPackage,
 } from './lib/sessionPackage';
 
 

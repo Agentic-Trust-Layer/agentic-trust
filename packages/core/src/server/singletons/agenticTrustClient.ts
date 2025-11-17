@@ -17,6 +17,7 @@ import { getReputationClient, isReputationClientInitialized, resetReputationClie
 import { getAdminApp } from '../userApps/adminApp';
 import { createVeramoAgentForClient } from '../lib/veramoFactory';
 import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import type { SessionPackage } from '../../shared/sessionPackage';
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -167,7 +168,7 @@ export class AgenticTrustClient {
     // Step 2: Initialize reputation client if configured
     // Priority: sessionPackage > reputation config > top-level config with identity/reputation registry
     if (config.sessionPackage) {
-      await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: import('../lib/sessionPackage').SessionPackage; ensRegistry: `0x${string}` });
+      await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: SessionPackage; ensRegistry: `0x${string}` });
     } else if (config.identityRegistry && config.reputationRegistry) {
       // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
       // Uses the EOA derived from privateKey (same as VeramoAgent)
@@ -189,7 +190,7 @@ export class AgenticTrustClient {
    */
   private async initializeReputationFromSessionPackage(config: {
     filePath?: string;
-    package?: import('../lib/sessionPackage').SessionPackage;
+    package?: SessionPackage;
     ensRegistry: `0x${string}`;
   }): Promise<void> {
     const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('../lib/sessionPackage');
