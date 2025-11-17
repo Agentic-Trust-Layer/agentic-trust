@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
 import { generateSessionPackage } from '@agentic-trust/core';
 
@@ -121,6 +121,12 @@ export function AgentsPage({
   const [gridColumns, setGridColumns] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
   const [singleQuery, setSingleQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(0);
+  const pageSize = useMemo(() => {
+    const columns = Math.max(1, gridColumns || 1);
+    const rows = isMobile ? 2 : 3;
+    return columns * rows;
+  }, [gridColumns, isMobile]);
 
   useEffect(() => {
     const updateColumns = () => {
@@ -137,6 +143,18 @@ export function AgentsPage({
     window.addEventListener('resize', updateColumns);
     return () => window.removeEventListener('resize', updateColumns);
   }, []);
+
+  useEffect(() => {
+    setCurrentPage(0);
+  }, [
+    filters.chainId,
+    filters.address,
+    filters.name,
+    filters.agentId,
+    filters.mineOnly,
+    agents.length,
+    pageSize,
+  ]);
 
   const ENS_APP_BY_CHAIN: Record<number, string> = {
     1: 'https://app.ens.domains',
@@ -168,6 +186,28 @@ export function AgentsPage({
     }
     return result;
   }, [agents, filters.address, filters.mineOnly, ownedMap]);
+
+  const totalPages = pageSize > 0 ? Math.ceil(filteredAgents.length / pageSize) : 0;
+
+  const paginatedAgents = useMemo(() => {
+    if (pageSize <= 0) {
+      return filteredAgents;
+    }
+    const start = currentPage * pageSize;
+    return filteredAgents.slice(start, start + pageSize);
+  }, [filteredAgents, currentPage, pageSize]);
+
+  useEffect(() => {
+    if (totalPages === 0) {
+      if (currentPage !== 0) {
+        setCurrentPage(0);
+      }
+      return;
+    }
+    if (currentPage > totalPages - 1) {
+      setCurrentPage(totalPages - 1);
+    }
+  }, [totalPages, currentPage]);
 
   const openActionDialog = (agent: Agent, action: AgentActionType) => {
     setActiveDialog({ agent, action });
@@ -834,7 +874,7 @@ export function AgentsPage({
             </div>
           )}
 
-          {filteredAgents.map(agent => {
+          {paginatedAgents.map(agent => {
             const ownershipKey = `${agent.chainId}:${agent.agentId}`;
             const isOwned = Boolean(ownedMap[ownershipKey]);
             const imageUrl =
@@ -1140,6 +1180,52 @@ export function AgentsPage({
             );
           })}
         </div>
+        {filteredAgents.length > 0 && totalPages > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: '1rem',
+              marginTop: '1rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.max(0, prev - 1))}
+              disabled={currentPage === 0}
+              style={{
+                padding: '0.6rem 1.2rem',
+                borderRadius: '10px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: currentPage === 0 ? palette.surfaceMuted : palette.surface,
+                color: palette.textPrimary,
+                cursor: currentPage === 0 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Previous
+            </button>
+            <span style={{ fontWeight: 600, color: palette.textSecondary }}>
+              Page {currentPage + 1} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages - 1, prev + 1))}
+              disabled={currentPage >= totalPages - 1}
+              style={{
+                padding: '0.6rem 1.2rem',
+                borderRadius: '10px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: currentPage >= totalPages - 1 ? palette.surfaceMuted : palette.surface,
+                color: palette.textPrimary,
+                cursor: currentPage >= totalPages - 1 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Next
+            </button>
+          </div>
+        )}
       </div>
     </section>
     {activeDialog && dialogContent && (() => {

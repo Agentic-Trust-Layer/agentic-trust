@@ -43,7 +43,6 @@ export function buildSessionPackage(params: {
   chainId: number;
   aa: Hex;
   sessionAA?: Hex;
-  reputationRegistry: Hex;
   selector: Hex;
   sessionKey: {
     privateKey: Hex;
@@ -191,9 +190,6 @@ export function buildDelegationSetup(
   const envBundlerUrl = getChainEnvVar('AGENTIC_TRUST_BUNDLER_URL', session.chainId);
   const bundlerUrl = envBundlerUrl || session.bundlerUrl;
 
-  // Reputation Registry: env var, then session package
-  const envReputationRegistry = (getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', session.chainId) || undefined) as `0x${string}` | undefined;
-  const reputationRegistry = envReputationRegistry;
 
   const chain = defineChain({
     id: session.chainId,
