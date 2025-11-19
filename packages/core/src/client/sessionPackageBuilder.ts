@@ -175,7 +175,7 @@ export async function generateSessionPackage(
   const validUntil = Math.floor(Date.now() / 1000) + 60 * 30;
   const validAfter = validUntil - 60 * 30 - 60;
 
-  console.info('*********** sessionPackageBuilder signatory: sessionKeyAccount', sessionKeyAccount.address);  
+  console.info('*********** sessionPackageBuilder signer: sessionKeyAccount', sessionKeyAccount.address);  
   const burnerAccountClient = await toMetaMaskSmartAccount({
     client: publicClient as any,
     implementation: Implementation.Hybrid,

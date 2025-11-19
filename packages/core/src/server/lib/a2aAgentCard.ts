@@ -12,18 +12,23 @@ export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard |
       : new URL(cardUrl, typeof window !== 'undefined' ? window.location.origin : '').toString();
 
     // If URL doesn't end with agent-card.json or .well-known, append the standard path
+    console.log("----------> url inside fetchA2AAgentCard -----> ", cardUrl);
     if (!url.includes('agent-card.json')) {
       // Remove trailing slash and append the standard path
       url = `${url.replace(/\/$/, '')}/.well-known/agent-card.json`;
     }
 
+    console.log("----------> url inside fetchA2AAgentCard -----> ", url);
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         Accept: 'application/json',
       },
+      // Disable any HTTP caching so we always hit the live provider
+      cache: 'no-store',
     });
 
+    console.log("----------> response inside fetchA2AAgentCard -----> ", response);
     if (!response.ok) {
       throw new Error(`Failed to fetch agent card: ${response.status} ${response.statusText}`);
     }

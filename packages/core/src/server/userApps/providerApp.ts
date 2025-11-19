@@ -7,6 +7,7 @@
 
 import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
+import { isUserAppEnabled, logUserAppInitStart, logUserAppInitFailure, logUserAppInitSuccess } from './userApp';
 import type { DelegationSetup } from '../lib/sessionPackage';
 import type { SessionPackage } from '../../shared/sessionPackage';
 
@@ -41,6 +42,7 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
   }
 
   // Start initialization
+  logUserAppInitStart('provider');
   initializationPromise = (async () => {
     try {
       const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
@@ -88,21 +90,17 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
         agentId: BigInt(sessionPackage.agentId),
       };
 
-      console.log('✅ ProviderApp singleton initialized with agent ID:', sessionPackage.agentId);
+      logUserAppInitSuccess('provider', sessionPackage.agentId?.toString());
       return providerAppInstance;
     } catch (error) {
-      console.error('❌ Failed to initialize ProviderApp singleton:', error);
+      logUserAppInitFailure('provider', error);
       initializationPromise = null; // Reset on error so it can be retried
       throw error;
     }
   })();
 
-  // Check if this is a provider app (environment variable can be 'true', '1', or truthy)
-  const isProviderApp = process.env.AGENTIC_TRUST_IS_PROVIDER_APP === '1' || 
-                        process.env.AGENTIC_TRUST_IS_PROVIDER_APP?.trim() === 'true' ||
-                        !!process.env.AGENTIC_TRUST_IS_PROVIDER_APP;
-  
-  if (!isProviderApp) {
+  // Check if this is a provider app (environment variable flag)
+  if (!isUserAppEnabled('provider')) {
     return undefined;
   }
 

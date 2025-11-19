@@ -337,10 +337,6 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
                       borderRadius: 2,
                       objectFit: 'contain',
                     }}
-                    onError={(e) => {
-                      // Hide image if it fails to load
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
                   />
                 </Box>
               )}

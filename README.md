@@ -186,7 +186,7 @@ export async function getServerClient(): Promise<AgenticTrustClient> {
 
 **Client App (web):**
 ```bash
-AGENTIC_TRUST_IS_CLIENT_APP=true
+AGENTIC_TRUST_APP_ROLES=client
 AGENTIC_TRUST_ADMIN_PRIVATE_KEY=0x...
 # Chain-specific RPC URLs (required)
 AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
@@ -200,7 +200,7 @@ AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x...
 
 **Provider App:**
 ```bash
-AGENTIC_TRUST_IS_PROVIDER_APP=true
+AGENTIC_TRUST_APP_ROLES=provider
 AGENTIC_TRUST_SESSION_PACKAGE_PATH=./sessionPackage.json.secret
 # Chain-specific contract addresses and RPC URLs (required)
 AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x...

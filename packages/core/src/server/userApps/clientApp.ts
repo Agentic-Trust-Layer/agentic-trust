@@ -7,6 +7,7 @@
 
 import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Account, PublicClient, WalletClient } from 'viem';
+import { isUserAppEnabled, logUserAppInitStart, logUserAppInitFailure, logUserAppInitSuccess } from './userApp';
 
 // Client app instance type
 type ClientAppInstance = {
@@ -26,6 +27,13 @@ let initializationPromise: Promise<ClientAppInstance> | null = null;
  * Initializes from private key in environment variables
  */
 export async function getClientApp(): Promise<ClientAppInstance | undefined> {
+  // Check if this process is configured to act as a client app
+  // If not, do nothing and return undefined (no side effects)
+  const isClientApp = isUserAppEnabled('client');
+  if (!isClientApp) {
+    return undefined;
+  }
+
   // If already initialized, return immediately
   if (clientAppInstance) {
     return clientAppInstance;
@@ -36,7 +44,10 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
     return initializationPromise;
   }
 
-  // Start initialization
+  // Start initialization (only when client role is enabled for this process)
+  // Helpful debug to see when a process (e.g. the web app) is bootstrapping ClientApp
+  logUserAppInitStart('client', `NODE_ENV=${process.env.NODE_ENV}`);
+
   initializationPromise = (async () => {
     try {
       const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
@@ -93,23 +104,14 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
         address,
       };
 
-      console.log('✅ ClientApp singleton initialized with address:', address);
+      logUserAppInitSuccess('client', address);
       return clientAppInstance;
     } catch (error) {
-      console.error('❌ Failed to initialize ClientApp singleton:', error);
+      logUserAppInitFailure('client', error);
       initializationPromise = null; // Reset on error so it can be retried
       throw error;
     }
   })();
-
-  // Check if this is a client app (environment variable can be 'true', '1', or truthy)
-  const isClientApp = process.env.AGENTIC_TRUST_IS_CLIENT_APP === '1' || 
-                      process.env.AGENTIC_TRUST_IS_CLIENT_APP?.trim() === 'true' ||
-                      !!process.env.AGENTIC_TRUST_IS_CLIENT_APP;
-  
-  if (!isClientApp) {
-    return undefined;
-  }
 
   return initializationPromise;
 

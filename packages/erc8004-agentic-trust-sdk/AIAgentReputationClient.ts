@@ -31,15 +31,13 @@ export interface GiveFeedbackParams {
 
 export class AIAgentReputationClient extends BaseReputationClient {
   private chain: Chain;
-  private agentAccountProvider: AccountProvider;
-  private clientAccountProvider: AccountProvider;
+  private accountProvider: AccountProvider;
   private ensRegistryAddress: `0x${string}`;
   private reputationAddress: `0x${string}`;
   private publicClient: PublicClient | null = null;
 
   constructor(
-    agentAccountProvider: AccountProvider,
-    clientAccountProvider: AccountProvider,
+    accountProvider: AccountProvider,
     registrationRegistryAddress: `0x${string}`,
     identityRegistryAddress: `0x${string}`,
     ensRegistryAddress: `0x${string}`
@@ -49,29 +47,32 @@ export class AIAgentReputationClient extends BaseReputationClient {
     // We'll create a minimal adapter wrapper for compatibility
     const minimalAdapter = {
       call: async (to: string, abi: any, functionName: string, args?: any[]) => {
-        return agentAccountProvider.call({ to: to as `0x${string}`, abi, functionName, args });
+        return accountProvider?.call({ to: to as `0x${string}`, abi, functionName, args });
       },
       send: async (to: string, abi: any, functionName: string, args?: any[]) => {
-        const data = await agentAccountProvider.encodeFunctionData({ abi, functionName, args: args || [] });
-        const tx: TxRequest = { to: to as `0x${string}`, data };
-        const result = await agentAccountProvider.send(tx);
-        return { hash: result.hash, txHash: result.hash };
+        const data = await accountProvider?.encodeFunctionData({ abi, functionName, args: args || [] });
+        if (data) {
+          const tx: TxRequest = { to: to as `0x${string}`, data };
+          const result = await accountProvider?.send(tx);
+          return { hash: result?.hash, txHash: result?.hash };
+        }
+        return { hash: undefined, txHash: undefined };
       },
+
       signMessage: async (message: Uint8Array | string) => {
-        return agentAccountProvider.signMessage(message);
+        return accountProvider?.signMessage(message);
       },
     };
     
     super(minimalAdapter as any, registrationRegistryAddress, identityRegistryAddress);
 
     this.chain = sepolia;
-    this.agentAccountProvider = agentAccountProvider;
-    this.clientAccountProvider = clientAccountProvider;
+    this.accountProvider = accountProvider as AccountProvider;
     this.reputationAddress = registrationRegistryAddress;
     this.ensRegistryAddress = ensRegistryAddress;
 
     // Try to extract publicClient from AccountProvider if it's a ViemAccountProvider
-    const viemProvider = agentAccountProvider as any;
+    const viemProvider = accountProvider as any;
     if (viemProvider.publicClient) {
       this.publicClient = viemProvider.publicClient;
     }
@@ -110,20 +111,19 @@ export class AIAgentReputationClient extends BaseReputationClient {
 
   // Factory: resolve identityRegistry from reputation/registration registry before constructing
   static async create(
-    agentAccountProvider: AccountProvider,
-    clientAccountProvider: AccountProvider,
+    accountProvider: AccountProvider,
     identityRegistryAddress: `0x${string}`,
     registrationRegistryAddress: `0x${string}`,
     ensRegistryAddress: `0x${string}`
   ): Promise<AIAgentReputationClient> {
     return new AIAgentReputationClient(
-      agentAccountProvider,
-      clientAccountProvider,
+      accountProvider,
       registrationRegistryAddress,
       identityRegistryAddress,
       ensRegistryAddress
     );
   }
+
 
   /**
    * Submit feedback for an agent
@@ -154,7 +154,7 @@ export class AIAgentReputationClient extends BaseReputationClient {
     console.info("feedbackHash", feedbackHash);
 
     // Encode function data using AccountProvider
-    const data = await this.clientAccountProvider.encodeFunctionData({
+    const data = await this.accountProvider?.encodeFunctionData({
       abi: ReputationRegistryABI as any,
       functionName: 'giveFeedback',
       args: [
@@ -171,14 +171,14 @@ export class AIAgentReputationClient extends BaseReputationClient {
     // Send transaction using AccountProvider
     const tx: TxRequest = {
       to: this.reputationAddress,
-      data,
+      data: data || '0x',
       value: 0n,
     };
 
-    const result = await this.clientAccountProvider.send(tx, {
+    const result = await this.accountProvider?.send(tx, {
       simulation: true,
     });
 
-    return { txHash: result.hash };
+    return { txHash: result?.hash || '' };
   }
 }

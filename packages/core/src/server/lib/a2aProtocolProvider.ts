@@ -211,10 +211,6 @@ export class A2AProtocolProvider {
    * Fetch and cache the agent card from /.well-known/agent-card.json
    */
   async fetchAgentCard(): Promise<A2AAgentCard | null> {
-    if (this.agentCard) {
-      return this.agentCard;
-    }
-
     try {
       console.log(`Fetching agent card from: ${this.providerUrl}`);
       const card = await fetchA2AAgentCard(this.providerUrl);

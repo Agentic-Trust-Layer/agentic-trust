@@ -13,7 +13,7 @@
  * 2. Configure required environment variables:
  *    - AGENTIC_TRUST_ADMIN_PRIVATE_KEY (required for private key mode)
  *    - AGENTIC_TRUST_RPC_URL_SEPOLIA (RPC URL for chain)
- *    - AGENTIC_TRUST_IS_ADMIN_APP=true (to enable AdminApp)
+ *    - AGENTIC_TRUST_APP_ROLES=admin (to enable AdminApp role)
  * 3. Run: pnpm test:integration
  */
 
@@ -57,7 +57,7 @@ async function ensureAdminAppInitialized(): Promise<void> {
   const adminApp = await getAdminApp(privateKey, TEST_CHAIN_ID);
 
   if (!adminApp) {
-    throw new Error('AdminApp failed to initialize. Check AGENTIC_TRUST_IS_ADMIN_APP environment variable.');
+    throw new Error('AdminApp failed to initialize. Check AGENTIC_TRUST_APP_ROLES environment variable includes "admin".');
   }
 
   if (!adminApp.hasPrivateKey) {
@@ -111,10 +111,13 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
     if (!hasPrivateKey()) {
       throw new Error('Missing AGENTIC_TRUST_ADMIN_PRIVATE_KEY. Private key mode is required for these tests.');
     }
-    // Ensure AdminApp is enabled
-    if (process.env.AGENTIC_TRUST_IS_ADMIN_APP !== 'true' && process.env.AGENTIC_TRUST_IS_ADMIN_APP !== '1') {
-      console.warn('⚠️  AGENTIC_TRUST_IS_ADMIN_APP is not set to true. Setting it for tests.');
-      process.env.AGENTIC_TRUST_IS_ADMIN_APP = 'true';
+    // Ensure AdminApp role is enabled for tests
+    if (!process.env.AGENTIC_TRUST_APP_ROLES) {
+      console.warn('⚠️  AGENTIC_TRUST_APP_ROLES is not set. Setting it to "admin" for tests.');
+      process.env.AGENTIC_TRUST_APP_ROLES = 'admin';
+    } else if (!process.env.AGENTIC_TRUST_APP_ROLES.split('|').includes('admin')) {
+      console.warn('⚠️  AGENTIC_TRUST_APP_ROLES does not include "admin". Appending it for tests.');
+      process.env.AGENTIC_TRUST_APP_ROLES += '|admin';
     }
     
     await ensureAdminAppInitialized();

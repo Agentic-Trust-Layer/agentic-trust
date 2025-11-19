@@ -8,7 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { defineChain, http, createPublicClient, type Chain, type PublicClient } from 'viem';
+import { defineChain, http, createPublicClient, createWalletClient, type Chain, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount, type Account } from 'viem/accounts';
 import { getChainEnvVar } from './chainConfig';
 import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
@@ -241,13 +241,20 @@ export async function buildAgentAccountFromSession(sessionPackage?: SessionPacka
 
   const agentOwnerEOA = privateKeyToAccount(delegationSetup.sessionKey.privateKey);
 
+  // Create wallet client from the account
+  const walletClient = createWalletClient({
+    account: agentOwnerEOA,
+    chain: delegationSetup.chain,
+    transport: http(delegationSetup.rpcUrl),
+  });
+
   const agentOwnerAddress = delegationSetup.sessionAA || delegationSetup.aa;
 
   const agentAccountClient = await toMetaMaskSmartAccount({
     address: agentOwnerAddress as `0x${string}`,
     client: publicClient,
     implementation: Implementation.Hybrid,
-    signatory: { account: agentOwnerEOA },
+    signer: { walletClient },
   } as any);
 
   return agentAccountClient as Account;

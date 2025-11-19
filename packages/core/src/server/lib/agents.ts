@@ -303,7 +303,9 @@ export class AgentsAPI {
     const targetChainId = params.chainId || DEFAULT_CHAIN_ID;
     const adminApp = await getAdminApp(undefined, targetChainId);
     if (!adminApp) {
-      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
+      throw new Error(
+        'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet'
+      );
     }
 
       const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
@@ -464,7 +466,9 @@ export class AgentsAPI {
     const targetChainId = params.chainId || DEFAULT_CHAIN_ID;
     const adminApp = await getAdminApp(undefined, targetChainId);
     if (!adminApp) {
-      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+      throw new Error(
+        'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and provide AGENTIC_TRUST_ADMIN_PRIVATE_KEY'
+      );
     }
     if (!adminApp.hasPrivateKey) {
       throw new Error('Admin private key not available on server. Cannot execute server-side transaction.');
@@ -541,7 +545,9 @@ export class AgentsAPI {
     const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
     const adminApp = await getAdminApp(undefined, chainId);
     if (!adminApp) {
-      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet');
+      throw new Error(
+        'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and provide either AGENTIC_TRUST_ADMIN_PRIVATE_KEY or connect via wallet'
+      );
     }
 
     const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
@@ -642,7 +648,9 @@ export class AgentsAPI {
     const chainId: number = params.chainId || DEFAULT_CHAIN_ID;
     const adminApp = await getAdminApp(undefined, chainId);
     if (!adminApp) {
-      throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and provide AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+      throw new Error(
+        'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and provide AGENTIC_TRUST_ADMIN_PRIVATE_KEY'
+      );
     }
 
     // First reuse existing preparation to get register calls
@@ -651,7 +659,7 @@ export class AgentsAPI {
       chainId,
     });
 
-    // Build AA account client using admin signatory
+    // Build AA account client using admin signer
     const chain = getChainById(chainId);
 
     // Deterministic salt based on agentName (matches client computation)
@@ -661,7 +669,7 @@ export class AgentsAPI {
     const accountClient = await toMetaMaskSmartAccount({
       client: adminApp.publicClient as any,
       implementation: Implementation.Hybrid,
-      signatory: adminApp.walletClient
+      signer: adminApp.walletClient
         ? { walletClient: adminApp.walletClient as any }
         : (adminApp.account ? { account: adminApp.account } : {}),
       deployParams: [adminApp.address as `0x${string}`, [], [], []],
@@ -1396,7 +1404,9 @@ export class AgentsAPI {
       const chainId = params.chainId || DEFAULT_CHAIN_ID;
       const adminApp = await getAdminApp(undefined, chainId);
       if (!adminApp) {
-        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and connect via wallet');
+        throw new Error(
+          'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and connect via wallet'
+        );
       }
 
       if (adminApp.hasPrivateKey) {
@@ -1531,7 +1541,9 @@ export class AgentsAPI {
 
 
       if (!adminApp) {
-        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+        throw new Error(
+          'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and AGENTIC_TRUST_ADMIN_PRIVATE_KEY is set'
+        );
       }
 
       const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
@@ -1602,7 +1614,9 @@ export class AgentsAPI {
       const adminApp = await getAdminApp(undefined, chainId);
 
       if (!adminApp) {
-        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+        throw new Error(
+          'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and AGENTIC_TRUST_ADMIN_PRIVATE_KEY is set'
+        );
       }
 
       const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
@@ -1656,7 +1670,9 @@ export class AgentsAPI {
       const adminApp = await getAdminApp(undefined, chainId);
 
       if (!adminApp) {
-        throw new Error('AdminApp not initialized. Set AGENTIC_TRUST_IS_ADMIN_APP=true and AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+        throw new Error(
+          'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and AGENTIC_TRUST_ADMIN_PRIVATE_KEY is set'
+        );
       }
 
       const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);

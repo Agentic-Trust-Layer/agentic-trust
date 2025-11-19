@@ -11,7 +11,7 @@ import { getAgenticTrustClient } from '@agentic-trust/core/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { agentId, score, feedback, feedbackAuth, tag1, tag2, feedbackUri, feedbackHash, clientAddress } = body;
+    const { agentId, chainId, score, feedback, feedbackAuth, tag1, tag2, feedbackUri, feedbackHash, clientAddress, agentName } = body;
 
     // Validate required fields
     if (!agentId || score === undefined || !feedbackAuth) {
@@ -24,8 +24,9 @@ export async function POST(request: NextRequest) {
     // Get server-side client
     const atClient = await getAgenticTrustClient();
 
-    // Get the agent by ID
-    const agent = await atClient.agents.getAgent(agentId.toString());
+    // Get the agent by ID (and chainId if provided)
+    const resolvedChainId = chainId ? parseInt(chainId.toString(), 10) : undefined;
+    const agent = await atClient.agents.getAgent(agentId.toString(), resolvedChainId);
     if (!agent) {
       return NextResponse.json(
         { error: 'Agent not found' },

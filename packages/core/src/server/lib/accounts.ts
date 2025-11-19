@@ -318,11 +318,11 @@ export async function getCounterfactualAAAddressByAgentName(
   }
 
   // Verify that we have either walletClient or account (required for signing)
-  // Even if hasPrivateKey is true, we need to ensure the signatory is available
+  // Even if hasPrivateKey is true, we need to ensure the signer is available
   if (!adminApp.walletClient && !adminApp.account) {
     throw new Error(
-      'AdminApp does not have a signatory (walletClient or account). ' +
-      'Private key mode is required, but AdminApp was initialized without a signatory. ' +
+      'AdminApp does not have a signer (walletClient or account). ' +
+      'Private key mode is required, but AdminApp was initialized without a signer. ' +
       'This may indicate that AGENTIC_TRUST_ADMIN_PRIVATE_KEY was not properly loaded from the environment.'
     );
   }
@@ -341,11 +341,11 @@ export async function getCounterfactualAAAddressByAgentName(
 
   const salt = keccak256(stringToHex(agentName)) as `0x${string}`;
 
-  // Create signatory object - must have either walletClient or account
-  // toMetaMaskSmartAccount expects signatory to have either walletClient or account, not both
+  // Create signer object - must have either walletClient or account
+  // toMetaMaskSmartAccount expects signer to have either walletClient or account, not both
   // Prefer walletClient over account if both are available
-  // Important: Both walletClient and account can be truthy but we only want one in the signatory
-  const signatory: { walletClient?: any; account?: any } = adminApp.walletClient
+  // Important: Both walletClient and account can be truthy but we only want one in the signer
+  const signer: { walletClient?: any; account?: any } = adminApp.walletClient
     ? { walletClient: adminApp.walletClient as any }
     : { account: adminApp.account! }; // Non-null assertion is safe because we check above
 
@@ -353,8 +353,8 @@ export async function getCounterfactualAAAddressByAgentName(
   const clientConfig: Record<string, unknown> = {
     client: publicClient,
     implementation: Implementation.Hybrid,
-    // Use signatory (server-side) instead of signer (client-side)
-    signatory,
+    // Use signer (server-side) instead of signer (client-side)
+    signer,
     deployParams: [adminApp.address as `0x${string}`, [], [], []],
     deploySalt: salt,
   };

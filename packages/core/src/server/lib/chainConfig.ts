@@ -243,8 +243,21 @@ export function getChainRpcUrl(chainId: number): string {
     // Determine if we're running in browser or server
     const isBrowser = typeof window !== 'undefined';
 
-    const serverValue = SERVER_CHAIN_RPC_ENV[chainId as SupportedChainId];
-    const clientValue = CLIENT_CHAIN_RPC_ENV[chainId as SupportedChainId];
+    // Read directly from process.env at runtime instead of using cached values
+    // This ensures we get the current value even if env vars were loaded after module initialization
+    let serverValue: string | undefined;
+    let clientValue: string | undefined;
+    
+    if (chainId === 11155111) {
+      serverValue = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA;
+    } else if (chainId === 84532) {
+      serverValue = process.env.AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA;
+    } else if (chainId === 11155420) {
+      serverValue = process.env.AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
+    }
 
     if (isBrowser) {
       if (clientValue) return clientValue;

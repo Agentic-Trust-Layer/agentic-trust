@@ -11,11 +11,99 @@ import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-s
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
 import { getAdminApp } from '../userApps/adminApp';
+import { isUserAppEnabled } from '../userApps/userApp';
 import { getChainEnvVar, requireChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import { DomainClient } from './domainClient';
 
-// Singleton instances by chainId
-let reputationClientInstances: Map<number, AIAgentReputationClient> = new Map();
-let initializationPromises: Map<number, Promise<AIAgentReputationClient>> = new Map();
+class ReputationDomainClient extends DomainClient<AIAgentReputationClient, number> {
+  constructor() {
+    super('reputation');
+  }
+
+  protected async buildClient(targetChainId: number): Promise<AIAgentReputationClient> {
+    const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
+    const reputationRegistry = requireChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', targetChainId);
+    const ensRegistry = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId);
+    const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
+
+    let accountProvider: AccountProvider | undefined;
+
+    const isAdminApp = isUserAppEnabled('admin');
+    const isProviderApp = isUserAppEnabled('provider');
+    const isClientApp = isUserAppEnabled('client');
+
+    if (isAdminApp) {
+      // Admin app: use AdminApp AccountProvider (supports wallet providers and private key)
+      const adminApp = await getAdminApp();
+      if (adminApp && adminApp.accountProvider) {
+        accountProvider = adminApp.accountProvider;
+      } else {
+        throw new Error('AdminApp not initialized. Connect wallet or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+      }
+    } else if (isProviderApp) {
+      // Provider app: use ProviderApp for agent, try ClientApp for client, or create from session package
+      const providerApp = await getProviderApp();
+      if (providerApp) {
+        accountProvider = providerApp.accountProvider;
+        
+        // Try to get ClientApp for client operations
+        try {
+          const { getClientApp } = await import('../userApps/clientApp');
+          const clientApp = await getClientApp();
+          if (clientApp && clientApp.accountProvider) {
+            accountProvider = clientApp.accountProvider;
+          }
+        } catch {
+          // ClientApp not available, create read-only clientAccountProvider from session package
+          // The client is the session key owner (EOA that controls the smart account)
+          const sessionKeyAddress = providerApp.sessionPackage.sessionKey.address as `0x${string}`;
+          const { createPublicClient, http } = await import('viem');
+          const { sepolia } = await import('viem/chains');
+          
+          const clientPublicClient = createPublicClient({
+            chain: sepolia,
+            transport: http(rpcUrl),
+          });
+          
+          // Create read-only AccountProvider for client (no wallet client, no signing)
+          // For provider apps, client operations that require signing should be handled differently
+          accountProvider = new ViemAccountProvider({
+            publicClient: clientPublicClient as any,
+            walletClient: null,
+            account: sessionKeyAddress, // Use address as account for read-only operations
+            chainConfig: {
+              id: sepolia.id,
+              rpcUrl,
+              name: sepolia.name,
+              chain: sepolia,
+            },
+          });
+        }
+      }
+    } else if (isClientApp) {
+      // Client app: use ClientApp for both agent and client (same account)
+      const clientApp = await getClientApp();
+      if (clientApp) {
+        accountProvider = clientApp.accountProvider;
+      }
+    } else {
+      throw new Error(
+        'Cannot initialize reputation client: configure AGENTIC_TRUST_APP_ROLES to include "client", "provider", or "admin".'
+      );
+    }
+
+    const reputationClient = await AIAgentReputationClient.create(
+      accountProvider as AccountProvider,
+      identityRegistry as `0x${string}`,
+      reputationRegistry as `0x${string}`,
+      (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}`, // Default ENS registry on Sepolia
+    );
+
+    return reputationClient;
+  }
+}
+
+const reputationDomainClient = new ReputationDomainClient();
 
 /**
  * Get or create the AIAgentReputationClient singleton
@@ -24,144 +112,7 @@ let initializationPromises: Map<number, Promise<AIAgentReputationClient>> = new 
 export async function getReputationClient(chainId?: number): Promise<AIAgentReputationClient> {
   // Default to configured chain if no chainId provided
   const targetChainId: number = chainId || DEFAULT_CHAIN_ID;
-
-  // If already initialized for this chain, return immediately
-  if (reputationClientInstances.has(targetChainId)) {
-    return reputationClientInstances.get(targetChainId)!;
-  }
-
-  // If initialization is in progress for this chain, wait for it
-  if (initializationPromises.has(targetChainId)) {
-    return initializationPromises.get(targetChainId)!;
-  }
-
-  // Start initialization
-  let initPromise: Promise<AIAgentReputationClient>;
-
-  const executeInit = async (): Promise<AIAgentReputationClient> => {
-    try {
-      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId);
-      const reputationRegistry = requireChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', targetChainId);
-      const ensRegistry = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId);
-      const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
-
-      // Determine if this is a client app, provider app, or admin app
-      const isClientApp = process.env.AGENTIC_TRUST_IS_CLIENT_APP === '1' || 
-                          process.env.AGENTIC_TRUST_IS_CLIENT_APP?.trim() === 'true';
-      const isProviderApp = process.env.AGENTIC_TRUST_IS_PROVIDER_APP === '1' || 
-                            process.env.AGENTIC_TRUST_IS_PROVIDER_APP?.trim() === 'true';
-      const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1' || 
-                         process.env.AGENTIC_TRUST_IS_ADMIN_APP?.trim() === 'true';
-
-      let agentAccountProvider: AccountProvider | undefined;
-      let clientAccountProvider: AccountProvider | undefined;
-
-      if (isAdminApp) {
-        // Admin app: use AdminApp AccountProvider (supports wallet providers and private key)
-        const adminApp = await getAdminApp();
-        if (adminApp && adminApp.accountProvider) {
-          agentAccountProvider = adminApp.accountProvider;
-          clientAccountProvider = adminApp.accountProvider; // For admin, agent and client are the same
-        } else {
-          throw new Error('AdminApp not initialized. Connect wallet or set AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
-        }
-      } else if (isProviderApp) {
-        // Provider app: use ProviderApp for agent, try ClientApp for client, or create from session package
-        const providerApp = await getProviderApp();
-        if (providerApp) {
-          agentAccountProvider = providerApp.accountProvider;
-          
-          // Try to get ClientApp for client operations
-          try {
-            const { getClientApp } = await import('../userApps/clientApp');
-            const clientApp = await getClientApp();
-            if (clientApp && clientApp.accountProvider) {
-              clientAccountProvider = clientApp.accountProvider;
-            }
-          } catch (error) {
-            // ClientApp not available, create read-only clientAccountProvider from session package
-            // The client is the session key owner (EOA that controls the smart account)
-            const sessionKeyAddress = providerApp.sessionPackage.sessionKey.address as `0x${string}`;
-            const { createPublicClient, http } = await import('viem');
-            const { sepolia } = await import('viem/chains');
-            
-            const clientPublicClient = createPublicClient({
-              chain: sepolia,
-              transport: http(rpcUrl),
-            });
-            
-            // Create read-only AccountProvider for client (no wallet client, no signing)
-            // For provider apps, client operations that require signing should be handled differently
-            clientAccountProvider = new ViemAccountProvider({
-              publicClient: clientPublicClient as any,
-              walletClient: null,
-              account: sessionKeyAddress, // Use address as account for read-only operations
-              chainConfig: {
-                id: sepolia.id,
-                rpcUrl,
-                name: sepolia.name,
-                chain: sepolia,
-              },
-            });
-          }
-        }
-      } else if (isClientApp) {
-        // Client app: use ClientApp for both agent and client (same account)
-        const clientApp = await getClientApp();
-        if (clientApp) {
-          clientAccountProvider = clientApp.accountProvider;
-          // Create AccountProvider for agent (same as client)
-          agentAccountProvider = new ViemAccountProvider({
-            publicClient: clientApp.publicClient,
-            walletClient: clientApp.walletClient as any,
-            account: clientApp.account,
-            chainConfig: {
-              id: clientApp.publicClient.chain?.id || 11155111,
-              rpcUrl: (clientApp.publicClient.transport as any)?.url || '',
-              name: clientApp.publicClient.chain?.name || 'Unknown',
-              chain: clientApp.publicClient.chain || undefined,
-            },
-          });
-        }
-      } else {
-        throw new Error(
-          'Cannot initialize reputation client: Set AGENTIC_TRUST_IS_CLIENT_APP, AGENTIC_TRUST_IS_PROVIDER_APP, or AGENTIC_TRUST_IS_ADMIN_APP to true/1'
-        );
-      }
-
-      if (!agentAccountProvider || !clientAccountProvider) {
-        throw new Error('Failed to initialize AccountProviders for reputation client');
-      }
-
-      const reputationClient = await AIAgentReputationClient.create(
-        agentAccountProvider,
-        clientAccountProvider,
-        identityRegistry as `0x${string}`,
-        reputationRegistry as `0x${string}`,
-        (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}` // Default ENS registry on Sepolia
-      );
-
-      return reputationClient;
-    } catch (error) {
-      console.error('❌ Failed to initialize reputation client singleton:', error);
-      throw error;
-    }
-  };
-
-  initPromise = executeInit().then((client) => {
-    // Store in map and clean up initialization promise
-    reputationClientInstances.set(targetChainId, client);
-    initializationPromises.delete(targetChainId);
-    return client;
-  }).catch((error) => {
-    // Clean up on error
-    initializationPromises.delete(targetChainId);
-    throw error;
-  });
-
-  initializationPromises.set(targetChainId, initPromise);
-
-  return initPromise;
+  return reputationDomainClient.get(targetChainId);
 }
 
 /**
@@ -169,7 +120,7 @@ export async function getReputationClient(chainId?: number): Promise<AIAgentRepu
  */
 export function isReputationClientInitialized(chainId?: number): boolean {
   const targetChainId = chainId || DEFAULT_CHAIN_ID;
-  return reputationClientInstances.has(targetChainId);
+  return reputationDomainClient.isInitialized(targetChainId);
 }
 
 /**
@@ -177,7 +128,6 @@ export function isReputationClientInitialized(chainId?: number): boolean {
  */
 export function resetReputationClient(chainId?: number): void {
   const targetChainId = chainId || DEFAULT_CHAIN_ID;
-  reputationClientInstances.delete(targetChainId);
-  initializationPromises.delete(targetChainId);
+  reputationDomainClient.reset(targetChainId);
 }
 

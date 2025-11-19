@@ -12,15 +12,116 @@ import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
+import { isUserAppEnabled } from '../userApps/userApp';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { DomainClient } from './domainClient';
 
-// Singleton instances by chainId
-let ensClientInstances: Map<number, AIAgentENSClient> = new Map();
-let initializationPromises: Map<number, Promise<AIAgentENSClient>> = new Map();
+class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
+  constructor() {
+    super('ens');
+  }
+
+  protected async buildClient(targetChainId: number): Promise<AIAgentENSClient> {
+    // Get RPC URL from environment
+    const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
+
+    // Get ENS registry addresses from environment
+    const ensRegistry = (getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || '') as `0x${string}`;
+
+    const ensResolver = (getChainEnvVar('AGENTIC_TRUST_ENS_RESOLVER', targetChainId) || '') as `0x${string}`;
+
+    const identityRegistry = (getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId) ||
+                             '0x0000000000000000000000000000000000000000') as `0x${string}`;
+
+    // Try to get AccountProvider from AdminApp, ClientApp, or ProviderApp
+    let accountProvider: AccountProvider | null = null;
+
+    // Try AdminApp first (for admin operations)
+    if (isUserAppEnabled('admin')) {
+      try {
+        const adminApp = await getAdminApp(undefined, targetChainId);
+        if (adminApp?.accountProvider) {
+          accountProvider = adminApp.accountProvider;
+        }
+      } catch (error) {
+        console.warn('AdminApp not available for ENS client, trying other options...');
+      }
+    }
+
+    // Try ClientApp if AdminApp didn't work
+    if (!accountProvider && isUserAppEnabled('client')) {
+      try {
+        const clientApp = await getClientApp();
+        if (clientApp?.accountProvider) {
+          accountProvider = clientApp.accountProvider;
+        }
+      } catch (error) {
+        console.warn('ClientApp not available for ENS client, trying ProviderApp...');
+      }
+    }
+
+    // Try ProviderApp if ClientApp didn't work
+    if (!accountProvider && isUserAppEnabled('provider')) {
+      try {
+        const providerApp = await getProviderApp();
+        if (providerApp?.accountProvider) {
+          accountProvider = providerApp.accountProvider;
+        }
+      } catch (error) {
+        console.warn('ProviderApp not available for ENS client, creating read-only client...');
+      }
+    }
+
+    // Fallback: Create a read-only AccountProvider if no app is available
+    if (!accountProvider) {
+      const publicClient = createPublicClient({
+        chain: sepolia,
+        transport: http(rpcUrl),
+      });
+
+      accountProvider = new ViemAccountProvider({
+        publicClient,
+        walletClient: null,
+        account: undefined,
+        chainConfig: {
+          id: sepolia.id,
+          rpcUrl,
+          name: sepolia.name,
+          chain: sepolia,
+        },
+      });
+    }
+
+    // Select chain object
+    const chain =
+      targetChainId === 11155111
+        ? sepolia
+        : targetChainId === 84532
+        ? baseSepolia
+        : targetChainId === 11155420
+        ? optimismSepolia
+        : sepolia;
+
+    // Choose L1 vs L2 ENS client implementation
+    const isL2 = targetChainId === 84532 || targetChainId === 11155420;
+    const ClientCtor = isL2 ? AIAgentL2ENSDurenClient : AIAgentENSClient;
+
+    return new ClientCtor(
+      chain,
+      rpcUrl,
+      accountProvider,
+      ensRegistry,
+      ensResolver,
+      identityRegistry,
+    );
+  }
+}
+
+const ensDomainClient = new ENSDomainClient();
 
 /**
  * Get or create the AIAgentENSClient singleton
@@ -29,138 +130,7 @@ let initializationPromises: Map<number, Promise<AIAgentENSClient>> = new Map();
 export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> {
   // Default to Sepolia if no chainId provided
   const targetChainId = chainId || 11155111;
-
-  // If already initialized for this chain, return immediately
-  if (ensClientInstances.has(targetChainId)) {
-    return ensClientInstances.get(targetChainId)!;
-  }
-
-  // If initialization is in progress for this chain, wait for it
-  if (initializationPromises.has(targetChainId)) {
-    return initializationPromises.get(targetChainId)!;
-  }
-
-  // Start initialization for this chain
-  let initPromise: Promise<AIAgentENSClient>;
-
-  const executeInit = async (): Promise<AIAgentENSClient> => {
-    try {
-      // Get RPC URL from environment
-      const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
-
-      // Get ENS registry addresses from environment
-      const ensRegistry = (getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || '') as `0x${string}`;
-
-      const ensResolver = (getChainEnvVar('AGENTIC_TRUST_ENS_RESOLVER', targetChainId) || '') as `0x${string}`;
-
-      const identityRegistry = (getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId) ||
-                               '0x0000000000000000000000000000000000000000') as `0x${string}`;
-
-      // Try to get AccountProvider from AdminApp, ClientApp, or ProviderApp
-      let accountProvider: AccountProvider | null = null;
-
-      // Try AdminApp first (for admin operations)
-      const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === 'true' || process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1';
-      if (isAdminApp) {
-        try {
-          const adminApp = await getAdminApp(undefined, targetChainId);
-          if (adminApp?.accountProvider) {
-            accountProvider = adminApp.accountProvider;
-          }
-        } catch (error) {
-          console.warn('AdminApp not available for ENS client, trying other options...');
-        }
-      }
-
-      // Try ClientApp if AdminApp didn't work
-      if (!accountProvider) {
-        const isClientApp = process.env.AGENTIC_TRUST_IS_CLIENT_APP === 'true' || process.env.AGENTIC_TRUST_IS_CLIENT_APP === '1';
-        if (isClientApp) {
-          try {
-            const clientApp = await getClientApp();
-            if (clientApp?.accountProvider) {
-              accountProvider = clientApp.accountProvider;
-            }
-          } catch (error) {
-            console.warn('ClientApp not available for ENS client, trying ProviderApp...');
-          }
-        }
-      }
-
-      // Try ProviderApp if ClientApp didn't work
-      if (!accountProvider) {
-        const isProviderApp = process.env.AGENTIC_TRUST_IS_PROVIDER_APP === 'true' || process.env.AGENTIC_TRUST_IS_PROVIDER_APP === '1';
-        if (isProviderApp) {
-          try {
-            const providerApp = await getProviderApp();
-            if (providerApp?.accountProvider) {
-              accountProvider = providerApp.accountProvider;
-            }
-          } catch (error) {
-            console.warn('ProviderApp not available for ENS client, creating read-only client...');
-          }
-        }
-      }
-
-      // Fallback: Create a read-only AccountProvider if no app is available
-      if (!accountProvider) {
-        const publicClient = createPublicClient({
-          chain: sepolia,
-          transport: http(rpcUrl),
-        });
-
-        accountProvider = new ViemAccountProvider({
-          publicClient,
-          walletClient: null,
-          account: undefined,
-            chainConfig: {
-            id: sepolia.id,
-              rpcUrl,
-            name: sepolia.name,
-            chain: sepolia,
-            },
-        });
-      }
-
-      // Select chain object
-      const chain =
-        targetChainId === 11155111
-          ? sepolia
-          : targetChainId === 84532
-          ? baseSepolia
-          : targetChainId === 11155420
-          ? optimismSepolia
-          : sepolia;
-
-      // Choose L1 vs L2 ENS client implementation
-      const isL2 = targetChainId === 84532 || targetChainId === 11155420;
-      const ClientCtor = isL2 ? AIAgentL2ENSDurenClient : AIAgentENSClient;
-
-      const ensClient = new ClientCtor(
-        chain,
-        rpcUrl,
-        accountProvider,
-        ensRegistry,
-        ensResolver,
-        identityRegistry,
-      );
-
-      // Store in map and clean up initialization promise
-      ensClientInstances.set(targetChainId, ensClient);
-      initializationPromises.delete(targetChainId);
-
-      return ensClient;
-    } catch (error) {
-      console.error('❌ Failed to initialize ENS client singleton:', error);
-      initializationPromises.delete(targetChainId); // Reset on error so it can be retried
-      throw error;
-    }
-  };
-
-  initPromise = executeInit();
-  initializationPromises.set(targetChainId, initPromise);
-
-  return initPromise;
+  return ensDomainClient.get(targetChainId);
 }
 
 /**
@@ -168,7 +138,7 @@ export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> 
  */
 export function isENSClientInitialized(chainId?: number): boolean {
   const targetChainId = chainId || 11155111;
-  return ensClientInstances.has(targetChainId);
+  return ensDomainClient.isInitialized(targetChainId);
 }
 
 /**
@@ -176,8 +146,7 @@ export function isENSClientInitialized(chainId?: number): boolean {
  */
 export function resetENSClient(chainId?: number): void {
   const targetChainId = chainId || 11155111;
-  ensClientInstances.delete(targetChainId);
-  initializationPromises.delete(targetChainId);
+  ensDomainClient.reset(targetChainId);
 }
 
 /**
@@ -431,7 +400,7 @@ export async function createENSName(
       address: orgOwnerAddress as `0x${string}`,
       client: l1PublicClient,
       implementation: Implementation.Hybrid,
-      signatory: { account: orgOwnerEOA },
+      signer: { account: orgOwnerEOA },
     } as any);
 
     const { calls: orgCalls } = await ensClient.prepareAddAgentNameToOrgCalls({

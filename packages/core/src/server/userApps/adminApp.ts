@@ -8,6 +8,7 @@
 import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Account, PublicClient, WalletClient, Chain } from 'viem';
 import { getChainById, getChainRpcUrl, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import { isUserAppEnabled, logUserAppInitFailure, logUserAppInitStart, logUserAppInitSuccess } from './userApp';
 
 // Admin app instance type
 type AdminAppInstance = {
@@ -145,14 +146,12 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
   // Start initialization for this specific private key
   const initializationPromise = (async () => {
     try {
-      // Check if this is an admin app (environment variable can be 'true', '1', or truthy)
-      const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1' ||
-                         process.env.AGENTIC_TRUST_IS_ADMIN_APP?.trim() === 'true' ||
-                         !!process.env.AGENTIC_TRUST_IS_ADMIN_APP;
-
-      if (!isAdminApp) {
-        throw new Error('AdminApp is only available when AGENTIC_TRUST_IS_ADMIN_APP is set to true or 1');
+      // Check if this is an admin app (environment flag)
+      if (!isUserAppEnabled('admin')) {
+        throw new Error('AdminApp is only available when AGENTIC_TRUST_APP_ROLES includes "admin"');
       }
+
+      logUserAppInitStart('admin', `chainId=${chainId}`);
 
       // Get chain-specific RPC URL and chain config
       const targetChainId = chainId || DEFAULT_CHAIN_ID;
@@ -221,9 +220,11 @@ export async function getAdminApp(privateKey?: string, chainId: number = DEFAULT
       adminAppInstances.set(instanceKey, instance);
       initializationPromises.delete(instanceKey); // Remove from pending
 
+      logUserAppInitSuccess('admin', address);
+
       return instance;
     } catch (error) {
-      console.error('❌ Failed to initialize AdminApp:', error);
+      logUserAppInitFailure('admin', error);
       initializationPromises.delete(instanceKey); // Remove from pending on error
       throw error;
     }

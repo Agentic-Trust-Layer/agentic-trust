@@ -90,7 +90,7 @@ async function executeEnsCallsWithOrgPK(params: { calls: { to: `0x${string}`; da
     address: orgAddress as `0x${string}`,
     client: publicClient as any,
     implementation: Implementation.Hybrid,
-    signatory: { walletClient: walletClient as any },
+    signer: { walletClient: walletClient as any },
   } as any);
 
   const formattedCalls = calls.map(call => ({

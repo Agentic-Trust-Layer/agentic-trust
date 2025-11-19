@@ -15,8 +15,10 @@ import { getENSClient } from './ensClient';
 import { getDiscoveryClient } from './discoveryClient';
 import { getReputationClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
 import { getAdminApp } from '../userApps/adminApp';
+import { isUserAppEnabled } from '../userApps/userApp';
 import { createVeramoAgentForClient } from '../lib/veramoFactory';
 import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import { getIdentityClient } from '../singletons/identityClient';
 import type { SessionPackage } from '../../shared/sessionPackage';
 
 export class AgenticTrustClient {
@@ -168,18 +170,35 @@ export class AgenticTrustClient {
     // Step 2: Initialize reputation client if configured
     // Priority: sessionPackage > reputation config > top-level config with identity/reputation registry
     if (config.sessionPackage) {
+      console.log('🔧 create: Initializing reputation from session package...');
       await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: SessionPackage; ensRegistry: `0x${string}` });
     } else if (config.identityRegistry && config.reputationRegistry) {
       // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
       // Uses the EOA derived from privateKey (same as VeramoAgent)
       // Note: Reputation client requires private key for signing operations
       if (config.privateKey) {
-        await client.initializeReputationFromConfig(config);
+        console.log('🔧 create: Initializing reputation from top-level config...');
+        await client.initializeClientReputationFromConfig(config);
       } else {
       }
     } else {
     }
-    
+
+    // Step 3: Eagerly initialize core domain clients (best-effort)
+    // so downstream calls don't pay first-call initialization cost.
+    const defaultChainId = DEFAULT_CHAIN_ID;
+    try {
+      await Promise.allSettled([
+        getDiscoveryClient(),                // discovery indexer
+        getENSClient(defaultChainId),        // ENS client
+        getIdentityClient(defaultChainId),   // identity client
+        getReputationClient(defaultChainId), // reputation client
+      ]);
+    } catch {
+      // Individual domain client initialization errors are logged
+      // in their respective modules; we don't fail client creation.
+    }
+
     return client;
   }
 
@@ -193,6 +212,7 @@ export class AgenticTrustClient {
     package?: SessionPackage;
     ensRegistry: `0x${string}`;
   }): Promise<void> {
+    console.log('🔧 initializeReputationFromSessionPackage: Starting...');
     const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('../lib/sessionPackage');
     
     // Load session package
@@ -201,9 +221,12 @@ export class AgenticTrustClient {
     const delegationSetup = buildDelegationSetup(sessionPackage);
     
     // Build agent account from session
+    console.log('🔧 initializeReputationFromSessionPackage: Building agent account from session package...');
     const agentAccount = await buildAgentAccountFromSession(sessionPackage);
     
     // Create wallet client
+    console.log('🔧 initializeReputationFromSessionPackage: Creating wallet client...')
+    console.log("agentAccount inside initializeReputationFromSessionPackage -----> ", agentAccount.address);
     const { createWalletClient, http: httpTransport } = await import('viem');
     const walletClient = createWalletClient({
       account: agentAccount,
@@ -235,7 +258,7 @@ export class AgenticTrustClient {
    * Uses the EOA (Externally Owned Account) derived from the private key
    * @internal
    */
-  private async initializeReputationFromConfig(config: ApiClientConfig): Promise<void> {
+  private async initializeClientReputationFromConfig(config: ApiClientConfig): Promise<void> {
     console.log('🔧 initializeReputationFromConfig: Starting...');
     
     const identityRegistry = config.identityRegistry;
@@ -265,21 +288,17 @@ export class AgenticTrustClient {
 
     // Try to get AccountProvider from AdminApp or ClientApp (supports wallet providers)
     // If not available, fall back to privateKey-based creation
-    let agentAccountProvider: any;
-    let clientAccountProvider: any;
+    let accountProvider: any;
     let eoaAddress: `0x${string}` | undefined;
 
-    // Try AdminApp first (for admin operations)
-    // Only try AdminApp if we're in an admin app context
-    const isAdminApp = process.env.AGENTIC_TRUST_IS_ADMIN_APP === 'true' || process.env.AGENTIC_TRUST_IS_ADMIN_APP === '1';
-    if (isAdminApp) {
+    // Try AdminApp first (for admin operations) if this process has admin role
+    if (isUserAppEnabled('admin')) {
       try {
         const { getAdminApp } = await import('../userApps/adminApp');
         const adminApp = await getAdminApp();
         if (adminApp && adminApp.accountProvider) {
           // Use AdminApp's AccountProvider (works with private key OR wallet provider)
-          agentAccountProvider = adminApp.accountProvider;
-          clientAccountProvider = adminApp.accountProvider; // For admin, agent and client are the same
+          accountProvider = adminApp.accountProvider; // For admin, agent and client are the same
           eoaAddress = adminApp.address;
           console.log('🔧 initializeReputationFromConfig: Using AdminApp AccountProvider', eoaAddress);
         }
@@ -289,18 +308,18 @@ export class AgenticTrustClient {
       }
     } else {
       // Skip AdminApp for non-admin apps (web, provider, etc.)
-      console.log('🔧 initializeReputationFromConfig: Skipping AdminApp (not an admin app), trying ClientApp...');
+      console.log('🔧 initializeReputationFromConfig: Skipping AdminApp (no admin role), trying ClientApp...');
     }
 
     // Try ClientApp if AdminApp didn't work
-    if (!agentAccountProvider) {
+    if (!accountProvider) {
       try {
         const { getClientApp } = await import('../userApps/clientApp');
         const clientApp = await getClientApp();
         if (clientApp && clientApp.accountProvider) {
           // Use ClientApp's AccountProvider
           const { ViemAccountProvider } = await import('@agentic-trust/8004-sdk');
-          agentAccountProvider = new ViemAccountProvider({
+          accountProvider = new ViemAccountProvider({
             publicClient: clientApp.publicClient,
             walletClient: clientApp.walletClient as any,
             account: clientApp.account,
@@ -311,7 +330,7 @@ export class AgenticTrustClient {
               chain: clientApp.publicClient.chain || undefined,
             },
           });
-          clientAccountProvider = clientApp.accountProvider;
+          accountProvider = clientApp.accountProvider;
           eoaAddress = clientApp.address;
           console.log('🔧 initializeReputationFromConfig: Using ClientApp AccountProvider', eoaAddress);
         }
@@ -322,7 +341,7 @@ export class AgenticTrustClient {
     }
 
     // Fall back to privateKey-based creation if no wallet/app available
-    if (!agentAccountProvider && config.privateKey) {
+    if (!accountProvider && config.privateKey) {
       console.log('🔧 initializeReputationFromConfig: Creating AccountProvider from privateKey...');
       
       // Normalize private key (same logic as veramoFactory)
@@ -357,7 +376,7 @@ export class AgenticTrustClient {
 
       // Create AccountProviders
       const { ViemAccountProvider } = await import('@agentic-trust/8004-sdk');
-      agentAccountProvider = new ViemAccountProvider({
+      accountProvider = new ViemAccountProvider({
         publicClient,
         walletClient,
         account,
@@ -368,19 +387,17 @@ export class AgenticTrustClient {
           chain: sepolia,
         },
       });
-      clientAccountProvider = agentAccountProvider; // For single account, agent and client are the same
-
       console.log('🔧 initializeReputationFromConfig: Using EOA from private key', eoaAddress);
     }
 
     // If we still don't have AccountProviders, throw error
-    if (!agentAccountProvider || !clientAccountProvider) {
+    if (!accountProvider) {
       throw new Error(
         'Cannot initialize reputation client: No wallet available. ' +
         'Provide either:\n' +
         '  1. Wallet connection (MetaMask/Web3Auth) - AdminApp will be used\n' +
         '  2. Private key via AGENTIC_TRUST_ADMIN_PRIVATE_KEY or config.privateKey\n' +
-        '  3. ClientApp initialization (set AGENTIC_TRUST_IS_CLIENT_APP=true)'
+        '  3. ClientApp initialization (add "client" to AGENTIC_TRUST_APP_ROLES)'
       );
     }
 
@@ -389,8 +406,7 @@ export class AgenticTrustClient {
     const { AIAgentReputationClient } = await import('@agentic-trust/8004-ext-sdk');
     
     const reputationClient = await AIAgentReputationClient.create(
-      agentAccountProvider,
-      clientAccountProvider,
+      accountProvider,
       identityRegistry,
       reputationRegistry,
       (ensRegistry || '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e') as `0x${string}` // Default ENS registry on Sepolia
@@ -398,7 +414,7 @@ export class AgenticTrustClient {
 
     // Store the reputation client in the singleton
     // Import the singleton module and set it directly
-    const reputationClientModule = await import('./reputationClient');
+    //const reputationClientModule = await import('./reputationClient');
     // Access the singleton instance variable (we need to export a setter or access it)
     // For now, we'll use a workaround - the singleton will be initialized when getReputationClient is called
     // But we've created the client here, so future calls to getReputationClient should use the singleton's logic
