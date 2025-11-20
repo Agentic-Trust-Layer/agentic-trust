@@ -19,13 +19,18 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { DomainClient } from './domainClient';
+import { resolveDomainUserApps, resolveENSAccountProvider, type DomainUserApps } from './domainAccountProviders';
+
+interface ENSInitArg {
+  userApps?: DomainUserApps;
+}
 
 class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
   constructor() {
     super('ens');
   }
 
-  protected async buildClient(targetChainId: number): Promise<AIAgentENSClient> {
+  protected async buildClient(targetChainId: number, initArg?: unknown): Promise<AIAgentENSClient> {
     // Get RPC URL from environment
     const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
@@ -37,64 +42,13 @@ class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
     const identityRegistry = (getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', targetChainId) ||
                              '0x0000000000000000000000000000000000000000') as `0x${string}`;
 
-    // Try to get AccountProvider from AdminApp, ClientApp, or ProviderApp
-    let accountProvider: AccountProvider | null = null;
-
-    // Try AdminApp first (for admin operations)
-    if (isUserAppEnabled('admin')) {
-      try {
-        const adminApp = await getAdminApp(undefined, targetChainId);
-        if (adminApp?.accountProvider) {
-          accountProvider = adminApp.accountProvider;
-        }
-      } catch (error) {
-        console.warn('AdminApp not available for ENS client, trying other options...');
-      }
-    }
-
-    // Try ClientApp if AdminApp didn't work
-    if (!accountProvider && isUserAppEnabled('client')) {
-      try {
-        const clientApp = await getClientApp();
-        if (clientApp?.accountProvider) {
-          accountProvider = clientApp.accountProvider;
-        }
-      } catch (error) {
-        console.warn('ClientApp not available for ENS client, trying ProviderApp...');
-      }
-    }
-
-    // Try ProviderApp if ClientApp didn't work
-    if (!accountProvider && isUserAppEnabled('provider')) {
-      try {
-        const providerApp = await getProviderApp();
-        if (providerApp?.accountProvider) {
-          accountProvider = providerApp.accountProvider;
-        }
-      } catch (error) {
-        console.warn('ProviderApp not available for ENS client, creating read-only client...');
-      }
-    }
-
-    // Fallback: Create a read-only AccountProvider if no app is available
-    if (!accountProvider) {
-      const publicClient = createPublicClient({
-        chain: sepolia,
-        transport: http(rpcUrl),
-      });
-
-      accountProvider = new ViemAccountProvider({
-        publicClient,
-        walletClient: null,
-        account: undefined,
-        chainConfig: {
-          id: sepolia.id,
-          rpcUrl,
-          name: sepolia.name,
-          chain: sepolia,
-        },
-      });
-    }
+    const init = (initArg || {}) as ENSInitArg;
+    const userApps = init.userApps ?? (await resolveDomainUserApps());
+    const accountProvider: AccountProvider = await resolveENSAccountProvider(
+      targetChainId,
+      rpcUrl,
+      userApps
+    );
 
     // Select chain object
     const chain =
@@ -127,7 +81,9 @@ const ensDomainClient = new ENSDomainClient();
  * Get or create the AIAgentENSClient singleton
  * Initializes from environment variables using AccountProvider from AdminApp, ClientApp, or ProviderApp
  */
-export async function getENSClient(chainId?: number): Promise<AIAgentENSClient> {
+export async function getENSClient(
+  chainId?: number,
+): Promise<AIAgentENSClient> {
   // Default to Sepolia if no chainId provided
   const targetChainId = chainId || 11155111;
   return ensDomainClient.get(targetChainId);

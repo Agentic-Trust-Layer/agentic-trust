@@ -13,7 +13,7 @@ import type {
   AgentSkill,
   AgentCapabilities,
 } from '../models/a2aAgentCardInfo';
-import { createFeedbackAuth, type RequestAuthParams } from './agentFeedback';
+import { createFeedbackAuth } from './agentFeedback';
 import type {
   AgentData as DiscoveryAgentData,
   GiveFeedbackParams,
@@ -391,15 +391,12 @@ export class Agent {
       console.info("----------> clientAddress inside agent.ts -----> ", clientAddress);
 
 
+
       
       // Use agentId from params, stored agentId, or provider app
       const agentId = params.agentId 
         ? BigInt(params.agentId)
         : (this.data.agentId ? BigInt(this.data.agentId) : providerApp.agentId);
-      
-      // Get reputation client singleton
-      
-      const reputationClient = await getReputationClient();
       
       // Create feedback auth using provider app's wallet client
       const feedbackAuth = await createFeedbackAuth(
@@ -410,8 +407,7 @@ export class Agent {
           signer: providerApp.agentAccount,
           walletClient: providerApp.walletClient as any,
           expirySeconds: params.expirySeconds
-        },
-        reputationClient
+        }
       );
       
       return {

@@ -6,7 +6,7 @@
 
 import type { PublicClient, Account } from 'viem';
 import { ethers } from 'ethers';
-import type { AIAgentReputationClient } from '@agentic-trust/8004-ext-sdk';
+import { getReputationClient } from '../singletons/reputationClient';
 
 // Cache for the ABI to avoid reloading it multiple times
 let abiCache: any = null;
@@ -48,7 +48,6 @@ export interface RequestAuthParams {
  */
 export async function createFeedbackAuth(
   params: RequestAuthParams,
-  reputationClient: AIAgentReputationClient
 ): Promise<`0x${string}`> {
   const {
     publicClient,
@@ -59,6 +58,9 @@ export async function createFeedbackAuth(
     expirySeconds = 3600
   } = params;
 
+  // Get the shared reputation client singleton
+  const reputationClient = await getReputationClient();
+
   // Get identity registry from reputation client
   const identityReg = await reputationClient.getIdentityRegistry();
 
@@ -67,6 +69,7 @@ export async function createFeedbackAuth(
 
   // Ensure IdentityRegistry operator approvals are configured for sessionAA
   console.info("**********************************");
+  console.info("createFeedbackAuth: ", agentId, clientAddress, signer.address as `0x${string}`);
   try {
     const ownerOfAgent = await publicClient.readContract({
       address: identityReg as `0x${string}`,
@@ -81,6 +84,7 @@ export async function createFeedbackAuth(
       functionName: 'isApprovedForAll' as any,
       args: [ownerOfAgent, signer.address as `0x${string}`],
     }) as boolean;
+    
 
     const tokenApproved = await publicClient.readContract({
       address: identityReg as `0x${string}`,
@@ -111,6 +115,7 @@ export async function createFeedbackAuth(
   }
 
   // Build FeedbackAuth struct via ReputationClient
+  console.info("create feedback auth structure: ", agentId, clientAddress, indexLimit, expiry, chainId, signer.address as `0x${string}`);
   const authStruct = reputationClient.createFeedbackAuth(
     agentId,
     clientAddress,
@@ -119,6 +124,9 @@ export async function createFeedbackAuth(
     chainId,
     signer.address as `0x${string}`,
   );
+
+  // Note: log the struct directly; JSON.stringify cannot handle BigInt values.
+  console.info('authStruct:', authStruct);
 
   // Sign keccak256(encoded tuple) with provided signer (sessionAA via ERC-1271)
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
@@ -145,11 +153,15 @@ export async function createFeedbackAuth(
     message: { raw: ethers.getBytes(messageHash) },
   });
 
+  console.info("signature: ", signature);
+
   // Return encoded tuple + signature concatenated
   // Contract expects: encoded(FeedbackAuth struct) + signature
   // This matches the format expected by the contract's giveFeedback function
   const feedbackAuth = ethers.concat([encoded, signature]) as `0x${string}`;
-  
+
+  console.info("feedbackAuth with signature: ", feedbackAuth);
+  console.info("**********************************");
   return feedbackAuth;
 }
 

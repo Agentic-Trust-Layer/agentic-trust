@@ -879,7 +879,7 @@ export class AgentsAPI {
 
     const requestedPage =
       typeof options?.page === 'number' && Number.isFinite(options.page) ? options.page : 1;
-    const pageSize =
+    const rawPageSize =
       typeof options?.pageSize === 'number' && options.pageSize > 0
         ? options.pageSize
         : undefined;
@@ -889,16 +889,21 @@ export class AgentsAPI {
     const where = this.buildAgentWhereInput(options?.params);
     const hasRemoteFilters = hasQuery || !!where;
 
-    // Only use advanced search if we have filters or a free-text query and pageSize is set.
+    // Ensure we always have a pageSize when filters/query are present so that
+    // advanced search is used instead of silently falling back to listAgents.
+    const effectivePageSize =
+      rawPageSize ?? (hasRemoteFilters ? 50 : undefined);
+
+    // Only use advanced search if we have filters or a free-text query and a pageSize.
     // If it fails or returns null, return empty results (no fallback).
-    if (pageSize && hasRemoteFilters) {
-      const offset = (Math.max(requestedPage, 1) - 1) * pageSize;
+    if (effectivePageSize && hasRemoteFilters) {
+      const offset = (Math.max(requestedPage, 1) - 1) * effectivePageSize;
 
       try {
         if (where && typeof advancedDiscoveryClient.searchAgentsGraph === 'function') {
           const advanced = await advancedDiscoveryClient.searchAgentsGraph({
             where,
-            first: pageSize,
+            first: effectivePageSize,
             skip: offset,
             orderBy: options?.orderBy,
             orderDirection: options?.orderDirection,
@@ -909,7 +914,7 @@ export class AgentsAPI {
               typeof advanced.total === 'number' && advanced.total >= 0
                 ? advanced.total
                 : advanced.agents.length + offset;
-            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const totalPages = Math.max(1, Math.ceil(total / effectivePageSize));
             const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
             const agentInstances = advanced.agents.map(
               (data: AgentData) => new Agent(data, this.client),
@@ -919,7 +924,7 @@ export class AgentsAPI {
               agents: agentInstances,
               total,
               page: safePage,
-              pageSize,
+              pageSize: effectivePageSize,
               totalPages,
             };
           }
@@ -930,7 +935,7 @@ export class AgentsAPI {
           const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
             query: options?.query,
             params: options?.params as Record<string, unknown> | undefined,
-            limit: pageSize,
+            limit: effectivePageSize,
             offset,
             orderBy: options?.orderBy,
             orderDirection: options?.orderDirection,
@@ -941,7 +946,7 @@ export class AgentsAPI {
               typeof advanced.total === 'number' && advanced.total >= 0
                 ? advanced.total
                 : advanced.agents.length + offset;
-            const totalPages = Math.max(1, Math.ceil(total / pageSize));
+            const totalPages = Math.max(1, Math.ceil(total / effectivePageSize));
             const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
             const agentInstances = advanced.agents.map(
               (data: AgentData) => new Agent(data, this.client),
@@ -951,7 +956,7 @@ export class AgentsAPI {
               agents: agentInstances,
               total,
               page: safePage,
-              pageSize,
+              pageSize: effectivePageSize,
               totalPages,
             };
           }
@@ -968,14 +973,14 @@ export class AgentsAPI {
         agents: [],
         total: 0,
         page: requestedPage,
-        pageSize,
+        pageSize: effectivePageSize,
         totalPages: 0,
       };
     }
 
     // If no filters, use listAgents to get default list from GraphQL endpoint.
     // Default to 50 agents if no pageSize specified.
-    const defaultPageSize = pageSize ?? 50;
+    const defaultPageSize = effectivePageSize ?? 50;
     const offset = (Math.max(requestedPage, 1) - 1) * defaultPageSize;
 
     try {

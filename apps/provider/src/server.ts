@@ -311,6 +311,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             throw new Error('Agent not found. Cannot request feedback auth without agent instance.');
           }
 
+          console.info("agent.feedback.requestAuth: ", agentIdParam, clientAddress, expirySeconds);
 
           const feedbackAuthResponse = await agent.feedback.requestAuth({
             clientAddress,

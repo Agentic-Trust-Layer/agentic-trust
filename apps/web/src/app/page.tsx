@@ -42,27 +42,41 @@ export default function Home() {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
 
-  // Fetch agents on component mount
-  useEffect(() => {
-    const fetchAgents = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const response = await fetch('/api/agents');
-        if (!response.ok) {
-          throw new Error('Failed to fetch agents');
-        }
-        const data = await response.json();
-        setAgents(data.agents || []);
-      } catch (err) {
-        console.error('Failed to fetch agents:', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch agents');
-      } finally {
-        setLoading(false);
-      }
-    };
+  // Fetch agents (optionally with a query)
+  const fetchAgents = async (query?: string) => {
+    try {
+      setLoading(true);
+      setError(null);
 
+      const trimmed = query?.trim();
+      const payload =
+        trimmed && trimmed.length > 0
+          ? { query: trimmed, page: 1, pageSize: 50 }
+          : {};
+
+      const response = await fetch('/api/agents', {
+        method: Object.keys(payload).length > 0 ? 'POST' : 'GET',
+        headers: Object.keys(payload).length > 0 ? { 'Content-Type': 'application/json' } : undefined,
+        body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined,
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch agents');
+      }
+      const data = await response.json();
+      setAgents(data.agents || []);
+    } catch (err) {
+      console.error('Failed to fetch agents:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch agents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
     fetchAgents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -391,11 +405,48 @@ export default function Home() {
         </div>
       )}
 
-      {!loading && agents.length > 0 && (
+      {!loading && (
         <div style={{ marginBottom: '2rem' }}>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>
             Available Agents
           </h2>
+          <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1rem' }}>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  fetchAgents(searchQuery);
+                }
+              }}
+              placeholder="Search agents by name, endpoint, or metadata"
+              aria-label="Search agents"
+              style={{
+                flex: 1,
+                padding: '0.5rem 0.75rem',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fetchAgents(searchQuery)}
+              disabled={loading}
+              style={{
+                padding: '0.5rem 1rem',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: '#4f46e5',
+                color: 'white',
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {loading ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+          {agents.length > 0 ? (
           <div
             style={{
               display: 'grid',
@@ -430,12 +481,11 @@ export default function Home() {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {!loading && agents.length === 0 && (
-        <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
-          No agents found. Agents will appear here once they are registered.
+          ) : (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#6b7280' }}>
+              No agents found. Agents will appear here once they are registered.
+            </div>
+          )}
         </div>
       )}
 

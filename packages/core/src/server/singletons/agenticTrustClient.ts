@@ -14,11 +14,15 @@ import { getClientAddress } from '../userApps/clientApp';
 import { getENSClient } from './ensClient';
 import { getDiscoveryClient } from './discoveryClient';
 import { getReputationClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
+import { getIdentityClient } from '../singletons/identityClient';
+import { resolveDomainUserApps } from './domainAccountProviders';
+
 import { getAdminApp } from '../userApps/adminApp';
+
 import { isUserAppEnabled } from '../userApps/userApp';
 import { createVeramoAgentForClient } from '../lib/veramoFactory';
 import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
-import { getIdentityClient } from '../singletons/identityClient';
+
 import type { SessionPackage } from '../../shared/sessionPackage';
 
 export class AgenticTrustClient {
