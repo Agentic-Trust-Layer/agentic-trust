@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await getAgenticTrustClient();
-    const result = await client.agents.createAgentForAA({
+    const result = await client.createAgent({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
       description,
@@ -59,15 +59,24 @@ export async function POST(request: NextRequest) {
       supportedTrust,
       endpoints,
       chainId: chainId ? Number(chainId) : undefined,
+      ownerType: 'aa',
+      executionMode: 'client',
     });
 
-      return NextResponse.json({
-        success: true as const,
-      bundlerUrl: result.bundlerUrl,
-        tokenURI: result.tokenURI,
-      chainId: result.chainId,
-      calls: result.calls,
-      });
+    const aaClientResult = result as {
+      bundlerUrl: string;
+      tokenURI: string;
+      chainId: number;
+      calls: Array<{ to: `0x${string}`; data: `0x${string}` }>;
+    };
+
+    return NextResponse.json({
+      success: true as const,
+      bundlerUrl: aaClientResult.bundlerUrl,
+      tokenURI: aaClientResult.tokenURI,
+      chainId: aaClientResult.chainId,
+      calls: aaClientResult.calls,
+    });
   } catch (error) {
     console.error('Error in create agent route:', error);
     return NextResponse.json(

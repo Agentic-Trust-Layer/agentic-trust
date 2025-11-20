@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await getAgenticTrustClient();
-    const result = await client.agents.createAgentForEOAPK({
+    const result = await client.createAgent({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
       description,
@@ -49,12 +49,16 @@ export async function POST(request: NextRequest) {
       supportedTrust,
       endpoints,
       chainId: chainId ? Number(chainId) : undefined,
+      ownerType: 'eoa',
+      executionMode: 'server',
     });
+
+    const typedResult = result as { agentId: string | bigint; txHash: string };
 
     return NextResponse.json({
       success: true as const,
-      agentId: result.agentId.toString(),
-      txHash: result.txHash,
+      agentId: typedResult.agentId.toString(),
+      txHash: typedResult.txHash,
     });
   } catch (error) {
     console.error('Error in create-for-eoa-pk route:', error);

@@ -118,12 +118,24 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
 }
 
 /**
- * Get the client address (convenience method)
+ * Backwards-compatible helper to get the client address as a string.
+ * Prefer using getClientApp() or getClientAppAccount() in new code.
  */
-export async function getClientAddress(): Promise<`0x${string}`> {
+export async function getClientAddress(): Promise<string | undefined> {
   const clientApp = await getClientApp();
-  return clientApp?.address ?? '0x';
+  return clientApp?.address;
 }
+
+/**
+ * Get the full viem Account for the ClientApp (convenience method).
+ * Returns undefined if the ClientApp is not enabled/initialized.
+ */
+export async function getClientAppAccount(): Promise<Account | undefined> {
+  const clientApp = await getClientApp();
+  return clientApp?.account;
+}
+
+
 
 /**
  * Check if client app is initialized

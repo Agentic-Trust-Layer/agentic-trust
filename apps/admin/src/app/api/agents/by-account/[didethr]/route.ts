@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAddress } from 'viem';
-import { getENSClient, buildAgentDetail, DEFAULT_CHAIN_ID, getAgenticTrustClient } from '@agentic-trust/core/server';
+import { getENSClient, DEFAULT_CHAIN_ID, getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,17 +65,17 @@ export async function GET(
       console.warn('Reverse ENS lookup by account failed:', error);
     }
 
-    const adminClient = await getAgenticTrustClient();
+    const atp = await getAgenticTrustClient();
 
     if (!agentId) {
       try {
-        const searchResult = await adminClient.agents.searchAgents({
+        const searchResults = await atp.searchAgents({
           query: account,
           page: 1,
           pageSize: 1,
         });
 
-        const candidate = searchResult.agents?.[0];
+        const candidate = searchResults.agents?.[0];
         if (candidate && typeof candidate === 'object') {
           const candidateObject = candidate as unknown as Record<string, unknown>;
           const candidateDataRaw = candidateObject.data;
@@ -129,11 +129,11 @@ export async function GET(
       );
     }
 
-    const effectiveChainId =
-      Number.isFinite(chainId) && chainId > 0 ? chainId : DEFAULT_CHAIN_ID;
+    const effectiveChainId = Number.isFinite(chainId) && chainId > 0 ? chainId : DEFAULT_CHAIN_ID;
 
-    const payload = await buildAgentDetail(adminClient as any, agentId, effectiveChainId);
-    return NextResponse.json(payload);
+    const agentInfo = await atp.getAgentDetails(agentId, effectiveChainId);
+
+    return NextResponse.json(agentInfo);
   } catch (error) {
     console.error('Error resolving agent by DID:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';

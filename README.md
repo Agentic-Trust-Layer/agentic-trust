@@ -146,7 +146,7 @@ const { agents, total } = await client.agents.searchAgents({
 });
 
 // Get a specific agent
-const agent = await client.agents.getAgent('943');
+const agent = await client.getAgent('943');
 
 // Send a message to an agent
 const response = await agent.sendMessage({
@@ -157,8 +157,7 @@ const response = await agent.sendMessage({
 // Verify an agent
 const isValid = await agent.verify();
 
-// Get client address
-const address = await client.getClientAddress();
+
 ```
 
 ### Server-Side API Pattern (Next.js)

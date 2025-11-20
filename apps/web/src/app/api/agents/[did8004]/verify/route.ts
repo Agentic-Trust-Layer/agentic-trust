@@ -40,7 +40,7 @@ export async function POST(
     const atClient = await getAgenticTrustClient();
     
     // Get agent by ID directly
-    const agent = await atClient.agents.getAgent(parsed.agentId, parsed.chainId);
+    const agent = await atClient.getAgent(parsed.agentId, parsed.chainId);
 
     if (!agent) {
       return NextResponse.json(

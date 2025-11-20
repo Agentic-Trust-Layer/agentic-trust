@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgenticTrustClient } from '@agentic-trust/core/server';
+import { getAgenticTrustClient, getClientApp } from '@agentic-trust/core/server';
 import type { MessageRequest } from '@agentic-trust/core';
 import { parseDid8004 } from '@agentic-trust/core';
 
@@ -51,7 +51,7 @@ export async function POST(
     const atClient = await getAgenticTrustClient();
     
     // Get agent by ID directly
-    const agent = await atClient.agents.getAgent(parsed.agentId, parsed.chainId);
+    const agent = await atClient.getAgent(parsed.agentId, parsed.chainId);
 
     if (!agent) {
       return NextResponse.json(
@@ -60,55 +60,57 @@ export async function POST(
       );
     }
 
-    // For agent.feedback.requestAuth skill, clientAddress is REQUIRED
-    // Get client address from AgenticTrustClient
-    let clientAddress: string | undefined;
+    // For agent.feedback.requestAuth skill, a clientAppAccount is REQUIRED
+    // Get client app account (session/AA or EOA) from the ClientApp singleton
+    let clientAppAccount: string | undefined;
     if (skillId === 'agent.feedback.requestAuth') {
       try {
-        // Use AgenticTrustClient's getClientAddress method
-        clientAddress = await atClient.getClientAddress();
+        // Use ClientApp singleton to get the account address
+        const clientApp = await getClientApp();
+        clientAppAccount = clientApp?.address;
         
-        if (!clientAddress) {
+        if (!clientAppAccount) {
           return NextResponse.json(
-            { error: 'Failed to get client address. Cannot request feedback auth.' },
+            { error: 'Failed to get client app account. Cannot request feedback auth.' },
             { status: 500 },
           );
         }
         
-        console.log('Client address for feedback auth request:', clientAddress);
+        console.log('Client app account for feedback auth request:', clientAppAccount);
       } catch (error) {
-        console.error('Failed to get client address:', error);
+        console.error('Failed to get client app account from ClientApp:', error);
         return NextResponse.json(
-          { error: `Failed to get client address: ${error instanceof Error ? error.message : 'Unknown error'}` },
+          { error: `Failed to get client app account: ${error instanceof Error ? error.message : 'Unknown error'}` },
           { status: 500 },
         );
       }
     } else {
-      // For other skills, try to get client address if available (but not required)
+      // For other skills, try to get client app account if available (but not required)
       try {
-        clientAddress = await atClient.getClientAddress();
+        const clientApp = await getClientApp();
+        clientAppAccount = clientApp?.address;
       } catch (error) {
-        console.warn('Failed to get client address:', error);
+        console.warn('Failed to get client app account:', error);
         // Not required for other skills, so we continue without it
       }
     }
 
     // Build message request with clientAddress in payload
-    // For agent.feedback.requestAuth, clientAddress is required and must be included
+    // For agent.feedback.requestAuth, clientAppAccount is required and must be included
     const messageRequest: MessageRequest = {
       message,
       payload: {
         ...payload,
-        ...(clientAddress && { clientAddress }), // Include clientAddress if available
+        ...(clientAppAccount && { clientAddress: clientAppAccount }), // Include clientAppAccount as clientAddress if available
       },
       skillId,
       metadata,
     };
     
-    // Validate that clientAddress is set for agent.feedback.requestAuth
-    if (skillId === 'agent.feedback.requestAuth' && !clientAddress) {
+    // Validate that clientAppAccount is set for agent.feedback.requestAuth
+    if (skillId === 'agent.feedback.requestAuth' && !clientAppAccount) {
       return NextResponse.json(
-        { error: 'clientAddress is required in payload for agent.feedback.requestAuth skill' },
+        { error: 'clientAppAccount is required in payload for agent.feedback.requestAuth skill' },
         { status: 400 },
       );
     }

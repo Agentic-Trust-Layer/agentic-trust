@@ -13,11 +13,7 @@ import type {
   AgentSkill,
   AgentCapabilities,
 } from '../models/a2aAgentCardInfo';
-import { createFeedbackAuth } from './agentFeedback';
-import type {
-  AgentData as DiscoveryAgentData,
-  GiveFeedbackParams,
-} from '@agentic-trust/8004-ext-sdk';
+import type { AgentData as DiscoveryAgentData, GiveFeedbackParams } from '@agentic-trust/8004-ext-sdk';
 import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 import { getProviderApp } from '../userApps/providerApp';
 import { getReputationClient } from '../singletons/reputationClient';
@@ -399,16 +395,14 @@ export class Agent {
         : (this.data.agentId ? BigInt(this.data.agentId) : providerApp.agentId);
       
       // Create feedback auth using provider app's wallet client
-      const feedbackAuth = await createFeedbackAuth(
-        {
-          publicClient: providerApp.publicClient,
-          agentId,
-          clientAddress,
-          signer: providerApp.agentAccount,
-          walletClient: providerApp.walletClient as any,
-          expirySeconds: params.expirySeconds
-        }
-      );
+      const feedbackAuth = await this.client.createFeedbackAuth({
+        publicClient: providerApp.publicClient,
+        agentId,
+        clientAddress,
+        signer: providerApp.agentAccount,
+        walletClient: providerApp.walletClient as any,
+        expirySeconds: params.expirySeconds,
+      });
       
       return {
         feedbackAuth,
@@ -451,10 +445,10 @@ export class Agent {
 }
 
 /**
- * Build a detailed Agent view using a provided AgenticTrustClient.
+ * Load a detailed Agent view using a provided AgenticTrustClient.
  * This is the core implementation used by admin and other services.
  */
-export async function buildAgentDetail(
+export async function loadAgentDetail(
   client: AgenticTrustClient,
   agentIdentifier: AgentIdentifier,
   chainId: number = DEFAULT_CHAIN_ID,
@@ -697,4 +691,9 @@ export async function buildAgentDetail(
 
   return detail;
 }
+
+/**
+ * @deprecated Use loadAgentDetail instead.
+ */
+export const buildAgentDetail = loadAgentDetail;
 

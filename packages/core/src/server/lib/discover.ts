@@ -5,7 +5,6 @@
  */
 
 import type {
-  AgentsAPI,
   ListAgentsResponse,
   DiscoverAgentsOptions,
   DiscoverParams,
@@ -15,7 +14,7 @@ import { DEFAULT_CHAIN_ID } from './chainConfig';
 
 // Lightweight interface for the server client to avoid heavy coupling here.
 type AgenticTrustClient = {
-  agents: Pick<AgentsAPI, 'searchAgents'>;
+  searchAgents: (options?: DiscoverAgentsOptions | string) => Promise<ListAgentsResponse>;
 };
 
 export type DiscoverRequest = {
@@ -59,9 +58,8 @@ export async function discoverAgents(
     orderDirection: req.orderDirection,
   };
 
-  const { agents, total, page, pageSize, totalPages }: ListAgentsResponse = await (client.agents as any).searchAgents(
-    options,
-  );
+  const { agents, total, page, pageSize, totalPages }: ListAgentsResponse =
+    await client.searchAgents(options);
 
   const mapped: DiscoverResponse = {
     agents: (agents || []).map((agent: any) => {

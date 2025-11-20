@@ -11,7 +11,7 @@ import { getAgenticTrustClient } from '@agentic-trust/core/server';
 export async function GET() {
   try {
     const atClient = await getAgenticTrustClient();
-    const response = await atClient.agents.searchAgents();
+    const response = await atClient.searchAgents();
     
     // Convert Agent instances to plain data for JSON serialization
     const agentsData = response.agents.map(agent => ({
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     }
 
     const atClient = await getAgenticTrustClient();
-    const response = await atClient.agents.searchAgents({
+    const response = await atClient.searchAgents({
       query: typeof query === 'string' ? query.trim() : undefined,
       page: typeof page === 'number' ? page : undefined,
       pageSize: typeof pageSize === 'number' ? pageSize : undefined,

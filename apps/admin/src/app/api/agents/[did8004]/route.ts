@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { buildAgentDetail, getAgenticTrustClient } from '@agentic-trust/core/server';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 const DID_PARAM_KEYS = ['did:8004', 'did8004', 'did꞉8004'] as const;
 
@@ -24,9 +24,9 @@ export async function GET(
     const didAgent = await getDidParam(params);
 
     const client = await getAgenticTrustClient();
-    const agentDetail = await buildAgentDetail(client as any, didAgent);
+    const agentInfo = await client.getAgentDetailsByDid(didAgent);
 
-    return NextResponse.json(agentDetail);
+    return NextResponse.json(agentInfo);
   } catch (error) {
     console.error('Error in get agent info route:', error);
     if (

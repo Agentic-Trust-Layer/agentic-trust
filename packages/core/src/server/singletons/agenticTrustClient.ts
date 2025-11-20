@@ -7,23 +7,57 @@
 import { GraphQLClient } from 'graphql-request';
 import type { ApiClientConfig } from '../lib/types';
 import { AgentsAPI } from '../lib/agents';
+import type { DiscoverAgentsOptions, ListAgentsResponse } from '../lib/agents';
 import { A2AProtocolProviderAPI } from '../lib/a2aProtocolProvider';
 import { VeramoAPI, type AuthChallenge, type ChallengeVerificationResult } from '../lib/veramo';
 
-import { getClientAddress } from '../userApps/clientApp';
+
 import { getENSClient } from './ensClient';
 import { getDiscoveryClient } from './discoveryClient';
 import { getReputationClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
 import { getIdentityClient } from '../singletons/identityClient';
-import { resolveDomainUserApps } from './domainAccountProviders';
 
-import { getAdminApp } from '../userApps/adminApp';
 
 import { isUserAppEnabled } from '../userApps/userApp';
 import { createVeramoAgentForClient } from '../lib/veramoFactory';
 import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
+import { Agent, loadAgentDetail } from '../lib/agent';
+import type { AgentDetail } from '../models/agentDetail';
+import { createFeedbackAuth } from '../lib/agentFeedback';
+import type { RequestAuthParams } from '../lib/agentFeedback';
+import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 
 import type { SessionPackage } from '../../shared/sessionPackage';
+
+type OwnerType = 'eoa' | 'aa';
+type ExecutionMode = 'auto' | 'server' | 'client';
+
+type CreateAgentBaseParams = {
+  agentName: string;
+  agentAccount: `0x${string}`;
+  description?: string;
+  image?: string;
+  agentUrl?: string;
+  supportedTrust?: string[];
+  endpoints?: Array<{
+    name: string;
+    endpoint: string;
+    version?: string;
+    capabilities?: Record<string, any>;
+  }>;
+  chainId?: number;
+};
+
+type CreateAgentEOAClientResult = Awaited<ReturnType<AgentsAPI['createAgentForEOA']>>;
+type CreateAgentEOAServerResult = Awaited<ReturnType<AgentsAPI['createAgentForEOAPK']>>;
+type CreateAgentAAClientResult = Awaited<ReturnType<AgentsAPI['createAgentForAA']>>;
+type CreateAgentAAServerResult = Awaited<ReturnType<AgentsAPI['createAgentForAAPK']>>;
+
+type CreateAgentResult =
+  | CreateAgentEOAClientResult
+  | CreateAgentEOAServerResult
+  | CreateAgentAAClientResult
+  | CreateAgentAAServerResult;
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -32,63 +66,8 @@ export class AgenticTrustClient {
   public a2aProtocolProvider: A2AProtocolProviderAPI;
   public veramo: VeramoAPI;
 
-  /**
-   * Get the client address from ClientApp singleton
-   * @returns The client's Ethereum address
-   * @throws Error if ClientApp is not initialized
-   */
-  async getClientAddress(): Promise<`0x${string}`> {
 
-    return await getClientAddress();
-  }
 
-  /**
-   * Get the admin EOA address derived from AGENTIC_TRUST_ADMIN_PRIVATE_KEY
-   * @returns The admin's Ethereum address
-   * @throws Error if AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set or invalid
-   */
-  async getAdminEOAAddress(): Promise<`0x${string}`> {
-    const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
-
-    if (!privateKey) {
-      throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY environment variable is required');
-    }
-
-    const { privateKeyToAccount } = await import('viem/accounts');
-    const normalizedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
-    const account = privateKeyToAccount(normalizedKey as `0x${string}`);
-
-    return account.address as `0x${string}`;
-  }
-
-  /**
-   * Get the ENS client singleton
-   * @returns The ENS client instance
-   */
-  async getENSClient(): Promise<any> {
-    const { getENSClient } = await import('./ensClient');
-    return await getENSClient();
-  }
-
-  async getDiscoveryClient(): Promise<any> {
-    const { getDiscoveryClient } = await import('./discoveryClient');
-    return await getDiscoveryClient();
-  }
-
-  /**
-   * Verify a signed challenge
-   * Handles all Veramo agent logic internally - no Veramo exposure at app level
-   * 
-   * @param auth - The authentication challenge with signature
-   * @param expectedAudience - Expected audience (provider URL) for validation
-   * @returns Verification result with client address if valid
-   */
-  async verifyChallenge(
-    auth: AuthChallenge,
-    expectedAudience: string
-  ): Promise<ChallengeVerificationResult> {
-    return this.veramo.verifyChallenge(auth, expectedAudience);
-  }
 
   private constructor(config: ApiClientConfig) {
     this.config = { ...config };
@@ -207,6 +186,310 @@ export class AgenticTrustClient {
   }
 
   /**
+   * High-level agent search API exposed directly on the AgenticTrustClient.
+   * This is a thin wrapper around AgentsAPI.searchAgents so that apps can call
+   * client.searchAgents(...) instead of client.agents.searchAgents(...).
+   */
+  async searchAgents(
+    options?: DiscoverAgentsOptions | string,
+  ): Promise<ListAgentsResponse> {
+    return this.agents.searchAgents(options as any);
+  }
+
+  /**
+   * High-level feedbackAuth helper exposed directly on AgenticTrustClient.
+   * This delegates to the shared server-side createFeedbackAuth implementation,
+   * which uses the ReputationClient singleton and IdentityRegistry checks.
+   */
+  async createFeedbackAuth(params: RequestAuthParams): Promise<`0x${string}`> {
+    return createFeedbackAuth(params);
+  }
+
+  /**
+   * High-level createAgent helper that routes to the appropriate underlying
+   * AgentsAPI method based on ownerType (EOA vs AA) and executionMode.
+   *
+   * - ownerType: 'eoa' | 'aa'
+   * - executionMode:
+   *    - 'auto'   (default): use server if an admin/private key is configured, otherwise client
+   *    - 'server' : execute on server (requires admin/private key, otherwise falls back to 'client')
+   *    - 'client' : prepare transactions/calls for client-side signing/execution
+   */
+  async createAgent(params: {
+    ownerType: OwnerType;
+    executionMode?: ExecutionMode;
+  } & CreateAgentBaseParams): Promise<CreateAgentResult> {
+    const { ownerType, executionMode = 'auto', ...rest } = params;
+
+    const hasPrivateKey =
+      !!this.config.privateKey || !!process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
+
+    let mode: ExecutionMode = executionMode;
+    if (executionMode === 'auto') {
+      mode = hasPrivateKey ? 'server' : 'client';
+    } else if (executionMode === 'server' && !hasPrivateKey) {
+      console.warn(
+        '[AgenticTrustClient.createAgent] executionMode="server" requested but no admin/private key configured; falling back to "client" mode.',
+      );
+      mode = 'client';
+    }
+
+    if (ownerType === 'eoa') {
+      if (mode === 'server') {
+        return (await this.agents.createAgentForEOAPK(rest)) as CreateAgentEOAServerResult;
+      }
+      return (await this.agents.createAgentForEOA(rest)) as CreateAgentEOAClientResult;
+    }
+
+    // ownerType === 'aa'
+    if (mode === 'server') {
+      return (await this.agents.createAgentForAAPK(rest)) as CreateAgentAAServerResult;
+    }
+    return (await this.agents.createAgentForAA(rest)) as CreateAgentAAClientResult;
+  }
+
+  /**
+   * Get a single agent by ID.
+   * Thin wrapper over discoveryClient that returns an Agent instance bound to this client.
+   */
+  async getAgent(agentId: string, chainId: number = DEFAULT_CHAIN_ID): Promise<Agent | null> {
+    const discoveryClient = await getDiscoveryClient();
+    const agentData = await discoveryClient.getAgent(chainId, agentId);
+
+    if (!agentData) {
+      return null;
+    }
+
+    return new Agent(agentData, this);
+  }
+
+  /**
+   * Resolve and load an agent by its registered name using the discovery indexer.
+   * Returns an Agent instance bound to this client or null if not found.
+   */
+  async getAgentByName(agentName: string): Promise<Agent | null> {
+    const discoveryClient = await getDiscoveryClient();
+    const agentData = await discoveryClient.getAgentByName(agentName);
+
+    if (!agentData) {
+      return null;
+    }
+
+    return new Agent(agentData, this);
+  }
+
+  /**
+   * Get the on-chain owner (EOA or account) of an agentId from the IdentityRegistry.
+   * Returns null if the owner cannot be resolved (e.g. token does not exist).
+   */
+  async getAgentOwner(
+    agentId: string,
+    chainId?: number,
+  ): Promise<`0x${string}` | null> {
+    const resolvedChainId = chainId ?? DEFAULT_CHAIN_ID;
+
+    const trimmed = agentId.trim();
+    let agentIdBigInt: bigint;
+    try {
+      agentIdBigInt = BigInt(trimmed);
+    } catch {
+      throw new Error(`Invalid agentId for getAgentOwner: ${agentId}`);
+    }
+
+    try {
+      const identityClient = await getIdentityClient(resolvedChainId);
+      const owner = await (identityClient as any).getOwner(agentIdBigInt);
+      if (typeof owner === 'string' && /^0x[a-fA-F0-9]{40}$/.test(owner)) {
+        return owner as `0x${string}`;
+      }
+      return null;
+    } catch (error) {
+      console.warn('[AgenticTrustClient.getAgentOwner] Failed to resolve owner:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve and load an agent by did:8004 identifier.
+   */
+  async getAgentByDid(did8004: string): Promise<Agent | null> {
+    const { agentId, chainId } = parseDid8004(did8004);
+    return this.getAgent(agentId, chainId);
+  }
+
+  /**
+   * Get a fully-hydrated AgentDetail for a given agentId and chainId.
+   * This reuses the shared buildAgentDetail implementation so that
+   * discovery, identity, and registration data are resolved consistently.
+   */
+  async getAgentDetails(
+    agentId: string,
+    chainId?: number,
+  ): Promise<AgentDetail> {
+    const resolvedChainId = chainId ?? DEFAULT_CHAIN_ID;
+    const trimmed = agentId.trim();
+    let agentIdBigInt: bigint;
+    try {
+      agentIdBigInt = BigInt(trimmed);
+    } catch {
+      throw new Error(`Invalid agentId for getAgentDetails: ${agentId}`);
+    }
+    return loadAgentDetail(this, agentIdBigInt, resolvedChainId);
+  }
+
+  /**
+   * Get a fully-hydrated AgentDetail for a given did:8004 identifier.
+   */
+  async getAgentDetailsByDid(did8004: string): Promise<AgentDetail> {
+    // loadAgentDetail will parse did:8004 and derive chainId/agentId internally.
+    return loadAgentDetail(this, did8004, DEFAULT_CHAIN_ID);
+  }
+
+  /**
+   * Resolve an agent by its owner account address.
+   *
+   * Strategy:
+   *  1. Try ENS reverse lookup via ENS client (getAgentIdentityByAccount)
+   *  2. If not found, fall back to discovery search by account address
+   *  3. If an agentId is resolved, return fully-hydrated AgentDetail
+   *
+   * Returns null if no agent can be resolved for the given account.
+   */
+  async getAgentByAccount(
+    account: `0x${string}`,
+    chainId?: number,
+  ): Promise<AgentDetail | null> {
+    let workingChainId = Number.isFinite(chainId ?? NaN) && (chainId ?? 0) > 0
+      ? (chainId as number)
+      : DEFAULT_CHAIN_ID;
+
+    let agentId: string | null = null;
+
+    // 1. Try ENS reverse lookup first
+    try {
+      const ensClient = await getENSClient(workingChainId);
+      const identity = await (ensClient as any).getAgentIdentityByAccount(account);
+      if (identity?.agentId) {
+        agentId = identity.agentId.toString();
+      }
+    } catch (error) {
+      console.warn('getAgentByAccount: Reverse ENS lookup by account failed:', error);
+    }
+
+    // 2. Fall back to discovery search by account if needed
+    if (!agentId) {
+      try {
+        const searchResults = await this.searchAgents({
+          query: account,
+          page: 1,
+          pageSize: 1,
+        });
+
+        const candidate = searchResults.agents?.[0];
+        if (candidate && typeof candidate === 'object') {
+          const candidateObject = candidate as unknown as Record<string, unknown>;
+          const candidateDataRaw = candidateObject.data;
+          const candidateData =
+            candidateDataRaw && typeof candidateDataRaw === 'object'
+              ? (candidateDataRaw as Record<string, unknown>)
+              : null;
+
+          const candidateAgentIdValue =
+            candidateData && candidateData.agentId !== undefined
+              ? (candidateData as any).agentId
+              : (candidateObject as any).agentId;
+
+          if (candidateAgentIdValue !== undefined && candidateAgentIdValue !== null) {
+            if (typeof candidateAgentIdValue === 'bigint') {
+              agentId = candidateAgentIdValue.toString();
+            } else if (
+              typeof candidateAgentIdValue === 'number' &&
+              Number.isFinite(candidateAgentIdValue)
+            ) {
+              agentId = Math.trunc(candidateAgentIdValue).toString();
+            } else if (
+              typeof candidateAgentIdValue === 'string' &&
+              candidateAgentIdValue.trim().length > 0
+            ) {
+              agentId = candidateAgentIdValue.trim();
+            }
+          }
+
+          const candidateChainId =
+            candidateData && typeof (candidateData as any).chainId === 'number'
+              ? (candidateData as any).chainId
+              : undefined;
+          if ((!workingChainId || Number.isNaN(workingChainId)) && typeof candidateChainId === 'number') {
+            workingChainId = candidateChainId;
+          }
+        }
+      } catch (error) {
+        console.warn('getAgentByAccount: Discovery search by account failed:', error);
+      }
+    }
+
+    if (!agentId) {
+      return null;
+    }
+
+    const effectiveChainId =
+      Number.isFinite(workingChainId) && workingChainId > 0 ? workingChainId : DEFAULT_CHAIN_ID;
+
+    return this.getAgentDetails(agentId, effectiveChainId);
+  }
+
+
+
+  /**
+   * Extract an agentId from a transaction receipt using the on-chain IdentityRegistry.
+   * Thin wrapper around AgentsAPI.extractAgentIdFromReceipt so apps can call
+   * client.extractAgentIdFromReceipt(...) directly.
+   */
+  async extractAgentIdFromReceipt(
+    receipt: any,
+    chainId?: number,
+  ): Promise<string | null> {
+    return this.agents.extractAgentIdFromReceipt(
+      receipt,
+      chainId ?? DEFAULT_CHAIN_ID,
+    );
+  }
+
+
+
+  
+
+  /**
+   * Get the ENS client singleton
+   * @returns The ENS client instance
+   */
+  async getENSClient(): Promise<any> {
+    const { getENSClient } = await import('./ensClient');
+    return await getENSClient();
+  }
+
+  async getDiscoveryClient(): Promise<any> {
+    const { getDiscoveryClient } = await import('./discoveryClient');
+    return await getDiscoveryClient();
+  }
+
+  /**
+   * Verify a signed challenge
+   * Handles all Veramo agent logic internally - no Veramo exposure at app level
+   * 
+   * @param auth - The authentication challenge with signature
+   * @param expectedAudience - Expected audience (provider URL) for validation
+   * @returns Verification result with client address if valid
+   */
+  async verifyChallenge(
+    auth: AuthChallenge,
+    expectedAudience: string
+  ): Promise<ChallengeVerificationResult> {
+    return this.veramo.verifyChallenge(auth, expectedAudience);
+  }
+
+
+  /**
    * Initialize reputation client from session package
    * Uses environment variables only (no overrides allowed)
    * @internal
@@ -238,8 +521,6 @@ export class AgenticTrustClient {
       transport: httpTransport(delegationSetup.rpcUrl),
     });
 
-    // Get client account (session key address)
-    const clientAccount = sessionPackage.sessionKey.address as `0x${string}`;
 
     const reputationRegistry = this.config.reputationRegistry;
     if (!reputationRegistry) {
@@ -495,5 +776,24 @@ export class AgenticTrustClient {
   getConfig(): Readonly<ApiClientConfig> {
     return { ...this.config };
   }
+
+    /**
+   * Get the admin EOA address derived from AGENTIC_TRUST_ADMIN_PRIVATE_KEY
+   * @returns The admin's Ethereum address
+   * @throws Error if AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set or invalid
+   */
+    async getAdminEOAAddress(): Promise<`0x${string}`> {
+      const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
+  
+      if (!privateKey) {
+        throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY environment variable is required');
+      }
+  
+      const { privateKeyToAccount } = await import('viem/accounts');
+      const normalizedKey = privateKey.startsWith('0x') ? privateKey : `0x${privateKey}`;
+      const account = privateKeyToAccount(normalizedKey as `0x${string}`);
+  
+      return account.address as `0x${string}`;
+    }
 }
 

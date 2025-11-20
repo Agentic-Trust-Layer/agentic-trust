@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await getAgenticTrustClient();
-    const result = await client.agents.createAgentForEOA({
+    const result = await client.createAgent({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
       description,
@@ -49,23 +49,34 @@ export async function POST(request: NextRequest) {
       supportedTrust,
       endpoints,
       chainId: chainId ? Number(chainId) : undefined,
+      ownerType: 'eoa',
+      executionMode: 'client'
     });
 
-    if ('requiresClientSigning' in result && result.requiresClientSigning) {
+    const clientSigningResult = result as {
+      requiresClientSigning?: boolean;
+      transaction?: unknown;
+      tokenURI?: string;
+      metadata?: unknown;
+    };
+
+    if (clientSigningResult.requiresClientSigning) {
       return NextResponse.json({
         success: true as const,
         requiresClientSigning: true,
-        transaction: result.transaction,
-        tokenURI: result.tokenURI,
-        metadata: result.metadata,
+        transaction: clientSigningResult.transaction,
+        tokenURI: clientSigningResult.tokenURI,
+        metadata: clientSigningResult.metadata,
       });
     }
 
-    if ('agentId' in result && 'txHash' in result) {
+    const onchainResult = result as { agentId?: string | bigint; txHash?: string };
+
+    if (onchainResult.agentId && onchainResult.txHash) {
       return NextResponse.json({
         success: true as const,
-        agentId: result.agentId.toString(),
-        txHash: result.txHash,
+        agentId: onchainResult.agentId.toString(),
+        txHash: onchainResult.txHash,
       });
     }
 

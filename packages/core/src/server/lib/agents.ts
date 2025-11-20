@@ -62,7 +62,8 @@ import {
   ViemAccountProvider,
   BaseIdentityClient,
 } from '@agentic-trust/8004-sdk';
-import { Agent } from './agent';
+import { Agent, loadAgentDetail } from './agent';
+import type { AgentDetail } from '../models/agentDetail';
 
 import { getDiscoveryClient } from '../singletons/discoveryClient';
 import {
@@ -207,19 +208,23 @@ export class AgentsAPI {
    * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
    */
   async getAgent(agentId: string, chainId: number = 11155111): Promise<Agent | null> {
-    const discoveryClient = await getDiscoveryClient();
-    const agentData = await discoveryClient.getAgent(chainId, agentId);
-    
-    if (!agentData) {
-      return null;
-    }
-    
-    return new Agent(agentData, this.client);
+    return this.client.getAgent(agentId, chainId);
   }
 
   async getAgentByDid(did8004: string): Promise<Agent | null> {
-    const { agentId, chainId } = parseDid8004(did8004);
-    return this.getAgent(agentId, chainId);
+    return this.client.getAgentByDid(did8004);
+  }
+
+  /**
+   * Get a fully-hydrated AgentDetail for a given agentId and chainId.
+   * This method is kept for backwards compatibility but simply delegates
+   * to the top-level AgenticTrustClient.getAgentDetails helper.
+   */
+  async getAgentDetails(
+    agentId: string,
+    chainId?: number,
+  ): Promise<AgentDetail> {
+    return this.client.getAgentDetails(agentId, chainId);
   }
 
   /**

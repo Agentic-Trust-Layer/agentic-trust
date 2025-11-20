@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
     }
 
     const client = await getAgenticTrustClient();
-    const result = await client.agents.createAgentForAAPK({
+    const result = await client.createAgent({
       agentName,
       agentAccount: agentAccount as `0x${string}`,
       description,
@@ -50,13 +50,18 @@ export async function POST(request: NextRequest) {
       supportedTrust,
       endpoints,
       chainId: chainId ? Number(chainId) : undefined,
+      ownerType: 'aa',
+      executionMode: 'server',
+      // Pass through ENS options for AA+PK flow
       ensOptions: ensOptions as any,
-    });
+    } as any);
+
+    const typedResult = result as { txHash: string; agentId?: string };
 
     return NextResponse.json({
       success: true as const,
-      agentId: result.agentId,
-      txHash: result.txHash,
+      agentId: typedResult.agentId,
+      txHash: typedResult.txHash,
     });
   } catch (error) {
     console.error('Error in create-for-aa-pk route:', error);

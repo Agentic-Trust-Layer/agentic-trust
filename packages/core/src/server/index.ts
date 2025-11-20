@@ -85,6 +85,7 @@ export {
 
 export {
   getClientApp,
+  getClientAppAccount,
   getClientAddress,
   isClientAppInitialized,
   resetClientApp,
@@ -114,14 +115,8 @@ export type {
   AgentDetail,
   AgentIdentifier,
 } from './models/agentDetail';
-export {
-  buildAgentDetail,
-} from './lib/agent';
-export {
-  getIdentityClient,
-  isIdentityClientInitialized,
-  resetIdentityClient,
-} from './singletons/identityClient';
+
+
 
 export {
   getAccountOwner,
