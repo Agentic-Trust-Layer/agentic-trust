@@ -41,6 +41,18 @@ export default function Home() {
   const [feedbackComment, setFeedbackComment] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+  const [feedbackTag1, setFeedbackTag1] = useState('');
+  const [feedbackTag2, setFeedbackTag2] = useState('');
+  const [showFeedbackListDialog, setShowFeedbackListDialog] = useState(false);
+  const [feedbackListLoading, setFeedbackListLoading] = useState(false);
+  const [feedbackListError, setFeedbackListError] = useState<string | null>(null);
+  const [feedbackList, setFeedbackList] = useState<any[] | null>(null);
+  const [feedbackSummary, setFeedbackSummary] = useState<{ count: string | number; averageScore: number } | null>(null);
+  const [feedbackSkills, setFeedbackSkills] = useState<AgentSkill[]>([]);
+  const [feedbackSkillId, setFeedbackSkillId] = useState<string>('');
+  const [feedbackContext, setFeedbackContext] = useState('');
+  const [feedbackCapability, setFeedbackCapability] = useState('');
+  const [feedbackJsonByUri, setFeedbackJsonByUri] = useState<Record<string, { loading: boolean; error: string | null; data: any | null }>>({});
 
   // Fetch agents (optionally with a query)
   const fetchAgents = async (query?: string) => {
@@ -79,6 +91,46 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load agent-card.json when opening the feedback dialog so we can
+  // populate skill dropdowns from the agent's declared skills.
+  useEffect(() => {
+    const loadCard = async () => {
+      if (!showFeedbackDialog || !selectedAgent || !selectedAgent.agentId) {
+        return;
+      }
+
+      try {
+        const agentChainId =
+          typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
+            ? selectedAgent.chainId
+            : DEFAULT_CHAIN_ID;
+        const did = buildDid8004(agentChainId, selectedAgent.agentId);
+
+        const response = await fetch(
+          `/api/agents/${encodeURIComponent(did)}/card`,
+        );
+        if (!response.ok) {
+          return;
+        }
+        const data = await response.json();
+        const card = data.card as AgentCard | undefined;
+        if (card) {
+          setAgentCard(card);
+          const skills = Array.isArray(card.skills) ? card.skills : [];
+          setFeedbackSkills(skills);
+          if (skills.length > 0 && !feedbackSkillId) {
+            setFeedbackSkillId(skills[0].id);
+          }
+        }
+      } catch {
+        // Best-effort only; dialog will still work without skills.
+      }
+    };
+
+    void loadCard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFeedbackDialog, selectedAgent]);
+
   /**
    * Request feedbackAuth from provider and submit feedback
    * @param agentName - Agent name (ENS name, optional if agentId+chainId provided)
@@ -88,6 +140,11 @@ export default function Home() {
    * @param comment - Feedback comment
    * @param taskId - Optional task ID
    * @param contextId - Optional context ID
+   * @param tag1 - Optional feedback tag1
+   * @param tag2 - Optional feedback tag2
+   * @param skill - Optional skill identifier from agent-card.json
+   * @param context - Optional feedback context
+   * @param capability - Optional capability label
    */
   const requestFeedbackAuthAndSubmit = async (
     agentName: string | undefined,
@@ -96,7 +153,12 @@ export default function Home() {
     score: number,
     comment: string,
     taskId?: string,
-    contextId?: string
+    contextId?: string,
+    tag1?: string,
+    tag2?: string,
+    skill?: string,
+    context?: string,
+    capability?: string,
   ) => {
     if (!agentName && (!agentId || !chainId)) {
       throw new Error('Either agentName or both agentId and chainId are required');
@@ -157,6 +219,11 @@ export default function Home() {
         ...(taskId && { taskId }),
         ...(contextId && { contextId }),
         ...(agentName && { agentName }),
+        ...(tag1 && { tag1 }),
+        ...(tag2 && { tag2 }),
+        ...(skill && { skill }),
+        ...(context && { context }),
+        ...(capability && { capability }),
       }),
     });
 
@@ -183,7 +250,9 @@ export default function Home() {
     agentId: string,
     clientAddress: string,
     score: number = 85,
-    comment: string = 'Feedback submitted via web client'
+    comment: string = 'Feedback submitted via web client',
+    tag1?: string,
+    tag2?: string,
   ) => {
     if (!feedbackAuth || !agentId || !clientAddress) {
       throw new Error('Missing required feedback auth data: feedbackAuth, agentId, or clientAddress');
@@ -208,6 +277,8 @@ export default function Home() {
         feedback: comment,
         feedbackAuth: feedbackAuth,
         clientAddress: clientAddress,
+        ...(tag1 && { tag1 }),
+        ...(tag2 && { tag2 }),
       }),
     });
 
@@ -358,12 +429,24 @@ export default function Home() {
         agentId,
         chainId,
         score,
-        feedbackComment
+        feedbackComment,
+        undefined,
+        undefined,
+        feedbackTag1 || undefined,
+        feedbackTag2 || undefined,
+        feedbackSkillId || undefined,
+        feedbackContext || undefined,
+        feedbackCapability || undefined,
       );
 
       setFeedbackSuccess(true);
       setFeedbackComment('');
       setFeedbackRating(5);
+      setFeedbackTag1('');
+      setFeedbackTag2('');
+      setFeedbackSkillId('');
+      setFeedbackContext('');
+      setFeedbackCapability('');
 
       // Close dialog after a short delay
       setTimeout(() => {
@@ -375,6 +458,78 @@ export default function Home() {
       setError(err instanceof Error ? err.message : 'Failed to submit feedback');
     } finally {
       setSubmittingFeedback(false);
+    }
+  };
+
+  const openFeedbackListForSelectedAgent = async () => {
+    if (!selectedAgent || !selectedAgent.agentId) {
+      setError('Please select an agent first');
+      return;
+    }
+
+    try {
+      setShowFeedbackListDialog(true);
+      setFeedbackListLoading(true);
+      setFeedbackListError(null);
+      setFeedbackList(null);
+      setFeedbackSummary(null);
+
+      const agentChainId =
+        typeof selectedAgent.chainId === 'number' && Number.isFinite(selectedAgent.chainId)
+          ? selectedAgent.chainId
+          : DEFAULT_CHAIN_ID;
+      const agentDid = buildDid8004(agentChainId, selectedAgent.agentId);
+
+      const response = await fetch(
+        `/api/agents/${encodeURIComponent(agentDid)}/feedback?includeRevoked=true`,
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to load feedback');
+      }
+
+      const data = await response.json();
+      setFeedbackList(Array.isArray(data.feedback) ? data.feedback : []);
+      setFeedbackSummary(data.summary ?? null);
+    } catch (err) {
+      console.error('Failed to load feedback list:', err);
+      setFeedbackListError(
+        err instanceof Error ? err.message : 'Failed to load feedback',
+      );
+    } finally {
+      setFeedbackListLoading(false);
+    }
+  };
+
+  const ensureFeedbackJsonLoaded = async (uri: string | undefined) => {
+    if (!uri) return;
+
+    const existing = feedbackJsonByUri[uri];
+    if (existing && (existing.loading || existing.data || existing.error)) {
+      return;
+    }
+
+    setFeedbackJsonByUri(prev => ({
+      ...prev,
+      [uri]: { loading: true, error: null, data: null },
+    }));
+
+    try {
+      const json = await loadFeedbackJson(uri);
+      setFeedbackJsonByUri(prev => ({
+        ...prev,
+        [uri]: { loading: false, error: null, data: json },
+      }));
+    } catch (error: any) {
+      setFeedbackJsonByUri(prev => ({
+        ...prev,
+        [uri]: {
+          loading: false,
+          error: error?.message ?? 'Failed to load feedback JSON',
+          data: null,
+        },
+      }));
     }
   };
 
@@ -489,7 +644,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Feedback Dialog */}
+      {/* Give Feedback Dialog */}
       {showFeedbackDialog && (
         <div
           style={{
@@ -550,6 +705,165 @@ export default function Home() {
                     {num}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {feedbackSkills.length > 0 && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    color: '#d1d5db',
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  Skill (optional)
+                </label>
+                <select
+                  value={feedbackSkillId}
+                  onChange={e => setFeedbackSkillId(e.target.value)}
+                  disabled={submittingFeedback}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#111827',
+                    color: 'white',
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  <option value="">Select a skill…</option>
+                  {feedbackSkills.map(skill => (
+                    <option key={skill.id} value={skill.id}>
+                      {skill.name || skill.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.75rem' }}>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#d1d5db',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Tag 1 (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackTag1}
+                  onChange={e => setFeedbackTag1(e.target.value)}
+                  placeholder="e.g. quality, speed"
+                  disabled={submittingFeedback}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#111827',
+                    color: 'white',
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#d1d5db',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Tag 2 (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackTag2}
+                  onChange={e => setFeedbackTag2(e.target.value)}
+                  placeholder="e.g. helpful, safe"
+                  disabled={submittingFeedback}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#111827',
+                    color: 'white',
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.75rem' }}>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#d1d5db',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Context (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackContext}
+                  onChange={e => setFeedbackContext(e.target.value)}
+                  placeholder="e.g. enterprise, research"
+                  disabled={submittingFeedback}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#111827',
+                    color: 'white',
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: '#d1d5db',
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Capability (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackCapability}
+                  onChange={e => setFeedbackCapability(e.target.value)}
+                  placeholder="e.g. problem_solving"
+                  disabled={submittingFeedback}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: '1px solid #4b5563',
+                    backgroundColor: '#111827',
+                    color: 'white',
+                    fontSize: '0.875rem',
+                  }}
+                />
               </div>
             </div>
 
@@ -632,9 +946,362 @@ export default function Home() {
         </div>
       )}
 
-      {/* Feedback Button */}
+      {/* View Feedback Dialog */}
+      {showFeedbackListDialog && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+          onClick={() => setShowFeedbackListDialog(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#111827',
+              borderRadius: '12px',
+              padding: '1.5rem',
+              maxWidth: '720px',
+              width: '100%',
+              border: '1px solid #374151',
+              maxHeight: '80vh',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                fontSize: '1.25rem',
+                fontWeight: 'bold',
+                color: 'white',
+                marginBottom: '0.75rem',
+              }}
+            >
+              Feedback for{' '}
+              {selectedAgent?.agentName || `Agent #${selectedAgent?.agentId}`}
+            </h2>
+
+            {feedbackSummary && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.875rem',
+                  color: '#e5e7eb',
+                }}
+              >
+                <span>
+                  <strong>Count:</strong> {feedbackSummary.count}
+                </span>
+                <span>
+                  <strong>Average score:</strong> {feedbackSummary.averageScore}
+                </span>
+              </div>
+            )}
+
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                borderRadius: '8px',
+                border: '1px solid #374151',
+                padding: '0.75rem',
+                backgroundColor: '#020617',
+              }}
+            >
+              {feedbackListLoading ? (
+                <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                  Loading feedback…
+                </div>
+              ) : feedbackListError ? (
+                <div style={{ color: '#fca5a5', fontSize: '0.875rem' }}>
+                  {feedbackListError}
+                </div>
+              ) : !feedbackList || feedbackList.length === 0 ? (
+                <div style={{ color: '#9ca3af', fontSize: '0.875rem' }}>
+                  No feedback entries found for this agent.
+                </div>
+              ) : (
+                <ul
+                  style={{
+                    listStyle: 'none',
+                    padding: 0,
+                    margin: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.5rem',
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  {feedbackList.map((item, index) => {
+                    const record = item as any;
+                    const clientAddress = record.clientAddress as string | undefined;
+                    const score = record.score as number | undefined;
+                    const isRevoked = record.isRevoked as boolean | undefined;
+                    const feedbackUri = record.feedbackUri as string | undefined;
+                    const tag1 = record.tag1 as string | undefined;
+                    const tag2 = record.tag2 as string | undefined;
+                    const feedbackHash = record.feedbackHash as string | undefined;
+                    const createdAtTime = record.createdAtTime as
+                      | string
+                      | number
+                      | undefined;
+                    const indexValue = record.index as number | string | undefined;
+                    const recordAgentId = record.agentId as
+                      | string
+                      | number
+                      | undefined;
+                    const recordChainId = record.chainId as number | undefined;
+
+                    return (
+                      <li
+                        key={record.index ?? index}
+                        style={{
+                          padding: '0.6rem 0.75rem',
+                          borderRadius: '8px',
+                          border: '1px solid #374151',
+                          backgroundColor: '#020617',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem',
+                            marginBottom: '0.25rem',
+                          }}
+                        >
+                          <span>
+                            <strong>Score:</strong>{' '}
+                            {typeof score === 'number' ? score : 'N/A'}
+                          </span>
+                          {typeof isRevoked === 'boolean' && isRevoked && (
+                            <span style={{ color: '#fca5a5', fontWeight: 600 }}>
+                              Revoked
+                            </span>
+                          )}
+                        </div>
+                        {clientAddress && (
+                          <div
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: '0.78rem',
+                              color: '#9ca3af',
+                              marginBottom:
+                                feedbackUri ||
+                                tag1 ||
+                                tag2 ||
+                                createdAtTime ||
+                                feedbackHash
+                                  ? '0.25rem'
+                                  : 0,
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            {clientAddress}
+                          </div>
+                        )}
+                        {(tag1 || tag2 || createdAtTime || feedbackHash) && (
+                          <div
+                            style={{
+                              fontSize: '0.78rem',
+                              color: '#e5e7eb',
+                              marginBottom: feedbackUri ? '0.25rem' : 0,
+                            }}
+                          >
+                            {tag1 && (
+                              <span>
+                                <strong>Tag1:</strong> {tag1}{' '}
+                              </span>
+                            )}
+                            {tag2 && (
+                              <span>
+                                <strong>Tag2:</strong> {tag2}{' '}
+                              </span>
+                            )}
+                            {createdAtTime !== undefined && createdAtTime !== null && (
+                              <span>
+                                <strong>Created:</strong>{' '}
+                                {String(createdAtTime)}{' '}
+                              </span>
+                            )}
+                            {feedbackHash && (
+                              <span>
+                                <strong>Hash:</strong>{' '}
+                                {feedbackHash.length > 18
+                                  ? `${feedbackHash.slice(0, 10)}…${feedbackHash.slice(
+                                      -6,
+                                    )}`
+                                  : feedbackHash}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {feedbackUri && (
+                          <details
+                            onToggle={event => {
+                              const el = event.currentTarget as HTMLDetailsElement;
+                              if (el.open) {
+                                void ensureFeedbackJsonLoaded(feedbackUri);
+                              }
+                            }}
+                            style={{
+                              marginTop: '0.25rem',
+                              fontSize: '0.78rem',
+                              color: '#9ca3af',
+                            }}
+                          >
+                            <summary style={{ cursor: 'pointer' }}>
+                              Feedback JSON (IPFS)
+                            </summary>
+                            <div
+                              style={{
+                                marginTop: '0.25rem',
+                                borderRadius: '6px',
+                                backgroundColor: '#020617',
+                                padding: '0.4rem 0.5rem',
+                                border: '1px solid #1f2937',
+                                maxHeight: '260px',
+                                overflow: 'auto',
+                              }}
+                            >
+                              {(() => {
+                                const state = feedbackJsonByUri[feedbackUri];
+                                if (!state || state.loading) {
+                                  return (
+                                    <span style={{ color: '#9ca3af' }}>
+                                      Loading feedback JSON…
+                                    </span>
+                                  );
+                                }
+                                if (state.error) {
+                                  return (
+                                    <span style={{ color: '#fca5a5' }}>
+                                      {state.error}
+                                    </span>
+                                  );
+                                }
+                                if (!state.data) {
+                                  return (
+                                    <span style={{ color: '#9ca3af' }}>
+                                      No JSON data available.
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <pre
+                                    style={{
+                                      margin: 0,
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    {JSON.stringify(state.data, null, 2)}
+                                  </pre>
+                                );
+                              })()}
+                            </div>
+                          </details>
+                        )}
+                        {(indexValue !== undefined ||
+                          recordAgentId !== undefined ||
+                          recordChainId !== undefined) && (
+                          <div
+                            style={{
+                              marginTop: '0.25rem',
+                              fontSize: '0.75rem',
+                              color: '#6b7280',
+                            }}
+                          >
+                            {indexValue !== undefined && (
+                              <span>
+                                <strong>Index:</strong> {String(indexValue)}{' '}
+                              </span>
+                            )}
+                            {recordAgentId !== undefined && (
+                              <span>
+                                <strong>AgentId:</strong> {String(recordAgentId)}{' '}
+                              </span>
+                            )}
+                            {recordChainId !== undefined && (
+                              <span>
+                                <strong>Chain:</strong> {recordChainId}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        <details
+                          style={{
+                            marginTop: '0.35rem',
+                            fontSize: '0.75rem',
+                            color: '#9ca3af',
+                          }}
+                        >
+                          <summary style={{ cursor: 'pointer' }}>
+                            Raw entry
+                          </summary>
+                          <pre
+                            style={{
+                              marginTop: '0.25rem',
+                              whiteSpace: 'pre-wrap',
+                              wordBreak: 'break-word',
+                            }}
+                          >
+                            {JSON.stringify(record, null, 2)}
+                          </pre>
+                        </details>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+
+            <div
+              style={{
+                marginTop: '0.75rem',
+                display: 'flex',
+                justifyContent: 'flex-end',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setShowFeedbackListDialog(false)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: '#374151',
+                  color: 'white',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feedback Buttons */}
       {selectedAgent && (
-        <div style={{ marginTop: '2rem', textAlign: 'center' }}>
+        <div
+          style={{
+            marginTop: '2rem',
+            display: 'flex',
+            justifyContent: 'center',
+            gap: '0.75rem',
+          }}
+        >
           <button
             type="button"
             onClick={() => setShowFeedbackDialog(true)}
@@ -651,9 +1318,56 @@ export default function Home() {
           >
             💬 Give Feedback
           </button>
+          <button
+            type="button"
+            onClick={() => openFeedbackListForSelectedAgent()}
+            style={{
+              padding: '0.75rem 1.5rem',
+              backgroundColor: '#111827',
+              color: 'white',
+              borderRadius: '8px',
+              border: '1px solid #4b5563',
+              cursor: 'pointer',
+              fontWeight: 600,
+              fontSize: '1rem',
+            }}
+          >
+            📊 View Feedback
+          </button>
         </div>
       )}
 
     </main>
   );
+}
+
+async function loadFeedbackJson(uri: string): Promise<any> {
+  const trimmed = uri?.trim();
+  if (!trimmed) {
+    throw new Error('Feedback URI is empty.');
+  }
+
+  // Basic ipfs:// handling – map to a public gateway
+  let resolvedUrl = trimmed;
+  if (trimmed.startsWith('ipfs://')) {
+    const path = trimmed.slice('ipfs://'.length);
+    resolvedUrl = `https://ipfs.io/ipfs/${path}`;
+  }
+
+  const response = await fetch(resolvedUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch feedback JSON (HTTP ${response.status}).`);
+  }
+
+  // Try to parse as JSON; fall back to text if needed
+  try {
+    return await response.json();
+  } catch {
+    const text = await response.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { raw: text };
+    }
+  }
 }

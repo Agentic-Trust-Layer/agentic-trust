@@ -29,6 +29,14 @@ export interface GiveFeedbackParams {
   feedbackAuth?: string;
 }
 
+export interface AppendToFeedbackParams {
+  agentId: string | number | bigint;
+  clientAddress: `0x${string}`;
+  feedbackIndex: string | number | bigint;
+  responseUri?: string;
+  responseHash?: `0x${string}`;
+}
+
 export class AIAgentReputationClient extends BaseReputationClient {
   private chain: Chain;
   private accountProvider: AccountProvider;
@@ -139,8 +147,8 @@ export class AIAgentReputationClient extends BaseReputationClient {
     }
 
     // Convert optional string parameters to bytes32 (or empty bytes32 if not provided)
-    const tag1 = params.tag1 ? ethers.id(params.tag1).slice(0, 66) : ethers.ZeroHash;
-    const tag2 = params.tag2 ? ethers.id(params.tag2).slice(0, 66) : ethers.ZeroHash;
+    const tag1 = params.tag1
+    const tag2 = params.tag2
     const feedbackHash = '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
     const feedbackUri = params.feedbackUri || '';
 
@@ -169,6 +177,69 @@ export class AIAgentReputationClient extends BaseReputationClient {
     });
 
     // Send transaction using AccountProvider
+    const tx: TxRequest = {
+      to: this.reputationAddress,
+      data: data || '0x',
+      value: 0n,
+    };
+
+    const result = await this.accountProvider?.send(tx, {
+      simulation: true,
+    });
+
+    return { txHash: result?.hash || '' };
+  }
+
+  /**
+   * Append a response to an existing feedback entry for an agent.
+   *
+   * Wraps the ReputationRegistry `appendResponse(agentId, clientAddress, feedbackIndex, responseUri, responseHash)`
+   * function using the same AccountProvider / ClientApp wiring as giveClientFeedback.
+   */
+  async appendToFeedback(params: AppendToFeedbackParams): Promise<{ txHash: string }> {
+    const agentId = BigInt(params.agentId);
+    const feedbackIndex = BigInt(params.feedbackIndex);
+    const responseUri = params.responseUri || '';
+    const responseHash =
+      params.responseHash && params.responseHash.length === 66
+        ? params.responseHash
+        : (ethers.ZeroHash as `0x${string}`);
+
+    const data = await this.accountProvider?.encodeFunctionData({
+      abi: ReputationRegistryABI as any,
+      functionName: 'appendResponse',
+      args: [agentId, params.clientAddress, feedbackIndex, responseUri, responseHash],
+    });
+
+    const tx: TxRequest = {
+      to: this.reputationAddress,
+      data: data || '0x',
+      value: 0n,
+    };
+
+    const result = await this.accountProvider?.send(tx, {
+      simulation: true,
+    });
+
+    return { txHash: result?.hash || '' };
+  }
+
+  /**
+   * Revoke a previously submitted feedback entry for an agent.
+   *
+   * This wraps the ReputationRegistry `revokeFeedback(uint256 tokenId, uint256 feedbackIndex)`
+   * function using the same AccountProvider / ClientApp wiring as giveClientFeedback.
+   */
+  async revokeFeedback(
+    agentId: bigint,
+    feedbackIndex: bigint,
+  ): Promise<{ txHash: string }> {
+    const data = await this.accountProvider?.encodeFunctionData({
+      abi: ReputationRegistryABI as any,
+      functionName: 'revokeFeedback',
+      args: [agentId, feedbackIndex],
+    });
+
     const tx: TxRequest = {
       to: this.reputationAddress,
       data: data || '0x',

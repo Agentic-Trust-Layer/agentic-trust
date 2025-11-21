@@ -11,7 +11,22 @@ import { getAgenticTrustClient } from '@agentic-trust/core/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { agentId, chainId, score, feedback, feedbackAuth, tag1, tag2, feedbackUri, feedbackHash, clientAddress, agentName } = body;
+    const {
+      agentId,
+      chainId,
+      score,
+      feedback,
+      feedbackAuth,
+      tag1,
+      tag2,
+      feedbackUri,
+      feedbackHash,
+      clientAddress,
+      agentName,
+      skill,
+      context,
+      capability,
+    } = body;
 
     // Validate required fields
     if (!agentId || score === undefined || !feedbackAuth) {
@@ -44,6 +59,9 @@ export async function POST(request: NextRequest) {
       tag2,
       feedbackUri,
       feedbackHash,
+      skill,
+      context,
+      capability,
     });
 
 

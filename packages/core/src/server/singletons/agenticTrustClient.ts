@@ -206,6 +206,199 @@ export class AgenticTrustClient {
   }
 
   /**
+   * Fetch feedback entries for a given agent.
+   *
+   * Strategy:
+   *  1. Try the discovery indexer's feedback search GraphQL API
+   *     (e.g. searchFeedbacksGraph) when available.
+   *  2. If that fails or is not supported, fall back to on-chain
+   *     `readAllFeedback` on the ReputationRegistry via the ReputationClient.
+   *
+   * The return type is intentionally un-opinionated (`unknown[]`) so callers
+   * can evolve their own view models without being tightly coupled to the
+   * underlying indexer/contract schema.
+   */
+  async getAgentFeedback(params: {
+    agentId: string;
+    chainId?: number;
+    clientAddresses?: string[];
+    tag1?: string;
+    tag2?: string;
+    includeRevoked?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<unknown[]> {
+    const {
+      agentId,
+      chainId,
+      clientAddresses,
+      tag1,
+      tag2,
+      includeRevoked = false,
+      limit,
+      offset,
+    } = params;
+
+    const trimmed = (agentId ?? '').toString().trim();
+    if (!trimmed) {
+      throw new Error('agentId is required for getAgentFeedback');
+    }
+
+    const resolvedChainId =
+      Number.isFinite(chainId ?? NaN) && (chainId ?? 0) > 0
+        ? (chainId as number)
+        : DEFAULT_CHAIN_ID;
+
+    let agentIdBigInt: bigint;
+    try {
+      agentIdBigInt = BigInt(trimmed);
+    } catch {
+      throw new Error(`Invalid agentId for getAgentFeedback: ${agentId}`);
+    }
+
+    // 1. Try discovery indexer feedback search first (best-effort)
+    try {
+      const discoveryClient = await getDiscoveryClient();
+
+      const query = `
+        query SearchFeedbacksGraph(
+          $where: FeedbackWhereInput
+          $first: Int
+          $skip: Int
+        ) {
+          searchFeedbacksGraph(
+            where: $where
+            first: $first
+            skip: $skip
+          ) {
+            feedbacks {
+              id
+              agentId
+              chainId
+              clientAddress
+              score
+              tag1
+              tag2
+              feedbackUri
+              feedbackHash
+              isRevoked
+            }
+            total
+            hasMore
+          }
+        }
+      `;
+
+      const variables: Record<string, unknown> = {
+        where: {
+          agentId: trimmed,
+          chainId: resolvedChainId,
+        },
+        first: typeof limit === 'number' ? limit : 100,
+        skip: typeof offset === 'number' ? offset : 0,
+      };
+
+      const result = await discoveryClient.request<{
+        searchFeedbacksGraph?: {
+          feedbacks?: unknown[];
+          total?: number | null;
+          hasMore?: boolean | null;
+        };
+      }>(query, variables);
+
+      if (result && (result as any).searchFeedbacksGraph) {
+        const node = (result as any).searchFeedbacksGraph;
+        const list = Array.isArray(node.feedbacks) ? node.feedbacks : [];
+        return list as unknown[];
+      }
+    } catch (error) {
+      console.warn(
+        '[AgenticTrustClient.getAgentFeedback] discovery feedback search failed; falling back to on-chain readAllFeedback:',
+        error,
+      );
+    }
+
+    // 2. Fallback: on-chain ReputationRegistry readAllFeedback
+    const reputationClient = await getReputationClient(resolvedChainId);
+    const raw = await (reputationClient as any).readAllFeedback(
+      agentIdBigInt,
+      clientAddresses,
+      tag1,
+      tag2,
+      includeRevoked,
+    );
+
+    const clients: string[] = raw?.clientAddresses ?? [];
+    const scores: number[] = raw?.scores ?? [];
+    const tag1s: string[] = raw?.tag1s ?? [];
+    const tag2s: string[] = raw?.tag2s ?? [];
+    const revokedStatuses: boolean[] = raw?.revokedStatuses ?? [];
+
+    const maxLen = Math.max(
+      clients.length,
+      scores.length,
+      tag1s.length,
+      tag2s.length,
+      revokedStatuses.length,
+    );
+
+    const records: unknown[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      records.push({
+        agentId: trimmed,
+        chainId: resolvedChainId,
+        clientAddress: clients[i],
+        score: scores[i],
+        tag1: tag1s[i],
+        tag2: tag2s[i],
+        isRevoked: revokedStatuses[i],
+        index: i,
+      });
+    }
+
+    return records;
+  }
+
+  /**
+   * Get aggregated reputation summary for an agentId from the on-chain
+   * ReputationRegistry via the ReputationClient.
+   */
+  async getReputationSummary(params: {
+    agentId: string;
+    chainId?: number;
+    clientAddresses?: string[];
+    tag1?: string;
+    tag2?: string;
+  }): Promise<{ count: bigint; averageScore: number }> {
+    const { agentId, chainId, clientAddresses, tag1, tag2 } = params;
+
+    const trimmed = (agentId ?? '').toString().trim();
+    if (!trimmed) {
+      throw new Error('agentId is required for getReputationSummary');
+    }
+
+    const resolvedChainId =
+      Number.isFinite(chainId ?? NaN) && (chainId ?? 0) > 0
+        ? (chainId as number)
+        : DEFAULT_CHAIN_ID;
+
+    let agentIdBigInt: bigint;
+    try {
+      agentIdBigInt = BigInt(trimmed);
+    } catch {
+      throw new Error(`Invalid agentId for getReputationSummary: ${agentId}`);
+    }
+
+    const reputationClient = await getReputationClient(resolvedChainId);
+    return (reputationClient as any).getSummary(
+      agentIdBigInt,
+      clientAddresses,
+      tag1,
+      tag2,
+    );
+  }
+
+  /**
    * High-level createAgent helper that routes to the appropriate underlying
    * AgentsAPI method based on ownerType (EOA vs AA) and executionMode.
    *
@@ -457,7 +650,75 @@ export class AgenticTrustClient {
 
 
 
-  
+  /**
+   * Revoke a previously submitted feedback entry for an agent.
+   *
+   * This is a high-level helper that:
+   *  - resolves the ReputationClient singleton for the given chain
+   *  - converts the provided agentId/feedbackIndex into bigint
+   *  - calls the underlying ReputationRegistry.revokeFeedback(...)
+   */
+  async revokeFeedback(params: {
+    agentId: string;
+    feedbackIndex: string | number | bigint;
+    chainId?: number;
+  }): Promise<{ txHash: string }> {
+    const { agentId, feedbackIndex, chainId } = params;
+    const resolvedChainId = chainId ?? DEFAULT_CHAIN_ID;
+
+    const trimmed = agentId.trim();
+    let agentIdBigInt: bigint;
+    try {
+      agentIdBigInt = BigInt(trimmed);
+    } catch {
+      throw new Error(`Invalid agentId for revokeFeedback: ${agentId}`);
+    }
+
+    const feedbackIndexBigInt =
+      typeof feedbackIndex === 'bigint' ? feedbackIndex : BigInt(feedbackIndex);
+
+    const reputationClient = await getReputationClient(resolvedChainId);
+    return (reputationClient as any).revokeFeedback(agentIdBigInt, feedbackIndexBigInt);
+  }
+
+
+  /**
+   * Append a response to an existing feedback entry for an agent.
+   *
+   * High-level helper that converts string/number inputs to bigint and delegates
+   * to the ReputationClient's appendToFeedback implementation.
+   */
+  async appendToFeedback(params: {
+    agentId: string;
+    clientAddress: `0x${string}`;
+    feedbackIndex: string | number | bigint;
+    responseUri?: string;
+    responseHash?: `0x${string}`;
+    chainId?: number;
+  }): Promise<{ txHash: string }> {
+    const { agentId, clientAddress, feedbackIndex, responseUri, responseHash, chainId } = params;
+    const resolvedChainId = chainId ?? DEFAULT_CHAIN_ID;
+
+    const trimmed = agentId.trim();
+    let agentIdBigInt: bigint;
+    try {
+      agentIdBigInt = BigInt(trimmed);
+    } catch {
+      throw new Error(`Invalid agentId for appendToFeedback: ${agentId}`);
+    }
+
+    const feedbackIndexBigInt =
+      typeof feedbackIndex === 'bigint' ? feedbackIndex : BigInt(feedbackIndex);
+
+    const reputationClient = await getReputationClient(resolvedChainId);
+    return (reputationClient as any).appendToFeedback({
+      agentId: agentIdBigInt,
+      clientAddress,
+      feedbackIndex: feedbackIndexBigInt,
+      responseUri,
+      responseHash,
+    });
+  }
 
   /**
    * Get the ENS client singleton

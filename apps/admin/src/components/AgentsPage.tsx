@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
-import { generateSessionPackage } from '@agentic-trust/core';
+import { generateSessionPackage, buildDid8004 } from '@agentic-trust/core';
 
 export type AgentsPageAgent = {
   agentId: string;
@@ -54,7 +54,7 @@ type AgentsPageProps = {
   onPageChange?: (page: number) => void;
 };
 
-type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a' | 'session';
+type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a' | 'session' | 'feedback';
 
 const ACTION_LABELS: Record<AgentActionType, string> = {
   info: 'Info',
@@ -63,6 +63,7 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   'did-agent': 'DID:Agent',
   a2a: 'A2A',
   session: 'Session',
+  feedback: 'Feedback',
 };
 
 export function AgentsPage({
@@ -119,6 +120,19 @@ export function AgentsPage({
     text: null,
   });
   const [sessionProgress, setSessionProgress] = useState<Record<string, number>>({});
+  const [feedbackPreview, setFeedbackPreview] = useState<{
+    key: string | null;
+    loading: boolean;
+    error: string | null;
+    items: unknown[] | null;
+    summary: { count: string | number; averageScore: number } | null;
+  }>({
+    key: null,
+    loading: false,
+    error: null,
+    items: null,
+    summary: null,
+  });
 
   const EXPLORER_BY_CHAIN: Record<number, string> = {
     1: 'https://etherscan.io',
@@ -228,6 +242,64 @@ export function AgentsPage({
         });
       }
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDialog]);
+
+  useEffect(() => {
+    if (!activeDialog || activeDialog.action !== 'feedback') {
+      return;
+    }
+
+    const { agent } = activeDialog;
+    const key = `${agent.chainId}:${agent.agentId}`;
+    let cancelled = false;
+
+    setFeedbackPreview({
+      key,
+      loading: true,
+      error: null,
+      items: null,
+      summary: null,
+    });
+
+    (async () => {
+      try {
+        const did8004 = buildDid8004(agent.chainId, agent.agentId);
+        const response = await fetch(
+          `/api/agents/${encodeURIComponent(did8004)}/feedback?includeRevoked=true`,
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.message || errorData.error || 'Failed to fetch feedback',
+          );
+        }
+
+        const data = await response.json();
+        if (cancelled) return;
+
+        setFeedbackPreview({
+          key,
+          loading: false,
+          error: null,
+          items: Array.isArray(data.feedback) ? data.feedback : [],
+          summary: data.summary ?? null,
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setFeedbackPreview({
+          key,
+          loading: false,
+          error: error?.message ?? 'Unable to load feedback.',
+          items: null,
+          summary: null,
+        });
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -468,6 +540,145 @@ export function AgentsPage({
                 a2aPreview.text
               ) : (
                 <span style={{ color: palette.textSecondary }}>No JSON preview available.</span>
+              )}
+            </div>
+          </>
+        );
+      }
+      case 'feedback': {
+        const previewMatchesAgent = feedbackPreview.key === `${agent.chainId}:${agent.agentId}`;
+        const loading = !previewMatchesAgent || feedbackPreview.loading;
+        const error = previewMatchesAgent ? feedbackPreview.error : null;
+        const items = previewMatchesAgent ? feedbackPreview.items : null;
+        const summary = previewMatchesAgent ? feedbackPreview.summary : null;
+
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              Feedback entries and aggregated reputation summary for this agent.
+            </p>
+            {summary && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  marginBottom: '0.75rem',
+                  fontSize: '0.85rem',
+                  color: palette.textSecondary,
+                }}
+              >
+                <span>
+                  <strong>Feedback count:</strong> {summary.count}
+                </span>
+                <span>
+                  <strong>Average score:</strong> {summary.averageScore}
+                </span>
+              </div>
+            )}
+            <div
+              style={{
+                marginTop: '0.5rem',
+                border: `1px solid ${palette.border}`,
+                borderRadius: '10px',
+                padding: '0.75rem',
+                backgroundColor: palette.surfaceMuted,
+                maxHeight: '500px',
+                overflow: 'auto',
+                fontSize: '0.85rem',
+              }}
+            >
+              {loading ? (
+                <span style={{ color: palette.textSecondary }}>Loading feedback…</span>
+              ) : error ? (
+                <span style={{ color: palette.dangerText }}>{error}</span>
+              ) : !items || items.length === 0 ? (
+                <span style={{ color: palette.textSecondary }}>
+                  No feedback entries found for this agent.
+                </span>
+              ) : (
+                <ul
+                  style={{
+                    listStyle: 'none',
+                    padding: 0,
+                    margin: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.75rem',
+                  }}
+                >
+                  {items.map((item, index) => {
+                    const record = item as any;
+                    const clientAddress = record.clientAddress as string | undefined;
+                    const score = record.score as number | undefined;
+                    const isRevoked = record.isRevoked as boolean | undefined;
+                    const feedbackUri = record.feedbackUri as string | undefined;
+
+                    return (
+                      <li
+                        key={record.index ?? index}
+                        style={{
+                          padding: '0.6rem 0.75rem',
+                          borderRadius: '8px',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surface,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem',
+                            marginBottom: '0.25rem',
+                          }}
+                        >
+                          <span>
+                            <strong>Score:</strong>{' '}
+                            {typeof score === 'number' ? score : 'N/A'}
+                          </span>
+                          {typeof isRevoked === 'boolean' && isRevoked && (
+                            <span
+                              style={{
+                                color: palette.dangerText,
+                                fontWeight: 600,
+                              }}
+                            >
+                              Revoked
+                            </span>
+                          )}
+                        </div>
+                        {clientAddress && (
+                          <div
+                            style={{
+                              fontFamily: 'monospace',
+                              fontSize: '0.8rem',
+                              color: palette.textSecondary,
+                              marginBottom: feedbackUri ? '0.25rem' : 0,
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            {clientAddress}
+                          </div>
+                        )}
+                        {feedbackUri && (
+                          <a
+                            href={feedbackUri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              fontSize: '0.8rem',
+                              color: palette.accent,
+                              textDecoration: 'none',
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            View feedback details
+                          </a>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           </>
@@ -1154,6 +1365,25 @@ export function AgentsPage({
                       }}
                     >
                       {ACTION_LABELS.info}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openActionDialog(agent, 'feedback');
+                      }}
+                      style={{
+                        padding: '0.25rem 0.6rem',
+                        borderRadius: '8px',
+                        border: `1px solid ${palette.border}`,
+                        backgroundColor: palette.surface,
+                        fontSize: '0.7rem',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                        color: palette.textPrimary,
+                      }}
+                    >
+                      {ACTION_LABELS.feedback}
                     </button>
                     <button
                       type="button"
