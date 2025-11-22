@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { isAddress } from 'viem';
-import { getENSClient, DEFAULT_CHAIN_ID, getAgenticTrustClient } from '@agentic-trust/core/server';
+import { DEFAULT_CHAIN_ID, getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,73 +52,11 @@ export async function GET(
     const rawParam = params['did:ethr'];
     const { chainId: initialChainId, account } = parseDidEthr(rawParam);
 
-    let chainId = initialChainId;
-    let agentId: string | null = null;
-
-    try {
-      const ensClient = await getENSClient(chainId);
-      const identity = await ensClient.getAgentIdentityByAccount(account);
-      if (identity?.agentId) {
-        agentId = identity.agentId.toString();
-      }
-    } catch (error) {
-      console.warn('Reverse ENS lookup by account failed:', error);
-    }
-
     const atp = await getAgenticTrustClient();
 
-    if (!agentId) {
-      try {
-        const searchResults = await atp.searchAgents({
-          query: account,
-          page: 1,
-          pageSize: 1,
-        });
+    const agentInfo = await atp.getAgentByAccount(account, initialChainId);
 
-        const candidate = searchResults.agents?.[0];
-        if (candidate && typeof candidate === 'object') {
-          const candidateObject = candidate as unknown as Record<string, unknown>;
-          const candidateDataRaw = candidateObject.data;
-          const candidateData =
-            candidateDataRaw && typeof candidateDataRaw === 'object'
-              ? (candidateDataRaw as Record<string, unknown>)
-              : null;
-
-          const candidateAgentIdValue =
-            candidateData && candidateData.agentId !== undefined
-              ? candidateData.agentId
-              : candidateObject.agentId;
-
-          if (candidateAgentIdValue !== undefined && candidateAgentIdValue !== null) {
-            if (typeof candidateAgentIdValue === 'bigint') {
-              agentId = candidateAgentIdValue.toString();
-            } else if (
-              typeof candidateAgentIdValue === 'number' &&
-              Number.isFinite(candidateAgentIdValue)
-            ) {
-              agentId = Math.trunc(candidateAgentIdValue).toString();
-            } else if (
-              typeof candidateAgentIdValue === 'string' &&
-              candidateAgentIdValue.trim().length > 0
-            ) {
-              agentId = candidateAgentIdValue.trim();
-            }
-          }
-
-          const candidateChainId =
-            candidateData && typeof candidateData.chainId === 'number'
-              ? candidateData.chainId
-              : undefined;
-          if ((!chainId || Number.isNaN(chainId)) && typeof candidateChainId === 'number') {
-            chainId = candidateChainId;
-          }
-        }
-      } catch (error) {
-        console.warn('Discovery search by account failed:', error);
-      }
-    }
-
-    if (!agentId) {
+    if (!agentInfo) {
       return NextResponse.json(
         {
           error: 'Agent not found for account',
@@ -128,10 +66,6 @@ export async function GET(
         { status: 404 },
       );
     }
-
-    const effectiveChainId = Number.isFinite(chainId) && chainId > 0 ? chainId : DEFAULT_CHAIN_ID;
-
-    const agentInfo = await atp.getAgentDetails(agentId, effectiveChainId);
 
     return NextResponse.json(agentInfo);
   } catch (error) {

@@ -1,11 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  addAgentNameToL1Org,
-} from '@agentic-trust/core/server';
-
-
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,9 +36,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-
     console.log("addAgentNameToL1Org: ", agentAccount, orgName, agentName, agentUrl, chainId);
-    const result = await addAgentNameToL1Org({
+    const client = await getAgenticTrustClient();
+    const result = await client.addAgentNameToL1Org({
       agentAddress: agentAccount as `0x${string}`,
       orgName,
       agentName,

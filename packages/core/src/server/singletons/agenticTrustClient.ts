@@ -399,6 +399,45 @@ export class AgenticTrustClient {
   }
 
   /**
+   * ENS helpers exposed via AgenticTrustClient so that apps do not talk to
+   * the ENS singleton directly.
+   */
+  async isENSNameAvailable(
+    ensName: string,
+    chainId?: number,
+  ): Promise<boolean | null> {
+    const { isENSNameAvailable } = await import('./ensClient');
+    return isENSNameAvailable(ensName, chainId);
+  }
+
+  async getENSInfo(
+    ensName: string,
+    chainId?: number,
+  ): Promise<{
+    name: string;
+    chainId?: number;
+    available: boolean | null;
+    account: `0x${string}` | string | null;
+    image: string | null;
+    url: string | null;
+    description: string | null;
+  }> {
+    const { getENSInfo } = await import('./ensClient');
+    return getENSInfo(ensName, chainId);
+  }
+
+  async addAgentNameToL1Org(params: {
+    agentName: string;
+    orgName: string;
+    agentAddress: `0x${string}`;
+    agentUrl?: string;
+    chainId?: number;
+  }): Promise<string> {
+    const { addAgentNameToL1Org } = await import('./ensClient');
+    return addAgentNameToL1Org(params as any);
+  }
+
+  /**
    * High-level createAgent helper that routes to the appropriate underlying
    * AgentsAPI method based on ownerType (EOA vs AA) and executionMode.
    *

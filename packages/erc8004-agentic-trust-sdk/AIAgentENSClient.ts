@@ -994,12 +994,15 @@ export class AIAgentENSClient {
     //  throw new Error(`Invalid ENS resolver address: ${resolverAddress}. Ensure ENS resolver is properly configured.`);
     //}
 
-    // Get identity wrapper address from environment or use a default
-    // TODO: Consider storing this in the client instance for consistency
-    const identityWrapperAddress = process.env.AGENTIC_TRUST_ENS_IDENTITY_WRAPPER as `0x${string}` | undefined;
-    
-    if (!identityWrapperAddress || identityWrapperAddress.length !== 42) {
-      throw new Error(`Invalid ENS identity wrapper address. Set AGENTIC_TRUST_ENS_IDENTITY_WRAPPER environment variable.`);
+    // Get identity wrapper address from environment (chain-scoped if available)
+    const identityWrapperAddress = this.getChainScopedAddress(
+      'AGENTIC_TRUST_ENS_IDENTITY_WRAPPER',
+      this.chain.id,
+    );
+    if (!identityWrapperAddress) {
+      throw new Error(
+        `Invalid ENS identity wrapper address. Set AGENTIC_TRUST_ENS_IDENTITY_WRAPPER_{CHAIN_SUFFIX} or AGENTIC_TRUST_ENS_IDENTITY_WRAPPER environment variable.`,
+      );
     }
 
     console.log('!!!!!!!!!!!! prepareAddAgentNameToOrgCalls: label, address', label, params.agentAddress);
@@ -1011,7 +1014,10 @@ export class AIAgentENSClient {
         parentNode,
         label,
         params.agentAddress,
-        process.env.AGENTIC_TRUST_ENS_PUBLIC_RESOLVER as `0x${string}`,
+        this.getChainScopedAddress(
+          'AGENTIC_TRUST_ENS_PUBLIC_RESOLVER',
+          this.chain.id,
+        ) as `0x${string}`,
         0,
         0,
         0
@@ -1059,6 +1065,37 @@ export class AIAgentENSClient {
       return null;
     }
 
+  }
+
+  /**
+   * Resolve a chain-scoped env var, falling back to the base name.
+   * For example, with baseName 'AGENTIC_TRUST_ENS_PUBLIC_RESOLVER' and
+   * chain.id=11155111, this checks:
+   *  - AGENTIC_TRUST_ENS_PUBLIC_RESOLVER_SEPOLIA
+   *  - AGENTIC_TRUST_ENS_PUBLIC_RESOLVER
+   */
+  private getChainScopedAddress(
+    baseName: string,
+    chainId: number,
+  ): `0x${string}` | undefined {
+    const suffix =
+      chainId === 11155111
+        ? 'SEPOLIA'
+        : chainId === 84532
+        ? 'BASE_SEPOLIA'
+        : chainId === 11155420
+        ? 'OPTIMISM_SEPOLIA'
+        : undefined;
+
+    const chainKey = suffix ? `${baseName}_${suffix}` : baseName;
+    const chainValue = process.env[chainKey];
+    const fallbackValue = process.env[baseName];
+    const raw = chainValue ?? fallbackValue;
+
+    if (!raw) return undefined;
+    const trimmed = raw.trim();
+    if (!/^0x[0-9a-fA-F]{40}$/.test(trimmed)) return undefined;
+    return trimmed as `0x${string}`;
   }
 
 

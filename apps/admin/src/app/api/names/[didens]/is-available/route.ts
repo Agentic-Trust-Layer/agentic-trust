@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { isENSNameAvailable } from '@agentic-trust/core/server';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDidEns } from '../../_lib/didEns';
 
 export async function GET(
@@ -38,7 +38,8 @@ export async function GET(
     }
 
     const { ensName, chainId } = parsed;
-    const isAvailable = await isENSNameAvailable(ensName, chainId);
+    const client = await getAgenticTrustClient();
+    const isAvailable = await client.isENSNameAvailable(ensName, chainId);
 
     if (isAvailable === null) {
       return NextResponse.json(

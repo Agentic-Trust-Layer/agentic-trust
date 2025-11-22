@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getENSInfo } from '@agentic-trust/core/server';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 import { parseDidEns } from '../_lib/didEns';
 
 export async function GET(
@@ -38,7 +38,8 @@ export async function GET(
     }
 
     const { ensName, chainId } = parsed;
-    const nameInfo = await getENSInfo(ensName, chainId);
+    const client = await getAgenticTrustClient();
+    const nameInfo = await client.getENSInfo(ensName, chainId);
     return NextResponse.json({ nameInfo });
   } catch (error) {
     console.error('Error fetching ENS name info:', error);

@@ -499,7 +499,7 @@ export interface PrepareL2AgentNameInfoResult {
   }[];
 }
 
-export async function addAgentNameToL1Org(params: AddAgentToOrgL2Params): Promise<string> {
+export async function addAgentNameToL1Org(params: AddAgentToOrgL1Params): Promise<string> {
   const { agentAddress, orgName, agentName, agentUrl } = params;
   console.log("addAgentNameToL1Org: ", agentAddress, orgName, agentName, agentUrl);
 

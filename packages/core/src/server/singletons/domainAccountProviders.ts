@@ -27,7 +27,12 @@ export async function resolveDomainUserApps(): Promise<DomainUserApps> {
     try {
       ctx.adminApp = await getAdminApp();
     } catch (error) {
-      console.warn('AdminApp not available while resolving domain user apps:', error);
+      const message =
+        error instanceof Error ? error.message : String(error);
+      console.warn(
+        'AdminApp not available while resolving domain user apps (non-fatal):',
+        message,
+      );
     }
   }
 

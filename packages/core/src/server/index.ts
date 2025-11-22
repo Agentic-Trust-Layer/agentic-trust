@@ -125,32 +125,12 @@ export {
   type ParsedEthrDid,
 } from './lib/accounts';
 
-export {
-  getENSClient,
-  isENSClientInitialized,
-  resetENSClient,
-  isENSAvailable,
-  isENSNameAvailable,
-  getENSInfo,
-  addAgentNameToL1Org,
-  addAgentNameToL2Org,
-  prepareL1AgentNameInfoCalls,
-  prepareL2AgentNameInfoCalls,
-  
-} from './singletons/ensClient';
-
 export type {
   AddAgentToOrgL1Params,
   AddAgentToOrgL1Result,
   AddAgentToOrgL2Params,
   AddAgentToOrgL2Result,
 } from './singletons/ensClient';
-
-export {
-  getReputationClient,
-  isReputationClientInitialized,
-  resetReputationClient,
-} from './singletons/reputationClient';
 
 export {
   getChainEnvVar,
