@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { prepareL2AgentNameInfoCalls } from '@agentic-trust/core/server';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function POST(request: NextRequest) {
   try {
@@ -14,15 +14,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const params: any = {
+    const client = await getAgenticTrustClient();
+    const result = await client.prepareL2AgentNameInfoCalls({
       agentAddress,
       orgName,
       agentName,
       agentUrl,
       agentDescription,
-    };
-    if (typeof chainId === 'number') params.chainId = chainId;
-    const result = await prepareL2AgentNameInfoCalls(params);
+      ...(typeof chainId === 'number' ? { chainId } : {}),
+    });
 
     const jsonSafeCalls = result.calls.map((call) => ({
       to: call.to,

@@ -437,6 +437,62 @@ export class AgenticTrustClient {
     return addAgentNameToL1Org(params as any);
   }
 
+  async addAgentNameToL2Org(params: {
+    agentName: string;
+    orgName: string;
+    agentAddress: `0x${string}`;
+    agentUrl?: string;
+    agentDescription?: string;
+    agentImage?: string;
+    chainId?: number;
+  }): Promise<{
+    calls: {
+      to: `0x${string}`;
+      data: `0x${string}`;
+      value?: bigint;
+    }[];
+  }> {
+    const { addAgentNameToL2Org } = await import('./ensClient');
+    return addAgentNameToL2Org(params as any);
+  }
+
+  async prepareL1AgentNameInfoCalls(params: {
+    agentAddress: `0x${string}`;
+    orgName: string;
+    agentName: string;
+    agentUrl?: string;
+    agentDescription?: string;
+    chainId?: number;
+  }): Promise<{
+    calls: {
+      to: `0x${string}`;
+      data: `0x${string}`;
+      value?: bigint;
+    }[];
+  }> {
+    const { prepareL1AgentNameInfoCalls } = await import('./ensClient');
+    return prepareL1AgentNameInfoCalls(params as any);
+  }
+
+  async prepareL2AgentNameInfoCalls(params: {
+    agentAddress: `0x${string}`;
+    orgName: string;
+    agentName: string;
+    agentUrl?: string;
+    agentDescription?: string;
+    agentImage?: string;
+    chainId?: number;
+  }): Promise<{
+    calls: {
+      to: `0x${string}`;
+      data: `0x${string}`;
+      value?: bigint;
+    }[];
+  }> {
+    const { prepareL2AgentNameInfoCalls } = await import('./ensClient');
+    return prepareL2AgentNameInfoCalls(params as any);
+  }
+
   /**
    * High-level createAgent helper that routes to the appropriate underlying
    * AgentsAPI method based on ownerType (EOA vs AA) and executionMode.
