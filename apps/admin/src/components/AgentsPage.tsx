@@ -9,7 +9,7 @@ export type AgentsPageAgent = {
   chainId: number;
   agentName?: string | null;
   agentAccount?: string | null;
-  metadataURI?: string | null;
+  tokenUri?: string | null;
   description?: string | null;
   image?: string | null;
   contractAddress?: string | null;
@@ -205,8 +205,8 @@ export function AgentsPage({
     }
     const { agent } = activeDialog;
     const key = `${agent.chainId}:${agent.agentId}`;
-    const metadataUri = agent.metadataURI;
-    if (!metadataUri) {
+    const tokenUri = agent.tokenUri;
+    if (!tokenUri) {
       setRegistrationPreview({
         key,
         loading: false,
@@ -217,14 +217,14 @@ export function AgentsPage({
     }
     let cancelled = false;
     setRegistrationPreview({
-      key,
-      loading: true,
-      error: null,
-      text: null,
-    });
+        key,
+        loading: true,
+        error: null,
+        text: null,
+      });
     (async () => {
       try {
-        const text = await loadRegistrationContent(metadataUri);
+        const text = await loadRegistrationContent(tokenUri);
         if (cancelled) return;
         setRegistrationPreview({
           key,
@@ -424,16 +424,16 @@ export function AgentsPage({
             <p style={{ marginTop: 0 }}>
               The registration (tokenURI) reference for this agent.
             </p>
-            {agent.metadataURI ? (
+            {agent.tokenUri ? (
               <a
-                href={agent.metadataURI}
+                href={agent.tokenUri}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
-                {agent.metadataURI.length > 100
-                  ? `${agent.metadataURI.slice(0, 100)}...`
-                  : agent.metadataURI}
+                {agent.tokenUri.length > 100
+                  ? `${agent.tokenUri.slice(0, 100)}...`
+                  : agent.tokenUri}
               </a>
             ) : (
               <p style={{ color: palette.dangerText }}>No registration URI available.</p>
@@ -1366,25 +1366,27 @@ export function AgentsPage({
                     >
                       {ACTION_LABELS.info}
                     </button>
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openActionDialog(agent, 'feedback');
-                      }}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        borderRadius: '8px',
-                        border: `1px solid ${palette.border}`,
-                        backgroundColor: palette.surface,
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        color: palette.textPrimary,
-                      }}
-                    >
-                      {ACTION_LABELS.feedback}
-                    </button>
+                    {isOwned && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          openActionDialog(agent, 'feedback');
+                        }}
+                        style={{
+                          padding: '0.25rem 0.6rem',
+                          borderRadius: '8px',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surface,
+                          fontSize: '0.7rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          color: palette.textPrimary,
+                        }}
+                      >
+                        {ACTION_LABELS.feedback}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={event => {
@@ -1398,11 +1400,11 @@ export function AgentsPage({
                         backgroundColor: palette.surface,
                         fontSize: '0.7rem',
                         fontWeight: 600,
-                        cursor: agent.metadataURI ? 'pointer' : 'not-allowed',
-                        opacity: agent.metadataURI ? 1 : 0.5,
+                        cursor: agent.tokenUri ? 'pointer' : 'not-allowed',
+                        opacity: agent.tokenUri ? 1 : 0.5,
                         color: palette.textPrimary,
                       }}
-                      disabled={!agent.metadataURI}
+                      disabled={!agent.tokenUri}
                     >
                       {ACTION_LABELS.registration}
                     </button>

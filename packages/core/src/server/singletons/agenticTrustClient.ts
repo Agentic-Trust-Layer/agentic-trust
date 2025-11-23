@@ -456,6 +456,112 @@ export class AgenticTrustClient {
     return addAgentNameToL2Org(params as any);
   }
 
+  /**
+   * Set the token URI (registration tokenUri) for an existing agent NFT
+   * in the IdentityRegistry. This delegates to the Admin Agents API and
+   * requires AdminApp / admin permissions to be configured.
+   */
+  async setAgentTokenUri(params: {
+    agentId: string | bigint;
+    chainId?: number;
+    tokenUri: string;
+  }): Promise<{ txHash: string }> {
+    const { agentId, chainId, tokenUri } = params;
+    if (!tokenUri || typeof tokenUri !== 'string' || tokenUri.trim().length === 0) {
+      throw new Error('tokenUri is required for setAgentTokenUri');
+    }
+
+    const idAsString =
+      typeof agentId === 'bigint' ? agentId.toString(10) : String(agentId || '').trim();
+    if (!idAsString) {
+      throw new Error('agentId is required for setAgentTokenUri');
+    }
+
+    return this.agents.admin.updateAgent({
+      agentId: idAsString,
+      chainId,
+      tokenURI: tokenUri,
+    });
+  }
+
+  /**
+   * Transfer an agent NFT to a new owner address.
+   * Thin wrapper over AgentsAPI.admin.transferAgent.
+   */
+  async transferAgent(params: {
+    agentId: string | bigint;
+    to: `0x${string}`;
+    chainId?: number;
+  }): Promise<{ txHash: string }> {
+    const { agentId, to, chainId } = params;
+
+    const idAsString =
+      typeof agentId === 'bigint' ? agentId.toString(10) : String(agentId || '').trim();
+    if (!idAsString) {
+      throw new Error('agentId is required for transferAgent');
+    }
+
+    if (!to || typeof to !== 'string' || !to.startsWith('0x') || to.length !== 42) {
+      throw new Error(`Invalid destination address for transferAgent: ${to}`);
+    }
+
+    return this.agents.admin.transferAgent({
+      agentId: idAsString,
+      chainId,
+      to,
+    });
+  }
+
+  /**
+   * Update the on-chain metadata keys `agentName` and/or `agentAccount`
+   * in the IdentityRegistry for an existing agent NFT.
+   *
+   * This is a thin wrapper over AgentsAPI.admin.updateAgent that builds the
+   * appropriate metadata entries. Requires AdminApp / admin permissions.
+   */
+  async updateNameAndAccountMetadata(params: {
+    agentId: string | bigint;
+    chainId?: number;
+    agentName?: string | null;
+    agentAccount?: string | null;
+  }): Promise<{ txHash: string }> {
+    const { agentId, chainId, agentName, agentAccount } = params;
+
+    const idAsString =
+      typeof agentId === 'bigint' ? agentId.toString(10) : String(agentId || '').trim();
+    if (!idAsString) {
+      throw new Error('agentId is required for updateNameAndAccountMetadata');
+    }
+
+    const metadata: Array<{ key: string; value: string }> = [];
+
+    if (agentName && agentName.toString().trim().length > 0) {
+      metadata.push({
+        key: 'agentName',
+        value: agentName.toString().trim(),
+      });
+    }
+
+    if (agentAccount && agentAccount.toString().trim().length > 0) {
+      metadata.push({
+        key: 'agentAccount',
+        value: agentAccount.toString().trim(),
+      });
+    }
+
+    if (metadata.length === 0) {
+      throw new Error(
+        'At least one of agentName or agentAccount must be provided for updateNameAndAccountMetadata',
+      );
+    }
+
+    return this.agents.admin.updateAgent({
+      agentId: idAsString,
+      chainId,
+      metadata,
+    });
+  }
+
   async prepareL1AgentNameInfoCalls(params: {
     agentAddress: `0x${string}`;
     orgName: string;

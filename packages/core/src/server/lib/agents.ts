@@ -1153,7 +1153,7 @@ export class AgentsAPI {
           data.a2aEndpoint,
           data.ensEndpoint,
           data.agentAccountEndpoint,
-          data.metadataURI,
+          data.tokenUri,
           data.supportedTrust,
           data.rawJson,
         ]

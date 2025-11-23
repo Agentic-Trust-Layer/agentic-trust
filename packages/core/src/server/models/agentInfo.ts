@@ -12,7 +12,7 @@ export interface AgentInfo {
   didIdentity?: string | null;
   didAccount?: string | null;
   didName?: string | null;
-  metadataURI?: string | null;
+  tokenUri?: string | null;
   createdAtBlock: number;
   createdAtTime: number;
   updatedAtTime?: number | null;

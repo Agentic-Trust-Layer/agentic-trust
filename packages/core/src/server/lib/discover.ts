@@ -98,7 +98,7 @@ export async function discoverAgents(
         didIdentity: stringOrNull(raw?.didIdentity) ?? undefined,
         didAccount: stringOrNull(raw?.didAccount) ?? undefined,
         didName: stringOrNull(raw?.didName) ?? undefined,
-        metadataURI: stringOrNull(raw?.metadataURI) ?? undefined,
+        tokenUri: stringOrNull(raw?.tokenUri) ?? undefined,
         createdAtBlock: numeric(raw?.createdAtBlock, 0) ?? 0,
         createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,
         updatedAtTime: numeric(raw?.updatedAtTime, null),

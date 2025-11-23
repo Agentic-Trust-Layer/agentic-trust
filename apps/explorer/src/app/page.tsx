@@ -31,7 +31,7 @@ type NormalizedAgent = {
   description: string | null;
   createdAt: string | null;
   endpoint: string | null;
-  metadataUri: string | null;
+  tokenUri: string | null;
   didIdentity: string | null;
   didAccount: string | null;
   didName: string | null;
@@ -44,7 +44,9 @@ type SearchFilters = {
   query?: string;
 };
 
-type CoreAgent = DiscoverResponse['agents'][number];
+type CoreAgent = DiscoverResponse['agents'][number] & {
+  tokenUri?: string | null;
+};
 
 async function fetchAgentsServer(params: {
   page: number;
@@ -148,9 +150,9 @@ function normalizeAgent(agent: CoreAgent): NormalizedAgent {
       typeof agent.a2aEndpoint === 'string' && agent.a2aEndpoint.trim().length > 0
         ? agent.a2aEndpoint
         : null,
-    metadataUri:
-      typeof agent.metadataURI === 'string' && agent.metadataURI.trim().length > 0
-        ? agent.metadataURI.trim()
+    tokenUri:
+      typeof agent.tokenUri === 'string' && agent.tokenUri.trim().length > 0
+        ? agent.tokenUri.trim()
         : null,
     didIdentity:
       typeof agent.didIdentity === 'string' && agent.didIdentity.trim().length > 0
@@ -419,21 +421,21 @@ export default async function ExplorerPage({ searchParams }: PageParams) {
                       title={agent.endpoint}
                     />
                   )}
-                  {agent.metadataUri && (
+                  {agent.tokenUri && (
                     <MetaBlock
                       label="Metadata"
                       value={
                         <MuiLink
-                          href={agent.metadataUri}
+                          href={agent.tokenUri}
                           target="_blank"
                           rel="noopener noreferrer"
                           variant="body2"
                           underline="hover"
                         >
-                          {formatEndpoint(agent.metadataUri)}
+                          {formatEndpoint(agent.tokenUri)}
                         </MuiLink>
                       }
-                      title={agent.metadataUri}
+                      title={agent.tokenUri}
                     />
                   )}
                   {agent.createdAt && (

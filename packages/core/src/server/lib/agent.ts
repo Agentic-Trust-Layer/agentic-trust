@@ -718,7 +718,7 @@ export async function loadAgentDetail(
     didIdentity: (discoveryRecord.didIdentity as string | null | undefined) ?? null,
     didAccount: (discoveryRecord.didAccount as string | null | undefined) ?? null,
     didName: (discoveryRecord.didName as string | null | undefined) ?? null,
-    metadataURI: (discoveryRecord.metadataURI as string | null | undefined) ?? null,
+    tokenUri: (discoveryRecord.tokenUri as string | null | undefined) ?? null,
     createdAtBlock:
       typeof discoveryRecord.createdAtBlock === 'number' ? discoveryRecord.createdAtBlock : 0,
     createdAtTime:

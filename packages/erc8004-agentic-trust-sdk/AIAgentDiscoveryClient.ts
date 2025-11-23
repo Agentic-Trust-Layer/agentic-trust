@@ -19,7 +19,7 @@ export interface AgentData {
   didIdentity?: string | null;
   didAccount?: string | null;
   didName?: string | null;
-  metadataURI?: string;
+  tokenUri?: string;
   createdAtBlock?: number;
   createdAtTime?: string | number;
   updatedAtTime?: string | number;
@@ -342,9 +342,9 @@ export class AIAgentDiscoveryClient {
       normalized.didName = didName;
     }
 
-    const metadataURI = toOptionalString(record.metadataURI);
-    if (metadataURI !== undefined) {
-      normalized.metadataURI = metadataURI;
+    const tokenUri = toOptionalString(record.tokenUri);
+    if (tokenUri !== undefined) {
+      normalized.tokenUri = tokenUri;
     }
 
     const description = toOptionalStringOrNull(record.description);
@@ -408,7 +408,7 @@ export class AIAgentDiscoveryClient {
           didIdentity
           didAccount
           didName
-          metadataURI
+          tokenUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -497,7 +497,7 @@ export class AIAgentDiscoveryClient {
                 didIdentity
                 didAccount
                 didName
-                metadataURI
+                tokenUri
                 createdAtBlock
                 createdAtTime
                 updatedAtTime
@@ -618,7 +618,7 @@ export class AIAgentDiscoveryClient {
       didIdentity
       didAccount
       didName
-      metadataURI
+      tokenUri
       createdAtBlock
       createdAtTime
       updatedAtTime
@@ -718,7 +718,7 @@ export class AIAgentDiscoveryClient {
               didIdentity
               didAccount
               didName
-              metadataURI
+              tokenUri
               createdAtBlock
               createdAtTime
               updatedAtTime
@@ -835,7 +835,7 @@ export class AIAgentDiscoveryClient {
             didIdentity
             didAccount
             didName
-            metadataURI
+            tokenUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -1095,7 +1095,7 @@ export class AIAgentDiscoveryClient {
           didIdentity
           didAccount
           didName
-          metadataURI
+          tokenUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -1142,9 +1142,9 @@ export class AIAgentDiscoveryClient {
           agentOwner
           agentName
           didIdentity
-          didAccount
-          didName
-          metadataURI
+      didAccount
+      didName
+      tokenUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -1199,7 +1199,7 @@ export class AIAgentDiscoveryClient {
           didIdentity
           didAccount
           didName
-          metadataURI
+          tokenUri
           createdAtBlock
           createdAtTime
           updatedAtTime
