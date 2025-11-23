@@ -9,6 +9,12 @@
 export { handleResolveAccount } from './lib/resolveAccount';
 export type { ResolveAccountRequestBody, ResolveAccountResponse } from './lib/resolveAccount';
 
+// Next.js API route handlers for agents
+export { POST as createAgentForAAHandler } from './api/agents/create-for-aa';
+// Note: Dynamic route handlers need to be imported with the bracket notation
+// Apps should create the route file structure and import the handler function
+export { PUT as updateAgentRegistrationHandler } from './api/agents/did8004-registration';
+
 // Server singletons & utilities
 export {
   AgenticTrustClient,

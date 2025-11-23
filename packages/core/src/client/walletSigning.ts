@@ -620,6 +620,41 @@ export async function createAgentWithWalletForEOA(
   }
 }
 
+/**
+ * Create an agent with Account Abstraction (AA) using a wallet
+ * 
+ * This client-side function handles the complete AA agent creation flow:
+ * 1. Detects wallet provider and account
+ * 2. Creates/retrieves AA account client for the agent
+ * 3. Calls the server API route `/api/agents/create-for-aa` to prepare registration
+ * 4. Sends UserOperation via bundler using the AA account
+ * 5. Extracts agentId and refreshes the indexer
+ * 
+ * **Setup Required:**
+ * Your Next.js app must mount the API route handler:
+ * 
+ * ```typescript
+ * // In app/api/agents/create-for-aa/route.ts
+ * export { createAgentForAAHandler as POST } from '@agentic-trust/core/server';
+ * ```
+ * 
+ * **Usage:**
+ * ```typescript
+ * import { createAgentWithWalletForAA } from '@agentic-trust/core/client';
+ * 
+ * const result = await createAgentWithWalletForAA({
+ *   agentData: {
+ *     agentName: 'my-agent',
+ *     agentAccount: '0x...', // AA account address
+ *     description: 'My agent',
+ *   },
+ *   onStatusUpdate: (msg) => console.log(msg),
+ * });
+ * ```
+ * 
+ * @param options - Agent creation options
+ * @returns Agent creation result with agentId and txHash
+ */
 export async function createAgentWithWalletForAA(
   options: CreateAgentWithWalletOptions
 ): Promise<CreateAgentResult> {
@@ -1118,12 +1153,32 @@ export async function createAgentWithWalletForAA(
  * Update an existing agent's registration (tokenUri) using an AA wallet +
  * bundler, mirroring the AA create flow.
  *
- * This function:
- *  1. Sends the updated registration JSON to the server route
- *     /api/agents/[did:8004]/registration.
- *  2. Receives prepared AA calls + bundler URL.
- *  3. Sends a sponsored UserOperation via the bundler using the provided
- *     accountClient (AA smart account).
+ * This client-side function handles the complete AA agent registration update flow:
+ * 1. Sends the updated registration JSON to the server API route
+ * 2. Receives prepared AA calls + bundler URL
+ * 3. Sends a sponsored UserOperation via the bundler using the AA account
+ * 4. Waits for confirmation
+ *
+ * **Setup Required:**
+ * Your Next.js app must mount the API route handler:
+ * 
+ * ```typescript
+ * // In app/api/agents/[did:8004]/registration/route.ts
+ * export { updateAgentRegistrationHandler as PUT } from '@agentic-trust/core/server';
+ * ```
+ * 
+ * **Usage:**
+ * ```typescript
+ * import { updateAgentRegistrationWithWalletForAA } from '@agentic-trust/core/client';
+ * 
+ * const result = await updateAgentRegistrationWithWalletForAA({
+ *   did8004: 'did:8004:11155111:123',
+ *   chain: sepolia,
+ *   accountClient: agentAccountClient,
+ *   registration: { name: 'Updated Agent', description: '...' },
+ *   onStatusUpdate: (msg) => console.log(msg),
+ * });
+ * ```
  */
 export interface UpdateAgentRegistrationWithWalletOptions {
   did8004: string;

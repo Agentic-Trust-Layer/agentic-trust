@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/core",
-  "version": "1.0.22",
+  "version": "1.0.24",
   "description": "Core SDK for agentic trust systems",
   "type": "module",
   "main": "./dist/index.js",
@@ -50,12 +50,14 @@
     "web3.storage": "^4.5.5"
   },
   "peerDependencies": {
-    "@veramo/core": "^6.0.0"
+    "@veramo/core": "^6.0.0",
+    "next": ">=14.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@vitest/coverage-v8": "^1.0.0",
     "eslint": "^8.0.0",
+    "next": "^14.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
