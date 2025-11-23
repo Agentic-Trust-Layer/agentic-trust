@@ -101,7 +101,7 @@ Create a new agent.
 {
   "agentName": "My Agent",
   "agentAccount": "0x...",
-  "tokenURI": "https://...",
+  "tokenUri": "https://...",
   "metadata": [
     { "key": "custom", "value": "data" }
   ]

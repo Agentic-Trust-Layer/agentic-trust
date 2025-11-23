@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const clientSigningResult = result as {
       requiresClientSigning?: boolean;
       transaction?: unknown;
-      tokenURI?: string;
+      tokenUri?: string;
       metadata?: unknown;
     };
 
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         success: true as const,
         requiresClientSigning: true,
         transaction: clientSigningResult.transaction,
-        tokenURI: clientSigningResult.tokenURI,
+        tokenUri: clientSigningResult.tokenUri,
         metadata: clientSigningResult.metadata,
       });
     }

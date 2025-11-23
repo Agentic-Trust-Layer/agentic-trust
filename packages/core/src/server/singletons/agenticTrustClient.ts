@@ -480,7 +480,7 @@ export class AgenticTrustClient {
     return this.agents.admin.updateAgent({
       agentId: idAsString,
       chainId,
-      tokenURI: tokenUri,
+      tokenUri: tokenUri,
     });
   }
 
@@ -560,6 +560,36 @@ export class AgenticTrustClient {
       chainId,
       metadata,
     });
+  }
+
+  /**
+   * Prepare low-level calls for updating an agent's token URI and/or metadata,
+   * suitable for client-side AA/bundler execution. Mirrors AgentsAPI.admin.prepareUpdateAgent.
+   */
+  async prepareUpdateAgent(params: {
+    agentId: string | bigint;
+    tokenUri?: string;
+    metadata?: Array<{ key: string; value: string }>;
+    chainId?: number;
+  }): Promise<{
+    chainId: number;
+    identityRegistry: `0x${string}`;
+    bundlerUrl: string;
+    calls: Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
+  }> {
+    const { agentId, chainId, tokenUri, metadata } = params;
+    const idAsString =
+      typeof agentId === 'bigint' ? agentId.toString(10) : String(agentId || '').trim();
+    if (!idAsString) {
+      throw new Error('agentId is required for prepareUpdateAgent');
+    }
+
+    return this.agents.admin.prepareUpdateAgent({
+      agentId: idAsString,
+      chainId,
+      tokenUri,
+      metadata,
+    } as any);
   }
 
   async prepareL1AgentNameInfoCalls(params: {

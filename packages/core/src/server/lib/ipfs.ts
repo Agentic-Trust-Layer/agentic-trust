@@ -57,7 +57,7 @@ export interface IPFSConfig {
     /**
      * Token URI format (ipfs://CID)
      */
-    tokenURI: string;
+    tokenUri: string;
     
     /**
      * Size of the uploaded content in bytes
@@ -70,42 +70,42 @@ export interface IPFSConfig {
      * Upload data to IPFS
      * @param data - Data to upload (string, Blob, File, or File-like object)
      * @param filename - Optional filename for the upload
-     * @returns Upload result with CID, URL, and tokenURI
+     * @returns Upload result with CID, URL, and tokenUri
      */
     upload(data: string | Blob | File | ArrayBuffer, filename?: string): Promise<UploadResult>;
     
     /**
-     * Retrieve data from IPFS by CID or tokenURI
-     * @param cidOrTokenURI - CID, tokenURI (ipfs://CID), or full gateway URL
+     * Retrieve data from IPFS by CID or tokenUri
+     * @param cidOrTokenUri - CID, tokenUri (ipfs://CID), or full gateway URL
      * @returns The retrieved data as Blob
      */
-    get(cidOrTokenURI: string): Promise<Blob>;
+    get(cidOrTokenUri: string): Promise<Blob>;
     
     /**
-     * Retrieve JSON data from IPFS by CID or tokenURI
+     * Retrieve JSON data from IPFS by CID or tokenUri
      * Supports inline data URIs, multiple gateways, and fallbacks
-     * @param tokenURI - tokenURI (ipfs://CID), full gateway URL, or data URI
+     * @param tokenUri - tokenUri (ipfs://CID), full gateway URL, or data URI
      * @returns Parsed JSON data or null if not found
      */
-    getJson(tokenURI: string | null): Promise<any | null>;
+    getJson(tokenUri: string | null): Promise<any | null>;
     
     /**
      * Get URL for accessing content via IPFS gateway
-     * @param cidOrTokenURI - CID, tokenURI (ipfs://CID), or full gateway URL
+     * @param cidOrTokenUri - CID, tokenUri (ipfs://CID), or full gateway URL
      * @returns URL string
      */
-    getUrl(cidOrTokenURI: string): string;
+    getUrl(cidOrTokenUri: string): string;
   }
   
   /**
    * Extract CID from various IPFS URI formats
    * Supports: ipfs://CID, https://gateway/ipfs/CID, https://CID.ipfs.gateway, etc.
    */
-  function extractCid(tokenURI: string): string | null {
-    if (!tokenURI) return null;
+  function extractCid(tokenUri: string): string | null {
+    if (!tokenUri) return null;
     
     // Remove ipfs:// prefix
-    let cid = tokenURI.replace(/^ipfs:\/\//, '');
+    let cid = tokenUri.replace(/^ipfs:\/\//, '');
     
     // Handle gateway URLs
     // Match patterns like: https://gateway/ipfs/CID or https://CID.ipfs.gateway
@@ -223,7 +223,7 @@ export interface IPFSConfig {
             return {
               cid,
               url: getUrlFromCid(cid),
-              tokenURI: `ipfs://${cid}`,
+              tokenUri: `ipfs://${cid}`,
               size: file.size,
             };
           } catch (error) {
@@ -259,7 +259,7 @@ export interface IPFSConfig {
             return {
               cid,
               url: getUrlFromCid(cid),
-              tokenURI: `ipfs://${cid}`,
+              tokenUri: `ipfs://${cid}`,
               size: file.size,
             };
           } catch (error) {
@@ -300,7 +300,7 @@ export interface IPFSConfig {
             return {
               cid,
               url: getUrlFromCid(cid),
-              tokenURI: `ipfs://${cid}`,
+              tokenUri: `ipfs://${cid}`,
               size: file.size,
             };
           } catch (error) {
@@ -311,10 +311,10 @@ export interface IPFSConfig {
         throw new Error('No IPFS storage method configured. Provide PINATA_JWT or PINATA_API_KEY/PINATA_API_SECRET.');
       },
       
-      async get(cidOrTokenURI: string): Promise<Blob> {
-        const cid = extractCid(cidOrTokenURI);
+      async get(cidOrTokenUri: string): Promise<Blob> {
+        const cid = extractCid(cidOrTokenUri);
         if (!cid) {
-          throw new Error(`Invalid CID or tokenURI: ${cidOrTokenURI}`);
+          throw new Error(`Invalid CID or tokenUri: ${cidOrTokenUri}`);
         }
   
         // Try multiple gateways with fallback
@@ -351,27 +351,27 @@ export interface IPFSConfig {
         throw new Error(`Failed to fetch from IPFS: All gateways failed for CID ${cid}`);
       },
       
-      async getJson(tokenURI: string | null): Promise<any | null> {
-        if (!tokenURI) return null;
+      async getJson(tokenUri: string | null): Promise<any | null> {
+        if (!tokenUri) return null;
   
         const fetchFn = (globalThis as any).fetch as undefined | ((input: any, init?: any) => Promise<any>);
         if (!fetchFn) return null;
   
         try {
           // Handle inline data URIs (data:application/json,...)
-          if (tokenURI.startsWith('data:application/json')) {
+          if (tokenUri.startsWith('data:application/json')) {
             try {
-              const commaIndex = tokenURI.indexOf(',');
+              const commaIndex = tokenUri.indexOf(',');
               if (commaIndex === -1) {
                 console.warn('Invalid data URI format');
                 return null;
               }
               
-              const jsonData = tokenURI.substring(commaIndex + 1);
+              const jsonData = tokenUri.substring(commaIndex + 1);
               let parsed;
               
               // Check if it's marked as base64 encoded
-              if (tokenURI.startsWith('data:application/json;base64,')) {
+              if (tokenUri.startsWith('data:application/json;base64,')) {
                 try {
                   // Try base64 decode first
                   let jsonString: string;
@@ -409,11 +409,11 @@ export interface IPFSConfig {
             }
           }
           
-          const cid = extractCid(tokenURI);
+          const cid = extractCid(tokenUri);
           if (cid) {
             // Detect if URI suggests a specific service (from URL format)
-            const isPinataUrl = tokenURI.includes('pinata') || tokenURI.includes('gateway.pinata.cloud');
-            const isWeb3StorageUrl = tokenURI.includes('w3s.link') || tokenURI.includes('web3.storage');
+            const isPinataUrl = tokenUri.includes('pinata') || tokenUri.includes('gateway.pinata.cloud');
+            const isWeb3StorageUrl = tokenUri.includes('w3s.link') || tokenUri.includes('web3.storage');
             
             // Try multiple IPFS gateways as fallbacks
             // Prioritize based on detected service, then try all options
@@ -475,9 +475,9 @@ export interface IPFSConfig {
           }
           
           // Try as regular HTTP/HTTPS URL
-          if (/^https?:\/\//i.test(tokenURI)) {
+          if (/^https?:\/\//i.test(tokenUri)) {
             const timeoutSignal = createTimeoutSignal(timeout);
-            const resp = await fetchFn(tokenURI, { signal: timeoutSignal });
+            const resp = await fetchFn(tokenUri, { signal: timeoutSignal });
             if (resp?.ok) return await resp.json();
           }
         } catch (e) {
@@ -487,14 +487,14 @@ export interface IPFSConfig {
         return null;
       },
       
-      getUrl(cidOrTokenURI: string): string {
-        const cid = extractCid(cidOrTokenURI);
+      getUrl(cidOrTokenUri: string): string {
+        const cid = extractCid(cidOrTokenUri);
         if (!cid) {
           // If it's already a full URL, return it
-          if (/^https?:\/\//i.test(cidOrTokenURI)) {
-            return cidOrTokenURI;
+          if (/^https?:\/\//i.test(cidOrTokenUri)) {
+            return cidOrTokenUri;
           }
-          throw new Error(`Invalid CID or tokenURI: ${cidOrTokenURI}`);
+          throw new Error(`Invalid CID or tokenUri: ${cidOrTokenUri}`);
         }
         return getUrlFromCid(cid);
       },

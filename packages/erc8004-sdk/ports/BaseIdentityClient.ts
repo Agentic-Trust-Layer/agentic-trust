@@ -23,7 +23,7 @@ export class BaseIdentityClient {
    * Prepare a register call (server-side, no signing)
    * Returns PreparedCall that can be serialized and sent to client
    */
-  async prepareRegisterCall(tokenURI: string, metadata: MetadataEntry[] = []): Promise<PreparedCall> {
+  async prepareRegisterCall(tokenUri: string, metadata: MetadataEntry[] = []): Promise<PreparedCall> {
     // Format metadata
     const metadataFormatted = metadata.map(m => {
       const bytes = this.stringToBytes(m.value);
@@ -44,14 +44,14 @@ export class BaseIdentityClient {
     const data = await this.accountProvider.encodeFunctionData({
       abi: abi as any,
       functionName: 'register',
-      args: [tokenURI, metadataFormatted],
+      args: [tokenUri, metadataFormatted],
     });
 
     const chainId = await this.accountProvider.chainId();
 
     return {
       chainId,
-      description: `Register agent with URI: ${tokenURI}`,
+      description: `Register agent with URI: ${tokenUri}`,
       steps: [
         {
           to: this.contractAddress,
@@ -66,7 +66,7 @@ export class BaseIdentityClient {
    * Register agent (requires AccountProvider with TxSender)
    */
   async registerWithMetadata(
-    tokenURI: string,
+    tokenUri: string,
     metadata: MetadataEntry[] = []
   ): Promise<{ agentId: bigint; txHash: string }> {
     // Format metadata
@@ -89,7 +89,7 @@ export class BaseIdentityClient {
     const data = await this.accountProvider.encodeFunctionData({
       abi: abi as any,
       functionName: 'register',
-      args: [tokenURI, metadataFormatted],
+      args: [tokenUri, metadataFormatted],
     });
 
     // Estimate gas and get nonce for better transaction preparation

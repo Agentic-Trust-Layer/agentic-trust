@@ -496,7 +496,7 @@ export class Agent {
         const ipfs = getIPFSStorage();
         const serialized = JSON.stringify(feedbackFile);
         const uploadResult = await ipfs.upload(serialized, 'feedback.json');
-        feedbackUriFromIpfs = uploadResult.tokenURI;
+        feedbackUriFromIpfs = uploadResult.tokenUri;
         feedbackHashFromIpfs = ethers.keccak256(
           ethers.toUtf8Bytes(serialized),
         ) as `0x${string}`;
@@ -573,7 +573,7 @@ export async function loadAgentDetail(
 
   const identityClient = await getIdentityClient(resolvedChainId);
 
-  const tokenURI = await identityClient.getTokenURI(agentIdBigInt);
+  const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
 
   const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
   type MetadataKeys = (typeof METADATA_KEYS)[number];
@@ -590,27 +590,27 @@ export async function loadAgentDetail(
   }
 
   const identityMetadata = {
-    tokenURI,
+    tokenUri,
     metadata,
   };
 
   let identityRegistration: {
-    tokenURI: string;
+    tokenUri: string;
     registration: Record<string, unknown> | null;
   } | null =
     null;
-  if (tokenURI) {
+  if (tokenUri) {
     try {
       const ipfsStorage = getIPFSStorage();
-      const registration = (await ipfsStorage.getJson(tokenURI)) as Record<string, unknown> | null;
+      const registration = (await ipfsStorage.getJson(tokenUri)) as Record<string, unknown> | null;
       identityRegistration = {
-        tokenURI,
+        tokenUri,
         registration,
       };
     } catch (error) {
       console.warn('Failed to get IPFS registration:', error);
       identityRegistration = {
-        tokenURI,
+        tokenUri,
         registration: null,
       };
     }

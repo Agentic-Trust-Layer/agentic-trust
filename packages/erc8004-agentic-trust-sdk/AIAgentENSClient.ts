@@ -422,7 +422,6 @@ export class AIAgentENSClient {
     let ensName = name.trim().toLowerCase();
     ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
     ensName = ensName + '.eth';
-
     
     const normalizedName = normalize(ensName)
     const addr = await this.publicClient?.getEnsAddress({

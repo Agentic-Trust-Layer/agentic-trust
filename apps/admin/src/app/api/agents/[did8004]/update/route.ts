@@ -35,12 +35,12 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { tokenURI, metadata } = body;
+    const { tokenUri, metadata } = body;
 
     // Validate that at least one update field is provided
-    if (tokenURI === undefined && (!metadata || metadata.length === 0)) {
+    if (tokenUri === undefined && (!metadata || metadata.length === 0)) {
       return NextResponse.json(
-        { error: 'At least one update field is required: tokenURI or metadata' },
+        { error: 'At least one update field is required: tokenUri or metadata' },
         { status: 400 },
       );
     }
@@ -52,19 +52,19 @@ export async function PUT(
     const updateFn =
       typeof adminAgents.updateAgentByDid === 'function'
         ? adminAgents.updateAgentByDid.bind(adminAgents)
-        : (async (did: string, options: { chainId: number; tokenURI?: string; metadata?: Array<{ key: string; value: string }> }) => {
+        : (async (did: string, options: { chainId: number; tokenUri?: string; metadata?: Array<{ key: string; value: string }> }) => {
             const parsedDid = parseDid8004(did);
             return client.agents.admin.updateAgent({
               agentId: parsedDid.agentId,
               chainId: options.chainId,
-              tokenURI: options.tokenURI,
+              tokenUri: options.tokenUri,
               metadata: options.metadata,
             });
           });
 
     const result = await updateFn(agentDid, {
       chainId: parsed.chainId,
-      tokenURI,
+      tokenUri,
       metadata,
     });
 

@@ -3,6 +3,11 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
 import { generateSessionPackage, buildDid8004 } from '@agentic-trust/core';
+import {
+  updateAgentRegistrationWithWalletForAA,
+  getDeployedAccountClientByAgentName,
+} from '@agentic-trust/core';
+import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 
 export type AgentsPageAgent = {
   agentId: string;
@@ -54,11 +59,35 @@ type AgentsPageProps = {
   onPageChange?: (page: number) => void;
 };
 
-type AgentActionType = 'info' | 'registration' | 'did-web' | 'did-agent' | 'a2a' | 'session' | 'feedback';
+function getChainForId(chainId: number) {
+  if (chainId === 11155111) return sepolia;
+  if (chainId === 84532) return baseSepolia;
+  if (chainId === 11155420) return optimismSepolia;
+  return sepolia;
+}
+
+function getBundlerUrlForId(chainId: number) {
+  if (chainId === 11155111) return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
+  if (chainId === 84532) return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA;
+  if (chainId === 11155420) return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA;
+  return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
+}
+
+
+type AgentActionType =
+  | 'info'
+  | 'registration'
+  | 'did-web'
+  | 'did-agent'
+  | 'a2a'
+  | 'session'
+  | 'feedback'
+  | 'registration-edit';
 
 const ACTION_LABELS: Record<AgentActionType, string> = {
   info: 'Info',
   registration: 'Reg',
+  'registration-edit': 'Edit Reg',
   'did-web': 'DID:Web',
   'did-agent': 'DID:Agent',
   a2a: 'A2A',
@@ -97,6 +126,9 @@ export function AgentsPage({
     error: null,
     text: null,
   });
+  const [registrationEditError, setRegistrationEditError] = useState<string | null>(null);
+  const [registrationEditSaving, setRegistrationEditSaving] = useState(false);
+  const registrationEditRef = useRef<HTMLTextAreaElement | null>(null);
   const [a2aPreview, setA2APreview] = useState<{
     key: string | null;
     loading: boolean;
@@ -200,7 +232,11 @@ export function AgentsPage({
   const closeDialog = () => setActiveDialog(null);
 
   useEffect(() => {
-    if (!activeDialog || activeDialog.action !== 'registration') {
+    if (
+      !activeDialog ||
+      (activeDialog.action !== 'registration' &&
+        activeDialog.action !== 'registration-edit')
+    ) {
       return;
     }
     const { agent } = activeDialog;
@@ -217,11 +253,11 @@ export function AgentsPage({
     }
     let cancelled = false;
     setRegistrationPreview({
-        key,
-        loading: true,
-        error: null,
-        text: null,
-      });
+      key,
+      loading: true,
+      error: null,
+      text: null,
+    });
     (async () => {
       try {
         const text = await loadRegistrationContent(tokenUri);
@@ -422,7 +458,7 @@ export function AgentsPage({
         return (
           <>
             <p style={{ marginTop: 0 }}>
-              The registration (tokenURI) reference for this agent.
+              The registration (tokenUri) reference for this agent.
             </p>
             {agent.tokenUri ? (
               <a
@@ -462,6 +498,203 @@ export function AgentsPage({
               ) : (
                 <span style={{ color: palette.textSecondary }}>No JSON preview available.</span>
               )}
+            </div>
+          </>
+        );
+      }
+      case 'registration-edit': {
+        const previewMatchesAgent =
+          registrationPreview.key === `${agent.chainId}:${agent.agentId}`;
+        const isLoading = !previewMatchesAgent || registrationPreview.loading;
+        const error =
+          previewMatchesAgent && registrationPreview.error ? registrationPreview.error : null;
+
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              Edit the ERC-8004 registration JSON for this agent. Changes will be uploaded to IPFS
+              and the agent&apos;s tokenUri will be updated.
+            </p>
+            {error && (
+              <p style={{ color: palette.dangerText, marginTop: '0.5rem' }}>{error}</p>
+            )}
+            {registrationEditError && (
+              <p style={{ color: palette.dangerText, marginTop: '0.5rem' }}>
+                {registrationEditError}
+              </p>
+            )}
+            <div
+              style={{
+                marginTop: '1rem',
+                border: `1px solid ${palette.border}`,
+                borderRadius: '10px',
+                padding: '0.75rem',
+                backgroundColor: palette.surfaceMuted,
+                maxHeight: '500px',
+                overflow: 'auto',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: '0.85rem',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {isLoading && !error ? (
+                <span style={{ color: palette.textSecondary }}>Loading registration JSON…</span>
+              ) : !previewMatchesAgent || !registrationPreview.text ? (
+                <span style={{ color: palette.textSecondary }}>
+                  No registration JSON available to edit.
+                </span>
+              ) : (
+                <textarea
+                  ref={registrationEditRef}
+                  defaultValue={registrationPreview.text ?? ''}
+                  style={{
+                    width: '100%',
+                    minHeight: '320px',
+                    borderRadius: '6px',
+                    border: `1px solid ${palette.border}`,
+                    padding: '0.5rem',
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+                    fontSize: '0.8rem',
+                    backgroundColor: palette.surface,
+                    color: palette.textPrimary,
+                    resize: 'vertical',
+                  }}
+                />
+              )}
+            </div>
+            <div
+              style={{
+                marginTop: '0.75rem',
+                display: 'flex',
+                justifyContent: 'flex-end',
+                gap: '0.5rem',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (!registrationEditSaving) {
+                    setRegistrationEditError(null);
+                    closeDialog();
+                  }
+                }}
+                style={{
+                  padding: '0.4rem 0.9rem',
+                  borderRadius: '8px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surface,
+                  fontSize: '0.8rem',
+                  fontWeight: 500,
+                  cursor: registrationEditSaving ? 'not-allowed' : 'pointer',
+                  opacity: registrationEditSaving ? 0.6 : 1,
+                  color: palette.textSecondary,
+                }}
+                disabled={registrationEditSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (registrationEditSaving) return;
+                  setRegistrationEditError(null);
+
+                  try {
+                    const editor = registrationEditRef.current;
+                    if (!editor) {
+                      setRegistrationEditError('Editor is not ready yet.');
+                      return;
+                    }
+                    const raw = editor.value ?? '';
+                    if (!raw.trim()) {
+                      setRegistrationEditError('Registration JSON cannot be empty.');
+                      return;
+                    }
+
+                    // Validate JSON locally before sending
+                    try {
+                      JSON.parse(raw);
+                    } catch (parseError) {
+                      setRegistrationEditError(
+                        parseError instanceof Error
+                          ? `Invalid JSON: ${parseError.message}`
+                          : 'Invalid JSON in registration editor.',
+                      );
+                      return;
+                    }
+
+                    if (!provider || !walletAddress) {
+                      setRegistrationEditError(
+                        'Wallet not connected. Connect your wallet to update registration.',
+                      );
+                      return;
+                    }
+
+                    setRegistrationEditSaving(true);
+                    const did8004 = buildDid8004(agent.chainId, agent.agentId);
+                    const chain = getChainForId(agent.chainId);
+
+                    // Rebuild AA account client for this agent using wallet + bundler
+                    const bundlerEnv = getBundlerUrlForId(agent.chainId);
+                    if (!bundlerEnv) {
+                      setRegistrationEditError(
+                        'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
+                      );
+                      return;
+                    }
+
+                    const agentNameForAA = agent.agentName;
+                    console.info('agentNameForAA aa', agent);
+                    const accountClient = await getDeployedAccountClientByAgentName(
+                      bundlerEnv,
+                      agentNameForAA || '',
+                      walletAddress as `0x${string}`,
+                      {
+                        chain,
+                        ethereumProvider: provider,
+                      },
+                    );
+
+                    console.info('accountClient aaa:', accountClient.address);
+
+                    await updateAgentRegistrationWithWalletForAA({
+                      did8004,
+                      chain,
+                      accountClient,
+                      registration: raw,
+                      onStatusUpdate: (msg: string) => {
+                        console.log('[RegistrationUpdate]', msg);
+                      },
+                    });
+
+                    closeDialog();
+                    onSearch?.();
+                  } catch (error: any) {
+                    console.error('Failed to update registration:', error);
+                    setRegistrationEditError(
+                      error?.message ?? 'Failed to update registration. Please try again.',
+                    );
+                  } finally {
+                    setRegistrationEditSaving(false);
+                  }
+                }}
+                style={{
+                  padding: '0.4rem 0.9rem',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: palette.accent,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: registrationEditSaving ? 'not-allowed' : 'pointer',
+                  opacity: registrationEditSaving ? 0.7 : 1,
+                  color: '#0b1120',
+                }}
+                disabled={registrationEditSaving}
+              >
+                {registrationEditSaving ? 'Saving…' : 'Save registration'}
+              </button>
             </div>
           </>
         );
@@ -1144,29 +1377,58 @@ export function AgentsPage({
                 }}
               >
                 {isOwned && (
-                  <button
-                    type="button"
-                    onClick={() => onEditAgent?.(agent)}
-                    aria-label={`Edit agent ${agent.agentId}`}
-                    title="Edit agent"
+                  <div
                     style={{
                       position: 'absolute',
                       top: '0.75rem',
                       right: '0.75rem',
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '999px',
-                      border: `1px solid ${palette.border}`,
-                      backgroundColor: palette.surface,
                       display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                      gap: '0.4rem',
                     }}
                   >
-                    ✏️
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onEditAgent?.(agent)}
+                      aria-label={`Edit agent ${agent.agentId}`}
+                      title="Edit agent"
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '999px',
+                        border: `1px solid ${palette.border}`,
+                        backgroundColor: palette.surface,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                      }}
+                    >
+                      ✏️
+                    </button>
+                    {agent.tokenUri && (
+                      <button
+                        type="button"
+                        onClick={() => openActionDialog(agent, 'registration-edit')}
+                        aria-label={`Edit registration for agent ${agent.agentId}`}
+                        title="Edit registration"
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '999px',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surface,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                        }}
+                      >
+                        🧾
+                      </button>
+                    )}
+                  </div>
                 )}
                 <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
                   {imageUrl && (

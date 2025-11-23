@@ -78,7 +78,7 @@ import {
 } from './chainConfig';
 import { parseEthrDid } from './accounts';
 import { uploadRegistration, createRegistrationJSON } from './agentRegistration';
-import { createPublicClient, http } from 'viem';
+import { createPublicClient, encodeFunctionData, http } from 'viem';
 import type { Address } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
@@ -301,7 +301,7 @@ export class AgentsAPI {
           nonce?: number;
           chainId: number;
         };
-        tokenURI: string;
+        tokenUri: string;
         metadata: Array<{ key: string; value: string }>;
       }
   > {
@@ -320,7 +320,7 @@ export class AgentsAPI {
         : `0x${identityRegistry}`;
 
       // Create registration JSON and upload to IPFS
-      let tokenURI = '';
+      let tokenUri = '';
       const chainId: number = targetChainId;
       console.log('[agents.createAgentForEOA] Using chainId', chainId);
       
@@ -338,7 +338,7 @@ export class AgentsAPI {
         });
         
         const uploadResult = await uploadRegistration(registrationJSON);
-        tokenURI = uploadResult.tokenURI;
+        tokenUri = uploadResult.tokenUri;
       } catch (error) {
         console.error('Failed to upload registration JSON to IPFS:', error);
         throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -387,7 +387,7 @@ export class AgentsAPI {
       // Prepare complete transaction (encoding, gas estimation, nonce, etc.)
       // AIAgentIdentityClient handles all Ethereum logic internally using its publicClient
       const transaction = await aiIdentityClient.prepareRegisterTransaction(
-        tokenURI,
+        tokenUri,
         metadata,
         adminApp.address // Only address needed - no publicClient passed
       );
@@ -395,7 +395,7 @@ export class AgentsAPI {
       return {
         requiresClientSigning: true,
         transaction,
-        tokenURI,
+        tokenUri,
         metadata: metadata.map(m => ({ key: m.key, value: m.value })),
       };
     }
@@ -434,7 +434,7 @@ export class AgentsAPI {
 
 
     // Use direct EOA transaction path (existing behavior)
-    const result = await identityClient.registerWithMetadata(tokenURI, metadata);
+    const result = await identityClient.registerWithMetadata(tokenUri, metadata);
 
     // Refresh the agent in the GraphQL indexer
     try {
@@ -483,7 +483,7 @@ export class AgentsAPI {
     const identityRegistryHex = identityRegistry.startsWith('0x') ? identityRegistry : `0x${identityRegistry}`;
 
     // Create registration JSON and upload to IPFS
-    let tokenURI = '';
+    let tokenUri = '';
     try {
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
@@ -497,7 +497,7 @@ export class AgentsAPI {
         endpoints: params.endpoints,
       });
       const uploadResult = await uploadRegistration(registrationJSON);
-      tokenURI = uploadResult.tokenURI;
+      tokenUri = uploadResult.tokenUri;
     } catch (error) {
       console.error('Failed to upload registration JSON to IPFS:', error);
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -513,7 +513,7 @@ export class AgentsAPI {
     ].filter(m => m.value !== '');
 
     // Execute registration
-    const result = await identityClient.registerWithMetadata(tokenURI, metadata);
+    const result = await identityClient.registerWithMetadata(tokenUri, metadata);
 
     // Refresh in indexer (best-effort)
     try {
@@ -543,7 +543,7 @@ export class AgentsAPI {
   }): Promise<{
     success: true;
     bundlerUrl: string;
-    tokenURI: string;
+    tokenUri: string;
     chainId: number;
     calls: Array<{ to: `0x${string}`; data: `0x${string}` }>;
   }> {
@@ -562,7 +562,7 @@ export class AgentsAPI {
       : `0x${identityRegistry}`;
 
     // Create registration JSON and upload to IPFS
-    let tokenURI = '';
+    let tokenUri = '';
     console.log('[agents.createAgentForAA] Using chainId', chainId);
     
     try {
@@ -579,7 +579,7 @@ export class AgentsAPI {
       });
       
       const uploadResult = await uploadRegistration(registrationJSON);
-      tokenURI = uploadResult.tokenURI;
+      tokenUri = uploadResult.tokenUri;
     } catch (error) {
       console.error('Failed to upload registration JSON to IPFS:', error);
       throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -613,7 +613,7 @@ export class AgentsAPI {
     const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
       params.agentName,
       params.agentAccount,
-      tokenURI
+      tokenUri
     );
 
     const bundlerUrl = getChainBundlerUrl(params.chainId || DEFAULT_CHAIN_ID);
@@ -621,7 +621,7 @@ export class AgentsAPI {
     return {
       success: true as const,
       bundlerUrl,
-      tokenURI,
+      tokenUri,
       chainId,
         calls: registerCalls,
     };
@@ -1376,6 +1376,81 @@ export class AgentsAPI {
    * Note: createAgent is now available directly on agents (not agents.admin)
    */
   admin = {
+    /**
+     * Prepare low-level contract calls to update an agent's token URI and/or
+     * on-chain metadata. These calls can be executed client-side via a bundler
+     * or wallet, similar to createAgentForAA.
+     */
+    prepareUpdateAgent: async (params: {
+      agentId: bigint | string;
+      tokenUri?: string;
+      metadata?: Array<{ key: string; value: string }>;
+      chainId?: number;
+    }): Promise<{
+      chainId: number;
+      identityRegistry: `0x${string}`;
+      bundlerUrl: string;
+      calls: Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
+    }> => {
+      const chainId = params.chainId || DEFAULT_CHAIN_ID;
+
+      const identityRegistry = requireChainEnvVar(
+        'AGENTIC_TRUST_IDENTITY_REGISTRY',
+        chainId,
+      );
+      const identityRegistryHex = identityRegistry.startsWith('0x')
+        ? (identityRegistry as `0x${string}`)
+        : (`0x${identityRegistry}` as `0x${string}`);
+
+      const agentId = BigInt(params.agentId);
+      const calls: Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }> = [];
+
+      // Token URI update call
+      if (params.tokenUri !== undefined) {
+        const data = encodeFunctionData({
+          abi: identityRegistryAbi as any,
+          functionName: 'setAgentUri',
+          args: [agentId, params.tokenUri],
+        });
+        calls.push({
+          to: identityRegistryHex,
+          data: data as `0x${string}`,
+          value: 0n,
+        });
+      }
+
+      // Metadata update calls
+      if (params.metadata && params.metadata.length > 0) {
+        const encoder = new TextEncoder();
+        for (const entry of params.metadata) {
+          const valueBytes = encoder.encode(entry.value);
+          const data = encodeFunctionData({
+            abi: identityRegistryAbi as any,
+            functionName: 'setMetadata',
+            args: [agentId, entry.key, valueBytes],
+          });
+          calls.push({
+            to: identityRegistryHex,
+            data: data as `0x${string}`,
+            value: 0n,
+          });
+        }
+      }
+
+      if (calls.length === 0) {
+        throw new Error('No updates provided. Specify tokenUri and/or metadata.');
+      }
+
+      const bundlerUrl = getChainBundlerUrl(chainId);
+
+      return {
+        chainId,
+        identityRegistry: identityRegistryHex,
+        bundlerUrl,
+        calls,
+      };
+    },
+
 
     /**
      * Prepare a create agent transaction for client-side signing
@@ -1408,7 +1483,7 @@ export class AgentsAPI {
         nonce?: number;
         chainId: number;
       };
-      tokenURI: string;
+      tokenUri: string;
       metadata: Array<{ key: string; value: string }>;
     }> => {
       const chainId = params.chainId || DEFAULT_CHAIN_ID;
@@ -1442,7 +1517,7 @@ export class AgentsAPI {
       ].filter(m => m.value !== '');
 
       // Create registration JSON and upload to IPFS
-      let tokenURI = '';
+      let tokenUri = '';
       
       try {
         const registrationJSON = createRegistrationJSON({
@@ -1458,7 +1533,7 @@ export class AgentsAPI {
         });
         
         const uploadResult = await uploadRegistration(registrationJSON);
-        tokenURI = uploadResult.tokenURI;
+        tokenUri = uploadResult.tokenUri;
       } catch (error) {
         console.error('Failed to upload registration JSON to IPFS:', error);
         throw new Error(`Failed to create registration JSON: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1475,7 +1550,7 @@ export class AgentsAPI {
       });
 
       // Encode registerWithMetadata function call
-      const encodedData = await aiIdentityClient.encodeRegisterWithMetadata(tokenURI, metadata);
+      const encodedData = await aiIdentityClient.encodeRegisterWithMetadata(tokenUri, metadata);
 
       // Simulate transaction to get gas estimates
       let gasEstimate: bigint | undefined;
@@ -1529,7 +1604,7 @@ export class AgentsAPI {
           nonce,
           chainId,
         },
-        tokenURI,
+        tokenUri,
         metadata: metadata.map(m => ({ key: m.key, value: m.value })),
       };
     },
@@ -1537,55 +1612,50 @@ export class AgentsAPI {
     /**
      * Update an agent's token URI
      * @param agentId - The agent ID to update
-     * @param tokenURI - New token URI
+     * @param tokenUri - New token URI
      * @returns Transaction hash
+     */
+    /**
+     * Server-side helper that actually sends the prepared update calls using
+     * AdminApp's AccountProvider. For browser/bundler flows, prefer
+     * prepareUpdateAgent instead.
      */
     updateAgent: async (params: {
       agentId: bigint | string;
-      tokenURI?: string;
+      tokenUri?: string;
       metadata?: Array<{ key: string; value: string }>;
       chainId?: number;
     }): Promise<{ txHash: string }> => {
       const chainId = params.chainId || DEFAULT_CHAIN_ID;
       const adminApp = await getAdminApp(undefined, chainId);
 
-
       if (!adminApp) {
         throw new Error(
-          'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and AGENTIC_TRUST_ADMIN_PRIVATE_KEY is set'
+          'AdminApp not initialized. Ensure AGENTIC_TRUST_APP_ROLES includes "admin" and AGENTIC_TRUST_ADMIN_PRIVATE_KEY is set',
         );
       }
 
-      const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
+      const prepared = await this.admin.prepareUpdateAgent({
+        agentId: params.agentId,
+        tokenUri: params.tokenUri,
+        metadata: params.metadata,
+        chainId,
+      });
 
-      // Create write-capable IdentityClient using AdminApp AccountProvider
-      const identityClient = new BaseIdentityClient(
-        adminApp.accountProvider,
-        identityRegistry as `0x${string}`
-      );
-
-      const agentId = BigInt(params.agentId);
       const results: Array<{ txHash: string }> = [];
-
-      // Update token URI if provided
-      if (params.tokenURI !== undefined) {
-        const uriResult = await identityClient.setAgentUri(agentId, params.tokenURI);
-        results.push(uriResult);
-      }
-
-      // Update metadata if provided
-      if (params.metadata && params.metadata.length > 0) {
-        for (const entry of params.metadata) {
-          const metadataResult = await identityClient.setMetadata(agentId, entry.key, entry.value);
-          results.push(metadataResult);
-        }
+      for (const call of prepared.calls) {
+        const tx = await adminApp.accountProvider.send({
+          to: call.to,
+          data: call.data,
+          value: call.value ?? 0n,
+        });
+        results.push({ txHash: tx.hash });
       }
 
       if (results.length === 0) {
-        throw new Error('No updates provided. Specify tokenURI and/or metadata.');
+        throw new Error('No updates provided. Specify tokenUri and/or metadata.');
       }
 
-      // Return the last transaction hash (most recent update)
       const lastResult = results[results.length - 1];
       if (!lastResult) {
         throw new Error('Failed to get transaction hash from update operation');
@@ -1596,7 +1666,7 @@ export class AgentsAPI {
     updateAgentByDid: async (
       agentDid: string,
       params: {
-        tokenURI?: string;
+        tokenUri?: string;
         metadata?: Array<{ key: string; value: string }>;
         chainId?: number;
       } = {},
@@ -1605,7 +1675,7 @@ export class AgentsAPI {
       return this.admin.updateAgent({
         agentId,
         chainId: params.chainId ?? chainId,
-        tokenURI: params.tokenURI,
+        tokenUri: params.tokenUri,
         metadata: params.metadata,
       });
     },

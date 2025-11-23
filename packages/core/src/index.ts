@@ -113,11 +113,13 @@ export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,
+  updateAgentRegistrationWithWalletForAA,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,
   TransactionResult,
   SignTransactionOptions,
+  UpdateAgentRegistrationWithWalletOptions,
 } from './client/walletSigning';
 
 

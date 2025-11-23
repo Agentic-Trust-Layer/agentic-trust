@@ -1113,3 +1113,94 @@ export async function createAgentWithWalletForAA(
     requiresClientSigning: true,
   };
 }
+
+/**
+ * Update an existing agent's registration (tokenUri) using an AA wallet +
+ * bundler, mirroring the AA create flow.
+ *
+ * This function:
+ *  1. Sends the updated registration JSON to the server route
+ *     /api/agents/[did:8004]/registration.
+ *  2. Receives prepared AA calls + bundler URL.
+ *  3. Sends a sponsored UserOperation via the bundler using the provided
+ *     accountClient (AA smart account).
+ */
+export interface UpdateAgentRegistrationWithWalletOptions {
+  did8004: string;
+  chain: Chain;
+  accountClient: any;
+  registration: string | Record<string, unknown>;
+  onStatusUpdate?: (status: string) => void;
+}
+
+export async function updateAgentRegistrationWithWalletForAA(
+  options: UpdateAgentRegistrationWithWalletOptions,
+): Promise<{ txHash: string; requiresClientSigning: true }> {
+  const { did8004, chain, accountClient, registration, onStatusUpdate } = options;
+
+  const serialized =
+    typeof registration === 'string' ? registration : JSON.stringify(registration, null, 2);
+
+  onStatusUpdate?.('Preparing agent registration update on server...');
+  console.info('........... registration: ', registration);
+  const response = await fetch(
+    `/api/agents/${encodeURIComponent(did8004)}/registration`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        registration: serialized,
+      }),
+    },
+  );
+
+  const body = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(body?.message || body?.error || 'Failed to prepare registration update');
+  }
+
+  const bundlerUrl: string | undefined = body.bundlerUrl;
+  const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
+    Array.isArray(body.calls) ? body.calls : [];
+
+  if (!bundlerUrl || rawCalls.length === 0) {
+    throw new Error('Registration update response missing bundlerUrl or calls');
+  }
+
+  const updateCalls = rawCalls.map((call) => ({
+    to: call.to as `0x${string}`,
+    data: call.data as `0x${string}`,
+    value: BigInt(call.value ?? '0'),
+  }));
+
+  console.info('updateCalls', updateCalls);
+  console.info('accountClient:', accountClient.address);
+
+  onStatusUpdate?.('Sending registration update via bundler...');
+  const userOpHash = await sendSponsoredUserOperation({
+    bundlerUrl,
+    chain: chain as any,
+    accountClient,
+    calls: updateCalls,
+  });
+
+  onStatusUpdate?.(
+    `Registration update sent! UserOperation hash: ${userOpHash}. Waiting for confirmation...`,
+  );
+
+  const receipt = await waitForUserOperationReceipt({
+    bundlerUrl,
+    chain: chain as any,
+    hash: userOpHash,
+  });
+
+  console.info('........... receipt: ', receipt);
+
+  return {
+    txHash: userOpHash,
+    requiresClientSigning: true as const,
+  };
+}

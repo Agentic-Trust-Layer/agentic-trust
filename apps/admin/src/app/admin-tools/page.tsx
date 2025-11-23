@@ -397,7 +397,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
   const [updateForm, setUpdateForm] = useState({
     agentId: '',
     chainId: DEFAULT_CHAIN_ID.toString(),
-    tokenURI: '',
+    tokenUri: '',
     metadataKey: '',
     metadataValue: '',
   });
@@ -426,7 +426,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
     setUpdateForm({
       agentId: queryAgentId,
       chainId: queryChainId,
-      tokenURI: '',
+      tokenUri: '',
       metadataKey: '',
       metadataValue: '',
     });
@@ -1031,7 +1031,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          tokenURI: updateForm.tokenURI || undefined,
+          tokenUri: updateForm.tokenUri || undefined,
           chainId,
           metadata,
         }),
@@ -1047,7 +1047,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       setUpdateForm({
         agentId: '',
         chainId: DEFAULT_CHAIN_ID.toString(),
-        tokenURI: '',
+        tokenUri: '',
         metadataKey: '',
         metadataValue: '',
       });
@@ -1096,7 +1096,7 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       }
       setCreateForm(prev => ({
         ...prev,
-        image: body?.tokenURI || body?.url || prev.image,
+        image: body?.tokenUri || body?.url || prev.image,
       }));
     } catch (uploadError) {
       console.error('Image upload failed', uploadError);
@@ -1890,8 +1890,8 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
               </label>
               <input
                 type="text"
-                value={updateForm.tokenURI}
-                onChange={(e) => setUpdateForm({ ...updateForm, tokenURI: e.target.value })}
+                value={updateForm.tokenUri}
+                onChange={(e) => setUpdateForm({ ...updateForm, tokenUri: e.target.value })}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
             </div>

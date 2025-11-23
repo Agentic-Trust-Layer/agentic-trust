@@ -2,7 +2,7 @@
  * ERC-8004 Agent Registration JSON
  * 
  * Standard JSON structure for agent registration metadata
- * Stored on IPFS and referenced via Identity Token tokenURI
+ * Stored on IPFS and referenced via Identity Token tokenUri
  */
 
 import { getIPFSStorage, type IPFSStorage } from './ipfs';
@@ -17,7 +17,7 @@ import type { AgentRegistrationInfo } from '../models/agentRegistrationInfo';
 export async function uploadRegistration(
   registration: AgentRegistrationInfo,
   storage?: IPFSStorage
-): Promise<{ cid: string; url: string; tokenURI: string }> {
+): Promise<{ cid: string; url: string; tokenUri: string }> {
   const ipfsStorage = storage || getIPFSStorage();
   
   // Ensure ERC-8004 type is set
@@ -35,33 +35,33 @@ export async function uploadRegistration(
   // Upload to IPFS
   const result = await ipfsStorage.upload(jsonString, 'registration.json');
   
-  // Return with tokenURI format (ipfs://CID)
-  const tokenURI = `ipfs://${result.cid}`;
+  // Return with tokenUri format (ipfs://CID)
+  const tokenUri = `ipfs://${result.cid}`;
   
   return {
     cid: result.cid,
     url: result.url,
-    tokenURI,
+    tokenUri,
   };
 }
 
 /**
  * Retrieve agent registration JSON from IPFS
- * @param cidOrTokenURI - CID, tokenURI (ipfs://CID format), or full gateway URL
+ * @param cidOrTokenUri - CID, tokenUri (ipfs://CID format), or full gateway URL
  * @param storage - Optional IPFS storage instance (uses singleton if not provided)
  * @returns Registration JSON data
  */
 export async function getRegistration(
-  cidOrTokenURI: string,
+  cidOrTokenUri: string,
   storage?: IPFSStorage
 ): Promise<AgentRegistrationInfo> {
   const ipfsStorage = storage || getIPFSStorage();
   
   // Use the new getJson method which handles all URI formats and gateway fallbacks
-  const registration = await ipfsStorage.getJson(cidOrTokenURI);
+  const registration = await ipfsStorage.getJson(cidOrTokenUri);
   
   if (!registration) {
-    throw new Error(`Failed to retrieve registration from IPFS: ${cidOrTokenURI}`);
+    throw new Error(`Failed to retrieve registration from IPFS: ${cidOrTokenUri}`);
   }
   
   return registration as AgentRegistrationInfo;

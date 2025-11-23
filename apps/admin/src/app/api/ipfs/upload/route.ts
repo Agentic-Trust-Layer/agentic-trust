@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       cid: uploadResult.cid,
       url: uploadResult.url,
-      tokenURI: uploadResult.tokenURI,
+      tokenUri: uploadResult.tokenUri,
       size: uploadResult.size ?? file.size,
       filename: file.name,
       mimeType: file.type,

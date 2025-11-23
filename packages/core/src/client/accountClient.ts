@@ -100,11 +100,17 @@ export async function getDeployedAccountClientByAgentName(
   eoaAddress: `0x${string}`,
   options?: GetAAAccountClientOptions
 ): Promise<any> {
+  // Extract only the name to the left of the first '.'
+  const normalizedAgentName = agentName.includes('.') ? agentName.split('.')[0] : agentName;
+  
+  // Ensure we have a valid non-empty string
+  if (!normalizedAgentName || normalizedAgentName.trim().length === 0) {
+    throw new Error('Agent name is required and cannot be empty');
+  }
 
   const chain = options?.chain || sepolia;
-  console.info('*********** accountClient getDeployedAccountClientByAgentName: agentName', agentName);
-  console.info('*********** accountClient getDeployedAccountClientByAgentName: chain.id', chain?.id);
-  console.info('*********** accountClient getDeployedAccountClientByAgentName: bundlerUrl', bundlerUrl);
+  console.info('*********** accountClient getDeployedAccountClientByAgentName: agentName', agentName, 'normalized:', normalizedAgentName);
+
 
 
   let walletClient: WalletClient;
@@ -137,7 +143,7 @@ export async function getDeployedAccountClientByAgentName(
     throw new Error('No public client found. Ensure RPC URL is available or pass publicClient in options.');
   }
 
-  const salt: `0x${string}` = keccak256(stringToHex(agentName)) as `0x${string}`;
+  const salt: `0x${string}` = keccak256(stringToHex(normalizedAgentName)) as `0x${string}`;
   const clientConfig: Record<string, unknown> = {
     client: publicClient,
     implementation: Implementation.Hybrid,

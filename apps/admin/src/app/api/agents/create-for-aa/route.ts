@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
 
     const aaClientResult = result as {
       bundlerUrl: string;
-      tokenURI: string;
+      tokenUri: string;
       chainId: number;
       calls: Array<{ to: `0x${string}`; data: `0x${string}` }>;
     };
@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true as const,
       bundlerUrl: aaClientResult.bundlerUrl,
-      tokenURI: aaClientResult.tokenURI,
+      tokenUri: aaClientResult.tokenUri,
       chainId: aaClientResult.chainId,
       calls: aaClientResult.calls,
     });

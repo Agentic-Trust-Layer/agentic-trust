@@ -206,7 +206,7 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
    * This override exists in the Agentic Trust SDK to keep AA helpers here.
    */
   async encodeRegisterWithMetadata(
-    tokenURI: string,
+    tokenUri: string,
     metadata: MetadataEntry[] = []
   ): Promise<string> {
     // Format metadata: convert string values to hex strings (Viem expects hex for bytes)
@@ -225,19 +225,19 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     return await this.accountProvider.encodeFunctionData({
       abi: IdentityRegistryABI as any,
       functionName: 'register',
-      args: [tokenURI, metadataFormatted],
+      args: [tokenUri, metadataFormatted],
     });
   }
 
-  async encodeRegister(name: string, agentAccount: `0x${string}`, tokenURI: string): Promise<string> {
+  async encodeRegister(name: string, agentAccount: `0x${string}`, tokenUri: string): Promise<string> {
     console.info("name: ", name);
     console.info("agentAccount: ", agentAccount);
 
-    return await this.encodeRegisterWithMetadata(tokenURI, [{ key: 'agentName', value: name }, { key: 'agentAccount', value: agentAccount }]);
+    return await this.encodeRegisterWithMetadata(tokenUri, [{ key: 'agentName', value: name }, { key: 'agentAccount', value: agentAccount }]);
   }
 
-  async prepareRegisterCalls(name: string, agentAccount: `0x${string}`, tokenURI: string): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
-    const data = await this.encodeRegisterWithMetadata(tokenURI, [{ key: 'agentName', value: name }, { key: 'agentAccount', value: agentAccount }]);
+  async prepareRegisterCalls(name: string, agentAccount: `0x${string}`, tokenUri: string): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
+    const data = await this.encodeRegisterWithMetadata(tokenUri, [{ key: 'agentName', value: name }, { key: 'agentAccount', value: agentAccount }]);
     const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
     calls.push({ 
         to: this.identityRegistryAddress, 
@@ -276,13 +276,13 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
    * Prepare a complete transaction for client-side signing (similar to prepareCall for bundlers)
    * All Ethereum logic (encoding, gas estimation, nonce) is handled server-side
    * Client only needs to sign and send with MetaMask
-   * @param tokenURI - IPFS token URI for the agent registration
+   * @param tokenUri - IPFS token URI for the agent registration
    * @param metadata - Metadata entries for the agent
    * @param fromAddress - Address that will sign the transaction (only address needed, no client)
    * @returns Prepared transaction object ready for client-side signing
    */
   async prepareRegisterTransaction(
-    tokenURI: string,
+    tokenUri: string,
     metadata: MetadataEntry[],
     fromAddress: `0x${string}`
   ): Promise<{
@@ -297,7 +297,7 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     chainId: number;
   }> {
     // Encode the transaction data
-    const encodedData = await this.encodeRegisterWithMetadata(tokenURI, metadata);
+    const encodedData = await this.encodeRegisterWithMetadata(tokenUri, metadata);
 
     // Get chain ID using AccountProvider
     const chainId = await this.accountProvider.chainId();

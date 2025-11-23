@@ -73,14 +73,14 @@ export const TEST_AGENT_RECORD = {
   chainId: TEST_CHAIN_ID,
   agentAccount: TEST_AGENT_ACCOUNT,
   identityMetadata: {
-    tokenURI: TEST_TOKEN_URI,
+    tokenUri: TEST_TOKEN_URI,
     metadata: {
       agentName: TEST_AGENT_NAME,
       agentAccount: TEST_AGENT_ACCOUNT,
     },
   },
   identityRegistration: {
-    tokenURI: TEST_TOKEN_URI,
+    tokenUri: TEST_TOKEN_URI,
     registration: TEST_IPFS_REGISTRATION,
   },
   discovery: TEST_DISCOVERY_DATA,

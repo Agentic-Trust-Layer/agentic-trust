@@ -43,14 +43,14 @@ export class IdentityClient {
   /**
    * Register a new agent with a token URI
    * Spec: function register(string tokenURI) returns (uint256 agentId)
-   * @param tokenURI - URI pointing to agent registration file (MAY use ipfs://, https://, etc.)
+   * @param tokenUri - URI pointing to agent registration file (MAY use ipfs://, https://, etc.)
    */
-  async registerWithURI(tokenURI: string): Promise<{ agentId: bigint; txHash: string }> {
+  async registerWithURI(tokenUri: string): Promise<{ agentId: bigint; txHash: string }> {
     const result = await this.adapter.send(
       this.contractAddress,
       IdentityRegistryABI as any,
       'register(string)',
-      [tokenURI] as any
+      [tokenUri] as any
     );
 
     const agentId = this.extractAgentIdFromReceipt(result);
@@ -64,11 +64,11 @@ export class IdentityClient {
   /**
    * Register a new agent with URI and optional on-chain metadata
    * Spec: function register(string tokenURI, MetadataEntry[] calldata metadata) returns (uint256 agentId)
-   * @param tokenURI - URI pointing to agent registration file
+   * @param tokenUri - URI pointing to agent registration file
    * @param metadata - OPTIONAL on-chain metadata entries
    */
   async registerWithMetadata(
-    tokenURI: string,
+    tokenUri: string,
     metadata: MetadataEntry[] = []
   ): Promise<{ agentId: bigint; txHash: string }> {
 
@@ -91,7 +91,7 @@ export class IdentityClient {
       this.contractAddress,
       IdentityRegistryABI as any,
       'register(string,(string,bytes)[])',
-      [tokenURI, metadataFormatted] as any
+      [tokenUri, metadataFormatted] as any
     );
 
     const agentId = this.extractAgentIdFromReceipt(result);

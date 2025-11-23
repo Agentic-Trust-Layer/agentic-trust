@@ -10,10 +10,10 @@ type MetadataKeys = (typeof METADATA_KEYS)[number];
 export interface AgentDetail extends AgentInfo {
   success: true;
   identityMetadata: {
-    tokenURI: string | null;
+    tokenUri: string | null;
     metadata: Record<MetadataKeys, string>;
   };
-  identityRegistration: { tokenURI: string; registration: Record<string, unknown> | null } | null;
+  identityRegistration: { tokenUri: string; registration: Record<string, unknown> | null } | null;
   [key: string]: unknown;
 }
 
