@@ -136,8 +136,8 @@ export async function generateSessionPackage(
   if (!reputationRegistry) {
     throw new Error(
       `Missing ReputationRegistry address for chain ${chainId}. ` +
-      `Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY or ` +
-      `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_<CHAIN_SUFFIX> in your env.`
+      `Set NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY or ` +
+      `NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_<CHAIN_SUFFIX> in your env.`
     );
   }
 

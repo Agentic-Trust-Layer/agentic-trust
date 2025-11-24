@@ -674,17 +674,48 @@ export class AgenticTrustClient {
 
   /**
    * Get a single agent by ID.
-   * Thin wrapper over discoveryClient that returns an Agent instance bound to this client.
+   * Uses loadAgentDetail to get the latest data from the NFT contract,
+   * with discovery data used as fallback for missing fields.
    */
   async getAgent(agentId: string, chainId: number = DEFAULT_CHAIN_ID): Promise<Agent | null> {
-    const discoveryClient = await getDiscoveryClient();
-    const agentData = await discoveryClient.getAgent(chainId, agentId);
+    try {
+      const agentDetail = await loadAgentDetail(this, agentId, chainId);
+      
+      // Convert AgentDetail to AgentData format expected by Agent constructor
+      // AgentDetail extends AgentInfo which has all the fields needed
+      const agentData: Agent['data'] = {
+        agentId: agentDetail.agentId,
+        agentName: agentDetail.agentName,
+        chainId: agentDetail.chainId,
+        agentAccount: agentDetail.agentAccount,
+        agentOwner: agentDetail.agentOwner,
+        contractAddress: agentDetail.contractAddress ?? undefined,
+        didIdentity: agentDetail.didIdentity ?? undefined,
+        didAccount: agentDetail.didAccount ?? undefined,
+        didName: agentDetail.didName ?? undefined,
+        tokenUri: agentDetail.tokenUri ?? undefined,
+        createdAtBlock: agentDetail.createdAtBlock,
+        createdAtTime: agentDetail.createdAtTime,
+        updatedAtTime: agentDetail.updatedAtTime ?? undefined,
+        type: agentDetail.type ?? undefined,
+        description: agentDetail.description ?? undefined,
+        image: agentDetail.image ?? undefined,
+        a2aEndpoint: agentDetail.a2aEndpoint ?? undefined,
+        ensEndpoint: agentDetail.ensEndpoint ?? undefined,
+        agentAccountEndpoint: agentDetail.agentAccountEndpoint ?? undefined,
+        supportedTrust: agentDetail.supportedTrust ?? undefined,
+        rawJson: agentDetail.rawJson ?? undefined,
+        did: agentDetail.did ?? undefined,
+        mcp: agentDetail.mcp ?? undefined,
+        x402support: agentDetail.x402support ?? undefined,
+        active: agentDetail.active ?? undefined,
+      };
 
-    if (!agentData) {
+      return new Agent(agentData, this);
+    } catch (error) {
+      console.warn(`[AgenticTrustClient.getAgent] Failed to load agent ${agentId} on chain ${chainId}:`, error);
       return null;
     }
-
-    return new Agent(agentData, this);
   }
 
   /**

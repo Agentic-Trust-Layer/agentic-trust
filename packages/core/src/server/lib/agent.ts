@@ -574,6 +574,7 @@ export async function loadAgentDetail(
   const identityClient = await getIdentityClient(resolvedChainId);
 
   const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
+  console.info("----------> tokenUri inside agent.ts -----> ", tokenUri);
 
   const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
   type MetadataKeys = (typeof METADATA_KEYS)[number];
@@ -607,6 +608,7 @@ export async function loadAgentDetail(
         tokenUri,
         registration,
       };
+      console.info("----------> identityRegistration inside agent.ts -----> ", identityRegistration);
     } catch (error) {
       console.warn('Failed to get IPFS registration:', error);
       identityRegistration = {
@@ -638,6 +640,7 @@ export async function loadAgentDetail(
 
   const flattened: Record<string, unknown> = {};
 
+  // Priority 1: Data from tokenUri/IPFS registration (highest priority - on-chain source of truth)
   if (
     identityRegistration?.registration &&
     typeof identityRegistration.registration === 'object'
@@ -651,15 +654,48 @@ export async function loadAgentDetail(
     if (reg.supportedTrust) flattened.supportedTrust = reg.supportedTrust;
     if (typeof reg.createdAt !== 'undefined') flattened.createdAt = reg.createdAt;
     if (typeof reg.updatedAt !== 'undefined') flattened.updatedAt = reg.updatedAt;
+    
+    // Extract a2aEndpoint from registration
+    // Priority: 1) direct a2aEndpoint field, 2) from endpoints array (name: 'A2A'), 3) from agentUrl
+    if (typeof reg.a2aEndpoint === 'string') {
+      flattened.a2aEndpoint = reg.a2aEndpoint;
+    } else if (Array.isArray(reg.endpoints)) {
+      // Find A2A endpoint in endpoints array
+      const a2aEndpointEntry = reg.endpoints.find(
+        (ep: unknown) =>
+          typeof ep === 'object' &&
+          ep !== null &&
+          'name' in ep &&
+          (ep as { name: string }).name === 'A2A' &&
+          'endpoint' in ep &&
+          typeof (ep as { endpoint: unknown }).endpoint === 'string'
+      ) as { endpoint: string } | undefined;
+      if (a2aEndpointEntry) {
+        flattened.a2aEndpoint = a2aEndpointEntry.endpoint;
+      }
+    }
+    // If agentUrl exists and a2aEndpoint not found, construct it
+    if (!flattened.a2aEndpoint && typeof reg.agentUrl === 'string') {
+      const baseUrl = (reg.agentUrl as string).replace(/\/$/, '');
+      flattened.a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
+    }
+    // Also check external_url as fallback
+    if (!flattened.a2aEndpoint && typeof reg.external_url === 'string') {
+      const baseUrl = (reg.external_url as string).replace(/\/$/, '');
+      flattened.a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
+    }
   }
 
+  // Priority 2: On-chain metadata (only fill if not already set from registration)
   if (metadata.agentName && !flattened.name) flattened.name = metadata.agentName;
-  if (metadata.agentName) flattened.agentName = metadata.agentName;
-  if (metadata.agentAccount) flattened.agentAccount = metadata.agentAccount;
+  if (metadata.agentName && !flattened.agentName) flattened.agentName = metadata.agentName;
+  if (metadata.agentAccount && !flattened.agentAccount) flattened.agentAccount = metadata.agentAccount;
 
+  // Priority 3: Discovery data (GraphQL indexer) - only as fallback when not available from on-chain sources
+  const discoveryRecord = (discovery as Record<string, unknown>) || {};
   if (discovery && typeof discovery === 'object') {
-    const discoveryRecord = discovery as Record<string, unknown>;
 
+    // Only use discovery data if not already set from tokenUri/metadata
     const agentNameFromDiscovery =
       typeof discoveryRecord.agentName === 'string'
         ? (discoveryRecord.agentName as string)
@@ -667,33 +703,42 @@ export async function loadAgentDetail(
     if (agentNameFromDiscovery && !flattened.name) flattened.name = agentNameFromDiscovery;
     if (agentNameFromDiscovery && !flattened.agentName) flattened.agentName = agentNameFromDiscovery;
 
+    // a2aEndpoint from discovery only if not in registration
     const a2aEndpointFromDiscovery =
       typeof discoveryRecord.a2aEndpoint === 'string'
         ? (discoveryRecord.a2aEndpoint as string)
         : undefined;
-    if (a2aEndpointFromDiscovery) flattened.a2aEndpoint = a2aEndpointFromDiscovery;
+    if (a2aEndpointFromDiscovery && !flattened.a2aEndpoint) {
+      flattened.a2aEndpoint = a2aEndpointFromDiscovery;
+    }
 
+    // Timestamps from discovery only if not in registration
     const createdAtTimeFromDiscovery =
       typeof discoveryRecord.createdAtTime !== 'undefined'
         ? discoveryRecord.createdAtTime
         : undefined;
-    if (createdAtTimeFromDiscovery !== undefined) flattened.createdAtTime = createdAtTimeFromDiscovery;
+    if (createdAtTimeFromDiscovery !== undefined && flattened.createdAtTime === undefined) {
+      flattened.createdAtTime = createdAtTimeFromDiscovery;
+    }
 
     const updatedAtTimeFromDiscovery =
       typeof discoveryRecord.updatedAtTime !== 'undefined'
         ? discoveryRecord.updatedAtTime
         : undefined;
-    if (updatedAtTimeFromDiscovery !== undefined) flattened.updatedAtTime = updatedAtTimeFromDiscovery;
+    if (updatedAtTimeFromDiscovery !== undefined && flattened.updatedAtTime === undefined) {
+      flattened.updatedAtTime = updatedAtTimeFromDiscovery;
+    }
 
+    // Fill in any other discovery fields that aren't already set
+    // Exclude tokenUri and rawJson - these should come from on-chain sources only
     Object.keys(discoveryRecord).forEach((key) => {
-      if (key !== 'agentId' && flattened[key] === undefined) {
+      if (key !== 'agentId' && key !== 'tokenUri' && key !== 'rawJson' && flattened[key] === undefined) {
         flattened[key] = discoveryRecord[key];
       }
     });
   }
 
-  const discoveryRecord = (discovery as Record<string, unknown>) || {};
-
+  // Prioritize: flattened (from tokenUri/IPFS/metadata) > discoveryRecord
   const agentNameValue =
     (flattened.agentName as string | undefined) ??
     (flattened.name as string | undefined) ??
@@ -718,7 +763,7 @@ export async function loadAgentDetail(
     didIdentity: (discoveryRecord.didIdentity as string | null | undefined) ?? null,
     didAccount: (discoveryRecord.didAccount as string | null | undefined) ?? null,
     didName: (discoveryRecord.didName as string | null | undefined) ?? null,
-    tokenUri: (discoveryRecord.tokenUri as string | null | undefined) ?? null,
+    // tokenUri and rawJson will be set after the spread to ensure they're not overwritten
     createdAtBlock:
       typeof discoveryRecord.createdAtBlock === 'number' ? discoveryRecord.createdAtBlock : 0,
     createdAtTime:
@@ -730,6 +775,7 @@ export async function loadAgentDetail(
         ? discoveryRecord.updatedAtTime
         : (flattened.updatedAtTime as number | undefined) ?? null,
     type: (discoveryRecord.type as string | null | undefined) ?? null,
+    // Prioritize: flattened (from tokenUri/IPFS) > discoveryRecord
     description:
       (flattened.description as string | undefined) ??
       (discoveryRecord.description as string | undefined) ??
@@ -745,11 +791,11 @@ export async function loadAgentDetail(
     ensEndpoint: (discoveryRecord.ensEndpoint as string | null | undefined) ?? null,
     agentAccountEndpoint:
       (discoveryRecord.agentAccountEndpoint as string | null | undefined) ?? null,
+    // Prioritize: flattened (from tokenUri/IPFS) > discoveryRecord
     supportedTrust:
       (flattened.supportedTrust as string | undefined) ??
       (discoveryRecord.supportedTrust as string | undefined) ??
       null,
-    rawJson: (discoveryRecord.rawJson as string | null | undefined) ?? null,
     did: (discoveryRecord.did as string | null | undefined) ?? null,
     mcp:
       typeof discoveryRecord.mcp === 'boolean'
@@ -773,6 +819,20 @@ export async function loadAgentDetail(
     // Flattened extra fields
     ...flattened,
   };
+
+  // Set tokenUri and rawJson AFTER spread to ensure on-chain values take precedence
+  // Use on-chain tokenUri as primary source (from contract), fallback to discovery only if on-chain is null/undefined
+  // Use identityMetadata.tokenUri to ensure we're using the value retrieved from contract
+  detail.tokenUri = (identityMetadata.tokenUri !== null && identityMetadata.tokenUri !== undefined) 
+    ? identityMetadata.tokenUri 
+    : ((discoveryRecord.tokenUri as string | null | undefined) ?? null);
+  
+  // Use registration JSON from tokenUri/IPFS as primary source, fallback to discovery
+  detail.rawJson = identityRegistration?.registration
+    ? JSON.stringify(identityRegistration.registration, null, 2)
+    : ((discoveryRecord.rawJson as string | null | undefined) ?? null);
+
+  console.info("----------> detail inside agent.ts -----> ", detail);
 
   return detail;
 }

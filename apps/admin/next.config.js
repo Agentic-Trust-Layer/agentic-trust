@@ -7,14 +7,15 @@ const nextConfig = {
     if (isServer) {
       config.externals = config.externals || [];
       if (Array.isArray(config.externals)) {
-        config.externals.push('@metamask/delegation-toolkit');
+        config.externals.push('@metamask/delegation-toolkit', 'module');
       } else if (typeof config.externals === 'function') {
         const originalExternals = config.externals;
         config.externals = [
           originalExternals,
           (context, request, callback) => {
             if (request === '@metamask/delegation-toolkit' || 
-                request.startsWith('@metamask/')) {
+                request.startsWith('@metamask/') ||
+                request === 'module') {
               return callback(null, 'commonjs ' + request);
             }
             callback();

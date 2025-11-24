@@ -15,6 +15,12 @@ export { POST as createAgentForAAHandler } from './api/agents/create-for-aa';
 // Apps should create the route file structure and import the handler function
 export { PUT as updateAgentRegistrationHandler } from './api/agents/did8004-registration';
 
+// Express-compatible API route handlers (no Next.js dependency required)
+export {
+  createAgentForAAExpressHandler,
+  updateAgentRegistrationExpressHandler,
+} from './api/agents/express';
+
 // Server singletons & utilities
 export {
   AgenticTrustClient,

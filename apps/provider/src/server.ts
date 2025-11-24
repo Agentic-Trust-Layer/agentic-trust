@@ -1,3 +1,12 @@
+/**
+ * Express.js Agent Provider Server
+ * 
+ * This is an Express-only application (not Next.js) that uses @agentic-trust/core
+ * for agent management, A2A protocol, and ERC-8004 feedback authentication.
+ * 
+ * The core package is framework-agnostic and works with Express without requiring Next.js.
+ */
+
 // Load environment variables from .env file
 import { config } from 'dotenv';
 import { resolve } from 'path';

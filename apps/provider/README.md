@@ -1,6 +1,6 @@
 # Agent Provider App
 
-Next.js application that serves as an agent provider with A2A (Agent-to-Agent) endpoints.
+Express.js application that serves as an agent provider with A2A (Agent-to-Agent) endpoints, using `@agentic-trust/core` for agent management and authentication.
 
 ## Features
 
@@ -18,7 +18,12 @@ pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3001](http://localhost:3001) to see the provider dashboard.
+The server will start on port 3001 (or the port specified in the `PORT` environment variable).
+
+Available endpoints:
+- `GET /.well-known/agent-card.json` - Agent card for discovery
+- `POST /api/a2a` - A2A message endpoint
+- `GET /health` - Health check endpoint
 
 ## Environment Variables
 
@@ -32,7 +37,7 @@ PROVIDER_ID=my-agent-provider
 AGENT_NAME=My Agent Provider
 
 # Required: Base URL for the provider (used in agent-card.json)
-NEXT_PUBLIC_BASE_URL=http://localhost:3001
+PROVIDER_BASE_URL=http://localhost:3001
 
 # Optional: Port for the provider server (defaults to 3001)
 PORT=3001
@@ -124,5 +129,15 @@ The provider app implements a simple A2A endpoint that:
 3. Processes the message (currently echoes it back)
 4. Returns a structured response
 
-You can extend the `/api/a2a/route.ts` file to implement your agent's specific business logic.
+You can extend the `/api/a2a` endpoint in `src/server.ts` to implement your agent's specific business logic.
+
+## Using @agentic-trust/core
+
+This Express app uses `@agentic-trust/core` for:
+- **Agent Management**: `getAgenticTrustClient()` for accessing agent data and operations
+- **Session Packages**: `loadSessionPackage()` for delegation-based authentication
+- **A2A Protocol**: Built-in support for agent-to-agent communication
+- **Feedback System**: ERC-8004 feedback authentication via `agent.feedback.requestAuth()`
+
+The app demonstrates how to use the core package in an Express-only environment without Next.js dependencies.
 

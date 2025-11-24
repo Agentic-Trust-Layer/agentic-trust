@@ -129,6 +129,8 @@ export function AgentsPage({
   const [registrationEditError, setRegistrationEditError] = useState<string | null>(null);
   const [registrationEditSaving, setRegistrationEditSaving] = useState(false);
   const registrationEditRef = useRef<HTMLTextAreaElement | null>(null);
+  const [latestTokenUri, setLatestTokenUri] = useState<string | null>(null);
+  const [tokenUriLoading, setTokenUriLoading] = useState(false);
   const [a2aPreview, setA2APreview] = useState<{
     key: string | null;
     loading: boolean;
@@ -229,7 +231,11 @@ export function AgentsPage({
     setActiveDialog({ agent, action });
   };
 
-  const closeDialog = () => setActiveDialog(null);
+  const closeDialog = () => {
+    setActiveDialog(null);
+    setLatestTokenUri(null);
+    setTokenUriLoading(false);
+  };
 
   useEffect(() => {
     if (
@@ -241,46 +247,121 @@ export function AgentsPage({
     }
     const { agent } = activeDialog;
     const key = `${agent.chainId}:${agent.agentId}`;
-    const tokenUri = agent.tokenUri;
-    if (!tokenUri) {
-      setRegistrationPreview({
-        key,
-        loading: false,
-        error: 'No registration URI available for this agent.',
-        text: null,
-      });
-      return;
-    }
-    let cancelled = false;
-    setRegistrationPreview({
-      key,
-      loading: true,
-      error: null,
-      text: null,
-    });
-    (async () => {
-      try {
-        const text = await loadRegistrationContent(tokenUri);
-        if (cancelled) return;
+    
+    // For registration-edit, fetch latest tokenUri from contract
+    if (activeDialog.action === 'registration-edit') {
+      let cancelled = false;
+      setTokenUriLoading(true);
+      setLatestTokenUri(null);
+      
+      (async () => {
+        try {
+          const did8004 = buildDid8004(agent.chainId, agent.agentId);
+          const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch agent details: ${response.status}`);
+          }
+          const agentDetails = await response.json();
+          const freshTokenUri = agentDetails.tokenUri;
+          
+          if (cancelled) return;
+          setLatestTokenUri(freshTokenUri || null);
+          setTokenUriLoading(false);
+          
+          // Use the fresh tokenUri to load registration
+          if (!freshTokenUri) {
+            setRegistrationPreview({
+              key,
+              loading: false,
+              error: 'No registration URI available for this agent.',
+              text: null,
+            });
+            return;
+          }
+          
+          setRegistrationPreview({
+            key,
+            loading: true,
+            error: null,
+            text: null,
+          });
+          
+          try {
+            const text = await loadRegistrationContent(freshTokenUri);
+            if (cancelled) return;
+            setRegistrationPreview({
+              key,
+              loading: false,
+              error: null,
+              text,
+            });
+          } catch (error: any) {
+            if (cancelled) return;
+            setRegistrationPreview({
+              key,
+              loading: false,
+              error: error?.message ?? 'Unable to load registration JSON.',
+              text: null,
+            });
+          }
+        } catch (error: any) {
+          if (cancelled) return;
+          setTokenUriLoading(false);
+          setRegistrationPreview({
+            key,
+            loading: false,
+            error: error?.message ?? 'Failed to fetch latest tokenUri from contract.',
+            text: null,
+          });
+        }
+      })();
+      
+      return () => {
+        cancelled = true;
+      };
+    } else {
+      // For regular registration view, use agent.tokenUri from props
+      const tokenUri = agent.tokenUri;
+      if (!tokenUri) {
         setRegistrationPreview({
           key,
           loading: false,
-          error: null,
-          text,
-        });
-      } catch (error: any) {
-        if (cancelled) return;
-        setRegistrationPreview({
-          key,
-          loading: false,
-          error: error?.message ?? 'Unable to load registration JSON.',
+          error: 'No registration URI available for this agent.',
           text: null,
         });
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      let cancelled = false;
+      setRegistrationPreview({
+        key,
+        loading: true,
+        error: null,
+        text: null,
+      });
+      (async () => {
+        try {
+          const text = await loadRegistrationContent(tokenUri);
+          if (cancelled) return;
+          setRegistrationPreview({
+            key,
+            loading: false,
+            error: null,
+            text,
+          });
+        } catch (error: any) {
+          if (cancelled) return;
+          setRegistrationPreview({
+            key,
+            loading: false,
+            error: error?.message ?? 'Unable to load registration JSON.',
+            text: null,
+          });
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
   }, [activeDialog]);
 
   useEffect(() => {
@@ -505,7 +586,7 @@ export function AgentsPage({
       case 'registration-edit': {
         const previewMatchesAgent =
           registrationPreview.key === `${agent.chainId}:${agent.agentId}`;
-        const isLoading = !previewMatchesAgent || registrationPreview.loading;
+        const isLoading = !previewMatchesAgent || registrationPreview.loading || tokenUriLoading;
         const error =
           previewMatchesAgent && registrationPreview.error ? registrationPreview.error : null;
 
@@ -515,6 +596,40 @@ export function AgentsPage({
               Edit the ERC-8004 registration JSON for this agent. Changes will be uploaded to IPFS
               and the agent&apos;s tokenUri will be updated.
             </p>
+            <div
+              style={{
+                marginTop: '0.75rem',
+                marginBottom: '0.75rem',
+                padding: '0.75rem',
+                borderRadius: '8px',
+                backgroundColor: palette.surfaceMuted,
+                border: `1px solid ${palette.border}`,
+              }}
+            >
+              <div style={{ fontSize: '0.75rem', color: palette.textSecondary, marginBottom: '0.25rem' }}>
+                Latest TokenUri (from contract):
+              </div>
+              {tokenUriLoading ? (
+                <div style={{ fontSize: '0.85rem', color: palette.textSecondary }}>
+                  Loading tokenUri from contract...
+                </div>
+              ) : latestTokenUri ? (
+                <div
+                  style={{
+                    fontSize: '0.85rem',
+                    fontFamily: 'ui-monospace, monospace',
+                    color: palette.textPrimary,
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {latestTokenUri}
+                </div>
+              ) : (
+                <div style={{ fontSize: '0.85rem', color: palette.dangerText }}>
+                  No tokenUri found on contract
+                </div>
+              )}
+            </div>
             {error && (
               <p style={{ color: palette.dangerText, marginTop: '0.5rem' }}>{error}</p>
             )}

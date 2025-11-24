@@ -147,14 +147,21 @@ export class AIAgentReputationClient extends BaseReputationClient {
     }
 
     // Convert optional string parameters to bytes32 (or empty bytes32 if not provided)
-    const tag1 = params.tag1
-    const tag2 = params.tag2
-    const feedbackHash = '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`;
+    // Use ethers.id() to hash strings to bytes32 (keccak256), matching base ReputationClient behavior
+    const tag1 = params.tag1 ? (ethers.id(params.tag1).slice(0, 66) as `0x${string}`) : (ethers.ZeroHash as `0x${string}`);
+    const tag2 = params.tag2 ? (ethers.id(params.tag2).slice(0, 66) as `0x${string}`) : (ethers.ZeroHash as `0x${string}`);
+    const feedbackHash = params.feedbackHash || (ethers.ZeroHash as `0x${string}`);
     const feedbackUri = params.feedbackUri || '';
+
+    // Convert agentId to bigint (contract expects uint256)
+    if (!params.agentId) {
+      throw new Error('agentId is required');
+    }
+    const agentId = BigInt(params.agentId);
 
     console.info("params.feedbackAuth", JSON.stringify(params.feedbackAuth, null, 2));
     console.info("this.reputationAddress", this.reputationAddress);
-    console.info("agentId", params.agentId);
+    console.info("agentId", agentId.toString());
     console.info("score", params.score);
     console.info("tag1", tag1);
     console.info("tag2", tag2);
@@ -166,7 +173,7 @@ export class AIAgentReputationClient extends BaseReputationClient {
       abi: ReputationRegistryABI as any,
       functionName: 'giveFeedback',
       args: [
-        params.agentId,
+        agentId,
         params.score,
         tag1,
         tag2,

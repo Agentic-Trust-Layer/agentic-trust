@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
 
     // Get the agent by ID (and chainId if provided)
     const resolvedChainId = chainId ? parseInt(chainId.toString(), 10) : undefined;
+    //const agent = await atClient.getAgentDetails(agentId.toString(), resolvedChainId);
     const agent = await atClient.getAgent(agentId.toString(), resolvedChainId);
     if (!agent) {
       return NextResponse.json(

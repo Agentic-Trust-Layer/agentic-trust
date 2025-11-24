@@ -35,94 +35,52 @@
  * - AA account client creation
  * - UserOperation submission via bundler
  * - Agent ID extraction and indexer refresh
+ * 
+ * For Express apps, use the Express-compatible handler:
+ * ```typescript
+ * import { createAgentForAAExpressHandler } from '@agentic-trust/core/server/api/agents/express';
+ * ```
  */
 
 // Next.js types - these require Next.js to be installed in the consuming app
 // Using any to avoid build-time dependency issues in the library
 // In Next.js apps, these will be properly typed
-import { getAgenticTrustClient } from '../../lib/agenticTrust';
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type NextRequest = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const NextResponse = require('next/server').NextResponse as any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type NextResponseType = any;
 
-const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+import { handleCreateAgentForAA } from './handlers/create-for-aa';
+
+// Try to load NextResponse at module load time (static pattern)
+// If Next.js isn't installed, this will be null and the handler will throw a helpful error
+let NextResponse: any = null;
+try {
+  // First, try direct require (works in Next.js webpack bundling)
+  // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+  NextResponse = require('next/server').NextResponse;
+} catch (firstError) {
+  // If direct require fails, try using createRequire (for pure ES modules like Express)
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createRequire } = require('module');
+    const requireFn = createRequire(import.meta.url);
+    NextResponse = requireFn('next/server').NextResponse;
+  } catch {
+    // Next.js not available - this is OK, handler will throw helpful error when called
+    NextResponse = null;
+  }
+}
 
 export async function POST(request: NextRequest): Promise<NextResponseType> {
-  try {
-    const body = await request.json();
-    const {
-      agentName,
-      agentAccount,
-      account,
-      description,
-      image,
-      agentUrl,
-      supportedTrust,
-      endpoints,
-      chainId,
-    } = body ?? {};
-
-    console.log('[api/agents/create-for-aa] Received chainId:', chainId);
-
-    if (!agentName || !agentAccount) {
-      return NextResponse.json(
-        {
-          error: 'Missing required fields: agentName and agentAccount are required',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (typeof agentAccount !== 'string' || !ADDRESS_REGEX.test(agentAccount)) {
-      return NextResponse.json(
-        {
-          error: 'Invalid agentAccount format. Must be a valid Ethereum address (0x...)',
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!account || typeof account !== 'string' || !ADDRESS_REGEX.test(account)) {
-      return NextResponse.json(
-        {
-          error: 'Missing or invalid account address for agent AA creation',
-        },
-        { status: 400 }
-      );
-    }
-
-    const client = await getAgenticTrustClient();
-    const result = await client.agents.createAgentForAA({
-      agentName,
-      agentAccount: agentAccount as `0x${string}`,
-      description,
-      image,
-      agentUrl,
-      supportedTrust,
-      endpoints,
-      chainId: chainId ? Number(chainId) : undefined,
-    });
-
-    return NextResponse.json({
-      success: true as const,
-      bundlerUrl: result.bundlerUrl,
-      tokenUri: result.tokenUri,
-      chainId: result.chainId,
-      calls: result.calls,
-    });
-  } catch (error) {
-    console.error('Error in create agent route:', error);
-    return NextResponse.json(
-      {
-        error: 'Failed to create agent',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      },
-      { status: 500 }
+  if (!NextResponse) {
+    throw new Error(
+      'Next.js is required for this handler. ' +
+      'In Express apps, use createAgentForAAExpressHandler from @agentic-trust/core/server/api/agents/express'
     );
   }
+  const body = await request.json();
+  const result = await handleCreateAgentForAA(body);
+  return NextResponse.json(result.data, { status: result.status });
 }
 
