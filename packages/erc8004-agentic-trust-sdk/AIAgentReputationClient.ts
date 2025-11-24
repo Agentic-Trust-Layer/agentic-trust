@@ -198,6 +198,51 @@ export class AIAgentReputationClient extends BaseReputationClient {
   }
 
   /**
+   * Prepare the giveFeedback transaction data without sending it.
+   */
+  async prepareGiveFeedbackTx(params: GiveFeedbackParams): Promise<TxRequest> {
+    if (params.score < 0 || params.score > 100) {
+      throw new Error('Score MUST be between 0 and 100');
+    }
+    if (!params.agentId) {
+      throw new Error('agentId is required');
+    }
+    if (!params.feedbackAuth) {
+      throw new Error('feedbackAuth is required');
+    }
+
+    const tag1 = params.tag1
+      ? (ethers.id(params.tag1).slice(0, 66) as `0x${string}`)
+      : (ethers.ZeroHash as `0x${string}`);
+    const tag2 = params.tag2
+      ? (ethers.id(params.tag2).slice(0, 66) as `0x${string}`)
+      : (ethers.ZeroHash as `0x${string}`);
+    const feedbackHash = params.feedbackHash || (ethers.ZeroHash as `0x${string}`);
+    const feedbackUri = params.feedbackUri || '';
+    const agentId = BigInt(params.agentId);
+
+    const data = await this.accountProvider?.encodeFunctionData({
+      abi: ReputationRegistryABI as any,
+      functionName: 'giveFeedback',
+      args: [
+        agentId,
+        params.score,
+        tag1,
+        tag2,
+        feedbackUri,
+        feedbackHash,
+        params.feedbackAuth,
+      ],
+    });
+
+    return {
+      to: this.reputationAddress,
+      data: data || '0x',
+      value: 0n,
+    };
+  }
+
+  /**
    * Append a response to an existing feedback entry for an agent.
    *
    * Wraps the ReputationRegistry `appendResponse(agentId, clientAddress, feedbackIndex, responseUri, responseHash)`

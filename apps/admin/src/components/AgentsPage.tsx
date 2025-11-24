@@ -2,11 +2,18 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
-import { generateSessionPackage, buildDid8004, DEFAULT_CHAIN_ID } from '@agentic-trust/core';
+import {
+  generateSessionPackage,
+  buildDid8004,
+  DEFAULT_CHAIN_ID,
+  type AgentSkill,
+} from '@agentic-trust/core';
 import {
   updateAgentRegistrationWithWalletForAA,
   getDeployedAccountClientByAgentName,
+  giveFeedbackWithWalletForAA,
 } from '@agentic-trust/core';
+import { signAndSendTransaction } from '@agentic-trust/core/client';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 
 export type AgentsPageAgent = {
@@ -82,7 +89,8 @@ type AgentActionType =
   | 'a2a'
   | 'session'
   | 'feedback'
-  | 'registration-edit';
+  | 'registration-edit'
+  | 'give-feedback';
 
 const ACTION_LABELS: Record<AgentActionType, string> = {
   info: 'Info',
@@ -93,6 +101,7 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   a2a: 'A2A',
   session: 'Session',
   feedback: 'Feedback',
+  'give-feedback': 'Give Feedback',
 };
 
 export function AgentsPage({
@@ -167,6 +176,27 @@ export function AgentsPage({
     items: null,
     summary: null,
   });
+
+  const initialFeedbackForm = {
+    rating: 5,
+    comment: '',
+    tag1: '',
+    tag2: '',
+    skillId: '',
+    context: '',
+    capability: '',
+  };
+
+  const [feedbackForm, setFeedbackForm] = useState(initialFeedbackForm);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackSubmitStatus, setFeedbackSubmitStatus] = useState<string | null>(null);
+  const [feedbackSubmitError, setFeedbackSubmitError] = useState<string | null>(null);
+  const [feedbackSubmitSuccess, setFeedbackSubmitSuccess] = useState<string | null>(null);
+  const [feedbackSkillsCache, setFeedbackSkillsCache] = useState<Record<string, AgentSkill[]>>(
+    {},
+  );
+  const [feedbackSkillsLoading, setFeedbackSkillsLoading] = useState(false);
+  const [feedbackSkillsError, setFeedbackSkillsError] = useState<string | null>(null);
 
   const getAgentKey = (agent?: Agent | null) => {
     if (!agent) return null;
@@ -383,6 +413,43 @@ export function AgentsPage({
   }, [activeDialog]);
 
   useEffect(() => {
+    if (activeDialog?.action === 'give-feedback') {
+      setFeedbackForm(initialFeedbackForm);
+      setFeedbackSubmitStatus(null);
+      setFeedbackSubmitError(null);
+      setFeedbackSubmitSuccess(null);
+      // Load skills if available
+      const { agent } = activeDialog;
+      const key = getAgentKey(agent);
+      if (key && !feedbackSkillsCache[key] && agent.a2aEndpoint) {
+        setFeedbackSkillsLoading(true);
+        setFeedbackSkillsError(null);
+        (async () => {
+          try {
+            const text = await loadAgentCardContent(agent.a2aEndpoint as string);
+            let skills: AgentSkill[] = [];
+            try {
+              const parsed = JSON.parse(text);
+              if (Array.isArray(parsed?.skills)) {
+                skills = parsed.skills as AgentSkill[];
+              }
+            } catch (error) {
+              console.warn('[AgentsPage] Failed to parse agent card JSON:', error);
+            }
+            setFeedbackSkillsCache(prev => ({ ...prev, [key]: skills }));
+          } catch (error: any) {
+            setFeedbackSkillsError(
+              error?.message ?? 'Unable to load agent card for feedback form.',
+            );
+          } finally {
+            setFeedbackSkillsLoading(false);
+          }
+        })();
+      }
+    }
+  }, [activeDialog, feedbackSkillsCache]);
+
+  useEffect(() => {
     if (!activeDialog || activeDialog.action !== 'feedback') {
       return;
     }
@@ -498,6 +565,7 @@ export function AgentsPage({
       cancelled = true;
     };
   }, [activeDialog]);
+
 
   // Manage session progress timers
   useEffect(() => {
@@ -833,7 +901,7 @@ export function AgentsPage({
                   fontWeight: 600,
                   cursor: registrationEditSaving ? 'not-allowed' : 'pointer',
                   opacity: registrationEditSaving ? 0.7 : 1,
-                  color: '#0b1120',
+                  color: '#ffffff',
                 }}
                 disabled={registrationEditSaving}
               >
@@ -1063,6 +1131,466 @@ export function AgentsPage({
           </>
         );
       }
+      case 'give-feedback': {
+        const { agent } = activeDialog;
+        const agentKey = getAgentKey(agent);
+        const skills = agentKey ? feedbackSkillsCache[agentKey] || [] : [];
+        const score = feedbackForm.rating * 20; // Convert 1-5 to 20-100
+
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              Submit feedback for <strong>{agent.agentName || `Agent #${agent.agentId}`}</strong>.
+            </p>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  color: palette.textPrimary,
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Rating
+              </label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                {[1, 2, 3, 4, 5].map((num) => (
+                  <button
+                    key={num}
+                    type="button"
+                    onClick={() =>
+                      setFeedbackForm(prev => ({ ...prev, rating: num }))
+                    }
+                    disabled={feedbackSubmitting}
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '8px',
+                      fontWeight: 600,
+                      cursor: feedbackSubmitting ? 'not-allowed' : 'pointer',
+                      backgroundColor:
+                        feedbackForm.rating === num
+                          ? palette.accent
+                          : palette.surfaceMuted,
+                      color: palette.surface,
+                      border: `1px solid ${palette.border}`,
+                      transition: 'background-color 0.2s',
+                    }}
+                  >
+                    {num}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {skills.length > 0 && (
+              <div style={{ marginBottom: '1rem' }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    color: palette.textPrimary,
+                    marginBottom: '0.5rem',
+                  }}
+                >
+                  Skill (optional)
+                </label>
+                <select
+                  value={feedbackForm.skillId}
+                  onChange={e =>
+                    setFeedbackForm(prev => ({ ...prev, skillId: e.target.value }))
+                  }
+                  disabled={feedbackSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.875rem',
+                  }}
+                >
+                  <option value="">Select a skill…</option>
+                  {skills.map(skill => (
+                    <option key={skill.id} value={skill.id}>
+                      {skill.name || skill.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.75rem' }}>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Tag 1 (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackForm.tag1}
+                  onChange={e =>
+                    setFeedbackForm(prev => ({ ...prev, tag1: e.target.value }))
+                  }
+                  placeholder="e.g. quality, speed"
+                  disabled={feedbackSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Tag 2 (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackForm.tag2}
+                  onChange={e =>
+                    setFeedbackForm(prev => ({ ...prev, tag2: e.target.value }))
+                  }
+                  placeholder="e.g. helpful, safe"
+                  disabled={feedbackSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1rem', display: 'flex', gap: '0.75rem' }}>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Context (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackForm.context}
+                  onChange={e =>
+                    setFeedbackForm(prev => ({ ...prev, context: e.target.value }))
+                  }
+                  placeholder="e.g. enterprise, research"
+                  disabled={feedbackSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label
+                  style={{
+                    display: 'block',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                    marginBottom: '0.25rem',
+                  }}
+                >
+                  Capability (optional)
+                </label>
+                <input
+                  type="text"
+                  value={feedbackForm.capability}
+                  onChange={e =>
+                    setFeedbackForm(prev => ({ ...prev, capability: e.target.value }))
+                  }
+                  placeholder="e.g. problem_solving"
+                  disabled={feedbackSubmitting}
+                  style={{
+                    width: '100%',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '8px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.875rem',
+                  }}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label
+                style={{
+                  display: 'block',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  color: palette.textPrimary,
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Comment
+              </label>
+              <textarea
+                value={feedbackForm.comment}
+                onChange={e =>
+                  setFeedbackForm(prev => ({ ...prev, comment: e.target.value }))
+                }
+                placeholder="Enter your feedback..."
+                disabled={feedbackSubmitting}
+                style={{
+                  width: '100%',
+                  backgroundColor: palette.surfaceMuted,
+                  color: palette.textPrimary,
+                  borderRadius: '8px',
+                  padding: '0.75rem',
+                  border: `1px solid ${palette.border}`,
+                  resize: 'vertical',
+                  minHeight: '100px',
+                  fontFamily: 'inherit',
+                }}
+              />
+            </div>
+
+            {feedbackSubmitError && (
+              <div
+                style={{
+                  marginBottom: '1rem',
+                  padding: '0.75rem',
+                  backgroundColor: palette.dangerSurface,
+                  border: `1px solid ${palette.dangerText}`,
+                  borderRadius: '8px',
+                }}
+              >
+                <p style={{ color: palette.dangerText, fontSize: '0.875rem' }}>
+                  {feedbackSubmitError}
+                </p>
+              </div>
+            )}
+
+            {feedbackSubmitSuccess && (
+              <div
+                style={{
+                  marginBottom: '1rem',
+                  padding: '0.75rem',
+                  backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                  border: '1px solid #22c55e',
+                  borderRadius: '8px',
+                }}
+              >
+                <p style={{ color: '#86efac', fontSize: '0.875rem' }}>
+                  Feedback submitted successfully!
+                </p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!feedbackSubmitting) {
+                    closeDialog();
+                  }
+                }}
+                disabled={feedbackSubmitting}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 1rem',
+                  backgroundColor: palette.surfaceMuted,
+                  color: palette.textPrimary,
+                  borderRadius: '8px',
+                  border: `1px solid ${palette.border}`,
+                  cursor: feedbackSubmitting ? 'not-allowed' : 'pointer',
+                  fontWeight: 600,
+                  opacity: feedbackSubmitting ? 0.6 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (feedbackSubmitting || !feedbackForm.comment.trim()) {
+                    return;
+                  }
+
+                  if (!provider || !walletAddress) {
+                    setFeedbackSubmitError(
+                      'Wallet not connected. Connect your wallet to submit feedback.',
+                    );
+                    return;
+                  }
+
+                  setFeedbackSubmitting(true);
+                  setFeedbackSubmitError(null);
+                  setFeedbackSubmitSuccess(null);
+                  setFeedbackSubmitStatus('Requesting feedback authorization...');
+
+                  try {
+                    const parsedChainId =
+                      typeof agent.chainId === 'number' &&
+                      Number.isFinite(agent.chainId)
+                        ? agent.chainId
+                        : DEFAULT_CHAIN_ID;
+                    const parsedAgentId =
+                      typeof agent.agentId === 'string'
+                        ? Number.parseInt(agent.agentId, 10)
+                        : Number(agent.agentId ?? 0);
+                    const did8004 = buildDid8004(parsedChainId, parsedAgentId);
+
+                    // Ensure we have a connected wallet (Web3Auth / MetaMask)
+                    if (!walletAddress) {
+                      throw new Error(
+                        'Wallet not connected. Please connect your wallet to give feedback.',
+                      );
+                    }
+                    // Use the logged-in EOA address as the client for both feedbackAuth and giveFeedback.
+                    const clientAddress = walletAddress as `0x${string}`;
+
+                    // Request feedback auth
+                    const feedbackAuthParams = new URLSearchParams({
+                      clientAddress,
+                      agentId: parsedAgentId.toString(),
+                      chainId: parsedChainId.toString(),
+                      ...(agent.agentName ? { agentName: agent.agentName } : {}),
+                    });
+
+                    setFeedbackSubmitStatus('Requesting feedback authorization...');
+                    const feedbackAuthResponse = await fetch(
+                      `/api/agents/${encodeURIComponent(
+                        did8004,
+                      )}/feedback-auth?${feedbackAuthParams.toString()}`,
+                    );
+
+                    if (!feedbackAuthResponse.ok) {
+                      const errorData = await feedbackAuthResponse.json();
+                      throw new Error(
+                        errorData.message ||
+                          errorData.error ||
+                          'Failed to get feedback auth',
+                      );
+                    }
+
+                    const feedbackAuthData = await feedbackAuthResponse.json();
+                    const feedbackAuthId = feedbackAuthData.feedbackAuthId;
+                    const resolvedAgentId =
+                      feedbackAuthData.agentId || parsedAgentId;
+                    const resolvedChainId =
+                      feedbackAuthData.chainId || parsedChainId;
+
+                    if (!feedbackAuthId) {
+                      throw new Error('No feedbackAuth returned by provider');
+                    }
+
+                    // Build AA account client for this agent using the connected wallet
+                    const chain = getChainForId(resolvedChainId);
+                    const bundlerEnv = getBundlerUrlForId(resolvedChainId);
+                    if (!bundlerEnv) {
+                      throw new Error(
+                        'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
+                      );
+                    }
+
+                    // Submit feedback via client-side EOA transaction (user pays gas)
+                    setFeedbackSubmitStatus('Submitting feedback transaction…');
+                    const feedbackResult = await giveFeedbackWithWalletForAA({
+                      did8004,
+                      chain,
+                      score,
+                      feedback: feedbackForm.comment,
+                      feedbackAuth: feedbackAuthId,
+                      clientAddress: clientAddress as `0x${string}`,
+                      ...(feedbackForm.tag1 && { tag1: feedbackForm.tag1 }),
+                      ...(feedbackForm.tag2 && { tag2: feedbackForm.tag2 }),
+                      ...(feedbackForm.skillId && { skill: feedbackForm.skillId }),
+                      ...(feedbackForm.context && { context: feedbackForm.context }),
+                      ...(feedbackForm.capability && {
+                        capability: feedbackForm.capability,
+                      }),
+                      onStatusUpdate: (msg: string) => {
+                        setFeedbackSubmitStatus(msg);
+                      },
+                    });
+
+                    console.info('Feedback submitted successfully:', feedbackResult);
+                    setFeedbackSubmitSuccess('Feedback submitted successfully!');
+                    setFeedbackSubmitStatus(null);
+
+                    // Reset form after a delay
+                    setTimeout(() => {
+                      setFeedbackForm(initialFeedbackForm);
+                      closeDialog();
+                    }, 1500);
+                  } catch (error: any) {
+                    console.error('Error submitting feedback:', error);
+                    setFeedbackSubmitError(
+                      error?.message ?? 'Failed to submit feedback. Please try again.',
+                    );
+                    setFeedbackSubmitStatus(null);
+                  } finally {
+                    setFeedbackSubmitting(false);
+                  }
+                }}
+                disabled={feedbackSubmitting || !feedbackForm.comment.trim()}
+                style={{
+                  flex: 1,
+                  padding: '0.5rem 1rem',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  borderRadius: '8px',
+                  border: 'none',
+                  cursor:
+                    feedbackSubmitting || !feedbackForm.comment.trim()
+                      ? 'not-allowed'
+                      : 'pointer',
+                  fontWeight: 600,
+                  opacity:
+                    feedbackSubmitting || !feedbackForm.comment.trim() ? 0.6 : 1,
+                }}
+              >
+                {feedbackSubmitting
+                  ? feedbackSubmitStatus || 'Submitting...'
+                  : 'Submit'}
+              </button>
+            </div>
+          </>
+        );
+      }
       case 'session': {
         const { agent } = activeDialog;
         return (
@@ -1100,7 +1628,19 @@ export function AgentsPage({
       default:
         return null;
     }
-  }, [activeDialog, registrationPreview, a2aPreview, sessionPreview]);
+  }, [
+    activeDialog,
+    registrationPreview,
+    a2aPreview,
+    sessionPreview,
+    feedbackPreview,
+    feedbackForm,
+    feedbackSubmitting,
+    feedbackSubmitError,
+    feedbackSubmitSuccess,
+    feedbackSubmitStatus,
+    feedbackSkillsCache,
+  ]);
 
   const handleOpenSession = useCallback(
     async (agent: Agent) => {
@@ -1574,6 +2114,26 @@ export function AgentsPage({
                         🧾
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => openActionDialog(agent, 'give-feedback')}
+                      aria-label={`Give feedback for agent ${agent.agentId}`}
+                      title="Give feedback"
+                      style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '999px',
+                        border: `1px solid ${palette.border}`,
+                        backgroundColor: palette.surface,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                      }}
+                    >
+                      💬
+                    </button>
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>

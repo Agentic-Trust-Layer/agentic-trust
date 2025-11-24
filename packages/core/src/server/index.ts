@@ -14,6 +14,7 @@ export {
   createAgentRouteHandler,
   updateAgentRegistrationRouteHandler,
   requestFeedbackAuthRouteHandler,
+  prepareFeedbackRouteHandler,
 } from '../api/agents/next';
 export {
   createAgentDirectRouteHandler,
@@ -24,6 +25,7 @@ export {
   createAgentExpressHandler,
   updateAgentRegistrationExpressHandler,
   requestFeedbackAuthExpressHandler,
+  prepareFeedbackExpressHandler,
   mountAgentRoutes as mountAgentApiRoutes,
 } from '../api/agents/express';
 export {
@@ -35,6 +37,7 @@ export {
   createAgentCore as createAgent,
   updateAgentRegistrationCore as updateAgentRegistration,
   requestFeedbackAuthCore as requestFeedbackAuth,
+  prepareFeedbackCore as prepareFeedback,
 } from '../api/agents/core';
 export { createAgentDirectCore as createAgentDirect } from '../api/agents/directServer';
 

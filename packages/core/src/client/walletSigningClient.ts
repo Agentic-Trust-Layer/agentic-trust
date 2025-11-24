@@ -12,6 +12,7 @@ export {
   getWalletAddress,
   createAgentWithWallet,
   updateAgentRegistrationWithWalletForAA,
+  giveFeedbackWithWalletForAA,
   getCounterfactualAccountClientByAgentName,
   getDeployedAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,
@@ -27,6 +28,7 @@ export type {
   CreateAgentWithWalletOptions,
   CreateAgentResult,
   UpdateAgentRegistrationWithWalletOptions,
+  GiveFeedbackWithWalletOptions,
 } from './walletSigning';
 export type {
   CreateAgentDirectClientInput,

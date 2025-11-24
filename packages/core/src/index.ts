@@ -115,6 +115,7 @@ export {
   getCounterfactualAAAddressByAgentName,
   createAgentWithWallet,
   updateAgentRegistrationWithWalletForAA,
+  giveFeedbackWithWalletForAA,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,
@@ -123,6 +124,7 @@ export type {
   CreateAgentWithWalletOptions,
   CreateAgentResult,
   UpdateAgentRegistrationWithWalletOptions,
+  GiveFeedbackWithWalletOptions,
 } from './client/walletSigning';
 
 // Client-side agent API helpers (HTTP-based)

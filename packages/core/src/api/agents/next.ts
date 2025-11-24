@@ -4,6 +4,7 @@ import {
   type AgentApiContext,
   updateAgentRegistrationCore,
   requestFeedbackAuthCore,
+  prepareFeedbackCore,
 } from './core';
 import type {
   AgentOperationPlan,
@@ -11,6 +12,7 @@ import type {
   UpdateAgentRegistrationPayload,
   RequestFeedbackAuthPayload,
   RequestFeedbackAuthResult,
+  PrepareFeedbackPayload,
 } from './types';
 import { parseDid8004 } from '../../shared/did8004';
 
@@ -175,6 +177,29 @@ export function requestFeedbackAuthRouteHandler(
 
       const ctx = createContext(req);
       const result: RequestFeedbackAuthResult = await requestFeedbackAuthCore(ctx, input);
+      return jsonResponse(result);
+    } catch (error) {
+      return handleNextError(error);
+    }
+  };
+}
+
+export function prepareFeedbackRouteHandler(
+  createContext: CreateContextFromNext = defaultContextFactory,
+) {
+  return async (
+    req: Request,
+    context: { params: RouteParams },
+  ) => {
+    try {
+      const did8004 = extractDidParam(context.params || {});
+      const body = (await req.json()) as Omit<PrepareFeedbackPayload, 'did8004'>;
+      const ctx = createContext(req);
+      const input: PrepareFeedbackPayload = {
+        did8004,
+        ...body,
+      };
+      const result: AgentOperationPlan = await prepareFeedbackCore(ctx, input);
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

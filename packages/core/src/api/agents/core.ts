@@ -9,10 +9,11 @@ import {
   type UpdateAgentRegistrationPayload,
   type RequestFeedbackAuthPayload,
   type RequestFeedbackAuthResult,
+  type PrepareFeedbackPayload,
   type AgentOperationCall,
   type AgentPreparedTransactionPayload,
 } from './types';
-import { DEFAULT_CHAIN_ID } from '../../server/lib/chainConfig';
+import { DEFAULT_CHAIN_ID, getChainBundlerUrl } from '../../server/lib/chainConfig';
 
 const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
@@ -358,5 +359,80 @@ export async function requestFeedbackAuthCore(
       },
     );
   }
+}
+
+export async function prepareFeedbackCore(
+  ctx: AgentApiContext | undefined,
+  input: PrepareFeedbackPayload,
+): Promise<AgentOperationPlan> {
+  if (!input.did8004?.trim()) {
+    throw new AgentApiError('did8004 parameter is required', 400);
+  }
+
+  const mode: AgentOperationMode = input.mode ?? 'eoa';
+  if (mode !== 'eoa') {
+    throw new AgentApiError(
+      `mode "${mode}" is not supported for feedback submission. Only "eoa" mode is supported.`,
+      400,
+    );
+  }
+
+  const parsed = (() => {
+    try {
+      return parseDid8004(input.did8004);
+    } catch (error) {
+      throw new AgentApiError(
+        `Invalid did:8004 identifier: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        400,
+      );
+    }
+  })();
+
+  const client = await resolveClient(ctx);
+  const agent = await client.getAgent(parsed.agentId.toString(), parsed.chainId);
+  if (!agent) {
+    throw new AgentApiError('Agent not found', 404, { did8004: input.did8004 });
+  }
+
+  // Prepare the feedback transaction (EOA-friendly payload)
+  const { chainId, transaction } = await agent.prepareGiveFeedbackTransaction({
+    score: input.score,
+    feedback: input.feedback,
+    feedbackAuth: input.feedbackAuth,
+    ...(input.clientAddress && {
+      clientAddress: input.clientAddress as `0x${string}`,
+    }),
+    tag1: input.tag1,
+    tag2: input.tag2,
+    feedbackUri: input.feedbackUri,
+    feedbackHash: input.feedbackHash,
+    skill: input.skill,
+    context: input.context,
+    capability: input.capability,
+  });
+
+  // Map PreparedTransaction into AgentPreparedTransactionPayload
+  const txPayload: AgentPreparedTransactionPayload = {
+    to: transaction.to,
+    data: transaction.data,
+    value: transaction.value || '0x0',
+    gas: transaction.gas,
+    gasPrice: transaction.gasPrice,
+    maxFeePerGas: transaction.maxFeePerGas,
+    maxPriorityFeePerGas: transaction.maxPriorityFeePerGas,
+    nonce: transaction.nonce,
+    chainId,
+  };
+
+  return {
+    success: true,
+    operation: 'update',
+    mode: 'eoa',
+    chainId,
+    calls: [],
+    transaction: txPayload,
+  };
 }
 

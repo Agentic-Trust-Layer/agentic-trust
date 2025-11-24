@@ -4,6 +4,7 @@ import {
   type AgentApiContext,
   updateAgentRegistrationCore,
   requestFeedbackAuthCore,
+  prepareFeedbackCore,
 } from './core';
 import { parseDid8004 } from '../../shared/did8004';
 import type {
@@ -12,6 +13,7 @@ import type {
   UpdateAgentRegistrationPayload,
   RequestFeedbackAuthPayload,
   RequestFeedbackAuthResult,
+  PrepareFeedbackPayload,
 } from './types';
 
 type ExpressRequestLike = {
@@ -207,6 +209,35 @@ export function requestFeedbackAuthExpressHandler(
   };
 }
 
+export function prepareFeedbackExpressHandler(
+  getContext: CreateContextFromExpress = defaultContextFactory,
+) {
+  return async (req: ExpressRequestLike, res: ExpressResponseLike) => {
+    try {
+      const ctx = getContext(req);
+      const did8004 =
+        req.params?.did8004 ??
+        req.params?.['did:8004'] ??
+        req.params?.['did%3A8004'];
+      if (!did8004) {
+        sendJson(res, 400, { error: 'did8004 parameter is required' });
+        return;
+      }
+
+      const body = (req.body ?? {}) as Omit<PrepareFeedbackPayload, 'did8004'>;
+      const input: PrepareFeedbackPayload = {
+        did8004,
+        ...body,
+      };
+
+      const result: AgentOperationPlan = await prepareFeedbackCore(ctx, input);
+      sendJson(res, 200, result);
+    } catch (error) {
+      handleExpressError(res, error);
+    }
+  };
+}
+
 export interface MountAgentRoutesOptions {
   basePath?: string;
   createContext?: CreateContextFromExpress;
@@ -228,8 +259,12 @@ export function mountAgentRoutes(
     updateAgentRegistrationExpressHandler(getContext),
   );
   router.get(
-    `${basePath}/feedback-auth`,
+    `${basePath}/:did8004/feedback-auth`,
     requestFeedbackAuthExpressHandler(getContext),
+  );
+  router.post(
+    `${basePath}/:did8004/feedback`,
+    prepareFeedbackExpressHandler(getContext),
   );
 }
 

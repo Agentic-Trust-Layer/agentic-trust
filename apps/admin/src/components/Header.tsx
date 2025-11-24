@@ -32,6 +32,12 @@ export function Header({
   const pathname = usePathname() ?? '/';
   const [graphLoading, setGraphLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+
+  const shortAddress = useMemo(() => {
+    if (!displayAddress || displayAddress.length < 10) return displayAddress ?? '';
+    return `${displayAddress.slice(0, 6)}...${displayAddress.slice(-4)}`;
+  }, [displayAddress]);
 
   const canRequestGraphql = Boolean(displayAddress);
 
@@ -241,42 +247,92 @@ export function Header({
               Server-admin mode
             </div>
           ) : isConnected ? (
-            isMobile ? (
+            <div style={{ position: 'relative' }}>
               <button
                 type="button"
-                aria-label="Disconnect"
-                title="Disconnect"
-                onClick={onDisconnect}
+                onClick={() => setShowAccountMenu(prev => !prev)}
                 style={{
-                  width: '40px',
-                  height: '40px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  padding: isMobile ? '0.35rem 0.9rem' : '0.45rem 1.2rem',
+                  backgroundColor: palette.surfaceMuted,
+                  color: palette.textPrimary,
                   borderRadius: '999px',
                   border: `1px solid ${palette.borderStrong}`,
-                  backgroundColor: palette.accent,
-                  color: palette.surface,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                ⏏️
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={onDisconnect}
-                style={{
-                  padding: '0.5rem 1.25rem',
-                  backgroundColor: palette.accent,
-                  color: palette.surface,
-                  border: 'none',
-                  borderRadius: '8px',
                   fontWeight: 600,
+                  fontSize: isMobile ? '0.85rem' : '0.9rem',
                   cursor: 'pointer',
+                  minWidth: isMobile ? undefined : '180px',
+                  justifyContent: isMobile ? 'center' : 'flex-start',
                 }}
+                title={displayAddress || 'Connected wallet'}
               >
-                Disconnect
+                <span
+                  style={{
+                    width: '8px',
+                    height: '8px',
+                    borderRadius: '999px',
+                    backgroundColor: '#22c55e',
+                  }}
+                />
+                <span style={{ fontFamily: 'monospace' }}>
+                  {shortAddress || 'Connected'}
+                </span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.75rem' }}>▾</span>
               </button>
-            )
+              {showAccountMenu && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    marginTop: '0.4rem',
+                    backgroundColor: palette.surface,
+                    borderRadius: '10px',
+                    border: `1px solid ${palette.border}`,
+                    boxShadow: '0 10px 25px rgba(15,23,42,0.35)',
+                    minWidth: '200px',
+                    zIndex: 20,
+                    overflow: 'hidden',
+                  }}
+                >
+                  {displayAddress && (
+                    <div
+                      style={{
+                        padding: '0.6rem 0.85rem',
+                        borderBottom: `1px solid ${palette.border}`,
+                        fontSize: '0.8rem',
+                        color: palette.textSecondary,
+                        wordBreak: 'break-all',
+                        fontFamily: 'monospace',
+                        backgroundColor: palette.surfaceMuted,
+                      }}
+                    >
+                      {displayAddress}
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      void onDisconnect();
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.85rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      color: palette.dangerText,
+                    }}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              )}
+            </div>
           ) : (
             isMobile ? (
               <button

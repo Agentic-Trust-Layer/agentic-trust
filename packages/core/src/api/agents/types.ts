@@ -90,3 +90,19 @@ export interface RequestFeedbackAuthResult {
   chainId: number;
 }
 
+export interface PrepareFeedbackPayload {
+  did8004: string;
+  score: number;
+  feedback: string;
+  feedbackAuth: string;
+  clientAddress?: string;
+  tag1?: string;
+  tag2?: string;
+  feedbackUri?: string;
+  feedbackHash?: string;
+  skill?: string;
+  context?: string;
+  capability?: string;
+  mode?: AgentOperationMode;
+}
+

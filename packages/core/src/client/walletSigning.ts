@@ -36,6 +36,7 @@ import {
   updateAgentRegistration as callUpdateAgentRegistrationEndpoint,
   type UpdateAgentRegistrationClientResult,
 } from '../api/agents/client';
+import type { AgentOperationPlan } from '../api/agents/types';
 export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
@@ -1242,6 +1243,133 @@ export async function updateAgentRegistrationWithWalletForAA(
 
   return {
     txHash: userOpHash,
+    requiresClientSigning: true as const,
+  };
+}
+
+/**
+ * Submit feedback for an agent using an AA wallet + bundler, mirroring the AA update flow.
+ *
+ * This client-side function handles the complete AA feedback submission flow:
+ * 1. Sends feedback data to the server API route to prepare calls
+ * 2. Receives prepared AA calls + bundler URL
+ * 3. Sends a sponsored UserOperation via the bundler using the AA account
+ * 4. Waits for confirmation
+ *
+ * **Setup Required:**
+ * Your Next.js app must mount the API route handler:
+ * 
+ * ```typescript
+ * // In app/api/agents/[did:8004]/feedback/route.ts
+ * import { prepareFeedbackRouteHandler } from '@agentic-trust/core/server';
+ * export const POST = prepareFeedbackRouteHandler();
+ * ```
+ * 
+ * **Usage:**
+ * ```typescript
+ * import { giveFeedbackWithWalletForAA } from '@agentic-trust/core/client';
+ * 
+ * const result = await giveFeedbackWithWalletForAA({
+ *   did8004: 'did:8004:11155111:123',
+ *   chain: sepolia,
+ *   accountClient: clientAccountClient,
+ *   score: 85,
+ *   feedback: 'Great agent!',
+ *   feedbackAuth: '0x...',
+ *   onStatusUpdate: (msg) => console.log(msg),
+ * });
+ * ```
+ */
+export interface GiveFeedbackWithWalletOptions {
+  did8004: string;
+  chain: Chain;
+  score: number;
+  feedback: string;
+  feedbackAuth: string;
+  clientAddress?: string;
+  tag1?: string;
+  tag2?: string;
+  feedbackUri?: string;
+  feedbackHash?: string;
+  skill?: string;
+  context?: string;
+  capability?: string;
+  onStatusUpdate?: (status: string) => void;
+}
+
+export async function giveFeedbackWithWalletForAA(
+  options: GiveFeedbackWithWalletOptions,
+): Promise<{ txHash: string; requiresClientSigning: true }> {
+  const {
+    did8004,
+    chain,
+    score,
+    feedback,
+    feedbackAuth,
+    clientAddress,
+    tag1,
+    tag2,
+    feedbackUri,
+    feedbackHash,
+    skill,
+    context,
+    capability,
+    onStatusUpdate,
+  } = options;
+
+  onStatusUpdate?.('Preparing feedback submission on server...');
+
+  let prepared: AgentOperationPlan;
+  try {
+    const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        score,
+        feedback,
+        feedbackAuth,
+        clientAddress,
+        tag1,
+        tag2,
+        feedbackUri,
+        feedbackHash,
+        skill,
+        context,
+        capability,
+        mode: 'eoa',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error || errorData.message || 'Failed to prepare feedback submission',
+      );
+    }
+
+    prepared = (await response.json()) as AgentOperationPlan;
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? error.message
+        : 'Failed to prepare feedback submission',
+    );
+  }
+
+  if (!prepared.transaction) {
+    throw new Error('Feedback submission response missing transaction payload');
+  }
+
+  const txResult = await signAndSendTransaction({
+    transaction: prepared.transaction as any, // AgentPreparedTransactionPayload is compatible with PreparedTransaction
+    account: (clientAddress || '0x') as `0x${string}`,
+    chain,
+    ethereumProvider: undefined,
+    onStatusUpdate,
+  });
+
+  return {
+    txHash: txResult.hash,
     requiresClientSigning: true as const,
   };
 }

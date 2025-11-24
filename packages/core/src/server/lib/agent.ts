@@ -23,6 +23,7 @@ import { DEFAULT_CHAIN_ID, requireChainEnvVar } from './chainConfig';
 import { ethers } from 'ethers';
 import type { AgentDetail, AgentIdentifier } from '../models/agentDetail';
 import type { FeedbackFile } from '@agentic-trust/8004-sdk';
+import type { PreparedTransaction } from '../../client/walletSigning';
 
 // Re-export types
 export type {
@@ -77,6 +78,7 @@ export type GiveFeedbackInput = Omit<GiveFeedbackParams, 'agent' | 'agentId'> & 
   skill?: string;
   context?: string;
   capability?: string;
+  feedbackAuth?: string;
 };
 
 /**
@@ -548,15 +550,12 @@ export class Agent {
     };
   }
 
-  /**
-   * Submit client feedback to the reputation contract.
-   */
-  async giveFeedback(params: GiveFeedbackInput): Promise<{ txHash: string }> {
-    const { getClientApp } = await import('../userApps/clientApp');
-
-    const reputationClient = await getReputationClient();
-    const clientApp = await getClientApp();
-
+  private async buildFeedbackSubmission(
+    params: GiveFeedbackInput & { feedbackAuth: string },
+  ): Promise<{
+    chainId: number;
+    giveParams: GiveFeedbackParams;
+  }> {
     const agentId =
       params.agentId ?? (this.data.agentId ? this.data.agentId.toString() : undefined);
     if (!agentId) {
@@ -570,6 +569,32 @@ export class Agent {
         ? Number((this.data as any).chainId)
         : DEFAULT_CHAIN_ID;
 
+    const score = Number(params.score ?? 0);
+    if (!Number.isFinite(score)) {
+      throw new Error('score must be a valid number between 0 and 100');
+    }
+    const normalizedScore = Math.max(0, Math.min(100, Math.round(score)));
+
+    const feedbackAuth = params.feedbackAuth;
+    if (!feedbackAuth) {
+      throw new Error('feedbackAuth is required to submit feedback');
+    }
+
+    // Prefer an explicit clientAddress from params (e.g. browser wallet / Web3Auth).
+    // Only fall back to ClientApp (server-side private key) when clientAddress is not provided.
+    let clientAddressHex: `0x${string}` | undefined =
+      params.clientAddress as `0x${string}` | undefined;
+
+    if (!clientAddressHex) {
+      const { getClientApp } = await import('../userApps/clientApp');
+      const clientApp = await getClientApp();
+      clientAddressHex = clientApp?.address as `0x${string}` | undefined;
+    }
+
+    if (!clientAddressHex) {
+      throw new Error('clientAddress is required to submit feedback');
+    }
+
     let agentRegistry = '';
     try {
       const identityRegistry = requireChainEnvVar(
@@ -579,25 +604,20 @@ export class Agent {
       agentRegistry = `eip155:${chainId}:${identityRegistry}`;
     } catch (error) {
       console.warn(
-        '[Agent.giveFeedback] Failed to resolve AGENTIC_TRUST_IDENTITY_REGISTRY; feedbackFile.agentRegistry will be empty:',
+        '[Agent.buildFeedbackSubmission] Failed to resolve AGENTIC_TRUST_IDENTITY_REGISTRY; feedbackFile.agentRegistry will be empty:',
         error,
       );
     }
 
-    const clientAddressHex: `0x${string}` | undefined =
-      params.clientAddress ?? (clientApp?.address as `0x${string}` | undefined);
-    const clientAddressCaip =
-      clientAddressHex && typeof chainId === 'number'
-        ? `eip155:${chainId}:${clientAddressHex}`
-        : '';
+    const clientAddressCaip = `eip155:${chainId}:${clientAddressHex}`;
 
     const feedbackFile: FeedbackFile = {
       agentRegistry,
       agentId: Number.parseInt(agentId, 10) || 0,
-      clientAddress: clientAddressCaip || clientAddressHex || '',
+      clientAddress: clientAddressCaip || clientAddressHex,
       createdAt: new Date().toISOString(),
-      feedbackAuth: params.feedbackAuth || '',
-      score: params.score,
+      feedbackAuth,
+      score: normalizedScore,
     };
 
     if (params.tag1) feedbackFile.tag1 = params.tag1;
@@ -618,28 +638,81 @@ export class Agent {
       ) as `0x${string}`;
     } catch (error) {
       console.warn(
-        '[Agent.giveFeedback] Failed to upload FeedbackFile to IPFS; continuing without feedbackUri/feedbackHash:',
+        '[Agent.buildFeedbackSubmission] Failed to upload FeedbackFile to IPFS; continuing without feedbackUri/feedbackHash:',
         error,
       );
     }
 
-    const {
-      clientAddress: _clientAddress,
-      skill: _skill,
-      context: _context,
-      capability: _capability,
-      ...rest
-    } = params as any;
-
-    const feedbackParams: GiveFeedbackParams = {
-      ...(rest as GiveFeedbackParams),
+    const giveParams: GiveFeedbackParams = {
       agent: agentId,
+      score: normalizedScore,
+      feedback: params.feedback ?? 'Feedback submitted via Agentic Trust admin app.',
+      tag1: params.tag1,
+      tag2: params.tag2,
+      feedbackUri: feedbackUriFromIpfs,
+      feedbackHash: feedbackHashFromIpfs,
       agentId,
-      ...(feedbackUriFromIpfs && { feedbackUri: feedbackUriFromIpfs }),
-      ...(feedbackHashFromIpfs && { feedbackHash: feedbackHashFromIpfs }),
+      feedbackAuth,
     };
 
-    return await reputationClient.giveClientFeedback(feedbackParams);
+    return {
+      chainId,
+      giveParams,
+    };
+  }
+
+  /**
+   * Submit client feedback to the reputation contract.
+   */
+  async giveFeedback(params: GiveFeedbackInput): Promise<{ txHash: string }> {
+    if (!params.feedbackAuth) {
+      throw new Error('feedbackAuth is required to submit feedback');
+    }
+
+    const { chainId, giveParams } = await this.buildFeedbackSubmission({
+      ...params,
+      feedbackAuth: params.feedbackAuth,
+    });
+    const reputationClient = await getReputationClient(chainId);
+    return reputationClient.giveClientFeedback(giveParams);
+  }
+
+  /**
+   * Prepare a giveFeedback transaction for client-side signing.
+   */
+  async prepareGiveFeedbackTransaction(
+    params: GiveFeedbackInput,
+  ): Promise<{ chainId: number; transaction: PreparedTransaction }> {
+    if (!params.feedbackAuth) {
+      throw new Error('feedbackAuth is required to prepare feedback transaction');
+    }
+
+    const { chainId, giveParams } = await this.buildFeedbackSubmission({
+      ...params,
+      feedbackAuth: params.feedbackAuth,
+    });
+    const reputationClient = await getReputationClient(chainId);
+    const txRequest = await reputationClient.prepareGiveFeedbackTx(giveParams);
+
+    const toHex = (value?: bigint): `0x${string}` | undefined =>
+      typeof value === 'bigint' ? (`0x${value.toString(16)}` as `0x${string}`) : undefined;
+
+    const transaction: PreparedTransaction = {
+      to: txRequest.to as `0x${string}`,
+      data: txRequest.data as `0x${string}`,
+      value: toHex(txRequest.value) ?? ('0x0' as `0x${string}`),
+      gas: toHex(txRequest.gas),
+      gasPrice: toHex(txRequest.gasPrice),
+      maxFeePerGas: toHex(txRequest.maxFeePerGas),
+      maxPriorityFeePerGas: toHex(txRequest.maxPriorityFeePerGas),
+      nonce: txRequest.nonce,
+      chainId,
+    };
+
+    return {
+      chainId,
+      transaction,
+    };
   }
 
 }
