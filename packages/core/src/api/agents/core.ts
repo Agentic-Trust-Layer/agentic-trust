@@ -7,6 +7,8 @@ import {
   type AgentOperationMode,
   type CreateAgentPayload,
   type UpdateAgentRegistrationPayload,
+  type RequestFeedbackAuthPayload,
+  type RequestFeedbackAuthResult,
   type AgentOperationCall,
   type AgentPreparedTransactionPayload,
 } from './types';
@@ -298,5 +300,63 @@ export async function updateAgentRegistrationCore(
     calls: normalizeCalls(prepared.calls),
     transaction: null,
   };
+}
+
+export async function requestFeedbackAuthCore(
+  ctx: AgentApiContext | undefined,
+  input: RequestFeedbackAuthPayload,
+): Promise<RequestFeedbackAuthResult> {
+  const clientAddress = input.clientAddress?.toLowerCase();
+  if (
+    !clientAddress ||
+    typeof clientAddress !== 'string' ||
+    !ADDRESS_REGEX.test(clientAddress)
+  ) {
+    throw new AgentApiError(
+      'clientAddress must be a valid 0x-prefixed 20-byte address',
+      400,
+    );
+  }
+
+  const agentId = input.agentId?.toString().trim();
+  if (!agentId) {
+    throw new AgentApiError('agentId is required', 400);
+  }
+
+  const chainId =
+    typeof input.chainId === 'number' && Number.isFinite(input.chainId)
+      ? input.chainId
+      : DEFAULT_CHAIN_ID;
+
+  const client = await resolveClient(ctx);
+  const agent = await client.getAgent(agentId, chainId);
+  if (!agent) {
+    throw new AgentApiError('Agent not found', 404, { agentId, chainId });
+  }
+
+  try {
+    const feedbackAuth = await agent.getFeedbackAuth({
+      clientAddress: clientAddress as `0x${string}`,
+      agentId,
+      chainId,
+      indexLimit: input.indexLimit,
+      expirySeconds: input.expirySeconds,
+    });
+
+    return {
+      feedbackAuthId: feedbackAuth.feedbackAuthId,
+      agentId: feedbackAuth.agentId,
+      chainId: feedbackAuth.chainId,
+    };
+  } catch (error) {
+    throw new AgentApiError(
+      error instanceof Error ? error.message : 'Failed to get feedback auth',
+      502,
+      {
+        agentId,
+        chainId,
+      },
+    );
+  }
 }
 

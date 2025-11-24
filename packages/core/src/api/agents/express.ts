@@ -3,16 +3,22 @@ import {
   createAgentCore,
   type AgentApiContext,
   updateAgentRegistrationCore,
+  requestFeedbackAuthCore,
 } from './core';
+import { parseDid8004 } from '../../shared/did8004';
 import type {
   CreateAgentPayload,
   AgentOperationPlan,
   UpdateAgentRegistrationPayload,
+  RequestFeedbackAuthPayload,
+  RequestFeedbackAuthResult,
 } from './types';
 
 type ExpressRequestLike = {
   body?: unknown;
   params?: Record<string, string | undefined>;
+  query?: Record<string, unknown>;
+  url?: string;
   [key: string]: unknown;
 };
 
@@ -23,6 +29,10 @@ type ExpressResponseLike = {
 
 type ExpressRouterLike = {
   post: (
+    path: string,
+    handler: (req: ExpressRequestLike, res: ExpressResponseLike) => unknown,
+  ) => unknown;
+  get: (
     path: string,
     handler: (req: ExpressRequestLike, res: ExpressResponseLike) => unknown,
   ) => unknown;
@@ -117,6 +127,86 @@ export function updateAgentRegistrationExpressHandler(
   };
 }
 
+function getQueryParam(req: ExpressRequestLike, key: string): string | undefined {
+  const query = req.query;
+  const value = query ? query[key] : undefined;
+  if (Array.isArray(value)) {
+    return value[0]?.toString();
+  }
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (value !== undefined && value !== null) {
+    return String(value);
+  }
+  if (typeof req.url === 'string') {
+    try {
+      const url = new URL(req.url, 'http://localhost');
+      const param = url.searchParams.get(key);
+      return param ?? undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function parseNumber(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function requestFeedbackAuthExpressHandler(
+  getContext: CreateContextFromExpress = defaultContextFactory,
+) {
+  return async (req: ExpressRequestLike, res: ExpressResponseLike) => {
+    try {
+      const ctx = getContext(req);
+      const clientAddress = getQueryParam(req, 'clientAddress') ?? '';
+      const paramAgentId =
+        getQueryParam(req, 'agentId') ??
+        req.params?.did8004 ??
+        req.params?.['did:8004'] ??
+        req.params?.['did%3A8004'];
+
+      let agentId = paramAgentId ?? '';
+      let chainId = parseNumber(getQueryParam(req, 'chainId'));
+
+      if (paramAgentId?.startsWith('did:8004:')) {
+        try {
+          const parsed = parseDid8004(paramAgentId);
+          agentId = parsed.agentId;
+          chainId = parsed.chainId;
+        } catch {
+          // fallback to manual values below
+        }
+      }
+
+      const indexLimit = parseNumber(getQueryParam(req, 'indexLimit'));
+      const expirySeconds =
+        parseNumber(getQueryParam(req, 'expirySec')) ??
+        parseNumber(getQueryParam(req, 'expirySeconds'));
+
+      const input: RequestFeedbackAuthPayload = {
+        clientAddress,
+        agentId,
+        chainId,
+        indexLimit,
+        expirySeconds,
+      };
+
+      const result: RequestFeedbackAuthResult = await requestFeedbackAuthCore(
+        ctx,
+        input,
+      );
+      sendJson(res, 200, result);
+    } catch (error) {
+      handleExpressError(res, error);
+    }
+  };
+}
+
 export interface MountAgentRoutesOptions {
   basePath?: string;
   createContext?: CreateContextFromExpress;
@@ -136,6 +226,10 @@ export function mountAgentRoutes(
   router.put(
     `${basePath}/:did8004/registration`,
     updateAgentRegistrationExpressHandler(getContext),
+  );
+  router.get(
+    `${basePath}/feedback-auth`,
+    requestFeedbackAuthExpressHandler(getContext),
   );
 }
 

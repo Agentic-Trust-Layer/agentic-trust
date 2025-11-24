@@ -35,6 +35,8 @@ mountAgentApiRoutes(
   {
     post: (path, handler) =>
       app.post(path, (req, res) => handler(req as any, res as any)),
+    get: (path, handler) =>
+      app.get(path, (req, res) => handler(req as any, res as any)),
     put: (path, handler) =>
       app.put(path, (req, res) => handler(req as any, res as any)),
   },

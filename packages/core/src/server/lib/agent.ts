@@ -45,6 +45,25 @@ export interface MessageResponse {
   error?: string;
 }
 
+export interface FeedbackAuthParams {
+  clientAddress: `0x${string}`;
+  agentId?: string | number | bigint;
+  indexLimit?: number;
+  expirySeconds?: number;
+  chainId?: number;
+  skillId?: string;
+  message?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FeedbackAuthResult {
+  feedbackAuthId: string;
+  agentId: string;
+  chainId: number;
+  payload: Record<string, unknown>;
+  response: MessageResponse;
+}
+
 /**
  * Agent data from discovery (GraphQL)
  */
@@ -362,6 +381,112 @@ export class Agent {
       return false;
   }
 }
+
+  /**
+   * Request a feedback authorization token from the agent's A2A endpoint.
+   * Automatically verifies the agent (unless skipVerify=true) before sending the requestAuth message.
+   */
+  async getFeedbackAuth(params: FeedbackAuthParams): Promise<FeedbackAuthResult> {
+    const clientAddress = params.clientAddress?.toLowerCase();
+    if (
+      !clientAddress ||
+      !clientAddress.startsWith('0x') ||
+      clientAddress.length !== 42
+    ) {
+      throw new Error('clientAddress must be a 0x-prefixed 20-byte address');
+    }
+
+    const resolvedChainId =
+      typeof params.chainId === 'number'
+        ? params.chainId
+        : Number.isFinite((this.data as any)?.chainId)
+          ? Number((this.data as any).chainId)
+          : DEFAULT_CHAIN_ID;
+
+    const resolveAgentId = (
+      value: string | number | bigint | undefined,
+    ): string | undefined => {
+      if (value === undefined || value === null) {
+        return undefined;
+      }
+      try {
+        return BigInt(value as any).toString();
+      } catch {
+        const stringified = String(value).trim();
+        return stringified.length > 0 ? stringified : undefined;
+      }
+    };
+
+    const resolvedAgentId =
+      resolveAgentId(params.agentId) ?? resolveAgentId(this.data.agentId);
+
+    if (!resolvedAgentId) {
+      throw new Error('Agent ID is required to request feedback auth.');
+    }
+
+    const verified = await this.verify();
+    if (!verified) {
+      throw new Error('Agent verification failed before requesting feedback auth.');
+    }
+
+    const payload: Record<string, unknown> = {
+      clientAddress,
+    };
+
+    const numericAgentId = Number.parseInt(resolvedAgentId, 10);
+    payload.agentId = Number.isFinite(numericAgentId)
+      ? numericAgentId
+      : resolvedAgentId;
+
+    if (typeof params.indexLimit === 'number' && params.indexLimit > 0) {
+      payload.indexLimit = params.indexLimit;
+    }
+
+    if (typeof params.expirySeconds === 'number' && params.expirySeconds > 0) {
+      payload.expirySeconds = params.expirySeconds;
+    }
+
+    const skillId = params.skillId ?? 'agent.feedback.requestAuth';
+    const message = params.message ?? 'Request feedback authorization';
+    const metadata: Record<string, unknown> = {
+      ...(params.metadata || {}),
+      requestType: 'feedbackAuth',
+      agentId: resolvedAgentId,
+      chainId: resolvedChainId,
+    };
+
+    const messageRequest: MessageRequest = {
+      message,
+      payload,
+      metadata,
+      skillId,
+    };
+
+    const response = await this.sendMessage(messageRequest);
+    if (!response?.success) {
+      throw new Error(response?.error || 'Provider rejected feedback auth request');
+    }
+
+    const providerPayload = (response.response || {}) as Record<string, unknown>;
+    const feedbackAuthId =
+      (providerPayload.feedbackAuth as string | undefined) ??
+      (providerPayload.feedbackAuthId as string | undefined) ??
+      (providerPayload.feedbackAuthID as string | undefined) ??
+      null;
+
+    if (!feedbackAuthId) {
+      throw new Error('Provider response did not include feedbackAuth');
+    }
+
+    return {
+      feedbackAuthId,
+      agentId: resolvedAgentId,
+      chainId: resolvedChainId,
+      payload: providerPayload,
+      response,
+    };
+  }
+
   /**
    * Feedback API
    */

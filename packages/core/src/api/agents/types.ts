@@ -76,3 +76,17 @@ export interface UpdateAgentRegistrationPayload {
   mode?: AgentOperationMode;
 }
 
+export interface RequestFeedbackAuthPayload {
+  clientAddress: string;
+  agentId: string;
+  chainId?: number;
+  indexLimit?: number;
+  expirySeconds?: number;
+}
+
+export interface RequestFeedbackAuthResult {
+  feedbackAuthId: string;
+  agentId: string;
+  chainId: number;
+}
+

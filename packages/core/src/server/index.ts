@@ -13,6 +13,7 @@ export type { ResolveAccountRequestBody, ResolveAccountResponse } from './lib/re
 export {
   createAgentRouteHandler,
   updateAgentRegistrationRouteHandler,
+  requestFeedbackAuthRouteHandler,
 } from '../api/agents/next';
 export {
   createAgentDirectRouteHandler,
@@ -22,6 +23,7 @@ export {
 export {
   createAgentExpressHandler,
   updateAgentRegistrationExpressHandler,
+  requestFeedbackAuthExpressHandler,
   mountAgentRoutes as mountAgentApiRoutes,
 } from '../api/agents/express';
 export {
@@ -32,6 +34,7 @@ export {
 export {
   createAgentCore as createAgent,
   updateAgentRegistrationCore as updateAgentRegistration,
+  requestFeedbackAuthCore as requestFeedbackAuth,
 } from '../api/agents/core';
 export { createAgentDirectCore as createAgentDirect } from '../api/agents/directServer';
 

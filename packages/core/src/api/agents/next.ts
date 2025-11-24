@@ -3,12 +3,16 @@ import {
   createAgentCore,
   type AgentApiContext,
   updateAgentRegistrationCore,
+  requestFeedbackAuthCore,
 } from './core';
 import type {
   AgentOperationPlan,
   CreateAgentPayload,
   UpdateAgentRegistrationPayload,
+  RequestFeedbackAuthPayload,
+  RequestFeedbackAuthResult,
 } from './types';
+import { parseDid8004 } from '../../shared/did8004';
 
 type RouteParams = Record<string, string | string[] | undefined>;
 
@@ -124,6 +128,53 @@ export function updateAgentRegistrationRouteHandler(
       };
       const result: AgentOperationPlan =
         await updateAgentRegistrationCore(ctx, input);
+      return jsonResponse(result);
+    } catch (error) {
+      return handleNextError(error);
+    }
+  };
+}
+
+function parseNumberParam(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function requestFeedbackAuthRouteHandler(
+  createContext: CreateContextFromNext = defaultContextFactory,
+) {
+  return async (
+    req: Request,
+    context?: { params?: RouteParams },
+  ) => {
+    try {
+      const url = new URL(req.url);
+      const params = url.searchParams;
+
+      let agentIdParam =
+        params.get('agentId') ??
+        (context?.params ? extractDidParam(context.params) : undefined);
+
+      const parsedDid =
+        agentIdParam && agentIdParam.startsWith('did:8004:')
+          ? parseDid8004(agentIdParam)
+          : null;
+
+      const input: RequestFeedbackAuthPayload = {
+        clientAddress: params.get('clientAddress') ?? '',
+        agentId: parsedDid ? parsedDid.agentId : (agentIdParam ?? ''),
+        chainId: parsedDid
+          ? parsedDid.chainId
+          : parseNumberParam(params.get('chainId')),
+        indexLimit: parseNumberParam(params.get('indexLimit')),
+        expirySeconds:
+          parseNumberParam(params.get('expirySec')) ??
+          parseNumberParam(params.get('expirySeconds')),
+      };
+
+      const ctx = createContext(req);
+      const result: RequestFeedbackAuthResult = await requestFeedbackAuthCore(ctx, input);
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

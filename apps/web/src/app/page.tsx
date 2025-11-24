@@ -32,10 +32,7 @@ export default function Home() {
     [key: string]: unknown;
   } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [loadingAgentCard, setLoadingAgentCard] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [verificationResult, setVerificationResult] = useState<boolean | null>(null);
+
   const [showFeedbackDialog, setShowFeedbackDialog] = useState(false);
   const [feedbackRating, setFeedbackRating] = useState(5);
   const [feedbackComment, setFeedbackComment] = useState('');
@@ -160,8 +157,8 @@ export default function Home() {
     context?: string,
     capability?: string,
   ) => {
-    if (!agentName && (!agentId || !chainId)) {
-      throw new Error('Either agentName or both agentId and chainId are required');
+    if (!agentId || !chainId) {
+      throw new Error('Agent ID and chain ID are required to request feedback auth');
     }
 
     // Get client address
@@ -179,12 +176,17 @@ export default function Home() {
     // Request feedbackAuth from provider
     const feedbackAuthParams = new URLSearchParams({
       clientAddress,
+      agentId,
+      chainId: chainId.toString(),
       ...(agentName ? { agentName } : {}),
-      ...(agentId ? { agentId } : {}),
-      ...(chainId ? { chainId: chainId.toString() } : {}),
     });
 
-    const feedbackAuthResponse = await fetch(`/api/feedback-auth?${feedbackAuthParams.toString()}`);
+    const did = buildDid8004(chainId, agentId);
+    const feedbackAuthResponse = await fetch(
+      `/api/agents/${encodeURIComponent(
+        did,
+      )}/feedback-auth?${feedbackAuthParams.toString()}`,
+    );
     if (!feedbackAuthResponse.ok) {
       const errorData = await feedbackAuthResponse.json();
       throw new Error(errorData.message || errorData.error || 'Failed to get feedback auth');
@@ -625,6 +627,12 @@ export default function Home() {
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 'bold', marginBottom: '0.5rem' }}>
                   {agent.agentName || `Agent #${agent.agentId}`}
                 </h3>
+                <p style={{ color: '#374151', fontSize: '0.85rem', marginBottom: '0.25rem' }}>
+                  Agent ID: {agent.agentId ?? 'Unknown'}
+                </p>
+                <p style={{ color: '#374151', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                  DID: {buildDid8004(agent.chainId ?? DEFAULT_CHAIN_ID, agent.agentId ?? 0)}
+                </p>
                 <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '0.5rem' }}>
                   Chain ID: {agent.chainId || DEFAULT_CHAIN_ID}
                 </p>
