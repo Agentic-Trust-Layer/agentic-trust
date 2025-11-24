@@ -92,19 +92,25 @@ After authentication, the private key (for social logins) or provider (for MetaM
 
 ## API Routes
 
-### POST /api/agents/create-for-eoa
+### POST /api/agents/create-direct
 
-Create a new agent.
+Create a new agent entirely on the server (private-key mode). Supports both
+EOA (`"mode": "eoa"`) and AA (`"mode": "aa"`) flows based on the payload.
 
 **Request Body:**
 ```json
 {
+  "mode": "aa",
   "agentName": "My Agent",
   "agentAccount": "0x...",
-  "tokenUri": "https://...",
-  "metadata": [
-    { "key": "custom", "value": "data" }
-  ]
+  "description": "Optional description",
+  "image": "ipfs://...",
+  "agentUrl": "https://example.org",
+  "chainId": 84532,
+  "ensOptions": {
+    "enabled": true,
+    "orgName": "example"
+  }
 }
 ```
 

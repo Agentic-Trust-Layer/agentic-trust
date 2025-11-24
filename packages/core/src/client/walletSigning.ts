@@ -30,6 +30,12 @@ import {
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
 } from './accountClient';
+import {
+  createAgent as callCreateAgentEndpoint,
+  type CreateAgentClientResult,
+  updateAgentRegistration as callUpdateAgentRegistrationEndpoint,
+  type UpdateAgentRegistrationClientResult,
+} from '../api/agents/client';
 export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
@@ -495,7 +501,7 @@ export interface CreateAgentResult {
  * Create an agent with automatic wallet signing if needed
  *
  * This method handles the entire flow:
- * 1. Calls the API to create agent (endpoint: /api/agents/create-for-eoa)
+ * 1. Calls the API to create agent (endpoint: /api/agents/create)
  * 2. If client-side signing is required, signs and sends transaction
  * 3. Waits for receipt and extracts agentId
  * 4. Refreshes GraphQL indexer
@@ -505,7 +511,7 @@ export interface CreateAgentResult {
  * @param options - Creation options (only agentData required)
  * @returns Agent creation result
  */
-export async function createAgentWithWalletForEOA(
+async function createAgentWithWalletEOA(
   options: CreateAgentWithWalletOptions
 ): Promise<CreateAgentResult> {
   const {
@@ -539,85 +545,53 @@ export async function createAgentWithWalletForEOA(
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
 
-  // Prepare request body with AA parameters if needed
-  const requestBody: any = {
-    ...agentData,
+  const plan = await callCreateAgentEndpoint({
+    mode: 'eoa',
+    agentName: agentData.agentName,
+    agentAccount: agentData.agentAccount,
+    description: agentData.description,
+    image: agentData.image,
+    agentUrl: agentData.agentUrl,
     chainId: requestedChainId,
-  };
-
-  const response = await fetch('/api/agents/create-for-eoa', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
   });
 
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(
-      errorData.message || errorData.error || 'Failed to create agent'
-    );
+  if (plan.mode !== 'eoa' || !plan.transaction) {
+    throw new Error('Server response missing EOA transaction details');
   }
 
-  const data = await response.json();
+  const chain = getChainById(plan.chainId);
+  const preparedTx: PreparedTransaction = {
+    to: plan.transaction.to as `0x${string}`,
+    data: plan.transaction.data as `0x${string}`,
+    value: (plan.transaction.value ?? '0') as `0x${string}`,
+    gas: plan.transaction.gas as `0x${string}` | undefined,
+    gasPrice: plan.transaction.gasPrice as `0x${string}` | undefined,
+    maxFeePerGas: plan.transaction.maxFeePerGas as `0x${string}` | undefined,
+    maxPriorityFeePerGas:
+      plan.transaction.maxPriorityFeePerGas as `0x${string}` | undefined,
+    nonce: plan.transaction.nonce,
+    chainId: plan.transaction.chainId,
+  };
 
-  // Step 2: Check if client-side signing is required (regular EOA transaction)
-  if (data.requiresClientSigning && data.transaction) {
-    // Get chain from transaction chainId
-    const chainId = data.transaction.chainId;
-    const chain = getChainById(chainId);
+  // Sign and send transaction
+  const result = await signAndSendTransaction({
+    transaction: preparedTx,
+    account,
+    chain,
+    ethereumProvider,
+    onStatusUpdate,
+    extractAgentId: true,
+  });
 
-    // Sign and send transaction
-    const result = await signAndSendTransaction({
-      transaction: data.transaction,
-      account,
-      chain,
-      ethereumProvider,
-
-      onStatusUpdate,
-      extractAgentId: true, // Extract agentId for agent creation
-    });
-
-    // Step 3: Refresh GraphQL indexer if agentId was extracted
-    if (result.agentId) {
-      await refreshAgentInIndexer(result.agentId, chainId);
-    }
-
-    return {
-      agentId: result.agentId,
-      txHash: result.hash,
-      requiresClientSigning: true,
-    };
-  } else {
-    // Server-side signed transaction
-    // Ensure we have the required fields
-    if (!data.agentId || !data.txHash) {
-      throw new Error(
-        `Invalid response from create agent API. Expected agentId and txHash, got: ${JSON.stringify(data)}`
-      );
-    }
-
-    const agentIdStr = data.agentId.toString();
-
-    // Refresh GraphQL indexer for server-side signed transactions too
-    if (agentIdStr) {
-      try {
-        const fallbackChainId =
-          typeof requestedChainId === 'number' && Number.isFinite(requestedChainId)
-            ? requestedChainId
-            : DEFAULT_CHAIN_ID;
-        await refreshAgentInIndexer(agentIdStr, fallbackChainId);
-      } catch (error) {
-        // Don't fail the whole operation if refresh fails
-        console.warn('Failed to refresh agent in indexer:', error);
-      }
-    }
-
-    return {
-      agentId: agentIdStr,
-      txHash: data.txHash,
-      requiresClientSigning: false,
-    };
+  if (result.agentId) {
+    await refreshAgentInIndexer(result.agentId, plan.chainId);
   }
+
+  return {
+    agentId: result.agentId,
+    txHash: result.hash,
+    requiresClientSigning: true,
+  };
 }
 
 /**
@@ -626,7 +600,7 @@ export async function createAgentWithWalletForEOA(
  * This client-side function handles the complete AA agent creation flow:
  * 1. Detects wallet provider and account
  * 2. Creates/retrieves AA account client for the agent
- * 3. Calls the server API route `/api/agents/create-for-aa` to prepare registration
+ * 3. Calls the server API route `/api/agents/create` to prepare registration
  * 4. Sends UserOperation via bundler using the AA account
  * 5. Extracts agentId and refreshes the indexer
  * 
@@ -634,15 +608,16 @@ export async function createAgentWithWalletForEOA(
  * Your Next.js app must mount the API route handler:
  * 
  * ```typescript
- * // In app/api/agents/create-for-aa/route.ts
- * export { createAgentForAAHandler as POST } from '@agentic-trust/core/server';
+ * // In app/api/agents/create/route.ts
+ * import { createAgentRouteHandler } from '@agentic-trust/core/server';
+ * export const POST = createAgentRouteHandler();
  * ```
  * 
  * **Usage:**
  * ```typescript
- * import { createAgentWithWalletForAA } from '@agentic-trust/core/client';
+ * import { createAgentWithWallet } from '@agentic-trust/core/client';
  * 
- * const result = await createAgentWithWalletForAA({
+ * const result = await createAgentWithWallet({
  *   agentData: {
  *     agentName: 'my-agent',
  *     agentAccount: '0x...', // AA account address
@@ -655,7 +630,7 @@ export async function createAgentWithWalletForEOA(
  * @param options - Agent creation options
  * @returns Agent creation result with agentId and txHash
  */
-export async function createAgentWithWalletForAA(
+async function createAgentWithWalletAA(
   options: CreateAgentWithWalletOptions
 ): Promise<CreateAgentResult> {
   const {
@@ -739,7 +714,7 @@ export async function createAgentWithWalletForAA(
   //}
 
   // Get Account Client by Agent Name, find if exists and if not then create it
-  const bundlerUrl = getChainBundlerUrl(chainId);
+  let bundlerUrl = getChainBundlerUrl(chainId);
 
   let agentAccountClient = await getDeployedAccountClientByAgentName(
     bundlerUrl,
@@ -770,7 +745,7 @@ export async function createAgentWithWalletForAA(
   // 2.  Add ENS record associated with new agent
 
   console.log(
-    '*********** createAgentWithWalletForAA: options.ensOptions',
+    '*********** createAgentWithWallet: options.ensOptions',
     options.ensOptions
   );
 
@@ -790,7 +765,7 @@ export async function createAgentWithWalletForAA(
       );
       const pkModeDetected = isPrivateKeyMode();
 
-      console.log("createAgentWithWalletForAA: pkModeDetected", pkModeDetected);
+      console.log("createAgentWithWallet: pkModeDetected", pkModeDetected);
       const addEndpoint = pkModeDetected
         ? '/api/names/add-to-l1-org-pk'
         : '/api/names/add-to-l1-org';
@@ -837,7 +812,7 @@ export async function createAgentWithWalletForAA(
 
       if (infoResponse.ok) {
         console.log(
-          '*********** createAgentWithWalletForAA: ENS metadata response received'
+          '*********** createAgentWithWallet: ENS metadata response received'
         );
         const infoData = await infoResponse.json();
         const serverInfoUserOpHash = (infoData as any)?.userOpHash as
@@ -845,7 +820,7 @@ export async function createAgentWithWalletForAA(
           | undefined;
         if (serverInfoUserOpHash) {
           console.log(
-            '*********** createAgentWithWalletForAA: ENS info userOpHash (server-submitted)',
+            '*********** createAgentWithWallet: ENS info userOpHash (server-submitted)',
             serverInfoUserOpHash
           );
         } else {
@@ -1041,7 +1016,7 @@ export async function createAgentWithWalletForAA(
   // 2.  Need to create the Agent Identity (NFT)
 
   console.log(
-    '*********** createAgentWithWalletForAA: creating agent identity...'
+    '*********** createAgentWithWallet: creating agent identity...'
   );
   const finalAgentName =
     options.ensOptions?.enabled && options.ensOptions?.orgName
@@ -1049,27 +1024,31 @@ export async function createAgentWithWalletForAA(
       : options.agentData.agentName;
   agentData.agentName = finalAgentName;
 
-  // Prepare request body with AA parameters if needed
-  const requestBody: any = {
-    account: computedAddress,
-    ...agentData,
-    chainId,
-  };
-
-  const response = await fetch('/api/agents/create-for-aa', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
+  let data: CreateAgentClientResult;
+  try {
+    data = await callCreateAgentEndpoint({
+      mode: 'aa',
+      account: computedAddress,
+      agentName: agentData.agentName,
+      agentAccount: agentData.agentAccount,
+      description: agentData.description,
+      image: agentData.image,
+      agentUrl: agentData.agentUrl,
+      chainId,
+    });
+  } catch (error) {
     throw new Error(
-      errorData.message || errorData.error || 'Failed to create agent'
+      error instanceof Error ? error.message : 'Failed to create agent',
     );
   }
 
-  const data = await response.json();
+  if (data.mode !== 'aa') {
+    throw new Error('Server returned an unexpected plan mode for AA creation');
+  }
+
+  if (data.bundlerUrl) {
+    bundlerUrl = data.bundlerUrl;
+  }
 
   if (!Array.isArray(data.calls) || data.calls.length === 0) {
     throw new Error('Agent creation response missing register calls');
@@ -1149,6 +1128,16 @@ export async function createAgentWithWalletForAA(
   };
 }
 
+export async function createAgentWithWallet(
+  options: CreateAgentWithWalletOptions,
+): Promise<CreateAgentResult> {
+  const useAA = options.useAA ?? false;
+  if (useAA) {
+    return createAgentWithWalletAA(options);
+  }
+  return createAgentWithWalletEOA(options);
+}
+
 /**
  * Update an existing agent's registration (tokenUri) using an AA wallet +
  * bundler, mirroring the AA create flow.
@@ -1164,7 +1153,8 @@ export async function createAgentWithWalletForAA(
  * 
  * ```typescript
  * // In app/api/agents/[did:8004]/registration/route.ts
- * export { updateAgentRegistrationHandler as PUT } from '@agentic-trust/core/server';
+ * import { updateAgentRegistrationRouteHandler } from '@agentic-trust/core/server';
+ * export const PUT = updateAgentRegistrationRouteHandler();
  * ```
  * 
  * **Usage:**
@@ -1198,28 +1188,24 @@ export async function updateAgentRegistrationWithWalletForAA(
 
   onStatusUpdate?.('Preparing agent registration update on server...');
   console.info('........... registration: ', registration);
-  const response = await fetch(
-    `/api/agents/${encodeURIComponent(did8004)}/registration`,
-    {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        registration: serialized,
-      }),
-    },
-  );
-
-  const body = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new Error(body?.message || body?.error || 'Failed to prepare registration update');
+  let prepared: UpdateAgentRegistrationClientResult;
+  try {
+    prepared = await callUpdateAgentRegistrationEndpoint({
+      did8004,
+      registration: serialized,
+      mode: 'aa',
+    });
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? error.message
+        : 'Failed to prepare registration update',
+    );
   }
 
-  const bundlerUrl: string | undefined = body.bundlerUrl;
+  const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
-    Array.isArray(body.calls) ? body.calls : [];
+    Array.isArray(prepared.calls) ? prepared.calls : [];
 
   if (!bundlerUrl || rawCalls.length === 0) {
     throw new Error('Registration update response missing bundlerUrl or calls');

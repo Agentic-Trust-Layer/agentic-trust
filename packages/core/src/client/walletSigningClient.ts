@@ -10,13 +10,15 @@ export {
   refreshAgentInIndexer,
   isWalletProviderAvailable,
   getWalletAddress,
-  createAgentWithWalletForEOA,
-  createAgentWithWalletForAA,
+  createAgentWithWallet,
   updateAgentRegistrationWithWalletForAA,
   getCounterfactualAccountClientByAgentName,
   getDeployedAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,
 } from './walletSigning';
+export {
+  createAgentDirect,
+} from '../api/agents/directClient';
 
 export type {
   PreparedTransaction,
@@ -26,4 +28,8 @@ export type {
   CreateAgentResult,
   UpdateAgentRegistrationWithWalletOptions,
 } from './walletSigning';
+export type {
+  CreateAgentDirectClientInput,
+  CreateAgentDirectClientResult,
+} from '../api/agents/directClient';
 

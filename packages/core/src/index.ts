@@ -113,13 +113,36 @@ export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,
+  createAgentWithWallet,
   updateAgentRegistrationWithWalletForAA,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,
   TransactionResult,
   SignTransactionOptions,
+  CreateAgentWithWalletOptions,
+  CreateAgentResult,
   UpdateAgentRegistrationWithWalletOptions,
 } from './client/walletSigning';
+
+// Client-side agent API helpers (HTTP-based)
+export {
+  createAgent,
+  updateAgentRegistration,
+} from './api/agents/client';
+export type {
+  CreateAgentClientInput,
+  CreateAgentClientResult,
+  UpdateAgentRegistrationClientInput,
+  UpdateAgentRegistrationClientResult,
+} from './api/agents/client';
+
+export {
+  createAgentDirect,
+} from './api/agents/directClient';
+export type {
+  CreateAgentDirectClientInput,
+  CreateAgentDirectClientResult,
+} from './api/agents/directClient';
 
 

@@ -16,8 +16,11 @@ config({ path: resolve(process.cwd(), '.env') });
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
-import { getAgenticTrustClient } from '@agentic-trust/core/server';
-import { loadSessionPackage } from '@agentic-trust/core/server';
+import {
+  getAgenticTrustClient,
+  loadSessionPackage,
+  mountAgentApiRoutes,
+} from '@agentic-trust/core/server';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
@@ -25,6 +28,30 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Mount Agentic Trust agent management routes (create/update registration)
+// Adapter to satisfy the lightweight ExpressRouterLike interface expected by mountAgentApiRoutes
+mountAgentApiRoutes(
+  {
+    post: (path, handler) =>
+      app.post(path, (req, res) => handler(req as any, res as any)),
+    put: (path, handler) =>
+      app.put(path, (req, res) => handler(req as any, res as any)),
+  },
+  {
+    basePath: '/api/agents',
+    createContext: (req) => {
+      const headers = (req as any).headers as
+        | Record<string, unknown>
+        | undefined;
+      const requestId =
+        headers && typeof headers['x-request-id'] === 'string'
+          ? (headers['x-request-id'] as string)
+          : undefined;
+      return { requestId };
+    },
+  },
+);
 
 // Debug: Log environment variable availability at module load time
 if (typeof process !== 'undefined') {

@@ -9,17 +9,31 @@
 export { handleResolveAccount } from './lib/resolveAccount';
 export type { ResolveAccountRequestBody, ResolveAccountResponse } from './lib/resolveAccount';
 
-// Next.js API route handlers for agents
-export { POST as createAgentForAAHandler } from './api/agents/create-for-aa';
-// Note: Dynamic route handlers need to be imported with the bracket notation
-// Apps should create the route file structure and import the handler function
-export { PUT as updateAgentRegistrationHandler } from './api/agents/did8004-registration';
-
-// Express-compatible API route handlers (no Next.js dependency required)
+// Next.js API route handlers for agents (function-based)
 export {
-  createAgentForAAExpressHandler,
+  createAgentRouteHandler,
+  updateAgentRegistrationRouteHandler,
+} from '../api/agents/next';
+export {
+  createAgentDirectRouteHandler,
+} from '../api/agents/directNext';
+
+// Express-compatible API route handlers and router helpers
+export {
+  createAgentExpressHandler,
   updateAgentRegistrationExpressHandler,
-} from './api/agents/express';
+  mountAgentRoutes as mountAgentApiRoutes,
+} from '../api/agents/express';
+export {
+  createAgentDirectExpressHandler,
+} from '../api/agents/directExpress';
+
+// Core agent API for direct server usage
+export {
+  createAgentCore as createAgent,
+  updateAgentRegistrationCore as updateAgentRegistration,
+} from '../api/agents/core';
+export { createAgentDirectCore as createAgentDirect } from '../api/agents/directServer';
 
 // Server singletons & utilities
 export {

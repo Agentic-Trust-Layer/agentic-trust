@@ -6,7 +6,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address } from 'viem';
-import { createAgentWithWalletForAA, getCounterfactualAAAddressByAgentName } from '@agentic-trust/core/client';
+import { createAgentWithWallet, getCounterfactualAAAddressByAgentName, createAgentDirect } from '@agentic-trust/core/client';
 import type { Chain } from 'viem';
 import {
   getEnsOrgName,
@@ -929,37 +929,30 @@ const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; me
       // Use Account Abstraction (AA) creation path
         if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
-          const resp = await fetch('/api/agents/create-for-aa-pk', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              agentName: createForm.agentName,
-              agentAccount: agentAccountToUse,
-              description: createForm.description || undefined,
-              image: createForm.image || undefined,
-              agentUrl: createForm.agentUrl || undefined,
-              chainId: selectedChainId,
-              ensOptions: {
-                enabled: true,
-                orgName: ensOrgName,
-              },
-            }),
+          const directPlan = await createAgentDirect({
+            mode: 'aa',
+            agentName: createForm.agentName,
+            agentAccount: agentAccountToUse,
+            description: createForm.description || undefined,
+            image: createForm.image || undefined,
+            agentUrl: createForm.agentUrl || undefined,
+            chainId: selectedChainId,
+            ensOptions: {
+              enabled: true,
+              orgName: ensOrgName,
+            },
           });
-          if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}));
-            throw new Error(err?.message || err?.error || 'Server AA agent creation failed');
-          }
-          const data = await resp.json();
-          if (data?.agentId) {
-            setSuccess(`Agent created successfully! Agent ID: ${data.agentId}, TX: ${data.txHash}`);
-          } else if (data?.txHash) {
-            setSuccess(`Agent creation transaction confirmed! TX: ${data.txHash} (Agent ID will be available after indexing)`);
+
+          if (directPlan.agentId) {
+            setSuccess(`Agent created successfully! Agent ID: ${directPlan.agentId}, TX: ${directPlan.txHash}`);
+          } else if (directPlan.txHash) {
+            setSuccess(`Agent creation transaction confirmed! TX: ${directPlan.txHash} (Agent ID will be available after indexing)`);
           } else {
-              setSuccess('Agent AA creation requested. Check server logs for details.');
+            setSuccess('Agent AA creation requested. Check server logs for details.');
           }
         } else {
           // Client path (requires connected wallet/provider)
-        const result = await createAgentWithWalletForAA({
+        const result = await createAgentWithWallet({
           agentData: {
               agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
