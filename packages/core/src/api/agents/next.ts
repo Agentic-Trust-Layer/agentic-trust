@@ -5,6 +5,7 @@ import {
   updateAgentRegistrationCore,
   requestFeedbackAuthCore,
   prepareFeedbackCore,
+  getFeedbackCore,
 } from './core';
 import type {
   AgentOperationPlan,
@@ -200,6 +201,41 @@ export function prepareFeedbackRouteHandler(
         ...body,
       };
       const result: AgentOperationPlan = await prepareFeedbackCore(ctx, input);
+      return jsonResponse(result);
+    } catch (error) {
+      return handleNextError(error);
+    }
+  };
+}
+
+export function getFeedbackRouteHandler(
+  createContext: CreateContextFromNext = defaultContextFactory,
+) {
+  return async (
+    req: Request,
+    context: { params: RouteParams },
+  ) => {
+    try {
+      const did8004 = extractDidParam(context.params || {});
+
+      const url = new URL(req.url);
+      const searchParams = url.searchParams;
+
+      const includeRevokedParam = searchParams.get('includeRevoked');
+      const includeRevoked =
+        includeRevokedParam === 'true' || includeRevokedParam === '1';
+
+      const limit = parseNumberParam(searchParams.get('limit')) ?? 100;
+      const offset = parseNumberParam(searchParams.get('offset')) ?? 0;
+
+      const ctx = createContext(req);
+      const result = await getFeedbackCore(ctx, {
+        did8004,
+        includeRevoked,
+        limit,
+        offset,
+      });
+
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

@@ -1287,6 +1287,7 @@ export interface GiveFeedbackWithWalletOptions {
   feedback: string;
   feedbackAuth: string;
   clientAddress?: string;
+  ethereumProvider?: any;
   tag1?: string;
   tag2?: string;
   feedbackUri?: string;
@@ -1314,6 +1315,7 @@ export async function giveFeedbackWithWalletForAA(
     skill,
     context,
     capability,
+    ethereumProvider,
     onStatusUpdate,
   } = options;
 
@@ -1364,7 +1366,7 @@ export async function giveFeedbackWithWalletForAA(
     transaction: prepared.transaction as any, // AgentPreparedTransactionPayload is compatible with PreparedTransaction
     account: (clientAddress || '0x') as `0x${string}`,
     chain,
-    ethereumProvider: undefined,
+    ethereumProvider,
     onStatusUpdate,
   });
 

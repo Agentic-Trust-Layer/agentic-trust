@@ -5,6 +5,7 @@ import {
   updateAgentRegistrationCore,
   requestFeedbackAuthCore,
   prepareFeedbackCore,
+  getFeedbackCore,
 } from './core';
 import { parseDid8004 } from '../../shared/did8004';
 import type {
@@ -238,6 +239,42 @@ export function prepareFeedbackExpressHandler(
   };
 }
 
+export function getFeedbackExpressHandler(
+  getContext: CreateContextFromExpress = defaultContextFactory,
+) {
+  return async (req: ExpressRequestLike, res: ExpressResponseLike) => {
+    try {
+      const ctx = getContext(req);
+      const did8004 =
+        req.params?.did8004 ??
+        req.params?.['did:8004'] ??
+        req.params?.['did%3A8004'];
+      if (!did8004) {
+        sendJson(res, 400, { error: 'did8004 parameter is required' });
+        return;
+      }
+
+      const includeRevokedParam = getQueryParam(req, 'includeRevoked');
+      const includeRevoked =
+        includeRevokedParam === 'true' || includeRevokedParam === '1';
+
+      const limit = parseNumber(getQueryParam(req, 'limit')) ?? 100;
+      const offset = parseNumber(getQueryParam(req, 'offset')) ?? 0;
+
+      const result = await getFeedbackCore(ctx, {
+        did8004: decodeURIComponent(did8004),
+        includeRevoked,
+        limit,
+        offset,
+      });
+
+      sendJson(res, 200, result);
+    } catch (error) {
+      handleExpressError(res, error);
+    }
+  };
+}
+
 export interface MountAgentRoutesOptions {
   basePath?: string;
   createContext?: CreateContextFromExpress;
@@ -265,6 +302,10 @@ export function mountAgentRoutes(
   router.post(
     `${basePath}/:did8004/feedback`,
     prepareFeedbackExpressHandler(getContext),
+  );
+  router.get(
+    `${basePath}/:did8004/feedback`,
+    getFeedbackExpressHandler(getContext),
   );
 }
 

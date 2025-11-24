@@ -1535,6 +1535,7 @@ export function AgentsPage({
                       feedback: feedbackForm.comment,
                       feedbackAuth: feedbackAuthId,
                       clientAddress: clientAddress as `0x${string}`,
+                      ethereumProvider: provider,
                       ...(feedbackForm.tag1 && { tag1: feedbackForm.tag1 }),
                       ...(feedbackForm.tag2 && { tag2: feedbackForm.tag2 }),
                       ...(feedbackForm.skillId && { skill: feedbackForm.skillId }),

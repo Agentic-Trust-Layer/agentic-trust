@@ -436,3 +436,95 @@ export async function prepareFeedbackCore(
   };
 }
 
+function jsonSafeDeep(value: unknown): unknown {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => jsonSafeDeep(item));
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = jsonSafeDeep(v);
+    }
+    return result;
+  }
+  return value;
+}
+
+export interface GetFeedbackInput {
+  did8004: string;
+  includeRevoked?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface GetFeedbackResult {
+  feedback: unknown;
+  summary: unknown;
+}
+
+export async function getFeedbackCore(
+  ctx: AgentApiContext | undefined,
+  input: GetFeedbackInput,
+): Promise<GetFeedbackResult> {
+  if (!input.did8004?.trim()) {
+    throw new AgentApiError('did8004 parameter is required', 400);
+  }
+
+  const parsed = (() => {
+    try {
+      return parseDid8004(input.did8004);
+    } catch (error) {
+      throw new AgentApiError(
+        `Invalid did:8004 identifier: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        400,
+      );
+    }
+  })();
+
+  const includeRevoked = !!input.includeRevoked;
+  const limit =
+    typeof input.limit === 'number' && Number.isFinite(input.limit)
+      ? input.limit
+      : 100;
+  const offset =
+    typeof input.offset === 'number' && Number.isFinite(input.offset)
+      ? input.offset
+      : 0;
+
+  const client = await resolveClient(ctx);
+
+  const [feedback, summary] = await Promise.all([
+    client.getAgentFeedback({
+      agentId: parsed.agentId,
+      chainId: parsed.chainId,
+      includeRevoked,
+      limit,
+      offset,
+    }),
+    client
+      .getReputationSummary({
+        agentId: parsed.agentId,
+        chainId: parsed.chainId,
+      })
+      .catch((error: unknown) => {
+        // Preserve previous behavior: log and return null on summary failure
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[AgenticTrust][Core] getReputationSummary failed:',
+          error,
+        );
+        return null;
+      }),
+  ]);
+
+  return {
+    feedback: jsonSafeDeep(feedback),
+    summary: jsonSafeDeep(summary),
+  };
+}
+
