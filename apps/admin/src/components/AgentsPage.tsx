@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
-import { generateSessionPackage, buildDid8004 } from '@agentic-trust/core';
+import { generateSessionPackage, buildDid8004, DEFAULT_CHAIN_ID } from '@agentic-trust/core';
 import {
   updateAgentRegistrationWithWalletForAA,
   getDeployedAccountClientByAgentName,
@@ -168,6 +168,21 @@ export function AgentsPage({
     summary: null,
   });
 
+  const getAgentKey = (agent?: Agent | null) => {
+    if (!agent) return null;
+    const chainId =
+      typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
+        ? agent.chainId
+        : DEFAULT_CHAIN_ID;
+    const agentId =
+      typeof agent.agentId === 'string'
+        ? agent.agentId.trim()
+        : agent.agentId !== undefined && agent.agentId !== null
+          ? String(agent.agentId)
+          : '';
+    return `${chainId}:${agentId}`;
+  };
+
   const EXPLORER_BY_CHAIN: Record<number, string> = {
     1: 'https://etherscan.io',
     11155111: 'https://sepolia.etherscan.io',
@@ -246,8 +261,11 @@ export function AgentsPage({
       return;
     }
     const { agent } = activeDialog;
-    const key = `${agent.chainId}:${agent.agentId}`;
-    
+    const key = getAgentKey(agent);
+    if (!key) {
+      return;
+    }
+
     // For registration-edit, fetch latest tokenUri from contract
     if (activeDialog.action === 'registration-edit') {
       let cancelled = false;
@@ -370,7 +388,10 @@ export function AgentsPage({
     }
 
     const { agent } = activeDialog;
-    const key = `${agent.chainId}:${agent.agentId}`;
+    const key = getAgentKey(agent);
+    if (!key) {
+      return;
+    }
     let cancelled = false;
 
     setFeedbackPreview({
@@ -383,7 +404,15 @@ export function AgentsPage({
 
     (async () => {
       try {
-        const did8004 = buildDid8004(agent.chainId, agent.agentId);
+        const parsedChainId =
+          typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
+            ? agent.chainId
+            : DEFAULT_CHAIN_ID;
+        const parsedAgentId =
+          typeof agent.agentId === 'string'
+            ? Number.parseInt(agent.agentId, 10)
+            : Number(agent.agentId ?? 0);
+        const did8004 = buildDid8004(parsedChainId, parsedAgentId);
         const response = await fetch(
           `/api/agents/${encodeURIComponent(did8004)}/feedback?includeRevoked=true`,
         );
@@ -894,7 +923,9 @@ export function AgentsPage({
         );
       }
       case 'feedback': {
-        const previewMatchesAgent = feedbackPreview.key === `${agent.chainId}:${agent.agentId}`;
+        const agentKey = getAgentKey(agent);
+        const previewMatchesAgent =
+          agentKey !== null && feedbackPreview.key === agentKey;
         const loading = !previewMatchesAgent || feedbackPreview.loading;
         const error = previewMatchesAgent ? feedbackPreview.error : null;
         const items = previewMatchesAgent ? feedbackPreview.items : null;

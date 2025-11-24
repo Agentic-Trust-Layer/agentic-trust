@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     }
 
     // clientAddress is optional - if not provided, it will be retrieved from ClientApp
-    const feedbackResult = await agent.feedback.giveFeedback({
+    const feedbackResult = await agent.giveFeedback({
       ...(clientAddress && { clientAddress }),
       score: typeof score === 'number' ? score : parseInt(score, 10),
       feedback: feedback || 'Feedback submitted via web client',

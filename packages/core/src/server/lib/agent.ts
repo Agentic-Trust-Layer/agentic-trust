@@ -64,6 +64,21 @@ export interface FeedbackAuthResult {
   response: MessageResponse;
 }
 
+export interface FeedbackAuthIssueParams {
+  clientAddress: `0x${string}`;
+  agentId?: bigint | string;
+  skillId?: string;
+  expirySeconds?: number;
+}
+
+export type GiveFeedbackInput = Omit<GiveFeedbackParams, 'agent' | 'agentId'> & {
+  agentId?: string;
+  clientAddress?: `0x${string}`;
+  skill?: string;
+  context?: string;
+  capability?: string;
+};
+
 /**
  * Agent data from discovery (GraphQL)
  */
@@ -488,170 +503,145 @@ export class Agent {
   }
 
   /**
-   * Feedback API
+   * Issue a feedback authorization on behalf of this agent using the provider app's signer.
    */
-  feedback = {
+  async requestAuth(params: FeedbackAuthIssueParams): Promise<{
+    feedbackAuth: `0x${string}`;
+    agentId: string;
+    clientAddress: `0x${string}`;
+    skill: string;
+  }> {
+    const providerApp = await getProviderApp();
+    if (!providerApp) {
+      throw new Error('provider app not initialized');
+    }
 
-    requestAuth: async (params: {
-      clientAddress: `0x${string}`;
-      agentId?: bigint | string;
-      skillId?: string;
-      expirySeconds?: number;
-    }): Promise<{ 
-      feedbackAuth: `0x${string}`; 
-      agentId: string;
-      clientAddress: `0x${string}`;
-      skill: string;
-    }> => {
+    const clientAddress = params.clientAddress;
+    if (
+      !clientAddress ||
+      typeof clientAddress !== 'string' ||
+      !clientAddress.startsWith('0x')
+    ) {
+      throw new Error('clientAddress must be a 0x-prefixed address');
+    }
 
-      const providerApp = await getProviderApp();
-      if (!providerApp) {
-        throw new Error('provider app not initialized');
-      }
+    const agentId = params.agentId
+      ? BigInt(params.agentId)
+      : this.data.agentId
+        ? BigInt(this.data.agentId)
+        : providerApp.agentId;
 
+    const feedbackAuth = await this.client.createFeedbackAuth({
+      publicClient: providerApp.publicClient,
+      agentId,
+      clientAddress,
+      signer: providerApp.agentAccount,
+      walletClient: providerApp.walletClient as any,
+      expirySeconds: params.expirySeconds,
+    });
 
-      const clientAddress = params.clientAddress;
-      console.info("----------> clientAddress inside agent.ts -----> ", clientAddress);
+    return {
+      feedbackAuth,
+      agentId: agentId.toString(),
+      clientAddress,
+      skill: params.skillId || 'agent.feedback.requestAuth',
+    };
+  }
 
+  /**
+   * Submit client feedback to the reputation contract.
+   */
+  async giveFeedback(params: GiveFeedbackInput): Promise<{ txHash: string }> {
+    const { getClientApp } = await import('../userApps/clientApp');
 
+    const reputationClient = await getReputationClient();
+    const clientApp = await getClientApp();
 
-      
-      // Use agentId from params, stored agentId, or provider app
-      const agentId = params.agentId 
-        ? BigInt(params.agentId)
-        : (this.data.agentId ? BigInt(this.data.agentId) : providerApp.agentId);
-      
-      // Create feedback auth using provider app's wallet client
-      const feedbackAuth = await this.client.createFeedbackAuth({
-        publicClient: providerApp.publicClient,
-        agentId,
-        clientAddress,
-        signer: providerApp.agentAccount,
-        walletClient: providerApp.walletClient as any,
-        expirySeconds: params.expirySeconds,
-      });
-      
-      return {
-        feedbackAuth,
-        agentId: agentId.toString(),
-        clientAddress,
-        skill: params.skillId || 'agent.feedback.requestAuth',
-      };
-    },
+    const agentId =
+      params.agentId ?? (this.data.agentId ? this.data.agentId.toString() : undefined);
+    if (!agentId) {
+      throw new Error(
+        'agentId is required. Provide it in params or ensure agent has agentId in data.',
+      );
+    }
 
-    /**
-     * Submit client feedback to the reputation contract
-     * @param params - Feedback parameters including score, feedback, feedbackAuth, etc.
-     * @returns Transaction result with txHash
-     * @throws Error if reputation client is not initialized
-     */
-    giveFeedback: async (
-      params: Omit<GiveFeedbackParams, 'agent' | 'agentId'> & {
-        agentId?: string;
-        clientAddress?: `0x${string}`;
-        skill?: string;
-        context?: string;
-        capability?: string;
-      },
-    ): Promise<{ txHash: string }> => {
-      const { getClientApp } = await import('../userApps/clientApp');
+    const chainId =
+      (this.data as any)?.chainId && Number.isFinite((this.data as any).chainId)
+        ? Number((this.data as any).chainId)
+        : DEFAULT_CHAIN_ID;
 
-      const reputationClient = await getReputationClient();
-      const clientApp = await getClientApp();
+    let agentRegistry = '';
+    try {
+      const identityRegistry = requireChainEnvVar(
+        'AGENTIC_TRUST_IDENTITY_REGISTRY',
+        chainId,
+      );
+      agentRegistry = `eip155:${chainId}:${identityRegistry}`;
+    } catch (error) {
+      console.warn(
+        '[Agent.giveFeedback] Failed to resolve AGENTIC_TRUST_IDENTITY_REGISTRY; feedbackFile.agentRegistry will be empty:',
+        error,
+      );
+    }
 
-      // Use the agentId from the agent data if not provided
-      const agentId =
-        params.agentId ?? (this.data.agentId ? this.data.agentId.toString() : undefined);
-      if (!agentId) {
-        throw new Error(
-          'agentId is required. Provide it in params or ensure agent has agentId in data.',
-        );
-      }
+    const clientAddressHex: `0x${string}` | undefined =
+      params.clientAddress ?? (clientApp?.address as `0x${string}` | undefined);
+    const clientAddressCaip =
+      clientAddressHex && typeof chainId === 'number'
+        ? `eip155:${chainId}:${clientAddressHex}`
+        : '';
 
-      // Resolve chainId for CAIP-10 formatting and registry lookup
-      const chainId =
-        (this.data as any)?.chainId && Number.isFinite((this.data as any).chainId)
-          ? Number((this.data as any).chainId)
-          : DEFAULT_CHAIN_ID;
+    const feedbackFile: FeedbackFile = {
+      agentRegistry,
+      agentId: Number.parseInt(agentId, 10) || 0,
+      clientAddress: clientAddressCaip || clientAddressHex || '',
+      createdAt: new Date().toISOString(),
+      feedbackAuth: params.feedbackAuth || '',
+      score: params.score,
+    };
 
-      // Resolve identity registry to build agentRegistry identifier
-      let agentRegistry = '';
-      try {
-        const identityRegistry = requireChainEnvVar(
-          'AGENTIC_TRUST_IDENTITY_REGISTRY',
-          chainId,
-        );
-        agentRegistry = `eip155:${chainId}:${identityRegistry}`;
-      } catch (error) {
-        console.warn(
-          '[Agent.feedback.giveFeedback] Failed to resolve AGENTIC_TRUST_IDENTITY_REGISTRY; feedbackFile.agentRegistry will be empty:',
-          error,
-        );
-      }
+    if (params.tag1) feedbackFile.tag1 = params.tag1;
+    if (params.tag2) feedbackFile.tag2 = params.tag2;
+    if (params.skill) (feedbackFile as any).skill = params.skill;
+    if (params.context) (feedbackFile as any).context = params.context;
+    if (params.capability) (feedbackFile as any).capability = params.capability;
 
-      // Resolve client address in CAIP-10 form
-      const clientAddressHex: `0x${string}` | undefined =
-        params.clientAddress ?? (clientApp?.address as `0x${string}` | undefined);
-      const clientAddressCaip =
-        clientAddressHex && typeof chainId === 'number'
-          ? `eip155:${chainId}:${clientAddressHex}`
-          : '';
+    let feedbackUriFromIpfs: string | undefined;
+    let feedbackHashFromIpfs: `0x${string}` | undefined;
+    try {
+      const ipfs = getIPFSStorage();
+      const serialized = JSON.stringify(feedbackFile);
+      const uploadResult = await ipfs.upload(serialized, 'feedback.json');
+      feedbackUriFromIpfs = uploadResult.tokenUri;
+      feedbackHashFromIpfs = ethers.keccak256(
+        ethers.toUtf8Bytes(serialized),
+      ) as `0x${string}`;
+    } catch (error) {
+      console.warn(
+        '[Agent.giveFeedback] Failed to upload FeedbackFile to IPFS; continuing without feedbackUri/feedbackHash:',
+        error,
+      );
+    }
 
-      // Build FeedbackFile JSON (off-chain metadata)
-      const feedbackFile: FeedbackFile = {
-        agentRegistry,
-        agentId: Number.parseInt(agentId, 10) || 0,
-        clientAddress: clientAddressCaip || clientAddressHex || '',
-        createdAt: new Date().toISOString(),
-        feedbackAuth: params.feedbackAuth || '',
-        score: params.score,
-      };
+    const {
+      clientAddress: _clientAddress,
+      skill: _skill,
+      context: _context,
+      capability: _capability,
+      ...rest
+    } = params as any;
 
-      if (params.tag1) feedbackFile.tag1 = params.tag1;
-      if (params.tag2) feedbackFile.tag2 = params.tag2;
-      if ((params as any).skill) (feedbackFile as any).skill = (params as any).skill;
-      if ((params as any).context) (feedbackFile as any).context = (params as any).context;
-      if ((params as any).capability)
-        (feedbackFile as any).capability = (params as any).capability;
+    const feedbackParams: GiveFeedbackParams = {
+      ...(rest as GiveFeedbackParams),
+      agent: agentId,
+      agentId,
+      ...(feedbackUriFromIpfs && { feedbackUri: feedbackUriFromIpfs }),
+      ...(feedbackHashFromIpfs && { feedbackHash: feedbackHashFromIpfs }),
+    };
 
-      // Attempt to upload FeedbackFile JSON to IPFS and wire up feedbackUri/hash
-      let feedbackUriFromIpfs: string | undefined;
-      let feedbackHashFromIpfs: `0x${string}` | undefined;
-      try {
-        const ipfs = getIPFSStorage();
-        const serialized = JSON.stringify(feedbackFile);
-        const uploadResult = await ipfs.upload(serialized, 'feedback.json');
-        feedbackUriFromIpfs = uploadResult.tokenUri;
-        feedbackHashFromIpfs = ethers.keccak256(
-          ethers.toUtf8Bytes(serialized),
-        ) as `0x${string}`;
-      } catch (error) {
-        console.warn(
-          '[Agent.feedback.giveFeedback] Failed to upload FeedbackFile to IPFS; continuing without feedbackUri/feedbackHash:',
-          error,
-        );
-      }
+    return await reputationClient.giveClientFeedback(feedbackParams);
+  }
 
-      // Strip non-contract fields before calling ReputationRegistry
-      const {
-        clientAddress: _clientAddress,
-        skill: _skill,
-        context: _context,
-        capability: _capability,
-        ...rest
-      } = params as any;
-
-      const feedbackParams: GiveFeedbackParams = {
-        ...(rest as GiveFeedbackParams),
-        agent: agentId,
-        agentId,
-        ...(feedbackUriFromIpfs && { feedbackUri: feedbackUriFromIpfs }),
-        ...(feedbackHashFromIpfs && { feedbackHash: feedbackHashFromIpfs }),
-      };
-
-      return await reputationClient.giveClientFeedback(feedbackParams);
-    },
-  };
 }
 
 /**

@@ -137,7 +137,7 @@ This Express app uses `@agentic-trust/core` for:
 - **Agent Management**: `getAgenticTrustClient()` for accessing agent data and operations
 - **Session Packages**: `loadSessionPackage()` for delegation-based authentication
 - **A2A Protocol**: Built-in support for agent-to-agent communication
-- **Feedback System**: ERC-8004 feedback authentication via `agent.feedback.requestAuth()`
+- **Feedback System**: ERC-8004 feedback authentication via the agent's `requestAuth()` helper
 
 The app demonstrates how to use the core package in an Express-only environment without Next.js dependencies.
 
