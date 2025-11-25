@@ -1,5 +1,5 @@
 /**
- * Integration Tests for /api/accounts/owner/by-account/[did:ethr] route
+ * Integration Tests for /api/accounts/owner/by-account/[didethr] route
  * 
  * These tests make actual calls to get account owners using:
  * - Blockchain RPC (to query contract owner function)
@@ -15,13 +15,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { shouldSkipIntegrationTests, hasRequiredEnvVars } from '../../../../../vitest.integration.setup';
 import { createMockRequest, createMockParamsAsync, assertJsonResponse, assertErrorResponse } from '../../__tests__/helpers';
-import { GET } from '../owner/by-account/[did:ethr]/route';
+import { GET } from '../owner/by-account/[didethr]/route';
 import { TEST_CHAIN_ID, TEST_AGENT_ACCOUNT } from '../../__tests__/test-data';
 
 // Skip all tests if integration tests are disabled or env vars are missing
 const skip = shouldSkipIntegrationTests();
 
-describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integration)', () => {
+describe.skipIf(skip)('GET /api/accounts/owner/by-account/[didethr] (Integration)', () => {
   beforeAll(() => {
     if (!hasRequiredEnvVars()) {
       throw new Error('Missing required environment variables for integration tests');
@@ -38,7 +38,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParamsAsync({ didethr: encodedDid });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 200);
@@ -65,7 +65,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParamsAsync({ didethr: encodedDid });
 
     const response = await GET(request, params);
     const data = await assertErrorResponse(response, 400);
@@ -84,7 +84,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParamsAsync({ didethr: encodedDid });
 
     const response = await GET(request, params);
     const data = await assertErrorResponse(response, 404);
@@ -105,7 +105,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParamsAsync({ didethr: encodedDid });
 
     const response = await GET(request, params);
     
@@ -133,7 +133,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request1 = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params1 = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params1 = createMockParamsAsync({ didethr: encodedDid });
     const response1 = await GET(request1, params1);
 
     // Skip if account owner is not found
@@ -147,7 +147,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request2 = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params2 = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params2 = createMockParamsAsync({ didethr: encodedDid });
     const response2 = await GET(request2, params2);
     const data2 = await assertJsonResponse(response2, 200);
 
@@ -167,7 +167,7 @@ describe.skipIf(skip)('GET /api/accounts/owner/by-account/[did:ethr] (Integratio
     const request = createMockRequest(
       `http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`
     );
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParamsAsync({ didethr: encodedDid });
 
     const response = await GET(request, params);
     

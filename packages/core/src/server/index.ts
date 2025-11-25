@@ -16,6 +16,7 @@ export {
   requestFeedbackAuthRouteHandler,
   prepareFeedbackRouteHandler,
   getFeedbackRouteHandler,
+  directFeedbackRouteHandler,
 } from '../api/agents/next';
 export {
   createAgentDirectRouteHandler,
@@ -144,6 +145,10 @@ export {
   type DiscoverRequest,
   type DiscoverResponse,
 } from './lib/discover';
+export {
+  searchAgentsGetRouteHandler,
+  searchAgentsPostRouteHandler,
+} from '../api/search/next';
 export type { AgentInfo } from './models/agentInfo';
 export type {
   AgentDetail,

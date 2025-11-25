@@ -1,0 +1,164 @@
+import { discoverAgents, type DiscoverRequest, type DiscoverResponse } from '../../server/lib/discover';
+import { getAgenticTrustClient } from '../../server/lib/agenticTrust';
+
+const hasNativeResponse =
+  typeof globalThis !== 'undefined' &&
+  typeof (globalThis as Record<string, unknown>).Response === 'function';
+
+function jsonResponse(body: unknown, status = 200) {
+  if (hasNativeResponse) {
+    const ResponseCtor = (globalThis as Record<string, any>).Response;
+    return new ResponseCtor(JSON.stringify(body), {
+      status,
+      headers: {
+        'content-type': 'application/json',
+      },
+    });
+  }
+
+  return {
+    status,
+    body,
+    headers: { 'content-type': 'application/json' },
+  } as unknown;
+}
+
+function handleError(error: unknown) {
+  // eslint-disable-next-line no-console
+  console.error('[AgenticTrust][Search][Next] Unexpected error:', error);
+  return jsonResponse(
+    {
+      error: 'Failed to search agents',
+      message: error instanceof Error ? error.message : 'Unknown error',
+      details: process.env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined,
+    },
+    500,
+  );
+}
+
+const DEFAULT_PAGE_SIZE = 10;
+
+function toNumber(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+type SearchResultPayload = DiscoverResponse;
+
+function mapAgentsResponse(data: SearchResultPayload) {
+  const { agents = [], total, page, pageSize, totalPages } = data;
+
+  return {
+    success: true,
+    agents,
+    total,
+    page: page ?? 1,
+    pageSize: pageSize ?? agents.length,
+    totalPages:
+      totalPages ??
+      Math.max(
+        1,
+        Math.ceil((total ?? agents.length) / (pageSize ?? Math.max(agents.length, 1))),
+      ),
+  };
+}
+
+function parseParamsParam(raw: string | null): DiscoverRequest['params'] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? (parsed as DiscoverRequest['params']) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function executeSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
+  return discoverAgents(options, getAgenticTrustClient);
+}
+
+export function searchAgentsGetRouteHandler() {
+  return async (req: Request) => {
+    try {
+      const url = new URL(req.url);
+      const urlParams = url.searchParams;
+
+      const page = toNumber(urlParams.get('page'));
+      const pageSize = toNumber(urlParams.get('pageSize')) ?? DEFAULT_PAGE_SIZE;
+      const query = urlParams.get('query')?.trim();
+      const params = parseParamsParam(urlParams.get('params'));
+      const orderBy = urlParams.get('orderBy')?.trim() || undefined;
+      const orderDirectionRaw = urlParams.get('orderDirection')?.trim().toUpperCase();
+      const orderDirection =
+        orderDirectionRaw === 'ASC' || orderDirectionRaw === 'DESC'
+          ? (orderDirectionRaw as 'ASC' | 'DESC')
+          : undefined;
+
+      const response = await executeSearch({
+        page,
+        pageSize,
+        query: query && query.length > 0 ? query : undefined,
+        params,
+        orderBy,
+        orderDirection,
+      });
+
+      return jsonResponse(mapAgentsResponse(response));
+    } catch (error) {
+      return handleError(error);
+    }
+  };
+}
+
+export function searchAgentsPostRouteHandler() {
+  return async (req: Request) => {
+    try {
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+      const page =
+        typeof body.page === 'number' && Number.isFinite(body.page)
+          ? (body.page as number)
+          : undefined;
+      const pageSize =
+        typeof body.pageSize === 'number' && Number.isFinite(body.pageSize as number)
+          ? (body.pageSize as number)
+          : DEFAULT_PAGE_SIZE;
+      const query =
+        typeof body.query === 'string' && (body.query as string).trim().length > 0
+          ? (body.query as string).trim()
+          : undefined;
+      const params =
+        body.params && typeof body.params === 'object'
+          ? (body.params as DiscoverRequest['params'])
+          : undefined;
+      const orderBy =
+        typeof body.orderBy === 'string' && (body.orderBy as string).trim().length > 0
+          ? (body.orderBy as string).trim()
+          : undefined;
+      const orderDirectionRaw =
+        typeof body.orderDirection === 'string'
+          ? (body.orderDirection as string).toUpperCase()
+          : undefined;
+      const orderDirection =
+        orderDirectionRaw === 'ASC' || orderDirectionRaw === 'DESC'
+          ? (orderDirectionRaw as 'ASC' | 'DESC')
+          : undefined;
+
+      const response = await executeSearch({
+        page,
+        pageSize,
+        query,
+        params,
+        orderBy,
+        orderDirection,
+      });
+
+      return jsonResponse(mapAgentsResponse(response));
+    } catch (error) {
+      return handleError(error);
+    }
+  };
+}
+
+

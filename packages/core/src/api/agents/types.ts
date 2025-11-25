@@ -106,3 +106,20 @@ export interface PrepareFeedbackPayload {
   mode?: AgentOperationMode;
 }
 
+export interface DirectFeedbackPayload {
+  did8004?: string;
+  agentId?: string | number;
+  chainId?: number;
+  score: number | string;
+  feedback?: string;
+  feedbackAuth: string;
+  clientAddress?: string;
+  tag1?: string;
+  tag2?: string;
+  feedbackUri?: string;
+  feedbackHash?: string;
+  skill?: string;
+  context?: string;
+  capability?: string;
+}
+

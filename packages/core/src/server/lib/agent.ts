@@ -680,7 +680,7 @@ export class Agent {
   /**
    * Prepare a giveFeedback transaction for client-side signing.
    */
-  async prepareGiveFeedbackTransaction(
+  async prepareGiveFeedback(
     params: GiveFeedbackInput,
   ): Promise<{ chainId: number; transaction: PreparedTransaction }> {
     if (!params.feedbackAuth) {

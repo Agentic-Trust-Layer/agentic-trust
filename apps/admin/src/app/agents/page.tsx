@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Box, Container } from '@mui/material';
 import { createPublicClient, http, type PublicClient, type Address } from 'viem';
 import { useRouter } from 'next/navigation';
 import { getSupportedChainIds, getChainDisplayMetadata, getChainRpcUrl } from '@agentic-trust/core';
@@ -29,6 +30,8 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   name: '',
   agentId: '',
   mineOnly: false,
+  protocol: 'all',
+  path: '',
 };
 
 const PAGE_SIZE = 18;
@@ -114,6 +117,11 @@ export default function AgentsRoute() {
     if (source.agentId.trim()) {
       params.agentId = source.agentId.trim();
     }
+    if (source.protocol === 'a2a') {
+      params.a2a = true;
+    } else if (source.protocol === 'mcp') {
+      params.mcp = true;
+    }
     return params;
   }, []);
 
@@ -123,11 +131,16 @@ export default function AgentsRoute() {
         setLoadingAgents(true);
         setError(null);
         const params = buildParams(sourceFilters);
+        const pathQuery =
+          typeof sourceFilters.path === 'string' && sourceFilters.path.trim().length > 0
+            ? sourceFilters.path.trim()
+            : undefined;
         const payload = {
           page,
           pageSize: PAGE_SIZE,
           orderBy: 'agentName',
           orderDirection: 'ASC' as const,
+          query: pathQuery,
           params: Object.keys(params).length > 0 ? params : undefined,
         };
 
@@ -276,7 +289,7 @@ export default function AgentsRoute() {
   );
 
   return (
-    <>
+    <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
       <Header
         displayAddress={displayAddress ?? null}
         privateKeyMode={privateKeyMode}
@@ -285,20 +298,19 @@ export default function AgentsRoute() {
         onDisconnect={handleDisconnect}
         disableConnect={loading}
       />
-      <main style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
+      <Container
+        maxWidth="xl"
+        sx={{
+          py: { xs: 3, md: 4 },
+        }}
+      >
         {error && (
-          <div
-            style={{
-              marginBottom: '1rem',
-              padding: '1rem',
-              backgroundColor: '#ffebee',
-              borderRadius: '8px',
-              border: '1px solid #f44336',
-              color: '#c62828',
-            }}
+          <Alert
+            severity="error"
+            sx={{ mb: 2 }}
           >
             {error}
-          </div>
+          </Alert>
         )}
 
         <AgentsPage
@@ -331,8 +343,8 @@ export default function AgentsRoute() {
             searchAgents(filters, page);
           }}
         />
-      </main>
-    </>
+      </Container>
+    </Box>
   );
 }
 

@@ -63,7 +63,7 @@ export default function Home() {
           ? { query: trimmed, page: 1, pageSize: 50 }
           : {};
 
-      const response = await fetch('/api/agents', {
+      const response = await fetch('/api/agents/search', {
         method: Object.keys(payload).length > 0 ? 'POST' : 'GET',
         headers: Object.keys(payload).length > 0 ? { 'Content-Type': 'application/json' } : undefined,
         body: Object.keys(payload).length > 0 ? JSON.stringify(payload) : undefined,
@@ -181,10 +181,10 @@ export default function Home() {
       ...(agentName ? { agentName } : {}),
     });
 
-    const did = buildDid8004(chainId, agentId);
+    const didForAuth = buildDid8004(chainId, agentId);
     const feedbackAuthResponse = await fetch(
       `/api/agents/${encodeURIComponent(
-        did,
+        didForAuth,
       )}/feedback-auth?${feedbackAuthParams.toString()}`,
     );
     if (!feedbackAuthResponse.ok) {
@@ -205,29 +205,33 @@ export default function Home() {
       throw new Error('Agent ID is required');
     }
 
-    // Submit feedback
-    const feedbackResponse = await fetch('/api/feedback', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    // Build DID for direct server-side feedback submission
+    const didForFeedback = buildDid8004(resolvedChainId, resolvedAgentId);
+
+    // Submit feedback directly via server-side API route
+    const feedbackResponse = await fetch(
+      `/api/agents/${encodeURIComponent(didForFeedback)}/feedback-direct`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          score,
+          feedback: comment,
+          feedbackAuth: feedbackAuthId,
+          clientAddress,
+          ...(taskId && { taskId }),
+          ...(contextId && { contextId }),
+          ...(agentName && { agentName }),
+          ...(tag1 && { tag1 }),
+          ...(tag2 && { tag2 }),
+          ...(skill && { skill }),
+          ...(context && { context }),
+          ...(capability && { capability }),
+        }),
       },
-      body: JSON.stringify({
-        agentId: resolvedAgentId,
-        chainId: resolvedChainId,
-        score,
-        feedback: comment,
-        feedbackAuth: feedbackAuthId,
-        clientAddress,
-        ...(taskId && { taskId }),
-        ...(contextId && { contextId }),
-        ...(agentName && { agentName }),
-        ...(tag1 && { tag1 }),
-        ...(tag2 && { tag2 }),
-        ...(skill && { skill }),
-        ...(context && { context }),
-        ...(capability && { capability }),
-      }),
-    });
+    );
 
     if (!feedbackResponse.ok) {
       const errorData = await feedbackResponse.json();
@@ -267,22 +271,28 @@ export default function Home() {
 
     console.info("Submitting feedback via server-side API...");
 
+    // Build DID for direct server-side feedback submission
+    const directChainId = DEFAULT_CHAIN_ID; // Fallback chain, or derive if you have it in scope
+    const didForDirect = buildDid8004(directChainId, agentId);
+
     // Submit feedback via server-side API route
-    const response = await fetch('/api/feedback', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `/api/agents/${encodeURIComponent(didForDirect)}/feedback-direct`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          score,
+          feedback: comment,
+          feedbackAuth: feedbackAuth,
+          clientAddress: clientAddress,
+          ...(tag1 && { tag1 }),
+          ...(tag2 && { tag2 }),
+        }),
       },
-      body: JSON.stringify({
-        agentId: agentId,
-        score,
-        feedback: comment,
-        feedbackAuth: feedbackAuth,
-        clientAddress: clientAddress,
-        ...(tag1 && { tag1 }),
-        ...(tag2 && { tag2 }),
-      }),
-    });
+    );
 
     if (!response.ok) {
       const errorData = await response.json();

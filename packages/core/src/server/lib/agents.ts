@@ -892,20 +892,24 @@ export class AgentsAPI {
     const hasQuery =
       typeof options?.query === 'string' && options.query.trim().length > 0;
     const where = this.buildAgentWhereInput(options?.params);
-    const hasRemoteFilters = hasQuery || !!where;
 
-    // Ensure we always have a pageSize when filters/query are present so that
-    // advanced search is used instead of silently falling back to listAgents.
-    const effectivePageSize =
-      rawPageSize ?? (hasRemoteFilters ? 50 : undefined);
+    // Always ensure we have a pageSize when performing discovery so that
+    // advanced search is used consistently (even when no filters are provided).
+    const effectivePageSize = rawPageSize ?? 50;
 
-    // Only use advanced search if we have filters or a free-text query and a pageSize.
-    // If it fails or returns null, return empty results (no fallback).
-    if (effectivePageSize && hasRemoteFilters) {
+    const hasAdvancedGraph =
+      typeof advancedDiscoveryClient.searchAgentsGraph === 'function';
+    const hasAdvancedLegacy =
+      typeof advancedDiscoveryClient.searchAgentsAdvanced === 'function';
+
+    // Prefer the advanced discovery APIs (Graph/advanced) whenever available so
+    // that we get an accurate total count and consistent pagination, even when
+    // no filters are supplied.
+    if (effectivePageSize && (hasAdvancedGraph || hasAdvancedLegacy)) {
       const offset = (Math.max(requestedPage, 1) - 1) * effectivePageSize;
 
       try {
-        if (where && typeof advancedDiscoveryClient.searchAgentsGraph === 'function') {
+        if (hasAdvancedGraph) {
           const advanced = await advancedDiscoveryClient.searchAgentsGraph({
             where,
             first: effectivePageSize,
@@ -933,10 +937,7 @@ export class AgentsAPI {
               totalPages,
             };
           }
-        } else if (
-          hasQuery &&
-          typeof advancedDiscoveryClient.searchAgentsAdvanced === 'function'
-        ) {
+        } else if (hasAdvancedLegacy) {
           const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
             query: options?.query,
             params: options?.params as Record<string, unknown> | undefined,

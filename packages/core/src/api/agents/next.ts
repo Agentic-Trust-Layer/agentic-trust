@@ -6,6 +6,7 @@ import {
   requestFeedbackAuthCore,
   prepareFeedbackCore,
   getFeedbackCore,
+  submitFeedbackDirectCore,
 } from './core';
 import type {
   AgentOperationPlan,
@@ -14,6 +15,7 @@ import type {
   RequestFeedbackAuthPayload,
   RequestFeedbackAuthResult,
   PrepareFeedbackPayload,
+  DirectFeedbackPayload,
 } from './types';
 import { parseDid8004 } from '../../shared/did8004';
 
@@ -236,6 +238,29 @@ export function getFeedbackRouteHandler(
         offset,
       });
 
+      return jsonResponse(result);
+    } catch (error) {
+      return handleNextError(error);
+    }
+  };
+}
+
+export function directFeedbackRouteHandler(
+  createContext: CreateContextFromNext = defaultContextFactory,
+) {
+  return async (
+    req: Request,
+    context: { params: RouteParams },
+  ) => {
+    try {
+      const did8004 = extractDidParam(context.params || {});
+      const body = (await req.json()) as Omit<DirectFeedbackPayload, 'did8004'>;
+      const ctx = createContext(req);
+      const input: DirectFeedbackPayload = {
+        did8004,
+        ...body,
+      };
+      const result = await submitFeedbackDirectCore(ctx, input);
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

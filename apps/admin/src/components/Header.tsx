@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 import { useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
 
@@ -124,7 +125,7 @@ export function Header({
   return (
     <header
       style={{
-        padding: '1.5rem 2rem',
+        padding: '0.9rem 2rem 1.3rem',
         borderBottom: `1px solid ${palette.border}`,
         backgroundColor: palette.surface,
         color: palette.textPrimary,
@@ -139,8 +140,36 @@ export function Header({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-          <Link href="/" style={{ textDecoration: 'none', color: 'inherit', minWidth: isMobile ? '160px' : '240px' }}>
-            <h1 style={{ margin: 0, fontSize: isMobile ? '1.35rem' : '2rem', fontWeight: 500 }}>
+          <Link
+            href="/"
+            style={{
+              textDecoration: 'none',
+              color: 'inherit',
+              minWidth: isMobile ? '160px' : '240px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}
+          >
+            <Image
+              src="/8004Agent.png"
+              alt="Agentic Trust"
+              width={64}
+              height={64}
+              style={{
+                height: isMobile ? 40 : 48,
+                width: 'auto',
+                objectFit: 'cover',
+              }}
+              priority
+            />
+            <h1
+              style={{
+                margin: 0,
+                fontSize: isMobile ? '1.35rem' : '2rem',
+                fontWeight: 500,
+              }}
+            >
               Agentic Trust
             </h1>
           </Link>

@@ -1,23 +1,27 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import dynamic from 'next/dynamic';
+import { ThemeRegistry } from '@/lib/ThemeRegistry';
 
 import { AuthProvider } from '@/components/AuthProvider';
 
 // Dynamically import providers to prevent SSR execution
 const Web3AuthProvider = dynamic(
   () => import('@/components/Web3AuthProvider').then((mod) => mod.Web3AuthProvider),
-  { ssr: false }
+  { ssr: false },
 );
 
 const WalletProvider = dynamic(
   () => import('@/components/WalletProvider').then((mod) => mod.WalletProvider),
-  { ssr: false }
+  { ssr: false },
 );
 
 export const metadata: Metadata = {
   title: 'Agent Explorer',
   description: 'Agent Explorer - Create, Update, Delete, and Transfer Agents',
+  icons: {
+    icon: '/8004AgentTabIcon.png',
+  },
 };
 
 export default function RootLayout({
@@ -28,11 +32,13 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <Web3AuthProvider>
-          <WalletProvider>
-            <AuthProvider>{children}</AuthProvider>
-          </WalletProvider>
-        </Web3AuthProvider>
+        <ThemeRegistry>
+          <Web3AuthProvider>
+            <WalletProvider>
+              <AuthProvider>{children}</AuthProvider>
+            </WalletProvider>
+          </Web3AuthProvider>
+        </ThemeRegistry>
       </body>
     </html>
   );

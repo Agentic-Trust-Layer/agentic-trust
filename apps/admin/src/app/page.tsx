@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { Box, Container } from '@mui/material';
 import { Header } from '@/components/Header';
 import { HomePage } from '@/components/HomePage';
 import { useAuth } from '@/components/AuthProvider';
@@ -17,7 +18,7 @@ export default function LandingPage() {
   } = useAuth();
 
   return (
-    <>
+    <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
       <Header
         displayAddress={walletAddress ?? null}
         privateKeyMode={privateKeyMode}
@@ -26,14 +27,19 @@ export default function LandingPage() {
         onDisconnect={handleDisconnect}
         disableConnect={loading}
       />
-      <main style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+      <Container
+        maxWidth="lg"
+        sx={{
+          py: { xs: 4, md: 6 },
+        }}
+      >
         <HomePage
           onNavigateAgents={() => router.push('/agents')}
           onOpenAdminTools={() => router.push('/admin-tools?mode=create')}
           isConnected={isConnected}
         />
-      </main>
-    </>
+      </Container>
+    </Box>
   );
 }
 

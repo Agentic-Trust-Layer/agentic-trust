@@ -1,5 +1,5 @@
 /**
- * Tests for /api/accounts/owner/by-account/[did:ethr] route
+ * Tests for /api/accounts/owner/by-account/[didethr] route
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -12,10 +12,10 @@ vi.mock('@agentic-trust/core/server', () => ({
 }));
 
 // Import the route AFTER mocks are set up
-import { GET } from '../owner/by-account/[did:ethr]/route';
+import { GET } from '../owner/by-account/[didethr]/route';
 import { getAccountOwnerByDidEthr, parseEthrDid } from '@agentic-trust/core/server';
 
-describe('GET /api/accounts/owner/by-account/[did:ethr]', () => {
+describe('GET /api/accounts/owner/by-account/[didethr]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -27,7 +27,7 @@ describe('GET /api/accounts/owner/by-account/[did:ethr]', () => {
     });
 
     const request = createMockRequest('http://localhost:3000/api/accounts/owner/by-account/invalid');
-    const params = createMockParamsAsync({ 'did:ethr': 'invalid' });
+    const params = createMockParams({ didethr: 'invalid' });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 400);
@@ -53,7 +53,7 @@ describe('GET /api/accounts/owner/by-account/[did:ethr]', () => {
 
     const encodedDid = encodeURIComponent(`did:ethr:${mockChainId}:${mockAccount}`);
     const request = createMockRequest(`http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`);
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParams({ didethr: encodedDid });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 404);
@@ -81,7 +81,7 @@ describe('GET /api/accounts/owner/by-account/[did:ethr]', () => {
 
     const encodedDid = encodeURIComponent(`did:ethr:${mockChainId}:${mockAccount}`);
     const request = createMockRequest(`http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`);
-    const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+    const params = createMockParams({ didethr: encodedDid });
 
     const response = await GET(request, params);
     const data = await assertJsonResponse(response, 200);
@@ -110,7 +110,7 @@ describe('GET /api/accounts/owner/by-account/[did:ethr]', () => {
 
       const encodedDid = encodeURIComponent('did:ethr:11155111:0x1234567890123456789012345678901234567890');
       const request = createMockRequest(`http://localhost:3000/api/accounts/owner/by-account/${encodedDid}`);
-      const params = createMockParamsAsync({ 'did:ethr': encodedDid });
+      const params = createMockParams({ didethr: encodedDid });
 
       const response = await GET(request, params);
       const data = await assertJsonResponse(response, 500);

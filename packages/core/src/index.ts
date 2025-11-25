@@ -114,8 +114,8 @@ export {
   getCounterfactualAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,
   createAgentWithWallet,
-  updateAgentRegistrationWithWalletForAA,
-  giveFeedbackWithWalletForAA,
+  updateAgentRegistrationWithWallet,
+  giveFeedbackWithWallet,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import ShadowAgentImage from '../../../../docs/8004ShadowAgent.png';
 import { grayscalePalette as palette } from '@/styles/palette';
 import {
   generateSessionPackage,
@@ -9,9 +10,9 @@ import {
   type AgentSkill,
 } from '@agentic-trust/core';
 import {
-  updateAgentRegistrationWithWalletForAA,
+  updateAgentRegistrationWithWallet,
   getDeployedAccountClientByAgentName,
-  giveFeedbackWithWalletForAA,
+  giveFeedbackWithWallet,
 } from '@agentic-trust/core';
 import { signAndSendTransaction } from '@agentic-trust/core/client';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
@@ -26,6 +27,8 @@ export type AgentsPageAgent = {
   image?: string | null;
   contractAddress?: string | null;
   a2aEndpoint?: string | null;
+  agentAccountEndpoint?: string | null;
+  mcp?: boolean | null;
   did?: string | null;
 };
 
@@ -42,6 +45,8 @@ export type AgentsPageFilters = {
   name: string;
   agentId: string;
   mineOnly: boolean;
+  protocol: 'all' | 'a2a' | 'mcp';
+  path: string;
 };
 
 type AgentsPageProps = {
@@ -220,9 +225,13 @@ export function AgentsPage({
     11155420: 'https://sepolia-optimism.etherscan.io',
   };
 
+  const shadowAgentSrc =
+    (ShadowAgentImage as unknown as { src?: string }).src ?? '/8004ShadowAgent.png';
+
   const [gridColumns, setGridColumns] = useState(1);
   const [isMobile, setIsMobile] = useState(false);
   const [singleQuery, setSingleQuery] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   useEffect(() => {
     const updateColumns = () => {
@@ -269,8 +278,30 @@ export function AgentsPage({
     if (filters.mineOnly) {
       result = result.filter(agent => ownedMap[`${agent.chainId}:${agent.agentId}`]);
     }
+    if (filters.protocol === 'a2a') {
+      result = result.filter(agent => Boolean(agent.a2aEndpoint));
+    } else if (filters.protocol === 'mcp') {
+      result = result.filter(agent => agent.mcp === true);
+    }
+    const pathQuery = filters.path.trim().toLowerCase();
+    if (pathQuery) {
+      result = result.filter(agent => {
+        const haystack = [
+          agent.a2aEndpoint ?? '',
+          agent.agentAccountEndpoint ?? '',
+          agent.tokenUri ?? '',
+          agent.description ?? '',
+        ]
+          .join(' ')
+          .toLowerCase();
+        return haystack.includes(pathQuery);
+      });
+    }
     return result;
-  }, [agents, filters.address, filters.mineOnly, ownedMap]);
+  }, [agents, filters.address, filters.mineOnly, filters.protocol, filters.path, ownedMap]);
+
+  const totalAgentsLabel =
+    typeof total === 'number' && Number.isFinite(total) ? total : undefined;
 
   const openActionDialog = (agent: Agent, action: AgentActionType) => {
     setActiveDialog({ agent, action });
@@ -858,7 +889,6 @@ export function AgentsPage({
                     }
 
                     const agentNameForAA = agent.agentName;
-                    console.info('agentNameForAA aa', agent);
                     const accountClient = await getDeployedAccountClientByAgentName(
                       bundlerEnv,
                       agentNameForAA || '',
@@ -871,7 +901,7 @@ export function AgentsPage({
 
                     console.info('accountClient aaa:', accountClient.address);
 
-                    await updateAgentRegistrationWithWalletForAA({
+                    await updateAgentRegistrationWithWallet({
                       did8004,
                       chain,
                       accountClient,
@@ -1528,7 +1558,7 @@ export function AgentsPage({
 
                     // Submit feedback via client-side EOA transaction (user pays gas)
                     setFeedbackSubmitStatus('Submitting feedback transaction…');
-                    const feedbackResult = await giveFeedbackWithWalletForAA({
+                    const feedbackResult = await giveFeedbackWithWallet({
                       did8004,
                       chain,
                       score,
@@ -1773,7 +1803,7 @@ export function AgentsPage({
                     onSearch({ ...filters, name: singleQuery });
                   }
                 }}
-                placeholder={isMobile ? 'Search by name' : 'Search by address, name, or ID'}
+                placeholder={isMobile ? 'Search by name' : 'Search by name or ID'}
                 aria-label="Search"
                 style={{
                   width: '100%',
@@ -1889,27 +1919,6 @@ export function AgentsPage({
               </select>
 
               <input
-                value={filters.address}
-                onChange={event => onFilterChange('address', event.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    onSearch();
-                  }
-                }}
-                placeholder="Agent address"
-                aria-label="Agent address"
-                style={{
-                  width: '100%',
-                  padding: '0.85rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  backgroundColor: palette.surfaceMuted,
-                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-                }}
-              />
-
-              <input
                 value={filters.name}
                 onChange={event => onFilterChange('name', event.target.value)}
                 onKeyDown={event => {
@@ -2009,6 +2018,182 @@ export function AgentsPage({
             </div>
           </div>
         )}
+
+        {/* Advanced filters */}
+        <div
+          style={{
+            marginTop: '1rem',
+            paddingTop: '1rem',
+            borderTop: `1px dashed ${palette.border}`,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '0.75rem',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '0.75rem',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span
+              style={{
+                fontSize: '0.85rem',
+                color: palette.textSecondary,
+              }}
+            >
+              {totalAgentsLabel} agents
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFilters(prev => !prev)}
+              style={{
+                padding: '0.4rem 0.9rem',
+                borderRadius: '999px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: showAdvancedFilters ? palette.surfaceMuted : palette.surface,
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                color: palette.textSecondary,
+              }}
+            >
+              {showAdvancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
+            </button>
+          </div>
+          {showAdvancedFilters && (
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                marginTop: '0.25rem',
+                alignItems: 'flex-end',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem',
+                  width: 'auto',
+                  minWidth: isMobile ? '160px' : '140px',
+                }}
+              >
+                <label
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                  }}
+                >
+                  Protocol
+                </label>
+                <select
+                  value={filters.protocol}
+                  onChange={event => {
+                    const value = event.target.value as AgentsPageFilters['protocol'];
+                    onFilterChange('protocol', value);
+                    onSearch({ ...filters, protocol: value });
+                  }}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '10px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.85rem',
+                  }}
+                >
+                  <option value="all">All</option>
+                  <option value="a2a">A2A only</option>
+                  <option value="mcp">MCP only</option>
+                </select>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem',
+                  width: 'auto',
+                  minWidth: isMobile ? '180px' : '200px',
+                }}
+              >
+                <label
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                  }}
+                >
+                  Path contains
+                </label>
+                <input
+                  value={filters.path}
+                  onChange={event => onFilterChange('path', event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      onSearch();
+                    }
+                  }}
+                  placeholder="Endpoint or URL fragment"
+                  aria-label="Endpoint path filter"
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '10px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.85rem',
+                  }}
+                />
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem',
+                  width: 'auto',
+                  minWidth: isMobile ? '200px' : '220px',
+                }}
+              >
+                <label
+                  style={{
+                    fontSize: '0.8rem',
+                    fontWeight: 600,
+                    color: palette.textSecondary,
+                  }}
+                >
+                  Address (on-chain agent account)
+                </label>
+                <input
+                  value={filters.address}
+                  onChange={event => onFilterChange('address', event.target.value)}
+                  onKeyDown={event => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      onSearch();
+                    }
+                  }}
+                  placeholder="0x… agent account"
+                  aria-label="Agent account address"
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '10px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontSize: '0.85rem',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -2042,7 +2227,7 @@ export function AgentsPage({
             const imageUrl =
               typeof agent.image === 'string' && agent.image.trim()
                 ? agent.image.trim()
-                : null;
+                : shadowAgentSrc;
             const explorerBase = EXPLORER_BY_CHAIN[agent.chainId] ?? 'https://etherscan.io';
             const nftUrl =
               typeof agent.contractAddress === 'string' && agent.contractAddress
@@ -2138,17 +2323,22 @@ export function AgentsPage({
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
-                  {imageUrl && (
-                    <img
-                      src={imageUrl}
-                      alt={agent.agentName || 'Agent'}
-                      style={{
-                        width: '64px',
-                        borderRadius: '14px',
-                        border: `1px solid ${palette.border}`,
-                      }}
-                    />
-                  )}
+                  <img
+                    src={imageUrl}
+                    alt={agent.agentName || 'Agent'}
+                    onError={event => {
+                      const target = event.currentTarget as HTMLImageElement;
+                      if (!target.src.includes(shadowAgentSrc)) {
+                        target.src = shadowAgentSrc;
+                      }
+                    }}
+                    style={{
+                      height: '64px',
+                      width: 'auto',
+                      maxWidth: '100%',
+                      objectFit: 'cover',
+                    }}
+                  />
                   <div>
                   {nftUrl ? (
                       <a
@@ -2238,73 +2428,128 @@ export function AgentsPage({
                     alignItems: 'center',
                   }}
                 >
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                    
-                    {typeof agent.agentAccount === 'string' && agent.agentAccount && (
-                      <a
-                        href={`${explorerBase}/address/${agent.agentAccount}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '0.3rem',
+                      alignItems: 'flex-start',
+                      minWidth: 0,
+                    }}
+                  >
+                    {agent.a2aEndpoint && (
+                      <div
                         style={{
-                          padding: '0.3rem 0.75rem',
-                          backgroundColor: palette.dangerSurface,
-                          color: palette.dangerText,
-                          borderRadius: '999px',
-                          fontSize: '0.8rem',
-                          fontFamily: 'monospace',
-                          textDecoration: 'none',
+                          fontSize: '0.75rem',
+                          color: palette.textSecondary,
+                          maxWidth: '100%',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={agent.a2aEndpoint}
+                      >
+                        <strong style={{ fontWeight: 600 }}>A2A:</strong>{' '}
+                        <span>{agent.a2aEndpoint}</span>
+                      </div>
+                    )}
+                    {agent.agentAccountEndpoint && (
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: palette.textSecondary,
+                          maxWidth: '100%',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={agent.agentAccountEndpoint}
+                      >
+                        <strong style={{ fontWeight: 600 }}>MCP:</strong>{' '}
+                        <span>{agent.agentAccountEndpoint}</span>
+                      </div>
+                    )}
+                    {typeof agent.agentAccount === 'string' && agent.agentAccount && (
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '0.5rem',
+                          flexWrap: 'wrap',
                         }}
                       >
-                        {agent.agentAccount.slice(0, 6)}...{agent.agentAccount.slice(-4)}
-                      </a>
-                    )}
-                    {!isMobile && isOwned && typeof agent.agentAccount === 'string' && agent.agentAccount && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', alignItems: 'flex-start' }}>
-                        <button
-                          type="button"
-                          onClick={event => {
-                            event.stopPropagation();
-                            void handleOpenSession(agent);
-                          }}
+                        <a
+                          href={`${explorerBase}/address/${agent.agentAccount}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                           style={{
-                            padding: '0.25rem 0.6rem',
+                            padding: '0.3rem 0.75rem',
+                            backgroundColor: palette.dangerSurface,
+                            color: palette.dangerText,
                             borderRadius: '999px',
-                            border: `1px solid ${palette.border}`,
-                            backgroundColor: palette.surfaceMuted,
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            color: palette.textPrimary,
+                            fontSize: '0.8rem',
+                            fontFamily: 'monospace',
+                            textDecoration: 'none',
                           }}
                         >
-                          Session package
-                        </button>
-                        {(() => {
-                          const agentKey = `${agent.chainId}:${agent.agentId}`;
-                          const progress = sessionProgress[agentKey];
-                          if (progress === undefined) return null;
-                          return (
-                            <div
+                          {agent.agentAccount.slice(0, 6)}...{agent.agentAccount.slice(-4)}
+                        </a>
+                        {!isMobile && isOwned && (
+                          <div
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: '0.25rem',
+                              alignItems: 'flex-start',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={event => {
+                                event.stopPropagation();
+                                void handleOpenSession(agent);
+                              }}
                               style={{
-                                width: '100%',
-                                height: '4px',
+                                padding: '0.25rem 0.6rem',
+                                borderRadius: '999px',
+                                border: `1px solid ${palette.border}`,
                                 backgroundColor: palette.surfaceMuted,
-                                borderRadius: '2px',
-                                overflow: 'hidden',
-                                minWidth: '120px',
+                                fontSize: '0.7rem',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                color: palette.textPrimary,
                               }}
                             >
-                              <div
-                                style={{
-                                  width: `${progress}%`,
-                                  height: '100%',
-                                  backgroundColor: palette.accent,
-                                  transition: 'width 0.3s ease-out',
-                                }}
-                              />
-                            </div>
-                          );
-                        })()}
+                              Session package
+                            </button>
+                            {(() => {
+                              const agentKey = `${agent.chainId}:${agent.agentId}`;
+                              const progress = sessionProgress[agentKey];
+                              if (progress === undefined) return null;
+                              return (
+                                <div
+                                  style={{
+                                    width: '100%',
+                                    height: '4px',
+                                    backgroundColor: palette.surfaceMuted,
+                                    borderRadius: '2px',
+                                    overflow: 'hidden',
+                                    minWidth: '120px',
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      width: `${progress}%`,
+                                      height: '100%',
+                                      backgroundColor: palette.accent,
+                                      transition: 'width 0.3s ease-out',
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

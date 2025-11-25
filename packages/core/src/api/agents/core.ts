@@ -10,6 +10,7 @@ import {
   type RequestFeedbackAuthPayload,
   type RequestFeedbackAuthResult,
   type PrepareFeedbackPayload,
+  type DirectFeedbackPayload,
   type AgentOperationCall,
   type AgentPreparedTransactionPayload,
 } from './types';
@@ -397,7 +398,7 @@ export async function prepareFeedbackCore(
   }
 
   // Prepare the feedback transaction (EOA-friendly payload)
-  const { chainId, transaction } = await agent.prepareGiveFeedbackTransaction({
+  const { chainId, transaction } = await agent.prepareGiveFeedback({
     score: input.score,
     feedback: input.feedback,
     feedbackAuth: input.feedbackAuth,
@@ -526,5 +527,104 @@ export async function getFeedbackCore(
     feedback: jsonSafeDeep(feedback),
     summary: jsonSafeDeep(summary),
   };
+}
+
+export interface DirectFeedbackResult {
+  success: true;
+  txHash: string;
+}
+
+export async function submitFeedbackDirectCore(
+  ctx: AgentApiContext | undefined,
+  input: DirectFeedbackPayload,
+): Promise<DirectFeedbackResult> {
+  const client = await resolveClient(ctx);
+
+  let agentId: string | undefined =
+    typeof input.agentId === 'number'
+      ? input.agentId.toString()
+      : input.agentId?.toString();
+  let chainId: number | undefined =
+    typeof input.chainId === 'number' && Number.isFinite(input.chainId)
+      ? input.chainId
+      : undefined;
+
+  if (input.did8004 && input.did8004.trim()) {
+    const parsed = (() => {
+      try {
+        return parseDid8004(input.did8004 as string);
+      } catch (error) {
+        throw new AgentApiError(
+          `Invalid did:8004 identifier: ${
+            error instanceof Error ? error.message : 'Unknown error'
+          }`,
+          400,
+        );
+      }
+    })();
+    agentId = parsed.agentId.toString();
+    chainId = parsed.chainId;
+  }
+
+  if (!agentId) {
+    throw new AgentApiError('agentId or did8004 is required', 400);
+  }
+
+  const resolvedChainId =
+    typeof chainId === 'number' && Number.isFinite(chainId)
+      ? chainId
+      : DEFAULT_CHAIN_ID;
+
+  const agent = await client.getAgent(agentId.toString(), resolvedChainId);
+  if (!agent) {
+    throw new AgentApiError('Agent not found', 404, {
+      agentId,
+      chainId: resolvedChainId,
+    });
+  }
+
+  const numericScore =
+    typeof input.score === 'number'
+      ? input.score
+      : Number.parseInt(input.score as string, 10);
+
+  if (!Number.isFinite(numericScore)) {
+    throw new AgentApiError('Invalid score value', 400);
+  }
+
+  try {
+    const feedbackResult = await agent.giveFeedback({
+      ...(input.clientAddress && {
+        clientAddress: input.clientAddress as `0x${string}`,
+      }),
+      score: numericScore,
+      feedback:
+        input.feedback && input.feedback.length > 0
+          ? input.feedback
+          : 'Feedback submitted via direct endpoint',
+      feedbackAuth: input.feedbackAuth,
+      tag1: input.tag1,
+      tag2: input.tag2,
+      feedbackUri: input.feedbackUri,
+      feedbackHash: input.feedbackHash,
+      skill: input.skill,
+      context: input.context,
+      capability: input.capability,
+    });
+
+    return {
+      success: true,
+      txHash: feedbackResult.txHash,
+    };
+  } catch (error) {
+    throw new AgentApiError(
+      error instanceof Error ? error.message : 'Failed to submit feedback',
+      502,
+      {
+        agentId,
+        chainId: resolvedChainId,
+      },
+    );
+  }
 }
 

@@ -1160,9 +1160,9 @@ export async function createAgentWithWallet(
  * 
  * **Usage:**
  * ```typescript
- * import { updateAgentRegistrationWithWalletForAA } from '@agentic-trust/core/client';
+ * import { updateAgentRegistrationWithWallet } from '@agentic-trust/core/client';
  * 
- * const result = await updateAgentRegistrationWithWalletForAA({
+ * const result = await updateAgentRegistrationWithWallet({
  *   did8004: 'did:8004:11155111:123',
  *   chain: sepolia,
  *   accountClient: agentAccountClient,
@@ -1179,7 +1179,7 @@ export interface UpdateAgentRegistrationWithWalletOptions {
   onStatusUpdate?: (status: string) => void;
 }
 
-export async function updateAgentRegistrationWithWalletForAA(
+export async function updateAgentRegistrationWithWallet(
   options: UpdateAgentRegistrationWithWalletOptions,
 ): Promise<{ txHash: string; requiresClientSigning: true }> {
   const { did8004, chain, accountClient, registration, onStatusUpdate } = options;
@@ -1267,9 +1267,9 @@ export async function updateAgentRegistrationWithWalletForAA(
  * 
  * **Usage:**
  * ```typescript
- * import { giveFeedbackWithWalletForAA } from '@agentic-trust/core/client';
+ * import { giveFeedbackWithWallet } from '@agentic-trust/core/client';
  * 
- * const result = await giveFeedbackWithWalletForAA({
+ * const result = await giveFeedbackWithWallet{
  *   did8004: 'did:8004:11155111:123',
  *   chain: sepolia,
  *   accountClient: clientAccountClient,
@@ -1298,7 +1298,7 @@ export interface GiveFeedbackWithWalletOptions {
   onStatusUpdate?: (status: string) => void;
 }
 
-export async function giveFeedbackWithWalletForAA(
+export async function giveFeedbackWithWallet(
   options: GiveFeedbackWithWalletOptions,
 ): Promise<{ txHash: string; requiresClientSigning: true }> {
   const {
