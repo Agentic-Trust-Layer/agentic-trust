@@ -135,6 +135,19 @@ export interface DiscoverParams {
   mcpResources?: string[];
   active?: boolean;
   x402support?: boolean;
+
+  /**
+   * Aggregated reputation / validation filters.
+   */
+  minFeedbackCount?: number;
+  minValidationCompletedCount?: number;
+  minFeedbackAverageScore?: number;
+
+  /**
+   * Restrict results to agents created within the last N days.
+   * Maps to createdAtTime_gte in the indexer.
+   */
+  createdWithinDays?: number;
 }
 
 export interface DiscoverAgentsOptions {
@@ -1106,6 +1119,33 @@ export class AgentsAPI {
 
     if (typeof params.x402support === 'boolean') {
       where.x402support = params.x402support;
+    }
+
+    if (typeof params.minFeedbackCount === 'number' && params.minFeedbackCount > 0) {
+      (where as any).feedbackCount_gte = params.minFeedbackCount;
+    }
+
+    if (
+      typeof params.minValidationCompletedCount === 'number' &&
+      params.minValidationCompletedCount > 0
+    ) {
+      (where as any).validationCompletedCount_gte = params.minValidationCompletedCount;
+    }
+
+    if (
+      typeof params.minFeedbackAverageScore === 'number' &&
+      params.minFeedbackAverageScore > 0
+    ) {
+      (where as any).feedbackAverageScore_gte = params.minFeedbackAverageScore;
+    }
+
+    if (typeof params.createdWithinDays === 'number' && params.createdWithinDays > 0) {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const windowSeconds = Math.floor(params.createdWithinDays * 24 * 60 * 60);
+      const threshold = nowSeconds - windowSeconds;
+      if (threshold > 0) {
+        (where as any).createdAtTime_gte = threshold;
+      }
     }
 
     return Object.keys(where).length > 0 ? where : undefined;

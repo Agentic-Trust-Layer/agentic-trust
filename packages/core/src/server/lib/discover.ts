@@ -91,6 +91,7 @@ export async function discoverAgents(
       return {
         chainId,
         agentId: stringOrNull(raw?.agentId) ?? '',
+        createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,
         agentAccount: String(raw?.agentAccount ?? ''),
         agentOwner: String(raw?.agentOwner ?? ''),
         contractAddress: stringOrNull(raw?.contractAddress) ?? undefined,
@@ -100,7 +101,6 @@ export async function discoverAgents(
         didName: stringOrNull(raw?.didName) ?? undefined,
         tokenUri: stringOrNull(raw?.tokenUri) ?? undefined,
         createdAtBlock: numeric(raw?.createdAtBlock, 0) ?? 0,
-        createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,
         updatedAtTime: numeric(raw?.updatedAtTime, null),
         type: stringOrNull(raw?.type) ?? undefined,
         description: stringOrNull(raw?.description) ?? undefined,
@@ -114,6 +114,11 @@ export async function discoverAgents(
         mcp: booleanish(raw?.mcp) ?? undefined,
         x402support: booleanish(raw?.x402support) ?? undefined,
         active: booleanish(raw?.active) ?? undefined,
+
+        // Aggregated metrics
+        feedbackCount: numeric(raw?.feedbackCount, 0),
+        feedbackAverageScore: numeric(raw?.feedbackAverageScore, null),
+        validationCompletedCount: numeric(raw?.validationCompletedCount, 0),
       };
     }),
     total,

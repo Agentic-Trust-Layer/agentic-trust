@@ -17,6 +17,7 @@ export {
   prepareFeedbackRouteHandler,
   getFeedbackRouteHandler,
   directFeedbackRouteHandler,
+  getValidationsRouteHandler,
 } from '../api/agents/next';
 export {
   createAgentDirectRouteHandler,

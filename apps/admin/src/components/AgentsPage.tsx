@@ -7,6 +7,7 @@ import {
   generateSessionPackage,
   buildDid8004,
   DEFAULT_CHAIN_ID,
+  getChainDisplayMetadata,
   type AgentSkill,
 } from '@agentic-trust/core';
 import {
@@ -30,6 +31,10 @@ export type AgentsPageAgent = {
   agentAccountEndpoint?: string | null;
   mcp?: boolean | null;
   did?: string | null;
+   createdAtTime?: number | null;
+  feedbackCount?: number | null;
+  feedbackAverageScore?: number | null;
+  validationCompletedCount?: number | null;
 };
 
 type Agent = AgentsPageAgent;
@@ -47,6 +52,10 @@ export type AgentsPageFilters = {
   mineOnly: boolean;
   protocol: 'all' | 'a2a' | 'mcp';
   path: string;
+  minReviews: string;
+  minValidations: string;
+  minAvgRating: string;
+  createdWithinDays: string;
 };
 
 type AgentsPageProps = {
@@ -94,6 +103,7 @@ type AgentActionType =
   | 'a2a'
   | 'session'
   | 'feedback'
+  | 'validations'
   | 'registration-edit'
   | 'give-feedback';
 
@@ -106,6 +116,7 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   a2a: 'A2A',
   session: 'Session',
   feedback: 'Feedback',
+  validations: 'Validations',
   'give-feedback': 'Give Feedback',
 };
 
@@ -166,6 +177,19 @@ export function AgentsPage({
     loading: false,
     error: null,
     text: null,
+  });
+  const [validationsPreview, setValidationsPreview] = useState<{
+    key: string | null;
+    loading: boolean;
+    error: string | null;
+    pending: unknown[] | null;
+    completed: unknown[] | null;
+  }>({
+    key: null,
+    loading: false,
+    error: null,
+    pending: null,
+    completed: null,
   });
   const [sessionProgress, setSessionProgress] = useState<Record<string, number>>({});
   const [feedbackPreview, setFeedbackPreview] = useState<{
@@ -597,6 +621,76 @@ export function AgentsPage({
     };
   }, [activeDialog]);
 
+  useEffect(() => {
+    if (!activeDialog || activeDialog.action !== 'validations') {
+      return;
+    }
+
+    const { agent } = activeDialog;
+    const key = getAgentKey(agent);
+    if (!key) {
+      return;
+    }
+
+    let cancelled = false;
+
+    setValidationsPreview({
+      key,
+      loading: true,
+      error: null,
+      pending: null,
+      completed: null,
+    });
+
+    (async () => {
+      try {
+        const parsedChainId =
+          typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
+            ? agent.chainId
+            : DEFAULT_CHAIN_ID;
+        const parsedAgentId =
+          typeof agent.agentId === 'string'
+            ? Number.parseInt(agent.agentId, 10)
+            : Number(agent.agentId ?? 0);
+        const did8004 = buildDid8004(parsedChainId, parsedAgentId);
+        const response = await fetch(
+          `/api/agents/${encodeURIComponent(did8004)}/validations`,
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.message || errorData.error || 'Failed to fetch validations',
+          );
+        }
+
+        const data = await response.json();
+        if (cancelled) return;
+
+        setValidationsPreview({
+          key,
+          loading: false,
+          error: null,
+          pending: Array.isArray(data.pending) ? data.pending : [],
+          completed: Array.isArray(data.completed) ? data.completed : [],
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setValidationsPreview({
+          key,
+          loading: false,
+          error: error?.message ?? 'Unable to load validations.',
+          pending: null,
+          completed: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDialog]);
+
 
   // Manage session progress timers
   useEffect(() => {
@@ -1017,6 +1111,102 @@ export function AgentsPage({
                 <span style={{ color: palette.textSecondary }}>No JSON preview available.</span>
               )}
             </div>
+          </>
+        );
+      }
+      case 'validations': {
+        const agentKey = getAgentKey(agent);
+        const previewMatchesAgent =
+          agentKey !== null && validationsPreview.key === agentKey;
+        const loading = !previewMatchesAgent || validationsPreview.loading;
+        const error = previewMatchesAgent ? validationsPreview.error : null;
+        const pending = previewMatchesAgent ? validationsPreview.pending : null;
+        const completed = previewMatchesAgent ? validationsPreview.completed : null;
+
+        return (
+          <>
+            <p style={{ marginTop: 0 }}>
+              Pending and completed validations for this agent from the on-chain
+              validation registry.
+            </p>
+            {loading && !error && (
+              <p style={{ color: palette.textSecondary }}>Loading validations…</p>
+            )}
+            {error && (
+              <p style={{ color: palette.dangerText }}>{error}</p>
+            )}
+            {!loading && !error && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem',
+                  maxHeight: '420px',
+                  overflow: 'auto',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <div>
+                  <h4
+                    style={{
+                      margin: '0 0 0.5rem',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Pending validations ({Array.isArray(pending) ? pending.length : 0})
+                  </h4>
+                  {Array.isArray(pending) && pending.length > 0 ? (
+                    <ul
+                      style={{
+                        listStyle: 'disc',
+                        paddingLeft: '1.25rem',
+                        margin: 0,
+                      }}
+                    >
+                      {pending.map((item, index) => (
+                        <li key={index}>
+                          <code>{JSON.stringify(item)}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ color: palette.textSecondary, margin: 0 }}>
+                      No pending validations.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <h4
+                    style={{
+                      margin: '0 0 0.5rem',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Completed validations (
+                    {Array.isArray(completed) ? completed.length : 0})
+                  </h4>
+                  {Array.isArray(completed) && completed.length > 0 ? (
+                    <ul
+                      style={{
+                        listStyle: 'disc',
+                        paddingLeft: '1.25rem',
+                        margin: 0,
+                      }}
+                    >
+                      {completed.map((item, index) => (
+                        <li key={index}>
+                          <code>{JSON.stringify(item)}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ color: palette.textSecondary, margin: 0 }}>
+                      No completed validations.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
           </>
         );
       }
@@ -2068,128 +2258,314 @@ export function AgentsPage({
             <div
               style={{
                 display: 'flex',
-                flexWrap: 'wrap',
-                gap: '0.75rem',
+                flexDirection: 'column',
+                gap: '0.5rem',
                 marginTop: '0.25rem',
-                alignItems: 'flex-end',
               }}
             >
+              {/* Row 1: Protocol, Created within, Path, Address */}
               <div
                 style={{
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.25rem',
-                  width: 'auto',
-                  minWidth: isMobile ? '160px' : '140px',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  alignItems: 'flex-end',
                 }}
               >
-                <label
+                <div
                   style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: palette.textSecondary,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '160px' : '140px',
                   }}
                 >
-                  Protocol
-                </label>
-                <select
-                  value={filters.protocol}
-                  onChange={event => {
-                    const value = event.target.value as AgentsPageFilters['protocol'];
-                    onFilterChange('protocol', value);
-                    onSearch({ ...filters, protocol: value });
-                  }}
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Protocol
+                  </label>
+                  <select
+                    value={filters.protocol}
+                    onChange={event => {
+                      const value = event.target.value as AgentsPageFilters['protocol'];
+                      onFilterChange('protocol', value);
+                      onSearch({ ...filters, protocol: value });
+                    }}
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    <option value="all">All</option>
+                    <option value="a2a">A2A only</option>
+                    <option value="mcp">MCP only</option>
+                  </select>
+                </div>
+                <div
                   style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '10px',
-                    border: `1px solid ${palette.border}`,
-                    backgroundColor: palette.surfaceMuted,
-                    color: palette.textPrimary,
-                    fontSize: '0.85rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '160px' : '140px',
                   }}
                 >
-                  <option value="all">All</option>
-                  <option value="a2a">A2A only</option>
-                  <option value="mcp">MCP only</option>
-                </select>
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Created within (days)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={filters.createdWithinDays}
+                    onChange={event => onFilterChange('createdWithinDays', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="e.g. 30"
+                    aria-label="Created within days"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '180px' : '200px',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Path contains
+                  </label>
+                  <input
+                    value={filters.path}
+                    onChange={event => onFilterChange('path', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="Endpoint or URL fragment"
+                    aria-label="Endpoint path filter"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '200px' : '220px',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Address (on-chain agent account)
+                  </label>
+                  <input
+                    value={filters.address}
+                    onChange={event => onFilterChange('address', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="0x… agent account"
+                    aria-label="Agent account address"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
               </div>
+
+              {/* Row 2: Min reviews, Min avg rating, Min validations */}
               <div
                 style={{
                   display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.25rem',
-                  width: 'auto',
-                  minWidth: isMobile ? '180px' : '200px',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  alignItems: 'flex-end',
                 }}
               >
-                <label
+                <div
                   style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: palette.textSecondary,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '140px' : '120px',
                   }}
                 >
-                  Path contains
-                </label>
-                <input
-                  value={filters.path}
-                  onChange={event => onFilterChange('path', event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      onSearch();
-                    }
-                  }}
-                  placeholder="Endpoint or URL fragment"
-                  aria-label="Endpoint path filter"
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Min reviews
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={filters.minReviews}
+                    onChange={event => onFilterChange('minReviews', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="e.g. 5"
+                    aria-label="Minimum reviews"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
+                <div
                   style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '10px',
-                    border: `1px solid ${palette.border}`,
-                    backgroundColor: palette.surfaceMuted,
-                    color: palette.textPrimary,
-                    fontSize: '0.85rem',
-                  }}
-                />
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.25rem',
-                  width: 'auto',
-                  minWidth: isMobile ? '200px' : '220px',
-                }}
-              >
-                <label
-                  style={{
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    color: palette.textSecondary,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '140px' : '120px',
                   }}
                 >
-                  Address (on-chain agent account)
-                </label>
-                <input
-                  value={filters.address}
-                  onChange={event => onFilterChange('address', event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter') {
-                      event.preventDefault();
-                      onSearch();
-                    }
-                  }}
-                  placeholder="0x… agent account"
-                  aria-label="Agent account address"
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Min avg rating
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={5}
+                    step={0.1}
+                    value={filters.minAvgRating}
+                    onChange={event => onFilterChange('minAvgRating', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="e.g. 4.0"
+                    aria-label="Minimum average rating"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
+                <div
                   style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '10px',
-                    border: `1px solid ${palette.border}`,
-                    backgroundColor: palette.surfaceMuted,
-                    color: palette.textPrimary,
-                    fontSize: '0.85rem',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '140px' : '120px',
                   }}
-                />
+                >
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Min validations
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={filters.minValidations}
+                    onChange={event => onFilterChange('minValidations', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="e.g. 3"
+                    aria-label="Minimum validations"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -2232,6 +2608,37 @@ export function AgentsPage({
             const nftUrl =
               typeof agent.contractAddress === 'string' && agent.contractAddress
                 ? `${explorerBase}/token/${agent.contractAddress}?a=${agent.agentId}`
+                : null;
+
+            const chainMeta = getChainDisplayMetadata(agent.chainId);
+            const chainLabel =
+              chainMeta?.displayName ||
+              chainMeta?.chainName ||
+              `Chain ${agent.chainId}`;
+
+            const reviewsCount =
+              typeof agent.feedbackCount === 'number' && agent.feedbackCount >= 0
+                ? agent.feedbackCount
+                : 0;
+            const validationsCount =
+              typeof agent.validationCompletedCount === 'number' &&
+              agent.validationCompletedCount >= 0
+                ? agent.validationCompletedCount
+                : 0;
+            const averageRating =
+              typeof agent.feedbackAverageScore === 'number' &&
+              Number.isFinite(agent.feedbackAverageScore)
+                ? agent.feedbackAverageScore
+                : null;
+
+            const createdAtTimeSeconds =
+              typeof agent.createdAtTime === 'number' && Number.isFinite(agent.createdAtTime)
+                ? agent.createdAtTime
+                : null;
+            const nowSeconds = Math.floor(Date.now() / 1000);
+            const daysAgo =
+              createdAtTimeSeconds && createdAtTimeSeconds > 0
+                ? Math.max(0, Math.floor((nowSeconds - createdAtTimeSeconds) / (24 * 60 * 60)))
                 : null;
             return (
               <article
@@ -2340,7 +2747,7 @@ export function AgentsPage({
                     }}
                   />
                   <div>
-                  {nftUrl ? (
+                    {nftUrl ? (
                       <a
                         href={nftUrl}
                         target="_blank"
@@ -2371,6 +2778,16 @@ export function AgentsPage({
                         Agent #{agent.agentId}
                       </p>
                     )}
+                    <div
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        color: palette.textSecondary,
+                        marginTop: '0.05rem',
+                      }}
+                    >
+                      {chainLabel}
+                    </div>
                   </div>
                   
                 </div>
@@ -2421,6 +2838,7 @@ export function AgentsPage({
                 </p>
                 <div
                   style={{
+                    marginTop: '0.75rem',
                     display: 'flex',
                     flexWrap: 'wrap',
                     gap: '0.75rem',
@@ -2685,6 +3103,70 @@ export function AgentsPage({
                         {ACTION_LABELS.a2a}
                       </button>
                     )}
+                  </div>
+                </div>
+                <div
+                  style={{
+                    marginTop: '0.75rem',
+                    paddingTop: '0.6rem',
+                    borderTop: `1px solid ${palette.border}`,
+                    width: '100%',
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '0.75rem',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    fontSize: '0.8rem',
+                    color: palette.textSecondary,
+                  }}
+                >
+                  <span>
+                    {daysAgo !== null ? `${daysAgo} day${daysAgo === 1 ? '' : 's'} ago` : 'Age N/A'}
+                  </span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '0.75rem',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openActionDialog(agent, 'feedback');
+                      }}
+                      style={{
+                        padding: 0,
+                        border: 'none',
+                        background: 'none',
+                        color: palette.accent,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      reviews ({reviewsCount.toLocaleString()})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openActionDialog(agent, 'validations' as any);
+                      }}
+                      style={{
+                        padding: 0,
+                        border: 'none',
+                        background: 'none',
+                        color: palette.accent,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                    >
+                      validations ({validationsCount.toLocaleString()})
+                    </button>
                   </div>
                 </div>
               </article>

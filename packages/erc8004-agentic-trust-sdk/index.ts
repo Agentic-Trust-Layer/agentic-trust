@@ -12,6 +12,7 @@ export { AIAgentL2ENSDurenClient } from './AIAgentL2ENSDurenClient';
 export { AIAgentL2ENSNamespaceClient } from './AIAgentL2ENSNamespaceClient';
 export { AIAgentIdentityClient } from './AIAgentIdentityClient';
 export { AIAgentReputationClient, type GiveFeedbackParams } from './AIAgentReputationClient';
+export { AIAgentValidationClient } from './AIAgentValidationClient';
 export { OrgIdentityClient } from './OrgIdentityClient';
 export {
   AIAgentDiscoveryClient,

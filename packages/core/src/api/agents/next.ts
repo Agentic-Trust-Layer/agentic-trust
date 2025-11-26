@@ -8,6 +8,7 @@ import {
   getFeedbackCore,
   submitFeedbackDirectCore,
 } from './core';
+import { getValidationsCore } from './validations';
 import type {
   AgentOperationPlan,
   CreateAgentPayload,
@@ -261,6 +262,28 @@ export function directFeedbackRouteHandler(
         ...body,
       };
       const result = await submitFeedbackDirectCore(ctx, input);
+      return jsonResponse(result);
+    } catch (error) {
+      return handleNextError(error);
+    }
+  };
+}
+
+export function getValidationsRouteHandler(
+  createContext: CreateContextFromNext = defaultContextFactory,
+) {
+  return async (
+    req: Request,
+    context: { params: RouteParams },
+  ) => {
+    try {
+      const did8004 = extractDidParam(context.params || {});
+      const parsed = parseDid8004(did8004);
+      const ctx = createContext(req);
+      const result = await getValidationsCore(ctx, {
+        chainId: parsed.chainId,
+        agentId: parsed.agentId,
+      });
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

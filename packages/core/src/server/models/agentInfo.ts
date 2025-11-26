@@ -28,6 +28,13 @@ export interface AgentInfo {
   mcp?: boolean | null;
   x402support?: boolean | null;
   active?: boolean | null;
+
+  /**
+   * Aggregated reputation / validation metrics from the indexer.
+   */
+  feedbackCount?: number | null;
+  feedbackAverageScore?: number | null;
+  validationCompletedCount?: number | null;
 }
 
 

@@ -634,6 +634,10 @@ export class AIAgentDiscoveryClient {
       active
       supportedTrust
       rawJson
+      feedbackCount
+      feedbackAverageScore
+      validationPendingCount
+      validationCompletedCount
     `;
 
     const addStringArg = (arg: ArgConfig | undefined, value: string | undefined) => {
@@ -851,6 +855,10 @@ export class AIAgentDiscoveryClient {
             mcp
             x402support
             active
+            feedbackCount
+            feedbackAverageScore
+            validationPendingCount
+            validationCompletedCount
           }
           total
           hasMore

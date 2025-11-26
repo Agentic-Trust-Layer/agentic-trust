@@ -1,0 +1,118 @@
+/**
+ * Agentic Trust SDK - Validation Client
+ * Extends the base ERC-8004 ValidationClient with AccountProvider support.
+ * Uses AccountProvider (Ports & Adapters pattern) for chain I/O.
+ */
+
+import { sepolia } from 'viem/chains';
+import type { Chain } from 'viem';
+
+import {
+  ValidationClient as BaseValidationClient,
+  type ValidationStatus,
+  AccountProvider,
+  type TxRequest,
+} from '@agentic-trust/8004-sdk';
+
+// Local copies of request/response types to avoid tight coupling to 8004-sdk exports
+export interface ValidationRequestParams {
+  validatorAddress: string;
+  agentId: bigint;
+  requestUri: string;
+  requestHash: string;
+}
+
+export interface ValidationResponseParams {
+  requestHash: string;
+  response: number;
+  responseUri?: string;
+  responseHash?: string;
+  tag?: string;
+}
+
+export class AIAgentValidationClient extends BaseValidationClient {
+  private chain: Chain;
+  private accountProvider: AccountProvider;
+  private validationRegistryAddress: `0x${string}`;
+
+  constructor(accountProvider: AccountProvider, validationRegistryAddress: `0x${string}`) {
+    // Minimal adapter wrapper using AccountProvider for BaseValidationClient compatibility
+    const minimalAdapter = {
+      call: async (to: string, abi: any, functionName: string, args?: any[]) => {
+        return accountProvider?.call({ to: to as `0x${string}`, abi, functionName, args });
+      },
+      send: async (to: string, abi: any, functionName: string, args?: any[]) => {
+        const data = await accountProvider?.encodeFunctionData({
+          abi,
+          functionName,
+          args: args || [],
+        });
+        if (data) {
+          const tx: TxRequest = { to: to as `0x${string}`, data };
+          const result = await accountProvider?.send(tx);
+          return { hash: result?.hash, txHash: result?.hash };
+        }
+        return { hash: undefined, txHash: undefined };
+      },
+    };
+
+    super(minimalAdapter as any, validationRegistryAddress);
+
+    this.chain = sepolia;
+    this.accountProvider = accountProvider;
+    this.validationRegistryAddress = validationRegistryAddress;
+  }
+
+  // Factory helper to mirror AIAgentReputationClient.create-style API
+  static async create(
+    accountProvider: AccountProvider,
+    validationRegistryAddress: `0x${string}`,
+  ): Promise<AIAgentValidationClient> {
+    return new AIAgentValidationClient(accountProvider, validationRegistryAddress);
+  }
+
+  // Re-expose base-class methods for TypeScript consumers
+  getIdentityRegistry(): Promise<string> {
+    return (BaseValidationClient.prototype as any).getIdentityRegistry.call(this);
+  }
+
+  getAgentValidations(agentId: bigint): Promise<string[]> {
+    return (BaseValidationClient.prototype as any).getAgentValidations.call(this, agentId);
+  }
+
+  getValidatorRequests(validatorAddress: string): Promise<string[]> {
+    return (BaseValidationClient.prototype as any).getValidatorRequests.call(
+      this,
+      validatorAddress,
+    );
+  }
+
+  getValidationStatus(requestHash: string): Promise<ValidationStatus> {
+    return (BaseValidationClient.prototype as any).getValidationStatus.call(this, requestHash);
+  }
+
+  getSummary(
+    agentId: bigint,
+    validatorAddresses?: string[],
+    tag?: string,
+  ): Promise<{ count: bigint; avgResponse: number }> {
+    return (BaseValidationClient.prototype as any).getSummary.call(
+      this,
+      agentId,
+      validatorAddresses,
+      tag,
+    );
+  }
+
+  validationRequest(
+    params: ValidationRequestParams,
+  ): Promise<{ txHash: string; requestHash: string }> {
+    return (BaseValidationClient.prototype as any).validationRequest.call(this, params);
+  }
+
+  validationResponse(params: ValidationResponseParams): Promise<{ txHash: string }> {
+    return (BaseValidationClient.prototype as any).validationResponse.call(this, params);
+  }
+}
+
+

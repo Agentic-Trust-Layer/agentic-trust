@@ -22,6 +22,12 @@ type DiscoverParams = {
   agentAccount?: Address;
   agentName?: string;
   agentId?: string;
+  a2a?: boolean;
+  mcp?: boolean;
+  minFeedbackCount?: number;
+  minValidationCompletedCount?: number;
+  minFeedbackAverageScore?: number;
+  createdWithinDays?: number;
 };
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
@@ -32,6 +38,10 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   mineOnly: false,
   protocol: 'all',
   path: '',
+  minReviews: '',
+  minValidations: '',
+  minAvgRating: '',
+  createdWithinDays: '',
 };
 
 const PAGE_SIZE = 18;
@@ -122,6 +132,27 @@ export default function AgentsRoute() {
     } else if (source.protocol === 'mcp') {
       params.mcp = true;
     }
+
+    const minReviews = Number.parseInt(source.minReviews.trim(), 10);
+    if (Number.isFinite(minReviews) && minReviews > 0) {
+      params.minFeedbackCount = minReviews;
+    }
+
+    const minValidations = Number.parseInt(source.minValidations.trim(), 10);
+    if (Number.isFinite(minValidations) && minValidations > 0) {
+      params.minValidationCompletedCount = minValidations;
+    }
+
+    const minAvgRating = Number.parseFloat(source.minAvgRating.trim());
+    if (Number.isFinite(minAvgRating) && minAvgRating > 0) {
+      params.minFeedbackAverageScore = minAvgRating;
+    }
+
+    const createdWithinDays = Number.parseInt(source.createdWithinDays.trim(), 10);
+    if (Number.isFinite(createdWithinDays) && createdWithinDays > 0) {
+      params.createdWithinDays = createdWithinDays;
+    }
+
     return params;
   }, []);
 
@@ -138,8 +169,9 @@ export default function AgentsRoute() {
         const payload = {
           page,
           pageSize: PAGE_SIZE,
-          orderBy: 'agentName',
-          orderDirection: 'ASC' as const,
+          // Order by createdAtTime descending so newest agents appear first.
+          orderBy: 'createdAtTime',
+          orderDirection: 'DESC' as const,
           query: pathQuery,
           params: Object.keys(params).length > 0 ? params : undefined,
         };
