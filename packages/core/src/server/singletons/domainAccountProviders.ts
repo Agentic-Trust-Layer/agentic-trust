@@ -113,9 +113,27 @@ export async function resolveReputationAccountProvider(
     return ctx.clientApp.accountProvider;
   }
 
-  throw new Error(
-    'Cannot resolve AccountProvider for reputation client: configure AGENTIC_TRUST_APP_ROLES to include "client", "provider", or "admin".'
-  );
+  // Fallback: read-only public client using the provided RPC URL.
+  // This is sufficient for read-only operations such as reputation/validation summaries.
+  const { createPublicClient, http } = await import('viem');
+  const { sepolia } = await import('viem/chains');
+
+  const publicClient = createPublicClient({
+    chain: sepolia,
+    transport: http(rpcUrl),
+  });
+
+  return new ViemAccountProvider({
+    publicClient: publicClient as any,
+    walletClient: null,
+    account: undefined,
+    chainConfig: {
+      id: sepolia.id,
+      rpcUrl,
+      name: sepolia.name,
+      chain: sepolia,
+    },
+  });
 }
 
 /**

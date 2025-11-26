@@ -103,7 +103,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
             textAlign: 'center',
           }}
         >
-          Agent Trust Admin Login
+          Agentic Trust Community Connect
         </h1>
 
         {error && (
@@ -200,16 +200,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
           </button>
         </div>
 
-        <p
-          style={{
-            marginTop: '2rem',
-            fontSize: '0.85rem',
-            color: palette.textMuted,
-            textAlign: 'center',
-          }}
-        >
-          Secure authentication powered by Web3Auth or direct wallet connection
-        </p>
       </div>
     </div>
   );

@@ -44,23 +44,32 @@ export async function getClientApp(): Promise<ClientAppInstance | undefined> {
     return initializationPromise;
   }
 
-  // Start initialization (only when client role is enabled for this process)
-  // Helpful debug to see when a process (e.g. the web app) is bootstrapping ClientApp
-  logUserAppInitStart('client', `NODE_ENV=${process.env.NODE_ENV}`);
-
   initializationPromise = (async () => {
     try {
-      const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
       const { getChainRpcUrl, DEFAULT_CHAIN_ID } = await import('../lib/chainConfig');
+      const privateKey = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
       const rpcUrl = getChainRpcUrl(DEFAULT_CHAIN_ID);
 
       if (!privateKey) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_ADMIN_PRIVATE_KEY');
+        console.warn(
+          'ClientApp role is enabled but AGENTIC_TRUST_ADMIN_PRIVATE_KEY is not set; skipping ClientApp initialization for this process.',
+        );
+        clientAppInstance = null;
+        initializationPromise = null;
+        return undefined as any;
       }
 
       if (!rpcUrl) {
-        throw new Error('Missing required RPC URL. Set AGENTIC_TRUST_RPC_URL_SEPOLIA or AGENTIC_TRUST_RPC_URL environment variable');
+        console.warn(
+          'ClientApp role is enabled but no RPC URL is configured; set AGENTIC_TRUST_RPC_URL_* env vars. Skipping ClientApp initialization.',
+        );
+        clientAppInstance = null;
+        initializationPromise = null;
+        return undefined as any;
       }
+
+      // Start initialization (only when we have the minimum env to proceed)
+      logUserAppInitStart('client', `NODE_ENV=${process.env.NODE_ENV}`);
 
       const { privateKeyToAccount } = await import('viem/accounts');
       const { createPublicClient, createWalletClient, http: httpTransport } = await import('viem');

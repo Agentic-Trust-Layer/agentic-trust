@@ -50,6 +50,7 @@ export type AgentsPageFilters = {
   name: string;
   agentId: string;
   mineOnly: boolean;
+  only8004Agents: boolean;
   protocol: 'all' | 'a2a' | 'mcp';
   path: string;
   minReviews: string;
@@ -303,7 +304,7 @@ export function AgentsPage({
     return null;
   };
 
-  // Client-side filtering for address and mineOnly (these filters are applied on the client)
+  // Client-side filtering for address, mineOnly, and 8004-agent name suffix (applied on the client)
   const filteredAgents = useMemo(() => {
     let result = agents;
     const addressQuery = filters.address.trim().toLowerCase();
@@ -334,8 +335,25 @@ export function AgentsPage({
         return haystack.includes(pathQuery);
       });
     }
+    if (filters.only8004Agents) {
+      result = result.filter(agent => {
+        const name =
+          typeof agent.agentName === 'string'
+            ? agent.agentName.trim().toLowerCase()
+            : '';
+        return name.endsWith('8004-agent.eth');
+      });
+    }
     return result;
-  }, [agents, filters.address, filters.mineOnly, filters.protocol, filters.path, ownedMap]);
+  }, [
+    agents,
+    filters.address,
+    filters.mineOnly,
+    filters.protocol,
+    filters.path,
+    filters.only8004Agents,
+    ownedMap,
+  ]);
 
   const totalAgentsLabel =
     typeof total === 'number' && Number.isFinite(total) ? total : undefined;
@@ -1166,35 +1184,6 @@ export function AgentsPage({
                       fontSize: '0.9rem',
                     }}
                   >
-                    Pending validations ({Array.isArray(pending) ? pending.length : 0})
-                  </h4>
-                  {Array.isArray(pending) && pending.length > 0 ? (
-                    <ul
-                      style={{
-                        listStyle: 'disc',
-                        paddingLeft: '1.25rem',
-                        margin: 0,
-                      }}
-                    >
-                      {pending.map((item, index) => (
-                        <li key={index}>
-                          <code>{JSON.stringify(item)}</code>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p style={{ color: palette.textSecondary, margin: 0 }}>
-                      No pending validations.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <h4
-                    style={{
-                      margin: '0 0 0.5rem',
-                      fontSize: '0.9rem',
-                    }}
-                  >
                     Completed validations (
                     {Array.isArray(completed) ? completed.length : 0})
                   </h4>
@@ -1215,6 +1204,35 @@ export function AgentsPage({
                   ) : (
                     <p style={{ color: palette.textSecondary, margin: 0 }}>
                       No completed validations.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <h4
+                    style={{
+                      margin: '0 0 0.5rem',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Pending validations ({Array.isArray(pending) ? pending.length : 0})
+                  </h4>
+                  {Array.isArray(pending) && pending.length > 0 ? (
+                    <ul
+                      style={{
+                        listStyle: 'disc',
+                        paddingLeft: '1.25rem',
+                        margin: 0,
+                      }}
+                    >
+                      {pending.map((item, index) => (
+                        <li key={index}>
+                          <code>{JSON.stringify(item)}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p style={{ color: palette.textSecondary, margin: 0 }}>
+                      No pending validations.
                     </p>
                   )}
                 </div>
@@ -2021,21 +2039,6 @@ export function AgentsPage({
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
-                type="button"
-                onClick={() => onFilterChange('mineOnly', !filters.mineOnly)}
-                style={{
-                  padding: '0.75rem 1.2rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  backgroundColor: filters.mineOnly ? palette.accent : palette.surfaceMuted,
-                  color: filters.mineOnly ? palette.surface : palette.textPrimary,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                my Agents
-              </button>
-              <button
                 onClick={() => onSearch({ ...filters, name: singleQuery })}
                 disabled={loading}
                 style={{
@@ -2084,7 +2087,7 @@ export function AgentsPage({
               style={{
                 flex: '1 1 220px',
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gridTemplateColumns: 'auto minmax(220px, 1fr) auto',
                 gap: '1rem',
               }}
             >
@@ -2103,7 +2106,6 @@ export function AgentsPage({
                 }}
                 aria-label="Chain"
                 style={{
-                  width: '100%',
                   padding: '0.85rem',
                   borderRadius: '10px',
                   border: `1px solid ${palette.border}`,
@@ -2111,6 +2113,7 @@ export function AgentsPage({
                   fontWeight: 600,
                   color: palette.textPrimary,
                   boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                  minWidth: '130px',
                 }}
               >
                 <option value="all">Chain (All)</option>
@@ -2151,10 +2154,11 @@ export function AgentsPage({
                     onSearch();
                   }
                 }}
-                placeholder="Agent ID"
-                aria-label="Agent ID"
+                placeholder="Agent id"
+                aria-label="Agent id"
                 style={{
-                  width: '100%',
+                  width: 'auto',
+                  maxWidth: '12ch',
                   padding: '0.85rem',
                   borderRadius: '10px',
                   border: `1px solid ${palette.border}`,
@@ -2172,21 +2176,6 @@ export function AgentsPage({
                 flexWrap: 'wrap',
               }}
             >
-              <button
-                type="button"
-                onClick={() => onFilterChange('mineOnly', !filters.mineOnly)}
-                style={{
-                  padding: '0.75rem 1.2rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  backgroundColor: filters.mineOnly ? palette.accent : palette.surfaceMuted,
-                  color: filters.mineOnly ? palette.surface : palette.textPrimary,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                my Agents
-              </button>
               <button
                 onClick={() => onSearch()}
                 disabled={loading}
@@ -2242,14 +2231,107 @@ export function AgentsPage({
               flexWrap: 'wrap',
             }}
           >
-            <span
+            <div
               style={{
-                fontSize: '0.85rem',
-                color: palette.textSecondary,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                flexWrap: 'wrap',
               }}
             >
-              {totalAgentsLabel} agents
-            </span>
+              <span
+                style={{
+                  fontSize: '0.85rem',
+                  color: palette.textSecondary,
+                }}
+              >
+                {totalAgentsLabel} agents
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextValue = !filters.only8004Agents;
+                  const updatedFilters = { ...filters, only8004Agents: nextValue };
+                  onFilterChange('only8004Agents', nextValue);
+                  onSearch(updatedFilters);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${filters.only8004Agents ? palette.accent : palette.border}`,
+                  backgroundColor: filters.only8004Agents ? palette.accent : palette.surfaceMuted,
+                  color: filters.only8004Agents ? palette.surface : palette.textSecondary,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    border: `1px solid ${
+                      filters.only8004Agents ? '#16a34a' : palette.border
+                    }`,
+                    backgroundColor: 'transparent',
+                    fontSize: '0.7rem',
+                    color: filters.only8004Agents ? '#16a34a' : 'transparent',
+                  }}
+                >
+                  {filters.only8004Agents ? '✓' : ''}
+                </span>
+                <span>8004-agent.eth</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextValue = !filters.mineOnly;
+                  const updatedFilters = { ...filters, mineOnly: nextValue };
+                  onFilterChange('mineOnly', nextValue);
+                  onSearch(updatedFilters);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${filters.mineOnly ? '#16a34a' : palette.border}`,
+                  backgroundColor: filters.mineOnly ? '#16a34a' : palette.surfaceMuted,
+                  color: filters.mineOnly ? palette.surface : palette.textSecondary,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    border: `1px solid ${
+                      filters.mineOnly ? palette.surface : palette.border
+                    }`,
+                    backgroundColor: 'transparent',
+                    fontSize: '0.7rem',
+                    color: filters.mineOnly ? palette.surface : 'transparent',
+                  }}
+                >
+                  {filters.mineOnly ? '✓' : ''}
+                </span>
+                <span>my agents</span>
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => setShowAdvancedFilters(prev => !prev)}
@@ -2301,45 +2383,6 @@ export function AgentsPage({
                       color: palette.textSecondary,
                     }}
                   >
-                    Protocol
-                  </label>
-                  <select
-                    value={filters.protocol}
-                    onChange={event => {
-                      const value = event.target.value as AgentsPageFilters['protocol'];
-                      onFilterChange('protocol', value);
-                      onSearch({ ...filters, protocol: value });
-                    }}
-                    style={{
-                      padding: '0.5rem 0.75rem',
-                      borderRadius: '10px',
-                      border: `1px solid ${palette.border}`,
-                      backgroundColor: palette.surfaceMuted,
-                      color: palette.textPrimary,
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    <option value="all">All</option>
-                    <option value="a2a">A2A only</option>
-                    <option value="mcp">MCP only</option>
-                  </select>
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '0.25rem',
-                    width: 'auto',
-                    minWidth: isMobile ? '160px' : '140px',
-                  }}
-                >
-                  <label
-                    style={{
-                      fontSize: '0.8rem',
-                      fontWeight: 600,
-                      color: palette.textSecondary,
-                    }}
-                  >
                     Created within (days)
                   </label>
                   <input
@@ -2371,6 +2414,45 @@ export function AgentsPage({
                     flexDirection: 'column',
                     gap: '0.25rem',
                     width: 'auto',
+                    minWidth: isMobile ? '160px' : '140px',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Protocol
+                  </label>
+                  <select
+                    value={filters.protocol}
+                    onChange={event => {
+                      const value = event.target.value as AgentsPageFilters['protocol'];
+                      onFilterChange('protocol', value);
+                      onSearch({ ...filters, protocol: value });
+                    }}
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    <option value="all">All</option>
+                    <option value="a2a">A2A only</option>
+                    <option value="mcp">MCP only</option>
+                  </select>
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
                     minWidth: isMobile ? '180px' : '200px',
                   }}
                 >
@@ -2381,7 +2463,7 @@ export function AgentsPage({
                       color: palette.textSecondary,
                     }}
                   >
-                    Path contains
+                    Protocol Path Contains
                   </label>
                   <input
                     value={filters.path}
@@ -2393,7 +2475,7 @@ export function AgentsPage({
                       }
                     }}
                     placeholder="Endpoint or URL fragment"
-                    aria-label="Endpoint path filter"
+                    aria-label="Protocol path filter"
                     style={{
                       padding: '0.5rem 0.75rem',
                       borderRadius: '10px',
@@ -3039,42 +3121,46 @@ export function AgentsPage({
                       flexWrap: 'wrap',
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openActionDialog(agent, 'feedback');
-                      }}
-                      style={{
-                        padding: 0,
-                        border: 'none',
-                        background: 'none',
-                        color: palette.accent,
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                    >
-                      reviews ({reviewsCount.toLocaleString()})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openActionDialog(agent, 'validations' as any);
-                      }}
-                      style={{
-                        padding: 0,
-                        border: 'none',
-                        background: 'none',
-                        color: palette.accent,
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                    >
-                      validations ({validationsCount.toLocaleString()})
-                    </button>
+                    {reviewsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          openActionDialog(agent, 'feedback');
+                        }}
+                        style={{
+                          padding: 0,
+                          border: 'none',
+                          background: 'none',
+                          color: palette.accent,
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        reviews ({reviewsCount.toLocaleString()})
+                      </button>
+                    )}
+                    {validationsCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          openActionDialog(agent, 'validations' as any);
+                        }}
+                        style={{
+                          padding: 0,
+                          border: 'none',
+                          background: 'none',
+                          color: palette.accent,
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                      >
+                        validations ({validationsCount.toLocaleString()})
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>

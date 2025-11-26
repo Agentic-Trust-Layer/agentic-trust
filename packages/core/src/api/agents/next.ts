@@ -30,10 +30,37 @@ export type CreateContextFromNext = (req: Request) => AgentApiContext;
 
 const defaultContextFactory: CreateContextFromNext = () => ({});
 
+// Recursively convert BigInt and other non-JSON-safe values into JSON-safe forms.
+function toJsonSafe(value: unknown): unknown {
+  if (typeof value === 'bigint') {
+    return value.toString();
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toJsonSafe(item));
+  }
+
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+      result[key] = toJsonSafe(v);
+    }
+    return result;
+  }
+
+  return value;
+}
+
 function jsonResponse(body: unknown, status = 200) {
+  const safeBody = toJsonSafe(body);
+
   if (hasNativeResponse) {
     const ResponseCtor = (globalThis as Record<string, any>).Response;
-    return new ResponseCtor(JSON.stringify(body), {
+    return new ResponseCtor(JSON.stringify(safeBody), {
       status,
       headers: {
         'content-type': 'application/json',
@@ -43,7 +70,7 @@ function jsonResponse(body: unknown, status = 200) {
 
   return {
     status,
-    body,
+    body: safeBody,
     headers: { 'content-type': 'application/json' },
   } as unknown;
 }

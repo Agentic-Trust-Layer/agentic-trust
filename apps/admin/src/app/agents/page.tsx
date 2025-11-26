@@ -28,6 +28,7 @@ type DiscoverParams = {
   minValidationCompletedCount?: number;
   minFeedbackAverageScore?: number;
   createdWithinDays?: number;
+  only8004Agents?: boolean;
 };
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
@@ -36,6 +37,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   name: '',
   agentId: '',
   mineOnly: false,
+  only8004Agents: false,
   protocol: 'all',
   path: '',
   minReviews: '',
@@ -151,6 +153,10 @@ export default function AgentsRoute() {
     const createdWithinDays = Number.parseInt(source.createdWithinDays.trim(), 10);
     if (Number.isFinite(createdWithinDays) && createdWithinDays > 0) {
       params.createdWithinDays = createdWithinDays;
+    }
+
+    if (source.only8004Agents) {
+      params.only8004Agents = true;
     }
 
     return params;

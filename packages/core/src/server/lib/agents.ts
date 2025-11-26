@@ -148,6 +148,12 @@ export interface DiscoverParams {
    * Maps to createdAtTime_gte in the indexer.
    */
   createdWithinDays?: number;
+
+  /**
+   * Restrict results to agents whose agentName ends with "8004-agent.eth".
+   * This is applied in the in-memory matcher, not pushed down to the indexer.
+   */
+  only8004Agents?: boolean;
 }
 
 export interface DiscoverAgentsOptions {
@@ -1259,6 +1265,13 @@ export class AgentsAPI {
     if (params.agentName) {
       const name = agent.agentName ?? '';
       if (!name.toLowerCase().includes(params.agentName.trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (params.only8004Agents) {
+      const name = (agent.agentName ?? '').toLowerCase().trim();
+      if (!name.endsWith('8004-agent.eth')) {
         return false;
       }
     }
