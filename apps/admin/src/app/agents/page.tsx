@@ -315,6 +315,12 @@ export default function AgentsRoute() {
         agentId: agent.agentId,
         chainId: String(agent.chainId),
       });
+      if (typeof agent.agentAccount === 'string' && agent.agentAccount) {
+        query.set('agentAccount', agent.agentAccount);
+      }
+      if (typeof agent.agentName === 'string' && agent.agentName) {
+        query.set('agentName', agent.agentName);
+      }
       router.push(`/admin-tools?${query.toString()}`);
     },
     [router],

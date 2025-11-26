@@ -275,19 +275,32 @@ export function AgentsPage({
 
   const ENS_APP_BY_CHAIN: Record<number, string> = {
     1: 'https://app.ens.domains',
-    11155111: 'https://app.ens.domains',
+    11155111: 'https://sepolia.app.ens.domains',
     84532: 'https://app.ens.domains',
     11155420: 'https://app.ens.domains',
   };
 
   const getEnsNameLink = (agent: Agent): { name: string; href: string } | null => {
-    const did = agent.did;
-    if (!did || !did.startsWith('did:ens:')) {
-      return null;
-    }
-    const name = did.slice('did:ens:'.length);
     const base = ENS_APP_BY_CHAIN[agent.chainId] ?? 'https://app.ens.domains';
-    return { name, href: `${base}/${name}` };
+
+    // Prefer did:ens if present
+    const did = agent.did;
+    if (typeof did === 'string' && did.startsWith('did:ens:')) {
+      const name = did.slice('did:ens:'.length);
+      if (name) {
+        return { name, href: `${base}/${name}` };
+      }
+    }
+
+    // Fallback: if agentName looks like an ENS name, use it directly
+    if (typeof agent.agentName === 'string') {
+      const trimmed = agent.agentName.trim();
+      if (trimmed.toLowerCase().endsWith('.eth')) {
+        return { name: trimmed, href: `${base}/${trimmed}` };
+      }
+    }
+
+    return null;
   };
 
   // Client-side filtering for address and mineOnly (these filters are applied on the client)
@@ -2605,9 +2618,9 @@ export function AgentsPage({
                 ? agent.image.trim()
                 : shadowAgentSrc;
             const explorerBase = EXPLORER_BY_CHAIN[agent.chainId] ?? 'https://etherscan.io';
-            const nftUrl =
-              typeof agent.contractAddress === 'string' && agent.contractAddress
-                ? `${explorerBase}/token/${agent.contractAddress}?a=${agent.agentId}`
+            const nftTransfersUrl =
+              typeof agent.agentAccount === 'string' && agent.agentAccount
+                ? `${explorerBase}/address/${agent.agentAccount}#nfttransfers`
                 : null;
 
             const chainMeta = getChainDisplayMetadata(agent.chainId);
@@ -2668,8 +2681,8 @@ export function AgentsPage({
                     <button
                       type="button"
                       onClick={() => onEditAgent?.(agent)}
-                      aria-label={`Edit agent ${agent.agentId}`}
-                      title="Edit agent"
+                      aria-label={`Manage Agent ${agent.agentId}`}
+                      title="Manage Agent"
                       style={{
                         width: '32px',
                         height: '32px',
@@ -2683,30 +2696,8 @@ export function AgentsPage({
                         boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
                       }}
                     >
-                      ✏️
+                      ⚙️
                     </button>
-                    {agent.tokenUri && (
-                      <button
-                        type="button"
-                        onClick={() => openActionDialog(agent, 'registration-edit')}
-                        aria-label={`Edit registration for agent ${agent.agentId}`}
-                        title="Edit registration"
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '999px',
-                          border: `1px solid ${palette.border}`,
-                          backgroundColor: palette.surface,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
-                        }}
-                      >
-                        🧾
-                      </button>
-                    )}
                     <button
                       type="button"
                       onClick={() => openActionDialog(agent, 'give-feedback')}
@@ -2747,9 +2738,9 @@ export function AgentsPage({
                     }}
                   />
                   <div>
-                    {nftUrl ? (
+                    {nftTransfersUrl ? (
                       <a
-                        href={nftUrl}
+                        href={nftTransfersUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -2792,35 +2783,54 @@ export function AgentsPage({
                   
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                    
-                    <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
-                      {agent.agentName || 'Unnamed Agent'}
-                    </h4>
-                    {(() => {
-                      const ensLink = getEnsNameLink(agent);
-                      if (!ensLink) return null;
-                      return (
-                        <a
-                          href={ensLink.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: 'inline-block',
-                            marginTop: '0.25rem',
-                            color: palette.textPrimary,
-                            textDecoration: 'none',
-                            borderBottom: '1px dashed rgba(15,23,42,0.3)',
-                            fontSize: '0.95rem',
-                            fontWeight: 600,
-                            wordBreak: 'break-all',
-                          }}
-                        >
-                          {ensLink.name}
-                        </a>
-                      );
-                    })()}
-                    
-                  </div>
+                  {(() => {
+                    const ensLink = getEnsNameLink(agent);
+                    const isEnsName =
+                      typeof agent.agentName === 'string' &&
+                      agent.agentName.toLowerCase().endsWith('.eth');
+
+                    return (
+                      <>
+                        <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
+                          {ensLink && isEnsName ? (
+                            <a
+                              href={ensLink.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                color: 'rgb(56, 137, 255)',
+                                textDecoration: 'none',
+                              }}
+                            >
+                              {agent.agentName}
+                            </a>
+                          ) : (
+                            agent.agentName || 'Unnamed Agent'
+                          )}
+                        </h4>
+                        {ensLink && !isEnsName && (
+                          <a
+                            href={ensLink.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              display: 'inline-block',
+                              marginTop: '0.25rem',
+                              color: palette.textPrimary,
+                              textDecoration: 'none',
+                              borderBottom: '1px dashed rgba(15,23,42,0.3)',
+                              fontSize: '0.95rem',
+                              fontWeight: 600,
+                              wordBreak: 'break-all',
+                            }}
+                          >
+                            {ensLink.name}
+                          </a>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
                 <p
                   style={{
                     margin: 0,
@@ -2887,89 +2897,7 @@ export function AgentsPage({
                         <span>{agent.agentAccountEndpoint}</span>
                       </div>
                     )}
-                    {typeof agent.agentAccount === 'string' && agent.agentAccount && (
-                      <div
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '0.5rem',
-                          flexWrap: 'wrap',
-                        }}
-                      >
-                        <a
-                          href={`${explorerBase}/address/${agent.agentAccount}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            padding: '0.3rem 0.75rem',
-                            backgroundColor: palette.dangerSurface,
-                            color: palette.dangerText,
-                            borderRadius: '999px',
-                            fontSize: '0.8rem',
-                            fontFamily: 'monospace',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          {agent.agentAccount.slice(0, 6)}...{agent.agentAccount.slice(-4)}
-                        </a>
-                        {!isMobile && isOwned && (
-                          <div
-                            style={{
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '0.25rem',
-                              alignItems: 'flex-start',
-                            }}
-                          >
-                            <button
-                              type="button"
-                              onClick={event => {
-                                event.stopPropagation();
-                                void handleOpenSession(agent);
-                              }}
-                              style={{
-                                padding: '0.25rem 0.6rem',
-                                borderRadius: '999px',
-                                border: `1px solid ${palette.border}`,
-                                backgroundColor: palette.surfaceMuted,
-                                fontSize: '0.7rem',
-                                fontWeight: 600,
-                                cursor: 'pointer',
-                                color: palette.textPrimary,
-                              }}
-                            >
-                              Session package
-                            </button>
-                            {(() => {
-                              const agentKey = `${agent.chainId}:${agent.agentId}`;
-                              const progress = sessionProgress[agentKey];
-                              if (progress === undefined) return null;
-                              return (
-                                <div
-                                  style={{
-                                    width: '100%',
-                                    height: '4px',
-                                    backgroundColor: palette.surfaceMuted,
-                                    borderRadius: '2px',
-                                    overflow: 'hidden',
-                                    minWidth: '120px',
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      width: `${progress}%`,
-                                      height: '100%',
-                                      backgroundColor: palette.accent,
-                                      transition: 'width 0.3s ease-out',
-                                    }}
-                                  />
-                                </div>
-                              );
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    {/* Agent account address link removed per design; still available in data if needed */}
                   </div>
                   <div
                     style={{
@@ -2998,27 +2926,7 @@ export function AgentsPage({
                     >
                       {ACTION_LABELS.info}
                     </button>
-                    {isOwned && (
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          openActionDialog(agent, 'feedback');
-                        }}
-                        style={{
-                          padding: '0.25rem 0.6rem',
-                          borderRadius: '8px',
-                          border: `1px solid ${palette.border}`,
-                          backgroundColor: palette.surface,
-                          fontSize: '0.7rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                          color: palette.textPrimary,
-                        }}
-                      >
-                        {ACTION_LABELS.feedback}
-                      </button>
-                    )}
+                    {/* Feedback button removed; feedback is now accessed via the reviews link in the stats row */}
                     <button
                       type="button"
                       onClick={event => {
