@@ -248,8 +248,9 @@ export class AgentsAPI {
   async getAgentFromDiscovery(chainId: number, agentId: string): Promise<AgentData | null> {
     const discoveryClient = await getDiscoveryClient();
     try {
-    return await discoveryClient.getAgent(chainId, agentId);
+      return await discoveryClient.getAgent(chainId, agentId);
     } catch (error) {
+      // Check if this is an access code/auth error and provide a clearer message
       rethrowDiscoveryError(error, 'agents.getAgentFromDiscovery');
     }
   }

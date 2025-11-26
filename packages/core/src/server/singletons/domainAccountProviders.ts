@@ -7,6 +7,7 @@ import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-s
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
 import { getProviderApp } from '../userApps/providerApp';
+import { getValidatorApp } from '../userApps/validatorApp';
 import { isUserAppEnabled } from '../userApps/userApp';
 import { getChainEnvVar, requireChainEnvVar } from '../lib/chainConfig';
 
@@ -14,6 +15,7 @@ export interface DomainUserApps {
   adminApp?: Awaited<ReturnType<typeof getAdminApp>>;
   clientApp?: Awaited<ReturnType<typeof getClientApp>>;
   providerApp?: Awaited<ReturnType<typeof getProviderApp>>;
+  validatorApp?: Awaited<ReturnType<typeof getValidatorApp>>;
 }
 
 /**
@@ -49,6 +51,14 @@ export async function resolveDomainUserApps(): Promise<DomainUserApps> {
       ctx.clientApp = await getClientApp();
     } catch (error) {
       console.warn('ClientApp not available while resolving domain user apps:', error);
+    }
+  }
+
+  if (isUserAppEnabled('validator')) {
+    try {
+      ctx.validatorApp = await getValidatorApp();
+    } catch (error) {
+      console.warn('ValidatorApp not available while resolving domain user apps:', error);
     }
   }
 
@@ -162,6 +172,62 @@ export async function resolveENSAccountProvider(
 
   if (ctx.providerApp?.accountProvider) {
     return ctx.providerApp.accountProvider;
+  }
+
+  // Fallback: read-only public client
+  const { createPublicClient, http } = await import('viem');
+  const { sepolia } = await import('viem/chains');
+
+  const publicClient = createPublicClient({
+    chain: sepolia,
+    transport: http(rpcUrl),
+  });
+
+  return new ViemAccountProvider({
+    publicClient,
+    walletClient: null,
+    account: undefined,
+    chainConfig: {
+      id: sepolia.id,
+      rpcUrl,
+      name: sepolia.name,
+      chain: sepolia,
+    },
+  });
+}
+
+/**
+ * Resolve an AccountProvider suitable for validation operations for the given chain.
+ * Prefers:
+ *   1. ValidatorApp (for validation responses)
+ *   2. AdminApp
+ *   3. ProviderApp
+ *   4. ClientApp
+ *
+ * Falls back to a read-only provider if none are available.
+ */
+export async function resolveValidationAccountProvider(
+  chainId: number,
+  rpcUrl: string,
+  userApps?: DomainUserApps
+): Promise<AccountProvider> {
+  const ctx = userApps ?? (await resolveDomainUserApps());
+
+  // ValidatorApp is preferred for validation operations
+  if (ctx.validatorApp?.accountProvider) {
+    return ctx.validatorApp.accountProvider;
+  }
+
+  if (ctx.adminApp?.accountProvider) {
+    return ctx.adminApp.accountProvider;
+  }
+
+  if (ctx.providerApp?.accountProvider) {
+    return ctx.providerApp.accountProvider;
+  }
+
+  if (ctx.clientApp?.accountProvider) {
+    return ctx.clientApp.accountProvider;
   }
 
   // Fallback: read-only public client

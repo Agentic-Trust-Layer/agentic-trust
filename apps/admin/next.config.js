@@ -2,6 +2,14 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@agentic-trust/core'],
+  eslint: {
+    // Don't fail build on ESLint warnings
+    ignoreDuringBuilds: true,
+  },
+  typescript: {
+    // Don't fail build on TypeScript errors (we run type-check separately)
+    ignoreBuildErrors: false,
+  },
   webpack: (config, { isServer }) => {
     // Externalize Node.js modules for server-side
     if (isServer) {

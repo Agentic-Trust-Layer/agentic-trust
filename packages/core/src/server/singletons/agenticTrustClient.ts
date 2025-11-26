@@ -74,7 +74,10 @@ export class AgenticTrustClient {
     
     // Construct GraphQL endpoint URL
     if (!config.graphQLUrl) {
-      throw new Error('graphQLUrl is required in ApiClientConfig');
+      throw new Error(
+        'graphQLUrl is required in ApiClientConfig. ' +
+        'Set the AGENTIC_TRUST_DISCOVERY_URL environment variable (or provide graphQLUrl in config).'
+      );
     }
     
     const endpoint = config.graphQLUrl.endsWith('/graphql')

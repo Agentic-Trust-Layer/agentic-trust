@@ -479,14 +479,17 @@ export async function prepareValidationRequestCore(
 
   // Get validator account address server-side (name: 'validator-ens')
   const { createValidatorAccountAbstraction } = await import('../../server/lib/validations');
-  const validatorPrivateKey = process.env.AGENTIC_TRUST_VALIDATOR_ENS_PRIVATE_KEY;
+  const validatorPrivateKey = process.env.AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY;
   if (!validatorPrivateKey) {
     throw new AgentApiError(
-      'AGENTIC_TRUST_VALIDATOR_ENS_PRIVATE_KEY environment variable is not set',
+      'AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY environment variable is not set',
       500,
     );
   }
+
+  const validatorName = 'validator-ens';
   const { address: validatorAddress } = await createValidatorAccountAbstraction(
+    validatorName,
     validatorPrivateKey,
     parsed.chainId,
   );

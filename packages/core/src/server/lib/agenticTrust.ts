@@ -22,6 +22,20 @@ export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
     const discoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL;
     const apiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
 
+    if (!discoveryUrl) {
+      throw new Error(
+        'Missing required environment variable: AGENTIC_TRUST_DISCOVERY_URL. ' +
+        'This is required for the AgenticTrustClient to connect to the discovery GraphQL API.'
+      );
+    }
+
+    if (!apiKey) {
+      console.warn(
+        '[AgenticTrustClient] Warning: AGENTIC_TRUST_DISCOVERY_API_KEY environment variable is not set. ' +
+        'Discovery API requests may fail with authentication errors. Set AGENTIC_TRUST_DISCOVERY_API_KEY to your access code.'
+      );
+    }
+
     const privateKey =
       process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY;
 

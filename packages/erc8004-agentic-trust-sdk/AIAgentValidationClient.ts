@@ -155,6 +155,35 @@ export class AIAgentValidationClient extends BaseValidationClient {
       requestHash: finalRequestHash,
     };
   }
+
+  /**
+   * Prepare the validationResponse transaction data without sending it.
+   * This encodes the transaction that can be sent via a bundler using account abstraction.
+   */
+  async prepareValidationResponseTx(params: ValidationResponseParams): Promise<TxRequest> {
+    if (params.response < 0 || params.response > 100) {
+      throw new Error('Response MUST be between 0 and 100');
+    }
+
+    // Convert optional parameters to proper format (matching BaseValidationClient logic)
+    const { ethers } = await import('ethers');
+    const responseUri = params.responseUri || '';
+    const responseHash = params.responseHash || ethers.ZeroHash;
+    const tag = params.tag ? ethers.id(params.tag).slice(0, 66) : ethers.ZeroHash;
+
+    // Encode the validation response call
+    const data = await this.accountProvider?.encodeFunctionData({
+      abi: ValidationRegistryABI as any,
+      functionName: 'validationResponse',
+      args: [params.requestHash, params.response, responseUri, responseHash, tag],
+    });
+
+    return {
+      to: this.validationRegistryAddress,
+      data: data || '0x',
+      value: 0n,
+    };
+  }
 }
 
 

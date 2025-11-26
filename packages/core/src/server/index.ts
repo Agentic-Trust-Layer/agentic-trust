@@ -137,10 +137,26 @@ export {
 } from './userApps/providerApp';
 
 export {
+  getValidatorApp,
+  getValidatorAddress,
+  hasValidatorPrivateKey,
+  isValidatorAppInitialized,
+  resetValidatorApp,
+} from './userApps/validatorApp';
+
+export {
   getDiscoveryClient,
   isDiscoveryClientInitialized,
   resetDiscoveryClient,
 } from './singletons/discoveryClient';
+
+export {
+  getENSClient,
+  isENSClientInitialized,
+  resetENSClient,
+  isENSNameAvailable,
+  isENSAvailable,
+} from './singletons/ensClient';
 
 // API helpers for server routes (discovery/search)
 export {
@@ -253,3 +269,21 @@ export type {
 
 // AA utilities that rely on server-side contexts
 export { buildAgentAccountFromSession } from './lib/sessionPackage';
+
+// Validation client and utilities
+export {
+  getValidationClient,
+  isValidationClientInitialized,
+  resetValidationClient,
+} from './singletons/validationClient';
+
+export {
+  createValidatorAccountAbstraction,
+  getAgentValidationsSummary,
+  type AgentValidationsSummary,
+} from './lib/validations';
+
+// Export validation types
+export type {
+  ValidationStatus,
+} from '@agentic-trust/8004-sdk';

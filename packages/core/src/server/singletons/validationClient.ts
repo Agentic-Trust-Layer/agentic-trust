@@ -11,7 +11,7 @@ import { getChainEnvVar, requireChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/cha
 import { DomainClient } from './domainClient';
 import {
   resolveDomainUserApps,
-  resolveReputationAccountProvider,
+  resolveValidationAccountProvider,
   type DomainUserApps,
 } from './domainAccountProviders';
 
@@ -36,7 +36,7 @@ class ValidationDomainClient extends DomainClient<AIAgentValidationClient, numbe
 
     const init = (initArg || {}) as ValidationInitArg;
     const userApps = init.userApps ?? (await resolveDomainUserApps());
-    const accountProvider: AccountProvider = await resolveReputationAccountProvider(
+    const accountProvider: AccountProvider = await resolveValidationAccountProvider(
       targetChainId,
       rpcUrl,
       userApps,

@@ -388,15 +388,32 @@ export function getWeb3AuthChainSettings(chainId: number): Web3AuthChainSettings
 export function getChainBundlerUrl(chainId: number): string {
   const chainConfig = CHAIN_CONFIG[chainId as SupportedChainId];
   if (chainConfig) {
+    // Determine if we're running in browser or server
     const isBrowser = typeof window !== 'undefined';
+
+    // Read directly from process.env at runtime instead of using cached values
+    // This ensures we get the current value even if env vars were loaded after module initialization
+    let serverValue: string | undefined;
+    let clientValue: string | undefined;
+    
+    if (chainId === 11155111) {
+      serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
+      // Debug logging
+      console.log(`[chainConfig] getChainBundlerUrl: chainId=${chainId}, serverValue=${serverValue ? `<set (length: ${serverValue.length})>` : '<missing>'}, clientValue=${clientValue ? `<set>` : '<missing>'}`);
+    } else if (chainId === 84532) {
+      serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA;
+    } else if (chainId === 11155420) {
+      serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA;
+    }
+
     if (isBrowser) {
-      const clientValue = CLIENT_CHAIN_BUNDLER_ENV[chainId as SupportedChainId];
       if (clientValue) return clientValue;
     } else {
-      const serverValue = SERVER_CHAIN_BUNDLER_ENV[chainId as SupportedChainId];
+      // Server: try server env var first, then client env var as fallback
       if (serverValue) return serverValue;
-
-      const clientValue = CLIENT_CHAIN_BUNDLER_ENV[chainId as SupportedChainId];
       if (clientValue) return clientValue;
     }
 
@@ -405,8 +422,8 @@ export function getChainBundlerUrl(chainId: number): string {
     const expectedVar = isBrowser ? envNames.bundlerClient : envNames.bundlerServer;
     console.error(
       `[chainConfig] Missing bundler URL for chain ${chainId} (${chainConfig.name}). Checked env vars ` +
-        `${envNames.bundlerServer}=${mask(SERVER_CHAIN_BUNDLER_ENV[chainId as SupportedChainId])} ` +
-        `and ${envNames.bundlerClient}=${mask(CLIENT_CHAIN_BUNDLER_ENV[chainId as SupportedChainId])}.`,
+        `${envNames.bundlerServer}=${mask(serverValue)} ` +
+        `and ${envNames.bundlerClient}=${mask(clientValue)}.`,
     );
     throw new Error(
       `Missing required bundler URL for chain ${chainId} (${chainConfig.name}). ` +

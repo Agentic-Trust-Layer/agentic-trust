@@ -822,6 +822,16 @@ export async function loadAgentDetail(
       discovery = null;
     }
   } catch (error) {
+    // Check if this is an access code error and provide a clearer message
+    const { rethrowDiscoveryError } = await import('./discoveryErrors');
+    try {
+      rethrowDiscoveryError(error, 'loadAgentDetail');
+    } catch (friendlyError) {
+      // If rethrowDiscoveryError determined it's an access code error, log the friendly message
+      console.error('Failed to get GraphQL agent data:', friendlyError instanceof Error ? friendlyError.message : friendlyError);
+      throw friendlyError; // Re-throw the friendly error
+    }
+    // If it's not an access code error, just log and continue
     console.warn('Failed to get GraphQL agent data:', error);
     discovery = null;
   }

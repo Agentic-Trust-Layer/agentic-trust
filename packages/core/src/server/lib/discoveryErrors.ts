@@ -65,10 +65,11 @@ function isAccessCodeError(error: unknown): boolean {
 function buildAccessCodeMessage(context: string | undefined): string {
   const prefix = context ? `[AgenticTrust:${context}] ` : '[AgenticTrust] ';
   return (
-    `${prefix}The discovery API rejected the request because no access code was provided. ` +
-    'Set the `AGENTIC_TRUST_DISCOVERY_API_KEY` environment variable (or provide the `apiKey` field when ' +
-    'creating `AgenticTrustClient`) with your Agentic Trust access code. You can generate or ' +
-    'copy your access code by logging in to https://agentictrust.io and opening the API Keys section.'
+    `${prefix}Missing required environment variable: AGENTIC_TRUST_DISCOVERY_API_KEY. ` +
+    `The discovery API rejected the request because no access code was provided. ` +
+    `Set the AGENTIC_TRUST_DISCOVERY_API_KEY environment variable (or provide the apiKey field when ` +
+    `creating AgenticTrustClient) with your Agentic Trust access code. You can generate or ` +
+    `copy your access code by logging in to https://agentictrust.io and opening the API Keys section.`
   );
 }
 

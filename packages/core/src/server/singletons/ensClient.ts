@@ -35,7 +35,21 @@ class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
     const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
     // Get ENS registry addresses from environment
-    const ensRegistry = (getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || '') as `0x${string}`;
+    // Default to standard ENS registry on Sepolia if not provided
+    const defaultEnsRegistry = targetChainId === 11155111 
+      ? '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e' // Standard ENS registry on Sepolia
+      : '';
+    const ensRegistryRaw = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || defaultEnsRegistry;
+    
+    if (!ensRegistryRaw || ensRegistryRaw === '') {
+      const chainSuffix = targetChainId === 11155111 ? 'SEPOLIA' : targetChainId === 84532 ? 'BASE_SEPOLIA' : targetChainId === 11155420 ? 'OPTIMISM_SEPOLIA' : String(targetChainId);
+      throw new Error(
+        `Missing required environment variable: AGENTIC_TRUST_ENS_REGISTRY_${chainSuffix}. ` +
+        `This is required for the ENS client to resolve ENS names on chain ${targetChainId}.`
+      );
+    }
+    
+    const ensRegistry = ensRegistryRaw as `0x${string}`;
 
     const ensResolver = (getChainEnvVar('AGENTIC_TRUST_ENS_RESOLVER', targetChainId) || '') as `0x${string}`;
 

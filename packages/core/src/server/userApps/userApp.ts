@@ -9,7 +9,7 @@
 import type { AccountProvider } from '@agentic-trust/8004-sdk';
 import type { PublicClient, WalletClient } from 'viem';
 
-export type UserAppRole = 'admin' | 'client' | 'provider';
+export type UserAppRole = 'admin' | 'client' | 'provider' | 'validator';
 
 export interface BaseUserAppInstance {
   publicClient: PublicClient;
@@ -56,7 +56,9 @@ export function isUserAppEnabled(role: UserAppRole): boolean {
       ? 'AGENTIC_TRUST_IS_ADMIN_APP'
       : role === 'client'
       ? 'AGENTIC_TRUST_IS_CLIENT_APP'
-      : 'AGENTIC_TRUST_IS_PROVIDER_APP';
+      : role === 'provider'
+      ? 'AGENTIC_TRUST_IS_PROVIDER_APP'
+      : 'AGENTIC_TRUST_IS_VALIDATOR_APP';
 
   const raw = process.env[legacyEnvVarName];
   if (!raw) return false;
@@ -73,6 +75,8 @@ function roleLabel(role: UserAppRole): string {
       return 'ClientApp';
     case 'provider':
       return 'ProviderApp';
+    case 'validator':
+      return 'ValidatorApp';
     default:
       return 'UserApp';
   }

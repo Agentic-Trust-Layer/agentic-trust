@@ -30,6 +30,11 @@ export {
   type PreparedCall,
 } from '@agentic-trust/8004-sdk';
 
+// Export validation types from erc8004-sdk
+export type {
+  ValidationStatus,
+} from '@agentic-trust/8004-sdk';
+
 export {
   // Preferred Did-then-method names only
   buildDid8004,
