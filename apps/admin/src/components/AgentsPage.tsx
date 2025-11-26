@@ -2251,8 +2251,18 @@ export function AgentsPage({
                 type="button"
                 onClick={() => {
                   const nextValue = !filters.only8004Agents;
-                  const updatedFilters = { ...filters, only8004Agents: nextValue };
+                  const nextName = nextValue
+                    ? '8004-agent.eth'
+                    : filters.name.trim().toLowerCase() === '8004-agent.eth'
+                    ? ''
+                    : filters.name;
+                  const updatedFilters = {
+                    ...filters,
+                    only8004Agents: nextValue,
+                    name: nextName,
+                  };
                   onFilterChange('only8004Agents', nextValue);
+                  onFilterChange('name', nextName);
                   onSearch(updatedFilters);
                 }}
                 style={{
@@ -2289,48 +2299,50 @@ export function AgentsPage({
                 </span>
                 <span>8004-agent.eth</span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextValue = !filters.mineOnly;
-                  const updatedFilters = { ...filters, mineOnly: nextValue };
-                  onFilterChange('mineOnly', nextValue);
-                  onSearch(updatedFilters);
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.3rem',
-                  padding: '0.2rem 0.6rem',
-                  borderRadius: '999px',
-                  border: `1px solid ${filters.mineOnly ? '#16a34a' : palette.border}`,
-                  backgroundColor: filters.mineOnly ? '#16a34a' : palette.surfaceMuted,
-                  color: filters.mineOnly ? palette.surface : palette.textSecondary,
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                <span
+              {isConnected && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextValue = !filters.mineOnly;
+                    const updatedFilters = { ...filters, mineOnly: nextValue };
+                    onFilterChange('mineOnly', nextValue);
+                    onSearch(updatedFilters);
+                  }}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '14px',
-                    height: '14px',
-                    borderRadius: '50%',
-                    border: `1px solid ${
-                      filters.mineOnly ? palette.surface : palette.border
-                    }`,
-                    backgroundColor: 'transparent',
-                    fontSize: '0.7rem',
-                    color: filters.mineOnly ? palette.surface : 'transparent',
+                    gap: '0.3rem',
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '999px',
+                    border: `1px solid ${filters.mineOnly ? '#16a34a' : palette.border}`,
+                    backgroundColor: filters.mineOnly ? '#16a34a' : palette.surfaceMuted,
+                    color: filters.mineOnly ? palette.surface : palette.textSecondary,
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
                   }}
                 >
-                  {filters.mineOnly ? '✓' : ''}
-                </span>
-                <span>my agents</span>
-              </button>
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      width: '14px',
+                      height: '14px',
+                      borderRadius: '50%',
+                      border: `1px solid ${
+                        filters.mineOnly ? palette.surface : palette.border
+                      }`,
+                      backgroundColor: 'transparent',
+                      fontSize: '0.7rem',
+                      color: filters.mineOnly ? palette.surface : 'transparent',
+                    }}
+                  >
+                    {filters.mineOnly ? '✓' : ''}
+                  </span>
+                  <span>my agents</span>
+                </button>
+              )}
             </div>
             <button
               type="button"

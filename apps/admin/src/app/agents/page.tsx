@@ -155,10 +155,6 @@ export default function AgentsRoute() {
       params.createdWithinDays = createdWithinDays;
     }
 
-    if (source.only8004Agents) {
-      params.only8004Agents = true;
-    }
-
     return params;
   }, []);
 
