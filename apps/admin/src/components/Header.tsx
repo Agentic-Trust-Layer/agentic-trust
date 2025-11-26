@@ -222,14 +222,14 @@ export function Header({
           >
             {isConnected && (
               <Link
-                href="/admin-tools?mode=create"
+                href="/agent-registration"
                 style={{
                   textDecoration: 'none',
                   padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
                   borderRadius: '999px',
                   border: `1px solid ${palette.borderStrong}`,
-                  backgroundColor: pathname.startsWith('/admin-tools') ? palette.accent : palette.surfaceMuted,
-                  color: pathname.startsWith('/admin-tools') ? palette.surface : palette.textPrimary,
+                  backgroundColor: pathname.startsWith('/agent-registration') ? palette.accent : palette.surfaceMuted,
+                  color: pathname.startsWith('/agent-registration') ? palette.surface : palette.textPrimary,
                   fontWeight: 600,
                   fontSize: isMobile ? '0.9rem' : '0.95rem',
                 }}
