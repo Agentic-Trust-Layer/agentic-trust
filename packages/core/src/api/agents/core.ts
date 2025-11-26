@@ -10,6 +10,7 @@ import {
   type RequestFeedbackAuthPayload,
   type RequestFeedbackAuthResult,
   type PrepareFeedbackPayload,
+  type PrepareValidationRequestPayload,
   type DirectFeedbackPayload,
   type AgentOperationCall,
   type AgentPreparedTransactionPayload,
@@ -434,6 +435,100 @@ export async function prepareFeedbackCore(
     chainId,
     calls: [],
     transaction: txPayload,
+  };
+}
+
+export async function prepareValidationRequestCore(
+  ctx: AgentApiContext | undefined,
+  input: PrepareValidationRequestPayload,
+): Promise<AgentOperationPlan> {
+  if (!input.did8004?.trim()) {
+    throw new AgentApiError('did8004 parameter is required', 400);
+  }
+
+  const mode: AgentOperationMode = input.mode ?? 'aa';
+  if (mode !== 'aa') {
+    throw new AgentApiError(
+      `mode "${mode}" is not supported for validation requests. Only "aa" mode is supported.`,
+      400,
+    );
+  }
+
+  const parsed = (() => {
+    try {
+      return parseDid8004(input.did8004);
+    } catch (error) {
+      throw new AgentApiError(
+        `Invalid did:8004 identifier: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        400,
+      );
+    }
+  })();
+
+  const client = await resolveClient(ctx);
+  const agent = await client.getAgent(parsed.agentId.toString(), parsed.chainId);
+  if (!agent) {
+    throw new AgentApiError('Agent not found', 404, { did8004: input.did8004 });
+  }
+
+  // Get validation client
+  const { getValidationClient } = await import('../../server/singletons/validationClient');
+  const validationClient = await getValidationClient(parsed.chainId);
+
+  // Get validator account address server-side (name: 'validator-ens')
+  const { createValidatorAccountAbstraction } = await import('../../server/lib/validations');
+  const validatorPrivateKey = process.env.AGENTIC_TRUST_VALIDATOR_ENS_PRIVATE_KEY;
+  if (!validatorPrivateKey) {
+    throw new AgentApiError(
+      'AGENTIC_TRUST_VALIDATOR_ENS_PRIVATE_KEY environment variable is not set',
+      500,
+    );
+  }
+  const { address: validatorAddress } = await createValidatorAccountAbstraction(
+    validatorPrivateKey,
+    parsed.chainId,
+  );
+
+  // Prepare the validation request transaction
+  // Type assertion needed because TypeScript may not see the method on the base class type
+  const { txRequest, requestHash } = await (validationClient as any).prepareValidationRequestTx({
+    agentId: parsed.agentId,
+    validatorAddress,
+    requestUri: input.requestUri,
+    requestHash: input.requestHash,
+  });
+
+  // Get bundler URL for AA mode
+  const bundlerUrl = getChainBundlerUrl(parsed.chainId);
+  if (!bundlerUrl) {
+    throw new AgentApiError(
+      `Bundler URL not configured for chain ${parsed.chainId}`,
+      500,
+    );
+  }
+
+  // Map TxRequest into AgentOperationCall for AA mode
+  const call: AgentOperationCall = {
+    to: txRequest.to,
+    data: txRequest.data,
+    value: normalizeCallValue(txRequest.value),
+  };
+
+  // Return the plan with validator address and request hash in metadata
+  return {
+    success: true,
+    operation: 'update',
+    mode: 'aa',
+    chainId: parsed.chainId,
+    bundlerUrl,
+    calls: [call],
+    transaction: undefined,
+    metadata: {
+      validatorAddress,
+      requestHash,
+    },
   };
 }
 

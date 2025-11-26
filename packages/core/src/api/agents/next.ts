@@ -5,6 +5,7 @@ import {
   updateAgentRegistrationCore,
   requestFeedbackAuthCore,
   prepareFeedbackCore,
+  prepareValidationRequestCore,
   getFeedbackCore,
   submitFeedbackDirectCore,
 } from './core';
@@ -16,6 +17,7 @@ import type {
   RequestFeedbackAuthPayload,
   RequestFeedbackAuthResult,
   PrepareFeedbackPayload,
+  PrepareValidationRequestPayload,
   DirectFeedbackPayload,
 } from './types';
 import { parseDid8004 } from '../../shared/did8004';
@@ -231,6 +233,29 @@ export function prepareFeedbackRouteHandler(
         ...body,
       };
       const result: AgentOperationPlan = await prepareFeedbackCore(ctx, input);
+      return jsonResponse(result);
+    } catch (error) {
+      return handleNextError(error);
+    }
+  };
+}
+
+export function prepareValidationRequestRouteHandler(
+  createContext: CreateContextFromNext = defaultContextFactory,
+) {
+  return async (
+    req: Request,
+    context: { params: RouteParams },
+  ) => {
+    try {
+      const did8004 = extractDidParam(context.params || {});
+      const body = (await req.json()) as Omit<PrepareValidationRequestPayload, 'did8004'>;
+      const ctx = createContext(req);
+      const input: PrepareValidationRequestPayload = {
+        did8004,
+        ...body,
+      };
+      const result: AgentOperationPlan = await prepareValidationRequestCore(ctx, input);
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

@@ -1375,3 +1375,128 @@ export async function giveFeedbackWithWallet(
     requiresClientSigning: true as const,
   };
 }
+
+/**
+ * Request validation for an agent using an AA wallet + bundler.
+ *
+ * This client-side function handles the complete AA validation request flow:
+ * 1. Sends validation request data to the server API route to prepare calls
+ * 2. Receives prepared AA calls + bundler URL
+ * 3. Sends a sponsored UserOperation via the bundler using the AA account
+ * 4. Waits for confirmation
+ *
+ * **Setup Required:**
+ * Your Next.js app must mount the API route handler:
+ * 
+ * ```typescript
+ * // In app/api/agents/[did:8004]/validation-request/route.ts
+ * import { prepareValidationRequestRouteHandler } from '@agentic-trust/core/server';
+ * export const POST = prepareValidationRequestRouteHandler();
+ * ```
+ * 
+ * **Usage:**
+ * ```typescript
+ * import { requestValidationWithWallet } from '@agentic-trust/core/client';
+ * 
+ * const result = await requestValidationWithWallet({
+ *   did8004: 'did:8004:11155111:123',
+ *   chain: sepolia,
+ *   accountClient: agentAccountClient,
+ *   requestUri: 'https://...',
+ *   onStatusUpdate: (msg) => console.log(msg),
+ * });
+ * ```
+ */
+export interface RequestValidationWithWalletOptions {
+  did8004: string;
+  chain: Chain;
+  accountClient: any; // Agent account abstraction client
+  requestUri?: string;
+  requestHash?: string;
+  onStatusUpdate?: (status: string) => void;
+}
+
+export async function requestValidationWithWallet(
+  options: RequestValidationWithWalletOptions,
+): Promise<{ txHash: string; requiresClientSigning: true; validatorAddress: string; requestHash: string }> {
+  const {
+    did8004,
+    chain,
+    accountClient,
+    requestUri,
+    requestHash,
+    onStatusUpdate,
+  } = options;
+
+  onStatusUpdate?.('Preparing validation request on server...');
+
+  let prepared: AgentOperationPlan;
+  try {
+    const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/validation-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestUri,
+        requestHash,
+        mode: 'aa',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        errorData.error || errorData.message || 'Failed to prepare validation request',
+      );
+    }
+
+    prepared = (await response.json()) as AgentOperationPlan;
+  } catch (error) {
+    throw new Error(
+      error instanceof Error
+        ? error.message
+        : 'Failed to prepare validation request',
+    );
+  }
+
+  const bundlerUrl: string | undefined = prepared.bundlerUrl;
+  const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
+    Array.isArray(prepared.calls) ? prepared.calls : [];
+
+  if (!bundlerUrl || rawCalls.length === 0) {
+    throw new Error('Validation request response missing bundlerUrl or calls');
+  }
+
+  const validationCalls = rawCalls.map((call) => ({
+    to: call.to as `0x${string}`,
+    data: call.data as `0x${string}`,
+    value: BigInt(call.value ?? '0'),
+  }));
+
+  onStatusUpdate?.('Sending validation request via bundler...');
+  const userOpHash = await sendSponsoredUserOperation({
+    bundlerUrl,
+    chain: chain as any,
+    accountClient,
+    calls: validationCalls,
+  });
+
+  onStatusUpdate?.(
+    `Validation request sent! UserOperation hash: ${userOpHash}. Waiting for confirmation...`,
+  );
+
+  const receipt = await waitForUserOperationReceipt({
+    bundlerUrl,
+    chain: chain as any,
+    hash: userOpHash,
+  });
+
+  const validatorAddress = (prepared.metadata as any)?.validatorAddress || '';
+  const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
+
+  return {
+    txHash: userOpHash,
+    requiresClientSigning: true as const,
+    validatorAddress,
+    requestHash: finalRequestHash,
+  };
+}

@@ -116,6 +116,7 @@ export {
   createAgentWithWallet,
   updateAgentRegistrationWithWallet,
   giveFeedbackWithWallet,
+  requestValidationWithWallet,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,
@@ -125,6 +126,7 @@ export type {
   CreateAgentResult,
   UpdateAgentRegistrationWithWalletOptions,
   GiveFeedbackWithWalletOptions,
+  RequestValidationWithWalletOptions,
 } from './client/walletSigning';
 
 // Client-side agent API helpers (HTTP-based)
@@ -146,5 +148,10 @@ export type {
   CreateAgentDirectClientInput,
   CreateAgentDirectClientResult,
 } from './api/agents/directClient';
+
+// Validation request utilities (server-side)
+export {
+  createValidatorAccountAbstraction,
+} from './server/lib/validations';
 
 

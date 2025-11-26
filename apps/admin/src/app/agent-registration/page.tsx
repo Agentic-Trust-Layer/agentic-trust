@@ -6,7 +6,8 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address } from 'viem';
-import { createAgentWithWallet, getCounterfactualAAAddressByAgentName, createAgentDirect } from '@agentic-trust/core/client';
+import { createAgentWithWallet, getCounterfactualAAAddressByAgentName, createAgentDirect, getDeployedAccountClientByAgentName } from '@agentic-trust/core/client';
+import { requestValidationWithWallet, buildDid8004 } from '@agentic-trust/core';
 import type { Chain } from 'viem';
 import {
   getEnsOrgName,
@@ -15,6 +16,7 @@ import {
   getChainById,
   getChainIdHex as getChainIdHexUtil,
   DEFAULT_CHAIN_ID,
+  getChainBundlerUrl,
 } from '@agentic-trust/core/server';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
 import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
@@ -888,13 +890,18 @@ export default function AgentRegistrationPage() {
             },
           });
 
+          let finalAgentId: string | number | undefined;
           if (directPlan.agentId) {
+            finalAgentId = directPlan.agentId;
             setSuccess(`Agent created successfully! Agent ID: ${directPlan.agentId}, TX: ${directPlan.txHash}`);
           } else if (directPlan.txHash) {
             setSuccess(`Agent creation transaction confirmed! TX: ${directPlan.txHash} (Agent ID will be available after indexing)`);
           } else {
             setSuccess('Agent AA creation requested. Check server logs for details.');
           }
+
+          // Note: Validation request is skipped in private key mode as we don't have wallet provider
+          // It can be done separately via the admin-tools test tab
         } else {
           // Client path (requires connected wallet/provider)
         const result = await createAgentWithWallet({
@@ -916,11 +923,53 @@ export default function AgentRegistrationPage() {
           chainId: selectedChainId,
         });
 
+        let finalAgentId: string | number | undefined;
         if (result.agentId) {
+          finalAgentId = result.agentId;
           setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
         } else {
           setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+        }
+
+        // Submit ENS validation request if agent was created successfully
+        if (finalAgentId && useAA && agentAccountToUse && eip1193Provider && eoaAddress) {
+          try {
+            // Get agent account client for validation request
+            const bundlerUrl = getChainBundlerUrl(selectedChainId || DEFAULT_CHAIN_ID);
+            if (bundlerUrl) {
+              const agentAccountClient = await getDeployedAccountClientByAgentName(
+                bundlerUrl,
+                createForm.agentName,
+                eoaAddress as `0x${string}`,
+                {
+                  chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
+                  ethereumProvider: eip1193Provider as any,
+                }
+              );
+
+              // Build did8004 for the validation request
+              const did8004 = buildDid8004(selectedChainId || DEFAULT_CHAIN_ID, finalAgentId);
+
+              // Submit validation request using the new pattern
+              const validationResult = await requestValidationWithWallet({
+                did8004,
+                chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
+                accountClient: agentAccountClient,
+                onStatusUpdate: (msg) => console.log('[Validation Request]', msg),
+              });
+
+              setSuccess(
+                `Agent created and validation request submitted! Agent ID: ${finalAgentId}, Validation TX: ${validationResult.txHash}, Validator: ${validationResult.validatorAddress}`
+              );
+            }
+          } catch (validationError) {
+            // Don't fail the whole registration if validation request fails
+            console.error('Failed to submit validation request:', validationError);
+            setSuccess(
+              `Agent created successfully! Agent ID: ${finalAgentId}, TX: ${result.txHash}. Note: Validation request failed (check console for details).`
+            );
           }
+        }
         }
       
 

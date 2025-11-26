@@ -6,13 +6,14 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
-import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet } from '@agentic-trust/core';
+import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse } from '@agentic-trust/core/server';
 import {
   getSupportedChainIds,
   getChainDisplayMetadata,
   getChainById,
   DEFAULT_CHAIN_ID,
+  getChainBundlerUrl,
 } from '@agentic-trust/core/server';
 type Agent = DiscoverResponse['agents'][number];
 
@@ -158,7 +159,7 @@ export default function AdminPage() {
 
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
   const [activeManagementTab, setActiveManagementTab] = useState<
-    'agentInfo' | 'registration' | 'session' | 'delete' | 'transfer'
+    'agentInfo' | 'registration' | 'session' | 'delete' | 'transfer' | 'validation'
   >('agentInfo');
  
   const handleGenerateSessionPackage = useCallback(
@@ -659,6 +660,12 @@ export default function AdminPage() {
     to: '',
   });
 
+  // ENS Validation state
+  const [validationSubmitting, setValidationSubmitting] = useState(false);
+  const [validatorAddress, setValidatorAddress] = useState<string | null>(null);
+  const [requestUri, setRequestUri] = useState<string | null>(null);
+  const [requestHash, setRequestHash] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isEditMode || !queryAgentId || !queryChainId) {
       return;
@@ -683,6 +690,29 @@ export default function AdminPage() {
       chainId: queryChainId,
       to: '',
     });
+    // Compute validation request info for the current agent
+    if (queryAgentId) {
+      const agentIdNum = Number.parseInt(queryAgentId, 10);
+      if (Number.isFinite(agentIdNum)) {
+        const computedRequestUri = `https://agentic-trust.org/validation/${agentIdNum}`;
+        setRequestUri(computedRequestUri);
+        // Compute request hash (will be computed server-side, but show what it will be)
+        import('viem').then(({ keccak256, stringToHex }) => {
+          const hash = keccak256(stringToHex(computedRequestUri));
+          setRequestHash(hash);
+        }).catch(() => {
+          // If viem import fails, hash will be computed server-side
+        });
+      } else {
+        setRequestUri(null);
+        setRequestHash(null);
+      }
+    } else {
+      setRequestUri(null);
+      setRequestHash(null);
+    }
+    // Reset validator address when agent changes
+    setValidatorAddress(null);
   }, [isEditMode, queryAgentId, queryChainId]);
 
 
@@ -765,6 +795,72 @@ export default function AdminPage() {
       setDeleteForm({ agentId: '', chainId: DEFAULT_CHAIN_ID.toString() });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete agent');
+    }
+  };
+
+  const handleSubmitValidationRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isEditMode || !queryAgentId || !queryChainId || !queryAgentAddress) {
+      setError('Agent information is required. Please navigate to an agent first.');
+      return;
+    }
+    const agentName = searchParams?.get('agentName');
+    if (!agentName) {
+      setError('Agent name is required. Please ensure the agent has a name.');
+      return;
+    }
+    if (!eip1193Provider || !eoaAddress) {
+      setError('Wallet connection is required for validation requests');
+      return;
+    }
+
+    try {
+      setError(null);
+      setValidationSubmitting(true);
+      const chainId = Number.parseInt(queryChainId, 10);
+      if (!Number.isFinite(chainId)) {
+        throw new Error('Invalid chainId');
+      }
+      const chain = getChainById(chainId);
+      const bundlerUrl = getChainBundlerUrl(chainId);
+
+      if (!bundlerUrl) {
+        throw new Error(`Bundler URL not configured for chain ${chainId}`);
+      }
+
+      // Get agent account client
+      const agentAccountClient = await getDeployedAccountClientByAgentName(
+        bundlerUrl,
+        agentName,
+        eoaAddress as `0x${string}`,
+        {
+          chain: chain as any,
+          ethereumProvider: eip1193Provider as any,
+        }
+      );
+
+      // Build did8004 for the validation request
+      const did8004 = buildDid8004(chainId, queryAgentId);
+
+      // Submit validation request using the new pattern
+      const result = await requestValidationWithWallet({
+        did8004,
+        chain: chain as any,
+        accountClient: agentAccountClient,
+        onStatusUpdate: (msg) => console.log('[Validation Request]', msg),
+      });
+
+      setSuccess(
+        `ENS validation request submitted successfully! TX: ${result.txHash}, Validator: ${result.validatorAddress}, Request Hash: ${result.requestHash}`
+      );
+      // Update displayed validator address and request hash
+      setValidatorAddress(result.validatorAddress);
+      setRequestHash(result.requestHash);
+    } catch (err) {
+      console.error('Error submitting validation request:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit validation request');
+    } finally {
+      setValidationSubmitting(false);
     }
   };
 
@@ -990,6 +1086,23 @@ export default function AdminPage() {
               }}
             >
               Delete Agent
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveManagementTab('validation')}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: '6px',
+                border: '1px solid',
+                borderColor: activeManagementTab === 'validation' ? '#2f2f2f' : '#dcdcdc',
+                backgroundColor: activeManagementTab === 'validation' ? '#f3f3f3' : '#ffffff',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              ENS Validation
             </button>
           </nav>
         )}
@@ -1489,6 +1602,102 @@ export default function AdminPage() {
               Transfer Agent
             </button>
           </form>
+        </div>
+        )}
+        {(!isEditMode || activeManagementTab === 'validation') && (
+        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>ENS Validation Request</h2>
+          {isEditMode && queryAgentId && queryChainId ? (
+            <>
+              <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b', marginBottom: '1.5rem' }}>
+                Submit an ENS validation request for the current agent. The agent account abstraction will be used as the requester,
+                and a validator account abstraction (name: 'validator-ens') will be used as the validator.
+              </p>
+              <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f7f7f7', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
+                <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', fontWeight: 600 }}>Validation Request Information</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
+                  <div>
+                    <strong>Agent ID:</strong>{' '}
+                    <span style={{ fontFamily: 'monospace' }}>{queryAgentId}</span>
+                  </div>
+                  <div>
+                    <strong>Agent Name:</strong>{' '}
+                    {searchParams?.get('agentName') || '(not available)'}
+                  </div>
+                  <div>
+                    <strong>Chain ID:</strong>{' '}
+                    {queryChainId}
+                  </div>
+                  <div>
+                    <strong>Agent Account Address:</strong>{' '}
+                    {queryAgentAddress ? (
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{queryAgentAddress}</span>
+                    ) : (
+                      '(not available)'
+                    )}
+                  </div>
+                  <div>
+                    <strong>Validator Address:</strong>{' '}
+                    {validatorAddress ? (
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{validatorAddress}</span>
+                    ) : (
+                      <span style={{ color: '#777', fontStyle: 'italic' }}>(will be computed server-side)</span>
+                    )}
+                  </div>
+                  <div>
+                    <strong>Request URI:</strong>{' '}
+                    {requestUri ? (
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>{requestUri}</span>
+                    ) : (
+                      <span style={{ color: '#777', fontStyle: 'italic' }}>Loading...</span>
+                    )}
+                  </div>
+                  <div>
+                    <strong>Request Hash:</strong>{' '}
+                    {requestHash ? (
+                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{requestHash}</span>
+                    ) : (
+                      <span style={{ color: '#777', fontStyle: 'italic' }}>Loading...</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <form onSubmit={handleSubmitValidationRequest}>
+                <button
+                  type="submit"
+                  disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName')}
+                  style={{
+                    width: '100%',
+                    padding: '0.75rem',
+                    backgroundColor: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? '#787878' : '#2f2f2f',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? 'not-allowed' : 'pointer',
+                    fontSize: '1rem',
+                    fontWeight: 'bold',
+                    opacity: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? 0.7 : 1,
+                  }}
+                >
+                  {validationSubmitting ? 'Submitting...' : 'Submit Validation Request'}
+                </button>
+                {(!eip1193Provider || !eoaAddress) && (
+                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#d32f2f', textAlign: 'center' }}>
+                    Wallet connection required to submit validation request
+                  </p>
+                )}
+                {!searchParams?.get('agentName') && (
+                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#d32f2f', textAlign: 'center' }}>
+                    Agent name is required to submit validation request
+                  </p>
+                )}
+              </form>
+            </>
+          ) : (
+            <p style={{ color: '#777', fontStyle: 'italic' }}>
+              Please navigate to an agent to view validation request information.
+            </p>
+          )}
         </div>
         )}
       </div>

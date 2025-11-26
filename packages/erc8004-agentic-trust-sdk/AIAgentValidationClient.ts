@@ -6,13 +6,14 @@
 
 import { sepolia } from 'viem/chains';
 import type { Chain } from 'viem';
-
+import { keccak256, stringToHex } from 'viem';
 import {
   ValidationClient as BaseValidationClient,
   type ValidationStatus,
   AccountProvider,
   type TxRequest,
 } from '@agentic-trust/8004-sdk';
+import ValidationRegistryABI from './abis/ValidationRegistry.json';
 
 // Local copies of request/response types to avoid tight coupling to 8004-sdk exports
 export interface ValidationRequestParams {
@@ -112,6 +113,47 @@ export class AIAgentValidationClient extends BaseValidationClient {
 
   validationResponse(params: ValidationResponseParams): Promise<{ txHash: string }> {
     return (BaseValidationClient.prototype as any).validationResponse.call(this, params);
+  }
+
+  /**
+   * Prepare the validationRequest transaction data without sending it.
+   * Requires the validator account address to be provided (computed server-side).
+   */
+  async prepareValidationRequestTx(params: {
+    agentId: string | number | bigint;
+    validatorAddress: `0x${string}`;
+    requestUri?: string;
+    requestHash?: string;
+  }): Promise<{ txRequest: TxRequest; requestHash: string }> {
+    if (!params.agentId) {
+      throw new Error('agentId is required');
+    }
+    if (!params.validatorAddress) {
+      throw new Error('validatorAddress is required');
+    }
+
+    // Prepare validation request parameters
+    const agentIdBigInt = typeof params.agentId === 'bigint' 
+      ? params.agentId 
+      : BigInt(params.agentId.toString());
+    const finalRequestUri = params.requestUri || `https://agentic-trust.org/validation/${params.agentId}`;
+    const finalRequestHash = params.requestHash || (keccak256(stringToHex(finalRequestUri)) as `0x${string}`);
+
+    // Encode the validation request call
+    const data = await this.accountProvider?.encodeFunctionData({
+      abi: ValidationRegistryABI as any,
+      functionName: 'validationRequest',
+      args: [params.validatorAddress, agentIdBigInt, finalRequestUri, finalRequestHash],
+    });
+
+    return {
+      txRequest: {
+        to: this.validationRegistryAddress,
+        data: data || '0x',
+        value: 0n,
+      },
+      requestHash: finalRequestHash,
+    };
   }
 }
 

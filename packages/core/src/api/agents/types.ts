@@ -32,6 +32,7 @@ export interface AgentOperationPlan {
   transaction?: AgentPreparedTransactionPayload | null;
   agentId?: string;
   txHash?: string;
+  metadata?: Record<string, unknown>; // Optional metadata for additional operation-specific data
 }
 
 export interface DirectCreateAgentPayload {
@@ -103,6 +104,13 @@ export interface PrepareFeedbackPayload {
   skill?: string;
   context?: string;
   capability?: string;
+  mode?: AgentOperationMode;
+}
+
+export interface PrepareValidationRequestPayload {
+  did8004: string;
+  requestUri?: string;
+  requestHash?: string;
   mode?: AgentOperationMode;
 }
 
