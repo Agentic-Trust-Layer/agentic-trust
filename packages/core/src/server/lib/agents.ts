@@ -920,11 +920,53 @@ export class AgentsAPI {
     // Prefer the advanced discovery APIs (Graph/advanced) whenever available so
     // that we get an accurate total count and consistent pagination, even when
     // no filters are supplied.
+    //
+    // IMPORTANT:
+    // - The Graph-based API (`searchAgentsGraph`) currently only supports structured
+    //   filters via `where` and does NOT take the free-text `query` string.
+    // - The legacy advanced API (`searchAgentsAdvanced`) is the one that wires the
+    //   general search query into the discovery backend (and can also take params).
+    //
+    // To ensure the general search box actually filters results, we route:
+    //   - requests WITH a query string through `searchAgentsAdvanced` when available
+    //   - requests WITHOUT a query string (filters / pagination only) through
+    //     `searchAgentsGraph` when available
     if (effectivePageSize && (hasAdvancedGraph || hasAdvancedLegacy)) {
       const offset = (Math.max(requestedPage, 1) - 1) * effectivePageSize;
 
       try {
-        if (hasAdvancedGraph) {
+        // If we have a text query and the legacy advanced API is available,
+        // use it so the query string is honored by the discovery service.
+        if (hasQuery && hasAdvancedLegacy) {
+          const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
+            query: options?.query,
+            params: options?.params as Record<string, unknown> | undefined,
+            limit: effectivePageSize,
+            offset,
+            orderBy: options?.orderBy,
+            orderDirection: options?.orderDirection,
+          });
+
+          if (advanced && Array.isArray(advanced.agents)) {
+            const total =
+              typeof advanced.total === 'number' && advanced.total >= 0
+                ? advanced.total
+                : advanced.agents.length + offset;
+            const totalPages = Math.max(1, Math.ceil(total / effectivePageSize));
+            const safePage = Math.min(Math.max(requestedPage, 1), totalPages);
+            const agentInstances = advanced.agents.map(
+              (data: AgentData) => new Agent(data, this.client),
+            );
+
+            return {
+              agents: agentInstances,
+              total,
+              page: safePage,
+              pageSize: effectivePageSize,
+              totalPages,
+            };
+          }
+        } else if (hasAdvancedGraph) {
           const advanced = await advancedDiscoveryClient.searchAgentsGraph({
             where,
             first: effectivePageSize,
@@ -953,6 +995,8 @@ export class AgentsAPI {
             };
           }
         } else if (hasAdvancedLegacy) {
+          // Fallback: no Graph API, but legacy advanced is available (with or
+          // without a query string).
           const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
             query: options?.query,
             params: options?.params as Record<string, unknown> | undefined,
