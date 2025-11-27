@@ -15,6 +15,7 @@ import {
   DEFAULT_CHAIN_ID,
   getChainBundlerUrl,
 } from '@agentic-trust/core/server';
+import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 type Agent = DiscoverResponse['agents'][number];
 
 const CHAIN_SUFFIX_MAP: Record<number, string> = {
@@ -579,8 +580,8 @@ export default function AdminPage() {
         }
 
         const chain = getChainById(parsedChainId) as Chain;
-        const hints = getEnvVarHints(parsedChainId);
-        const bundlerEnv = hints ? (process.env as any)?.[hints.bundlerClient] : undefined;
+        // Read bundler URL from a shared client-side helper (NEXT_PUBLIC_* env vars)
+        const bundlerEnv = getClientBundlerUrl(parsedChainId);
         if (!bundlerEnv) {
           setRegistrationEditError(
             'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',

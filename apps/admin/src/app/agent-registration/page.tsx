@@ -18,6 +18,7 @@ import {
   DEFAULT_CHAIN_ID,
   getChainBundlerUrl,
 } from '@agentic-trust/core/server';
+import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
 import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
 
@@ -225,10 +226,8 @@ export default function AgentRegistrationPage() {
   );
   const getBundlerUrlForChain = React.useCallback(
     (chainId: number): string | undefined => {
-      const hints = getEnvVarHints(chainId);
-      if (!hints) return undefined;
-      // Read the client-side bundler env var (NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_*)
-      return (process.env as any)?.[hints.bundlerClient];
+      // Shared client-side helper reading NEXT_PUBLIC_* at build time
+      return getClientBundlerUrl(chainId);
     },
     [],
   );
