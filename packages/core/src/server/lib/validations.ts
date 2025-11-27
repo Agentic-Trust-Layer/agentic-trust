@@ -28,6 +28,7 @@ export async function getAgentValidationsSummary(
   const agentIdBigInt = BigInt(numericAgentId);
 
   const requestHashes = await client.getAgentValidations(agentIdBigInt);
+  console.log(`[getAgentValidationsSummary] Found ${requestHashes.length} validation request hash(es) for agent ${numericAgentId} on chain ${chainId}`);
 
   const pending: unknown[] = [];
   const completed: unknown[] = [];
@@ -35,17 +36,21 @@ export async function getAgentValidationsSummary(
   for (const hash of requestHashes) {
     try {
       const status = await client.getValidationStatus(hash);
+      console.log(`[getAgentValidationsSummary] Validation ${hash}: response=${status.response}, validator=${status.validatorAddress}`);
       if (status.response === 0) {
         pending.push(status);
       } else {
         completed.push(status);
       }
-    } catch {
+    } catch (error) {
+      console.warn(`[getAgentValidationsSummary] Failed to get status for hash ${hash}:`, error);
       // Ignore invalid entries but continue
     }
   }
 
   const did8004 = buildDid8004(chainId, numericAgentId);
+  
+  console.log(`[getAgentValidationsSummary] Summary for agent ${numericAgentId}: pending=${pending.length}, completed=${completed.length}`);
 
   return {
     agentId: String(numericAgentId),

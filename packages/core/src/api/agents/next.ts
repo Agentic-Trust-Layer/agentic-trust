@@ -336,6 +336,18 @@ export function getValidationsRouteHandler(
         chainId: parsed.chainId,
         agentId: parsed.agentId,
       });
+      console.log('[getValidationsRouteHandler] Result:', {
+        did8004,
+        chainId: parsed.chainId,
+        agentId: parsed.agentId,
+        result,
+        pendingType: typeof result.pending,
+        completedType: typeof result.completed,
+        pendingIsArray: Array.isArray(result.pending),
+        completedIsArray: Array.isArray(result.completed),
+        pendingLength: Array.isArray(result.pending) ? result.pending.length : 'N/A',
+        completedLength: Array.isArray(result.completed) ? result.completed.length : 'N/A',
+      });
       return jsonResponse(result);
     } catch (error) {
       return handleNextError(error);

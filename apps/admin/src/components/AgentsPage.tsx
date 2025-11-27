@@ -653,18 +653,39 @@ export function AgentsPage({
   }, [activeDialog]);
 
   useEffect(() => {
+    console.log('[ValidationsModal] useEffect triggered:', {
+      hasActiveDialog: !!activeDialog,
+      action: activeDialog?.action,
+      agent: activeDialog?.agent ? { chainId: activeDialog.agent.chainId, agentId: activeDialog.agent.agentId } : null,
+    });
+    
     if (!activeDialog || activeDialog.action !== 'validations') {
+      // Reset preview when dialog closes or changes action
+      if (activeDialog?.action !== 'validations') {
+        console.log('[ValidationsModal] Resetting preview (not validations action)');
+        setValidationsPreview({
+          key: null,
+          loading: false,
+          error: null,
+          pending: null,
+          completed: null,
+        });
+      }
       return;
     }
 
     const { agent } = activeDialog;
     const key = getAgentKey(agent);
+    console.log('[ValidationsModal] Computed key:', key, 'from agent:', { chainId: agent.chainId, agentId: agent.agentId });
     if (!key) {
+      console.warn('[ValidationsModal] No key computed, returning early');
       return;
     }
 
     let cancelled = false;
 
+    console.log('[ValidationsModal] Starting fetch for agent key:', key);
+    console.log('[ValidationsModal] Setting initial state with key:', key);
     setValidationsPreview({
       key,
       loading: true,
@@ -672,6 +693,7 @@ export function AgentsPage({
       pending: null,
       completed: null,
     });
+    console.log('[ValidationsModal] Initial state set, key should now be:', key);
 
     (async () => {
       try {
@@ -696,15 +718,49 @@ export function AgentsPage({
         }
 
         const data = await response.json();
+        console.log('[ValidationsModal] API Response:', {
+          url: `/api/agents/${encodeURIComponent(did8004)}/validations`,
+          status: response.status,
+          data,
+          pending: Array.isArray(data.pending) ? data.pending : data.pending,
+          completed: Array.isArray(data.completed) ? data.completed : data.completed,
+          pendingType: typeof data.pending,
+          completedType: typeof data.completed,
+          pendingIsArray: Array.isArray(data.pending),
+          completedIsArray: Array.isArray(data.completed),
+        });
         if (cancelled) return;
 
+        const pendingArray = Array.isArray(data.pending) ? data.pending : [];
+        const completedArray = Array.isArray(data.completed) ? data.completed : [];
+        console.log('[ValidationsModal] Setting state:', {
+          key,
+          pendingCount: pendingArray.length,
+          completedCount: completedArray.length,
+        });
+        // Log full completed validations for debugging (BigInts already JSON-safe via API)
+        try {
+          console.log(
+            '[ValidationsModal] Completed validations (JSON):',
+            JSON.stringify(completedArray, null, 2),
+          );
+        } catch (e) {
+          console.log('[ValidationsModal] Completed validations (raw):', completedArray);
+        }
+
+        console.log('[ValidationsModal] About to set state with data:', {
+          key,
+          pendingCount: pendingArray.length,
+          completedCount: completedArray.length,
+        });
         setValidationsPreview({
           key,
           loading: false,
           error: null,
-          pending: Array.isArray(data.pending) ? data.pending : [],
-          completed: Array.isArray(data.completed) ? data.completed : [],
+          pending: pendingArray,
+          completed: completedArray,
         });
+        console.log('[ValidationsModal] State set, should trigger re-render');
       } catch (error: any) {
         if (cancelled) return;
         setValidationsPreview({
@@ -1151,8 +1207,27 @@ export function AgentsPage({
           agentKey !== null && validationsPreview.key === agentKey;
         const loading = !previewMatchesAgent || validationsPreview.loading;
         const error = previewMatchesAgent ? validationsPreview.error : null;
-        const pending = previewMatchesAgent ? validationsPreview.pending : null;
-        const completed = previewMatchesAgent ? validationsPreview.completed : null;
+        const pending = previewMatchesAgent && Array.isArray(validationsPreview.pending) ? validationsPreview.pending : [];
+        const completed = previewMatchesAgent && Array.isArray(validationsPreview.completed) ? validationsPreview.completed : [];
+        
+        console.log('[ValidationsModal] Rendering:', {
+          agentKey,
+          previewKey: validationsPreview.key,
+          keyMatch: agentKey === validationsPreview.key,
+          previewMatchesAgent,
+          loading,
+          validationsPreviewLoading: validationsPreview.loading,
+          validationsPreviewError: validationsPreview.error,
+          validationsPreviewPendingType: typeof validationsPreview.pending,
+          validationsPreviewCompletedType: typeof validationsPreview.completed,
+          validationsPreviewPendingIsArray: Array.isArray(validationsPreview.pending),
+          validationsPreviewCompletedIsArray: Array.isArray(validationsPreview.completed),
+          validationsPreviewPendingLength: Array.isArray(validationsPreview.pending) ? validationsPreview.pending.length : 'N/A',
+          validationsPreviewCompletedLength: Array.isArray(validationsPreview.completed) ? validationsPreview.completed.length : 'N/A',
+          pendingCount: pending.length,
+          completedCount: completed.length,
+          error,
+        });
 
         return (
           <>
@@ -1161,7 +1236,9 @@ export function AgentsPage({
               validation registry.
             </p>
             {loading && !error && (
-              <p style={{ color: palette.textSecondary }}>Loading validations…</p>
+              <p style={{ color: palette.textSecondary }}>
+                Loading validations…
+              </p>
             )}
             {error && (
               <p style={{ color: palette.dangerText }}>{error}</p>
@@ -1184,10 +1261,9 @@ export function AgentsPage({
                       fontSize: '0.9rem',
                     }}
                   >
-                    Completed validations (
-                    {Array.isArray(completed) ? completed.length : 0})
+                    Completed validations ({completed.length})
                   </h4>
-                  {Array.isArray(completed) && completed.length > 0 ? (
+                  {completed.length > 0 ? (
                     <ul
                       style={{
                         listStyle: 'disc',
@@ -1214,9 +1290,9 @@ export function AgentsPage({
                       fontSize: '0.9rem',
                     }}
                   >
-                    Pending validations ({Array.isArray(pending) ? pending.length : 0})
+                    Pending validations ({pending.length})
                   </h4>
-                  {Array.isArray(pending) && pending.length > 0 ? (
+                  {pending.length > 0 ? (
                     <ul
                       style={{
                         listStyle: 'disc',
@@ -1885,6 +1961,7 @@ export function AgentsPage({
     registrationPreview,
     a2aPreview,
     sessionPreview,
+    validationsPreview,
     feedbackPreview,
     feedbackForm,
     feedbackSubmitting,
