@@ -20,6 +20,7 @@ import {
   getAgenticTrustClient,
   loadSessionPackage,
   mountAgentApiRoutes,
+  getENSClient,
 } from '@agentic-trust/core/server';
 
 const app = express();
@@ -28,6 +29,85 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+/**
+ * Extract subdomain (e.g. "abc" from "abc.localhost" or "abc.localhosthost")
+ * so the provider app can route based on the first label.
+ *
+ * The base domain can be configured via PROVIDER_BASE_DOMAIN (default: "localhost").
+ */
+function extractSubdomain(hostname: string | undefined, baseDomain: string): string | null {
+  if (!hostname) return null;
+
+  // Strip port if present (e.g. "abc.localhost:3001")
+  const hostNoPort = hostname.split(':')[0].toLowerCase();
+  const base = baseDomain.toLowerCase();
+
+  if (!hostNoPort.endsWith(base)) {
+    // Host doesn't match the configured base domain; treat as no subdomain
+    return null;
+  }
+
+  const withoutBase = hostNoPort.slice(0, -base.length); // e.g. "abc." from "abc.localhost"
+  const trimmed = withoutBase.replace(/\.$/, ''); // remove trailing dot if any
+
+  if (!trimmed) return null;
+
+  // For now, use the entire left part as the "subdomain key"
+  return trimmed;
+}
+
+// Attach providerSubdomain and resolve ENS-based agent account (abc.8004-agent.eth) per request
+app.use(async (req: Request, _res: Response, next: NextFunction) => {
+  try {
+    console.log('[Provider Server] Incoming request host:', req.hostname);
+    const baseDomain = process.env.PROVIDER_BASE_DOMAIN || 'localhost';
+    const subdomain = extractSubdomain(req.hostname, baseDomain);
+
+    (req as any).providerSubdomain = subdomain;
+
+    let providerEnsName: string | null = null;
+    let providerAgentAccount: string | null = null;
+
+    if (subdomain) {
+      providerEnsName = `${subdomain}.8004-agent.eth`;
+      try {
+        const ensClient = await getENSClient(); // default chain (Sepolia) for ENS
+        providerAgentAccount = await ensClient.getAgentAccountByName(providerEnsName);
+      } catch (err) {
+        console.error(
+          '[Provider Server] Error resolving ENS account for',
+          providerEnsName,
+          err,
+        );
+      }
+    }
+
+    (req as any).providerEnsName = providerEnsName;
+    (req as any).providerAgentAccount = providerAgentAccount;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log(
+        '[Provider Server] Routing context:',
+        JSON.stringify(
+          {
+            host: req.hostname,
+            subdomain,
+            ensName: providerEnsName,
+            agentAccount: providerAgentAccount,
+          },
+          null,
+          2,
+        ),
+      );
+    }
+
+    next();
+  } catch (error) {
+    console.error('[Provider Server] Error in subdomain/ENS middleware:', error);
+    next(error);
+  }
+});
 
 // Mount Agentic Trust agent management routes (create/update registration)
 // Adapter to satisfy the lightweight ExpressRouterLike interface expected by mountAgentApiRoutes
@@ -46,11 +126,16 @@ mountAgentApiRoutes(
       const headers = (req as any).headers as
         | Record<string, unknown>
         | undefined;
+      const subdomain = (req as any).providerSubdomain as string | null | undefined;
       const requestId =
         headers && typeof headers['x-request-id'] === 'string'
           ? (headers['x-request-id'] as string)
           : undefined;
-      return { requestId };
+      // Expose subdomain as tenantId so core APIs can route per-tenant/agent
+      return {
+        requestId,
+        tenantId: subdomain ?? undefined,
+      };
     },
   },
 );
@@ -90,6 +175,20 @@ function getCorsHeaders() {
 }
 
 /**
+ * Simple root handler so it's obvious the server is reachable and
+ * which host/subdomain was used.
+ */
+app.get('/', (req: Request, res: Response) => {
+  const subdomain = (req as any).providerSubdomain as string | null | undefined;
+  res.json({
+    message: 'Agent Provider is running',
+    host: req.hostname,
+    subdomain: subdomain || null,
+    note: 'Try /.well-known/agent-card.json or /api/a2a for agent endpoints.',
+  });
+});
+
+/**
  * Middleware to wait for client initialization
  */
 async function waitForClientInit(req: Request, res: Response, next: NextFunction) {
@@ -108,6 +207,7 @@ async function waitForClientInit(req: Request, res: Response, next: NextFunction
  * A2A standard endpoint for agent discovery
  */
 app.get('/.well-known/agent-card.json', (req: Request, res: Response) => {
+  const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'A sample agent provider for A2A communication';
   
@@ -118,7 +218,8 @@ app.get('/.well-known/agent-card.json', (req: Request, res: Response) => {
   const agentSignature = process.env.AGENT_SIGNATURE || '';
 
   const agentCard = {
-    name: agentName,
+    // Optionally include subdomain in the name so different wildcard hosts can be distinguished
+    name: subdomain ? `${agentName} (${subdomain})` : agentName,
     description: agentDescription,
     url: providerUrl,
     provider: {
@@ -193,9 +294,11 @@ app.options('/.well-known/agent-card.json', (req: Request, res: Response) => {
  */
 app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
   // Log request details for debugging
+  const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const rpcUrlStatus = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA ? 'SET' : 'NOT SET';
   console.log('========================================');
   console.log('[A2A Route] POST request received at', new Date().toISOString());
+  console.log('[A2A Route] Host:', req.hostname, 'subdomain:', subdomain || '(none)');
   console.log('[A2A Route] AGENTIC_TRUST_RPC_URL_SEPOLIA:', rpcUrlStatus);
   if (process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA) {
     console.log('[A2A Route] RPC URL value:', process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA.substring(0, 40) + '...');

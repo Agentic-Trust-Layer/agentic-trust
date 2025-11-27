@@ -416,21 +416,53 @@ export class AIAgentENSClient {
    * Resolve account address for an ENS name via resolver.addr(namehash(name)).
    */
   async getAgentAccountByName(name: string): Promise<`0x${string}` | null> {
-
-
-
     let ensName = name.trim().toLowerCase();
     ensName = ensName.endsWith('.eth') ? ensName.slice(0, -4) : ensName;
-    ensName = ensName + '.eth';
+    ensName = `${ensName}.eth`;
     
-    const normalizedName = normalize(ensName)
-    const addr = await this.publicClient?.getEnsAddress({
-      name: normalizedName
-    });
+    const normalizedName = normalize(ensName);
+    const node = namehash(normalizedName);
 
-    console.log('*********** zzz getAgentAccountByName normalizedName', normalizedName);
-    console.log('*********** zzz getAgentAccountByName addr', addr);
-    return addr as `0x${string}` | null;
+    console.log('[AIAgentENSClient.getAgentAccountByName] chain:', (this as any).chain?.id, (this as any).chain?.name);
+    console.log('[AIAgentENSClient.getAgentAccountByName] normalizedName:', normalizedName);
+    console.log('[AIAgentENSClient.getAgentAccountByName] node:', node);
+    console.log('[AIAgentENSClient.getAgentAccountByName] resolver address:', this.ensResolverAddress);
+
+    if (!this.publicClient) {
+      console.warn('[AIAgentENSClient.getAgentAccountByName] publicClient not initialized');
+      return null;
+    }
+
+    try {
+      // Call resolver.addr(namehash(name)) directly using the configured resolver
+      const resolverAbi = [
+        {
+          inputs: [{ internalType: 'bytes32', name: 'node', type: 'bytes32' }],
+          name: 'addr',
+          outputs: [{ internalType: 'address', name: 'ret', type: 'address' }],
+          stateMutability: 'view',
+          type: 'function',
+        },
+      ] as const;
+
+      const addr = await this.publicClient.readContract({
+        address: this.ensResolverAddress,
+        abi: resolverAbi as any,
+        functionName: 'addr',
+        args: [node],
+      });
+
+      const addrStr = addr as `0x${string}`;
+      const isZero =
+        !addrStr || addrStr === '0x0000000000000000000000000000000000000000';
+
+      console.log('[AIAgentENSClient.getAgentAccountByName] resolved addr:', addrStr);
+
+      return isZero ? null : addrStr;
+    } catch (error) {
+      console.error('[AIAgentENSClient.getAgentAccountByName] Error resolving addr:', error);
+      return null;
+    }
 
     /*
 
