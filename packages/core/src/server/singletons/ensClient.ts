@@ -206,8 +206,8 @@ export async function getENSInfo(
     isENSNameAvailable(fullName, chainId),
     getENSClient(chainId),
   ]);
-
-  console.log('*********** zzz getENSInfo fullName', fullName);
+  console.log('*********** zzz isENSNameAvailable:', available);
+  console.log('*********** zzz getENSInfo 0 fullName', fullName);
   const [account, image, url, description] = await Promise.all([
     client.getAgentAccountByName(fullName).catch(() => null),
     client.getAgentImageByName(fullName).catch(() => null),
@@ -215,7 +215,7 @@ export async function getENSInfo(
     client.getAgentDescriptionByName(fullName).catch(() => null),
   ]);
 
-  console.log('*********** zzz getENSInfo fullName', fullName, account, image, url, description);
+  console.log('*********** zzz getENSInfo 1 fullName', fullName, account, image, url, description);
 
   return {
     name: fullName,

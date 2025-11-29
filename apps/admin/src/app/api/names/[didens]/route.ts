@@ -37,6 +37,7 @@ export async function GET(
     const { ensName, chainId } = parsed;
     const client = await getAgenticTrustClient();
     const nameInfo = await client.getENSInfo(ensName, chainId);
+    console.log('*********** zzz getENSInfo 2 nameInfo', nameInfo);
     return NextResponse.json({ nameInfo });
   } catch (error) {
     console.error('Error fetching ENS name info:', error);

@@ -15,7 +15,25 @@ export default function LandingPage() {
     walletAddress,
     openLoginModal,
     handleDisconnect,
+    openAgentSelectionModal,
   } = useAuth();
+
+  const handleNavigateAgents = () => {
+    // Check if we have a cached agent
+    const CACHE_KEY = 'agentic-trust-selected-agent';
+    const cached = typeof window !== 'undefined' ? localStorage.getItem(CACHE_KEY) : null;
+    
+    if (cached) {
+      // Agent is cached, navigate directly
+      router.push('/agents');
+    } else if (isConnected) {
+      // Show modal to select agent
+      openAgentSelectionModal();
+    } else {
+      // If not connected, navigate directly (they can connect later)
+      router.push('/agents');
+    }
+  };
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
@@ -34,7 +52,7 @@ export default function LandingPage() {
         }}
       >
         <HomePage
-          onNavigateAgents={() => router.push('/agents')}
+          onNavigateAgents={handleNavigateAgents}
           onOpenAdminTools={() => router.push('/admin-tools?mode=create')}
           isConnected={isConnected}
         />
