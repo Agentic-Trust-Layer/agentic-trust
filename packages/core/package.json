@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/core",
-  "version": "1.0.28",
+  "version": "1.0.31",
   "description": "Core SDK for agentic trust systems",
   "type": "module",
   "main": "./dist/index.js",
@@ -16,8 +16,8 @@
       "types": "./dist/client/walletSigningClient.d.ts"
     },
     "./server": {
-      "import": "./dist/server.js",
-      "types": "./dist/server.d.ts"
+      "import": "./dist/server/index.js",
+      "types": "./dist/server/index.d.ts"
     }
   },
   "scripts": {

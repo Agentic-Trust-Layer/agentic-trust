@@ -1,0 +1,10 @@
+---
+description: General TypeScript & Next.js Rules
+globs: "**/*"
+---
+
+# General TypeScript/Next.js
+
+-   Use functional components with React hooks.
+-   Ensure all new code is strongly typed.
+-   Use `const` over `let`, and avoid `var`.

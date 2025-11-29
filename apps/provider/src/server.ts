@@ -21,6 +21,7 @@ import {
   loadSessionPackage,
   mountAgentApiRoutes,
   getENSClient,
+  type SessionPackage,
 } from '@agentic-trust/core/server';
 
 const app = express();
@@ -436,15 +437,33 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         try {
-          const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+          // Load SessionPackage based on subdomain (or use default from env var)
+          // This allows different SessionPackages for different subdomains
+          let sessionPackage: SessionPackage | null = null;
           let agentIdForRequest: string | undefined;
-          if (sessionPackagePath) {
-            const sessionPackage = loadSessionPackage(sessionPackagePath);
+
+          if (subdomain) {
+            // TODO: Implement your app-specific logic to load SessionPackage based on subdomain
+            // Example: const sessionPackagePath = `/path/to/sessionPackages/${subdomain}.json.secret`;
+            // sessionPackage = loadSessionPackage(sessionPackagePath);
+            // For now, fall back to env var if subdomain-based loading is not implemented
+            const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+            if (sessionPackagePath) {
+              sessionPackage = loadSessionPackage(sessionPackagePath);
+            }
+          } else {
+            // No subdomain, use default from env var
+            const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+            if (sessionPackagePath) {
+              sessionPackage = loadSessionPackage(sessionPackagePath);
+            }
+          }
+
+          if (sessionPackage) {
             agentIdForRequest = sessionPackage.agentId.toString();
           } else {
             agentIdForRequest = agentIdParam?.toString();
           }
-
 
           const agent = agentIdForRequest ? await atClient.agents.getAgent(agentIdForRequest) : null;
 
@@ -452,7 +471,13 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             throw new Error('Agent not found. Cannot request feedback auth without agent instance.');
           }
 
-        console.info("agent.feedback.requestAuth: ", agentIdParam, clientAddress, expirySeconds);
+          // Set SessionPackage on agent instance if loaded dynamically
+          // This will be used by requestAuth() instead of the singleton providerApp
+          if (sessionPackage) {
+            agent.setSessionPackage(sessionPackage);
+          }
+
+        console.info("agent.feedback.requestAuth: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 
         const feedbackAuthResponse = await agent.requestAuth({
             clientAddress,

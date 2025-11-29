@@ -1,0 +1,18 @@
+---
+description: Strict Static Import Rules
+globs: "**/*"
+---
+
+# Import Rules
+
+1.  **Strict Static Imports**:
+    -   Use ES6 `import` syntax exclusively.
+    -   **FORBIDDEN**: Do not use `require()`.
+    -   All imports must be located at the top of the file.
+
+2.  **Dynamic Imports**:
+    -   Avoid dynamic imports (e.g., `await import(...)`) inside functions unless absolutely necessary for performance (heavy code splitting) or conditionally loading modules that fail server-side rendering.
+    -   For Next.js components that strictly require client-side execution (e.g., libraries accessing `window`), use `next/dynamic` with `{ ssr: false }` and explain why in a comment.
+
+3.  **Type Imports**:
+    -   Use `import type { ... }` when importing interfaces or types to allow for better tree-shaking and clarity.

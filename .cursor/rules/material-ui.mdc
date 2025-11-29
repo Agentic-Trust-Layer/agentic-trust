@@ -1,0 +1,18 @@
+---
+description: Material Design UI (MUI) Guidelines
+globs: "**/*"
+---
+
+# Material Design UI (MUI) Guidelines
+
+1.  **Styling**:
+    -   Prefer the `sx` prop for styling components directly. Avoid inline `style` objects or CSS files unless absolutely necessary.
+    -   **Strictly enforce Theme Usage**: Always access colors, spacing, and breakpoints through the theme.
+        -   Use `theme.palette.primary.main`, `theme.palette.text.secondary`, etc., instead of hardcoded hex codes.
+        -   Use `theme.spacing(2)` (or just `2` inside `sx` for spacing props) instead of `16px` or `1rem`.
+        -   Use `theme.breakpoints.up('md')` for responsive designs.
+
+2.  **Components**:
+    -   Use MUI components whenever possible (e.g., `Box`, `Stack`, `Container`) instead of `div`.
+    -   Use the `Typography` component with appropriate `variant` props instead of native HTML tags like `h1`, `h2`, `p`.
+    -   Prefer named imports: `import { Box, Typography } from '@mui/material';`.

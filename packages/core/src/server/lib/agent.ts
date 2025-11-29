@@ -24,6 +24,7 @@ import { ethers } from 'ethers';
 import type { AgentDetail, AgentIdentifier } from '../models/agentDetail';
 import type { FeedbackFile } from '@agentic-trust/8004-sdk';
 import type { PreparedTransaction } from '../../client/walletSigning';
+import type { SessionPackage } from '../../shared/sessionPackage';
 
 // Re-export types
 export type {
@@ -94,6 +95,7 @@ export class Agent {
   private agentCard: AgentCard | null = null;
   private endpoint: { providerId: string; endpoint: string; method?: string } | null = null;
   private initialized: boolean = false;
+  private sessionPackage: SessionPackage | null = null;
 
   constructor(
     public readonly data: AgentData,
@@ -505,7 +507,56 @@ export class Agent {
   }
 
   /**
+   * Set SessionPackage for this agent instance.
+   * This allows dynamically setting the SessionPackage based on request context
+   * (e.g., subdomain-based routing in provider apps).
+   * 
+   * This is server-side only and specific to providerApp configuration.
+   * 
+   * @param sessionPackage - The SessionPackage to use for this agent instance
+   */
+  setSessionPackage(sessionPackage: SessionPackage): void {
+    this.sessionPackage = sessionPackage;
+  }
+
+  /**
+   * Build a providerApp-like structure from a SessionPackage.
+   * This is used when a SessionPackage is set on the agent instance.
+   */
+  private async buildProviderAppFromSessionPackage(
+    sessionPackage: SessionPackage
+  ): Promise<{
+    sessionPackage: SessionPackage;
+    agentAccount: any;
+    publicClient: any;
+    walletClient: any;
+    agentId: bigint;
+  }> {
+    const { buildDelegationSetup, buildAgentAccountFromSession } = await import('./sessionPackage');
+    const delegationSetup = buildDelegationSetup(sessionPackage);
+    const agentAccount = await buildAgentAccountFromSession(sessionPackage);
+
+    // Create wallet client for agent
+    const { createWalletClient, http: httpTransport } = await import('viem');
+    const walletClient = createWalletClient({
+      account: agentAccount,
+      chain: delegationSetup.chain,
+      transport: httpTransport(delegationSetup.rpcUrl),
+    });
+
+    return {
+      sessionPackage,
+      agentAccount,
+      publicClient: delegationSetup.publicClient as any,
+      walletClient: walletClient as any,
+      agentId: BigInt(sessionPackage.agentId),
+    };
+  }
+
+  /**
    * Issue a feedback authorization on behalf of this agent using the provider app's signer.
+   * If a SessionPackage is set on this agent instance, it will be used instead of the
+   * singleton providerApp. This allows dynamic SessionPackage selection based on request context.
    */
   async requestAuth(params: FeedbackAuthIssueParams): Promise<{
     feedbackAuth: `0x${string}`;
@@ -513,9 +564,24 @@ export class Agent {
     clientAddress: `0x${string}`;
     skill: string;
   }> {
-    const providerApp = await getProviderApp();
-    if (!providerApp) {
-      throw new Error('provider app not initialized');
+    // Use SessionPackage from agent instance if set, otherwise use singleton providerApp
+    let providerApp: {
+      agentAccount: any;
+      publicClient: any;
+      walletClient: any;
+      agentId: bigint;
+    };
+
+    if (this.sessionPackage) {
+      // Build providerApp from the SessionPackage set on this agent instance
+      providerApp = await this.buildProviderAppFromSessionPackage(this.sessionPackage);
+    } else {
+      // Fall back to singleton providerApp
+      const singletonApp = await getProviderApp();
+      if (!singletonApp) {
+        throw new Error('provider app not initialized. Either set a SessionPackage on the agent instance or configure AGENTIC_TRUST_SESSION_PACKAGE_PATH environment variable.');
+      }
+      providerApp = singletonApp;
     }
 
     const clientAddress = params.clientAddress;
@@ -762,8 +828,7 @@ export async function loadAgentDetail(
   const identityClient = await getIdentityClient(resolvedChainId);
 
   const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
-  console.info("----------> tokenUri inside agent.ts -----> ", tokenUri);
-
+ 
   const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
   type MetadataKeys = (typeof METADATA_KEYS)[number];
   const metadata: Record<MetadataKeys, string> = {} as Record<MetadataKeys, string>;
@@ -796,7 +861,6 @@ export async function loadAgentDetail(
         tokenUri,
         registration,
       };
-      console.info("----------> identityRegistration inside agent.ts -----> ", identityRegistration);
     } catch (error) {
       console.warn('Failed to get IPFS registration:', error);
       identityRegistration = {
@@ -1030,7 +1094,6 @@ export async function loadAgentDetail(
     ? JSON.stringify(identityRegistration.registration, null, 2)
     : ((discoveryRecord.rawJson as string | null | undefined) ?? null);
 
-  console.info("----------> detail inside agent.ts -----> ", detail);
 
   return detail;
 }

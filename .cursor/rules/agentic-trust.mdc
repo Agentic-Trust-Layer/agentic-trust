@@ -1,0 +1,14 @@
+---
+description: Agentic Trust & ERC-8004 Guidelines
+globs: "**/*"
+---
+
+# Agentic Trust & ERC-8004
+
+When working with the Agentic Trust library, ERC-8004, agent identity, reputation feedback, or validation:
+
+-   **Reference Repository**: Always consult the official repository at [https://github.com/Agentic-Trust-Layer/agentic-trust](https://github.com/Agentic-Trust-Layer/agentic-trust) for the latest patterns, architecture, and implementation details.
+-   **Key Concepts**:
+    -   **Agent Identity**: Veramo integration, DID management.
+    -   **Reputation**: ERC-8004 feedback mechanisms.
+    -   **Validation**: Agent validation workflows.
