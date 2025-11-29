@@ -592,13 +592,13 @@ export default function AgentRegistrationPage() {
         }
 
         const data = await response.json();
-        const available = data?.available === true;
+        const available = data?.nameInfo?.available === true;
         setEnsAvailable(available);
-        if (!available && data?.existing) {
+        if (!available && data?.nameInfo) {
           setEnsExisting({
-            image: data.existing.image || null,
-            url: data.existing.url || null,
-            description: data.existing.description || null,
+            image: data.nameInfo.image || null,
+            url: data.nameInfo.url || null,
+            description: data.nameInfo.description || null,
           });
         } else {
           setEnsExisting(null);
