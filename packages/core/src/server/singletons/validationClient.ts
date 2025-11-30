@@ -53,7 +53,7 @@ class ValidationDomainClient extends DomainClient<AIAgentValidationClient, numbe
 
 const validationDomainClient = new ValidationDomainClient();
 
-export async function getValidationClient(
+export async function getValidationRegistryClient(
   chainId?: number,
 ): Promise<AIAgentValidationClient> {
   const targetChainId: number = chainId || DEFAULT_CHAIN_ID;

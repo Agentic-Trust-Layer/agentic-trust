@@ -48,10 +48,12 @@ class IdentityDomainClient extends DomainClient<AIAgentIdentityClient, number> {
     });
 
     // Create identity client using AccountProvider
-    return new AIAgentIdentityClient({
+    const identityClient = new AIAgentIdentityClient({
       accountProvider,
       identityRegistryAddress: identityRegistry as `0x${string}`,
     });
+
+    return identityClient;
   }
 }
 
@@ -61,7 +63,7 @@ const identityDomainClient = new IdentityDomainClient();
  * Get or create the AIAgentIdentityClient singleton
  * Initializes from environment variables using AccountProvider
  */
-export async function getIdentityClient(chainId?: number): Promise<AIAgentIdentityClient> {
+export async function getIdentityRegistryClient(chainId?: number): Promise<AIAgentIdentityClient> {
   // Default to configured chain if no chainId provided
   const targetChainId: number = chainId || DEFAULT_CHAIN_ID;
   return identityDomainClient.get(targetChainId);
@@ -82,4 +84,3 @@ export function resetIdentityClient(chainId?: number): void {
   const targetChainId = chainId || DEFAULT_CHAIN_ID;
   identityDomainClient.reset(targetChainId);
 }
-

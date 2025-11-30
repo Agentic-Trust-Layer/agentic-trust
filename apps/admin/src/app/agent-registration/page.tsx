@@ -7,7 +7,7 @@ import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address } from 'viem';
 import { createAgentWithWallet, getCounterfactualAAAddressByAgentName, createAgentDirect, getDeployedAccountClientByAgentName } from '@agentic-trust/core/client';
-import { requestValidationWithWallet, buildDid8004 } from '@agentic-trust/core';
+import { requestENSValidationWithWallet, buildDid8004 } from '@agentic-trust/core';
 import type { Chain } from 'viem';
 import {
   getEnsOrgName,
@@ -950,11 +950,11 @@ export default function AgentRegistrationPage() {
               const did8004 = buildDid8004(selectedChainId || DEFAULT_CHAIN_ID, finalAgentId);
 
               // Submit validation request using the new pattern
-              const validationResult = await requestValidationWithWallet({
-                did8004,
+              const validationResult = await requestENSValidationWithWallet({
+                requesterDid: did8004,
                 chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
-                accountClient: agentAccountClient,
-                onStatusUpdate: (msg) => console.log('[Validation Request]', msg),
+                requesterAccountClient: agentAccountClient,
+                onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
               });
 
               setSuccess(

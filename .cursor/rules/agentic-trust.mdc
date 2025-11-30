@@ -12,3 +12,42 @@ When working with the Agentic Trust library, ERC-8004, agent identity, reputatio
     -   **Agent Identity**: Veramo integration, DID management.
     -   **Reputation**: ERC-8004 feedback mechanisms.
     -   **Validation**: Agent validation workflows.
+-   **Sending UserOperations (Bundler)**:
+    -   When sending a UserOperation via a bundler (Account Abstraction), always use the following pattern to ensure proper sponsorship and fee handling.
+    -   Use `permissionless` to fetch gas prices if available.
+    -   Use `bundlerClient.sendUserOperation` with the `account` object.
+    -   Wait for the receipt using `waitForUserOperationReceipt`.
+
+    ```typescript
+    import { createBundlerClient, http } from 'viem/account-abstraction';
+    // import { createPimlicoClient } from 'permissionless/clients/pimlico'; // Dynamic import preferred
+
+    // 1. Create Bundler Client
+    const bundlerClient = createBundlerClient({
+      transport: http(bundlerUrl),
+      paymaster: true, // Enable paymaster (SPONSORED)
+      chain: chain,
+      paymasterContext: { mode: 'SPONSORED' },
+    });
+
+    // 2. Fetch Gas Fees (Optional but recommended for Pimlico)
+    let fee = {};
+    try {
+      const { createPimlicoClient } = await import('permissionless/clients/pimlico');
+      const pimlico = createPimlicoClient({ transport: http(bundlerUrl) });
+      const gas = await pimlico.getUserOperationGasPrice();
+      fee = gas.fast || {};
+    } catch (e) {
+      // Fallback or ignore
+    }
+
+    // 3. Send UserOperation
+    const userOpHash = await bundlerClient.sendUserOperation({
+      account: accountClient,
+      calls: calls, // Your array of calls
+      ...fee,
+    });
+
+    // 4. Wait for Receipt
+    const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
+    ```

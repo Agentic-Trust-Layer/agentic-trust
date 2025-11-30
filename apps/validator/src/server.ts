@@ -113,17 +113,17 @@ app.get('/api/status', async (req: Request, res: Response) => {
       chainId,
     );
 
-    const { getValidationClient } = await import('@agentic-trust/core/server');
-    const validationClient = await getValidationClient(chainId);
+    const { getValidationRegistryClient } = await import('@agentic-trust/core/server');
+    const validationRegistryClient = await getValidationRegistryClient(chainId);
 
-    const requestHashes = await validationClient.getValidatorRequests(validatorAddress);
+    const requestHashes = await validationRegistryClient.getValidatorRequests(validatorAddress);
 
     const pending: unknown[] = [];
     const completed: unknown[] = [];
 
     for (const hash of requestHashes) {
       try {
-        const status = await validationClient.getValidationStatus(hash);
+        const status = await validationRegistryClient.getValidationStatus(hash);
         if (status.response === 0) {
           pending.push({
             requestHash: hash,

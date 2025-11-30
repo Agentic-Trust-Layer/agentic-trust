@@ -1033,14 +1033,8 @@ export class AgentsAPI {
         );
       }
 
-      // If advanced search fails or returns null, return empty results (no fallback)
-      return {
-        agents: [],
-        total: 0,
-        page: requestedPage,
-        pageSize: effectivePageSize,
-        totalPages: 0,
-      };
+      // If advanced search fails or returns null, fall back to the default
+      // pagination logic below which uses listAgents.
     }
 
     // If no filters, use listAgents to get default list from GraphQL endpoint.

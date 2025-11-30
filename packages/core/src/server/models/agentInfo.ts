@@ -34,7 +34,9 @@ export interface AgentInfo {
    */
   feedbackCount?: number | null;
   feedbackAverageScore?: number | null;
+  validationPendingCount?: number | null;
   validationCompletedCount?: number | null;
+  validationRequestedCount?: number | null;
 }
 
 

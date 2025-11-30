@@ -16,9 +16,9 @@ import type {
 import type { AgentData as DiscoveryAgentData, GiveFeedbackParams } from '@agentic-trust/8004-ext-sdk';
 import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 import { getProviderApp } from '../userApps/providerApp';
-import { getReputationClient } from '../singletons/reputationClient';
+import { getReputationRegistryClient } from '../singletons/reputationClient';
 import { getIPFSStorage } from './ipfs';
-import { getIdentityClient } from '../singletons/identityClient';
+import { getIdentityRegistryClient } from '../singletons/identityClient';
 import { DEFAULT_CHAIN_ID, requireChainEnvVar } from './chainConfig';
 import { ethers } from 'ethers';
 import type { AgentDetail, AgentIdentifier } from '../models/agentDetail';
@@ -200,6 +200,61 @@ export class Agent {
     }
     if (typeof value === 'string' && value.trim().length > 0) {
       return value.trim();
+    }
+    return undefined;
+  }
+
+  /**
+   * Get validation pending count
+   */
+  get validationPendingCount(): number | undefined {
+    const value = this.data.validationPendingCount;
+    if (typeof value === 'number') {
+      return value;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get validation completed count
+   */
+  get validationCompletedCount(): number | undefined {
+    const value = this.data.validationCompletedCount;
+    if (typeof value === 'number') {
+      return value;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get validation requested count
+   */
+  get validationRequestedCount(): number | undefined {
+    const value = this.data.validationRequestedCount;
+    if (typeof value === 'number') {
+      return value;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get feedback count
+   */
+  get feedbackCount(): number | undefined {
+    const value = this.data.feedbackCount;
+    if (typeof value === 'number') {
+      return value;
+    }
+    return undefined;
+  }
+
+  /**
+   * Get feedback average score
+   */
+  get feedbackAverageScore(): number | undefined {
+    const value = this.data.feedbackAverageScore;
+    if (typeof value === 'number') {
+      return value;
     }
     return undefined;
   }
@@ -739,7 +794,7 @@ export class Agent {
       ...params,
       feedbackAuth: params.feedbackAuth,
     });
-    const reputationClient = await getReputationClient(chainId);
+    const reputationClient = await getReputationRegistryClient(chainId);
     return reputationClient.giveClientFeedback(giveParams);
   }
 
@@ -757,7 +812,7 @@ export class Agent {
       ...params,
       feedbackAuth: params.feedbackAuth,
     });
-    const reputationClient = await getReputationClient(chainId);
+    const reputationClient = await getReputationRegistryClient(chainId);
     const txRequest = await reputationClient.prepareGiveFeedbackTx(giveParams);
 
     const toHex = (value?: bigint): `0x${string}` | undefined =>
@@ -825,7 +880,7 @@ export async function loadAgentDetail(
     agentId = agentIdBigInt.toString();
   }
 
-  const identityClient = await getIdentityClient(resolvedChainId);
+  const identityClient = await getIdentityRegistryClient(resolvedChainId);
 
   const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
  

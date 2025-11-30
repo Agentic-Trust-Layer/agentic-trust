@@ -1396,33 +1396,33 @@ export async function giveFeedbackWithWallet(
  * 
  * **Usage:**
  * ```typescript
- * import { requestValidationWithWallet } from '@agentic-trust/core/client';
+ * import { requestENSValidationWithWallet } from '@agentic-trust/core/client';
  * 
- * const result = await requestValidationWithWallet({
- *   did8004: 'did:8004:11155111:123',
+ * const result = await requestENSValidationWithWallet({
+ *   requesterDid: 'did:8004:11155111:123',
  *   chain: sepolia,
- *   accountClient: agentAccountClient,
+ *   requesterAccountClient: agentAccountClient,
  *   requestUri: 'https://...',
  *   onStatusUpdate: (msg) => console.log(msg),
  * });
  * ```
  */
 export interface RequestValidationWithWalletOptions {
-  did8004: string;
+  requesterDid: string;
   chain: Chain;
-  accountClient: any; // Agent account abstraction client
+  requesterAccountClient: any; // Agent account abstraction client (the requester)
   requestUri?: string;
   requestHash?: string;
   onStatusUpdate?: (status: string) => void;
 }
 
-export async function requestValidationWithWallet(
+export async function requestENSValidationWithWallet(
   options: RequestValidationWithWalletOptions,
 ): Promise<{ txHash: string; requiresClientSigning: true; validatorAddress: string; requestHash: string }> {
   const {
-    did8004,
+    requesterDid,
     chain,
-    accountClient,
+    requesterAccountClient,
     requestUri,
     requestHash,
     onStatusUpdate,
@@ -1432,7 +1432,7 @@ export async function requestValidationWithWallet(
 
   let prepared: AgentOperationPlan;
   try {
-    const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/validation-request`, {
+    const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -1476,7 +1476,7 @@ export async function requestValidationWithWallet(
   const userOpHash = await sendSponsoredUserOperation({
     bundlerUrl,
     chain: chain as any,
-    accountClient,
+    accountClient: requesterAccountClient,
     calls: validationCalls,
   });
 

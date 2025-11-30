@@ -474,8 +474,8 @@ export async function prepareValidationRequestCore(
   }
 
   // Get validation client
-  const { getValidationClient } = await import('../../server/singletons/validationClient');
-  const validationClient = await getValidationClient(parsed.chainId);
+  const { getValidationRegistryClient } = await import('../../server/singletons/validationClient');
+  const validationClient = await getValidationRegistryClient(parsed.chainId);
 
   // Get validator account address server-side (name: 'validator-ens')
   const { createValidatorAccountAbstraction } = await import('../../server/lib/validations');

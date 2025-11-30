@@ -6,8 +6,9 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
-import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestValidationWithWallet } from '@agentic-trust/core';
+import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestENSValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse } from '@agentic-trust/core/server';
+import type { ValidationStatus } from '@agentic-trust/8004-sdk';
 import {
   getSupportedChainIds,
   getChainDisplayMetadata,
@@ -17,11 +18,43 @@ import {
 } from '@agentic-trust/core/server';
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 type Agent = DiscoverResponse['agents'][number];
+type ValidationStatusWithHash = ValidationStatus & { requestHash?: string };
+type ValidatorAgentDetailsState = {
+  loading: boolean;
+  error: string | null;
+  agent: Record<string, any> | null;
+};
 
 const CHAIN_SUFFIX_MAP: Record<number, string> = {
   11155111: 'SEPOLIA',
   84532: 'BASE_SEPOLIA',
   11155420: 'OPTIMISM_SEPOLIA',
+};
+
+const shortenHex = (value: string | null | undefined, leading = 6, trailing = 4): string => {
+  if (!value) return 'N/A';
+  if (value.length <= leading + trailing) return value;
+  return `${value.slice(0, leading)}…${value.slice(-trailing)}`;
+};
+
+const formatValidationTimestamp = (value: unknown): string => {
+  if (value === null || value === undefined) {
+    return 'Unknown';
+  }
+  const numeric =
+    typeof value === 'bigint'
+      ? Number(value)
+      : typeof value === 'number'
+        ? value
+        : Number.parseInt(String(value), 10);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 'Unknown';
+  }
+  const date = new Date(numeric * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown';
+  }
+  return date.toLocaleString();
 };
 
 const getEnvVarHints = (chainId: number) => {
@@ -97,6 +130,21 @@ export default function AdminPage() {
     return entries;
   }, [supportedChainIds]);
 
+  const parsedQueryChainId = useMemo(() => {
+    if (!queryChainId) return null;
+    const parsed = Number.parseInt(queryChainId, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [queryChainId]);
+
+  const selectedAgentDid8004 = useMemo(() => {
+    if (!parsedQueryChainId || !queryAgentId) return null;
+    try {
+      return buildDid8004(parsedQueryChainId, queryAgentId);
+    } catch {
+      return null;
+    }
+  }, [parsedQueryChainId, queryAgentId]);
+
   function formatJsonIfPossible(text: string): string {
     try {
       const parsed = JSON.parse(text);
@@ -160,7 +208,13 @@ export default function AdminPage() {
 
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
   const [activeManagementTab, setActiveManagementTab] = useState<
-    'agentInfo' | 'registration' | 'session' | 'delete' | 'transfer' | 'validation'
+    | 'agentInfo'
+    | 'registration'
+    | 'session'
+    | 'delete'
+    | 'transfer'
+    | 'validation'
+    | 'agentValidation'
   >('agentInfo');
  
   const handleGenerateSessionPackage = useCallback(
@@ -208,6 +262,54 @@ export default function AdminPage() {
     },
     [isEditMode, queryAgentId, queryChainId, queryAgentAddress, eip1193Provider, headerAddress],
   );
+
+  const refreshAgentValidationSummary = useCallback(async () => {
+    if (!isEditMode || !queryAgentId || !parsedQueryChainId) {
+      setAgentValidationSummary({
+        loading: false,
+        error: isEditMode ? 'Select an agent to view validations.' : null,
+        pending: [],
+        completed: [],
+      });
+      setValidatorAgentDetails({ loading: false, error: null, agent: null });
+      return;
+    }
+
+    const did8004 = buildDid8004(parsedQueryChainId, queryAgentId);
+    setAgentValidationSummary((prev) => ({
+      ...prev,
+      loading: true,
+      error: null,
+    }));
+
+    try {
+      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/validations`);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to load validations');
+      }
+
+      const data = await response.json();
+      const pendingArray = Array.isArray(data.pending) ? (data.pending as ValidationStatusWithHash[]) : [];
+      const completedArray = Array.isArray(data.completed) ? (data.completed as ValidationStatusWithHash[]) : [];
+      setAgentValidationSummary({
+        loading: false,
+        error: null,
+        pending: pendingArray,
+        completed: completedArray,
+      });
+      setSelectedPendingValidationIndex(0);
+      setValidatorAgentDetails({ loading: false, error: null, agent: null });
+    } catch (error: any) {
+      setAgentValidationSummary({
+        loading: false,
+        error: error?.message ?? 'Failed to load validations',
+        pending: [],
+        completed: [],
+      });
+      setValidatorAgentDetails({ loading: false, error: null, agent: null });
+    }
+  }, [isEditMode, parsedQueryChainId, queryAgentId]);
   const adminReady = authPrivateKeyMode || authConnected;
   const adminGate = (
     <section
@@ -666,6 +768,32 @@ export default function AdminPage() {
   const [validatorAddress, setValidatorAddress] = useState<string | null>(null);
   const [requestUri, setRequestUri] = useState<string | null>(null);
   const [requestHash, setRequestHash] = useState<string | null>(null);
+  const [agentValidationSummary, setAgentValidationSummary] = useState<{
+    loading: boolean;
+    error: string | null;
+    pending: ValidationStatusWithHash[];
+    completed: ValidationStatusWithHash[];
+  }>({
+    loading: false,
+    error: null,
+    pending: [],
+    completed: [],
+  });
+  const [selectedPendingValidationIndex, setSelectedPendingValidationIndex] = useState(0);
+  const validatorAgentCacheRef = useRef<Map<string, Record<string, any>>>(new Map());
+  const [validatorAgentDetails, setValidatorAgentDetails] = useState<ValidatorAgentDetailsState>({
+    loading: false,
+    error: null,
+    agent: null,
+  });
+  const pendingValidations = agentValidationSummary.pending;
+  const completedValidations = agentValidationSummary.completed;
+  const selectedPendingValidation =
+    pendingValidations[selectedPendingValidationIndex] ?? null;
+  const validatorAgentEndpoint =
+    (validatorAgentDetails.agent?.a2aEndpoint as string | undefined) ??
+    (validatorAgentDetails.agent?.agentAccountEndpoint as string | undefined) ??
+    null;
 
   useEffect(() => {
     if (!isEditMode || !queryAgentId || !queryChainId) {
@@ -715,6 +843,81 @@ export default function AdminPage() {
     // Reset validator address when agent changes
     setValidatorAddress(null);
   }, [isEditMode, queryAgentId, queryChainId]);
+
+  useEffect(() => {
+    if (!isEditMode || activeManagementTab !== 'agentValidation') {
+      return;
+    }
+    refreshAgentValidationSummary();
+  }, [isEditMode, activeManagementTab, refreshAgentValidationSummary]);
+
+  useEffect(() => {
+    if (selectedPendingValidationIndex === 0) {
+      return;
+    }
+    if (selectedPendingValidationIndex >= agentValidationSummary.pending.length) {
+      setSelectedPendingValidationIndex(0);
+    }
+  }, [agentValidationSummary.pending.length, selectedPendingValidationIndex]);
+
+  useEffect(() => {
+    setSelectedPendingValidationIndex(0);
+    setValidatorAgentDetails({ loading: false, error: null, agent: null });
+  }, [queryAgentId, queryChainId]);
+
+  useEffect(() => {
+    if (!isEditMode || activeManagementTab !== 'agentValidation') {
+      return;
+    }
+    if (!selectedPendingValidation || !selectedPendingValidation.validatorAddress || !queryChainId) {
+      setValidatorAgentDetails((prev) =>
+        prev.loading || prev.agent
+          ? { loading: false, error: null, agent: null }
+          : prev,
+      );
+      return;
+    }
+
+    const validatorAddressNormalized = selectedPendingValidation.validatorAddress.toLowerCase();
+    const cached = validatorAgentCacheRef.current.get(validatorAddressNormalized);
+    if (cached) {
+      setValidatorAgentDetails({ loading: false, error: null, agent: cached });
+      return;
+    }
+
+    let cancelled = false;
+    setValidatorAgentDetails({ loading: true, error: null, agent: null });
+    const didEthr = `did:ethr:${queryChainId}:${selectedPendingValidation.validatorAddress}`;
+
+    (async () => {
+      try {
+        const response = await fetch(`/api/agents/by-account/${encodeURIComponent(didEthr)}`);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || 'Failed to load validator agent');
+        }
+        const data = await response.json();
+        if (cancelled) {
+          return;
+        }
+        validatorAgentCacheRef.current.set(validatorAddressNormalized, data);
+        setValidatorAgentDetails({ loading: false, error: null, agent: data });
+      } catch (error: any) {
+        if (cancelled) {
+          return;
+        }
+        setValidatorAgentDetails({
+          loading: false,
+          error: error?.message ?? 'Failed to load validator agent',
+          agent: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, activeManagementTab, selectedPendingValidation, queryChainId]);
 
 
 
@@ -844,11 +1047,11 @@ export default function AdminPage() {
       const did8004 = buildDid8004(chainId, queryAgentId);
 
       // Submit validation request using the new pattern
-      const result = await requestValidationWithWallet({
-        did8004,
+      const result = await requestENSValidationWithWallet({
+        requesterDid: did8004,
         chain: chain as any,
-        accountClient: agentAccountClient,
-        onStatusUpdate: (msg) => console.log('[Validation Request]', msg),
+        requesterAccountClient: agentAccountClient,
+        onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
       });
 
       setSuccess(
@@ -1104,6 +1307,23 @@ export default function AdminPage() {
               }}
             >
               ENS Validation
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveManagementTab('agentValidation')}
+              style={{
+                padding: '0.5rem 0.75rem',
+                borderRadius: '6px',
+                border: '1px solid',
+                borderColor: activeManagementTab === 'agentValidation' ? '#2f2f2f' : '#dcdcdc',
+                backgroundColor: activeManagementTab === 'agentValidation' ? '#f3f3f3' : '#ffffff',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '0.9rem',
+              }}
+            >
+              Agent Validation
             </button>
           </nav>
         )}
@@ -1603,6 +1823,219 @@ export default function AdminPage() {
               Transfer Agent
             </button>
           </form>
+        </div>
+        )}
+        {(!isEditMode || activeManagementTab === 'agentValidation') && (
+        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Validation</h2>
+          {isEditMode && queryAgentId && queryChainId ? (
+            <>
+              <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b', marginBottom: '1.25rem' }}>
+                Review pending validation requests for this agent, inspect the validator account, and surface the validator&apos;s A2A endpoint for quick follow-up.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 320px)', gap: '1.25rem', alignItems: 'flex-start' }}>
+                <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '0.75rem',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
+                      <div
+                        style={{
+                          padding: '0.5rem 0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid #dcdcdc',
+                          minWidth: '120px',
+                          backgroundColor: '#f7f7f7',
+                        }}
+                      >
+                        <div style={{ fontSize: '0.75rem', color: '#666' }}>Pending</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{pendingValidations.length}</div>
+                      </div>
+                      <div
+                        style={{
+                          padding: '0.5rem 0.75rem',
+                          borderRadius: '6px',
+                          border: '1px solid #dcdcdc',
+                          minWidth: '120px',
+                          backgroundColor: '#f7f7f7',
+                        }}
+                      >
+                        <div style={{ fontSize: '0.75rem', color: '#666' }}>Completed</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{completedValidations.length}</div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={refreshAgentValidationSummary}
+                      disabled={agentValidationSummary.loading}
+                      style={{
+                        padding: '0.5rem 0.75rem',
+                        borderRadius: '6px',
+                        border: '1px solid #2f2f2f',
+                        backgroundColor: agentValidationSummary.loading ? '#cfcfcf' : '#2f2f2f',
+                        color: '#fff',
+                        cursor: agentValidationSummary.loading ? 'not-allowed' : 'pointer',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {agentValidationSummary.loading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                  </div>
+                  {agentValidationSummary.error && (
+                    <p style={{ color: '#b91c1c' }}>{agentValidationSummary.error}</p>
+                  )}
+                  {agentValidationSummary.loading ? (
+                    <p style={{ color: '#555' }}>Loading validations…</p>
+                  ) : (
+                    <div
+                      style={{
+                        border: '1px solid #dcdcdc',
+                        borderRadius: '8px',
+                        backgroundColor: '#f9f9f9',
+                        padding: '0.5rem',
+                        minHeight: '120px',
+                      }}
+                    >
+                      <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>
+                        Pending validations ({pendingValidations.length})
+                      </h3>
+                      {pendingValidations.length === 0 ? (
+                        <p style={{ color: '#666', margin: 0 }}>No pending validations.</p>
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                          {pendingValidations.map((item, index) => {
+                            const isActive = index === selectedPendingValidationIndex;
+                            return (
+                              <button
+                                type="button"
+                                key={item.requestHash ?? `${item.validatorAddress}-${index}`}
+                                onClick={() => setSelectedPendingValidationIndex(index)}
+                                style={{
+                                  padding: '0.75rem',
+                                  borderRadius: '6px',
+                                  border: '1px solid',
+                                  borderColor: isActive ? '#4c51bf' : '#d1d5db',
+                                  backgroundColor: isActive ? '#eef2ff' : '#ffffff',
+                                  textAlign: 'left',
+                                  cursor: 'pointer',
+                                }}
+                              >
+                                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
+                                  Validator: {shortenHex(item.validatorAddress)}
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: '#4b5563' }}>
+                                  Updated: {formatValidationTimestamp(item.lastUpdate)}
+                                </div>
+                                <div style={{ fontSize: '0.8rem', color: '#4b5563' }}>
+                                  Request Hash: {shortenHex(item.requestHash)}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      border: '1px solid #dcdcdc',
+                      borderRadius: '8px',
+                      padding: '0.5rem 0.75rem',
+                      backgroundColor: '#fafafa',
+                    }}
+                  >
+                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>
+                      Completed validations ({completedValidations.length})
+                    </h3>
+                    {completedValidations.length === 0 ? (
+                      <p style={{ color: '#666', margin: 0 }}>No completed validations.</p>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.85rem', color: '#374151' }}>
+                        {completedValidations.slice(0, 5).map((item, index) => (
+                          <li key={item.requestHash ?? `${item.validatorAddress}-completed-${index}`}>
+                            {shortenHex(item.requestHash)} • {shortenHex(item.validatorAddress)} • response {item.response}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {completedValidations.length > 5 && (
+                      <p style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                        And {completedValidations.length - 5} more…
+                      </p>
+                    )}
+                  </div>
+                </section>
+                <aside
+                  style={{
+                    border: '1px solid #dcdcdc',
+                    borderRadius: '8px',
+                    padding: '1rem',
+                    backgroundColor: '#fdfdfd',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1rem',
+                  }}
+                >
+                  <div>
+                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Selected Agent</h3>
+                    <div style={{ fontSize: '0.85rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                      <span><strong>Name:</strong> {searchParams?.get('agentName') || '(not available)'}</span>
+                      <span><strong>Agent ID:</strong> {queryAgentId}</span>
+                      <span><strong>DID:</strong> {selectedAgentDid8004 || 'Unavailable'}</span>
+                      <span><strong>Chain:</strong> {queryChainId}</span>
+                      <span>
+                        <strong>Account:</strong>{' '}
+                        {queryAgentAddress ? <span style={{ fontFamily: 'monospace' }}>{queryAgentAddress}</span> : '(not available)'}
+                      </span>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Pending Validation Detail</h3>
+                    {pendingValidations.length === 0 || !selectedPendingValidation ? (
+                      <p style={{ color: '#666', margin: 0 }}>Select a pending validation to view details.</p>
+                    ) : (
+                      <div style={{ fontSize: '0.85rem', color: '#1f2937', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        <span><strong>Validator:</strong> {selectedPendingValidation.validatorAddress}</span>
+                        <span><strong>Request hash:</strong> {selectedPendingValidation.requestHash || '(not available)'}</span>
+                        <span><strong>Last update:</strong> {formatValidationTimestamp(selectedPendingValidation.lastUpdate)}</span>
+                        <span><strong>Tag:</strong> {selectedPendingValidation.tag || '(none)'}</span>
+                        <span><strong>Response hash:</strong> {selectedPendingValidation.responseHash || '(none)'}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Validator Agent</h3>
+                    {pendingValidations.length === 0 || !selectedPendingValidation ? (
+                      <p style={{ color: '#666', margin: 0 }}>No validator selected.</p>
+                    ) : validatorAgentDetails.loading ? (
+                      <p style={{ color: '#666', margin: 0 }}>Loading validator agent…</p>
+                    ) : validatorAgentDetails.error ? (
+                      <p style={{ color: '#b91c1c', margin: 0 }}>{validatorAgentDetails.error}</p>
+                    ) : validatorAgentDetails.agent ? (
+                      <div style={{ fontSize: '0.85rem', color: '#1f2937', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                        <span><strong>Name:</strong> {validatorAgentDetails.agent.agentName || '(not available)'}</span>
+                        <span><strong>Agent ID:</strong> {validatorAgentDetails.agent.agentId || '(not available)'}</span>
+                        <span><strong>DID:</strong> {validatorAgentDetails.agent.didIdentity || validatorAgentDetails.agent.did || '(not available)'}</span>
+                        <span><strong>A2A endpoint:</strong> {validatorAgentEndpoint || '(not available)'}</span>
+                      </div>
+                    ) : (
+                      <p style={{ color: '#666', margin: 0 }}>No agent information found for this validator.</p>
+                    )}
+                  </div>
+                </aside>
+              </div>
+            </>
+          ) : (
+            <p style={{ color: '#777', fontStyle: 'italic' }}>
+              Please navigate to an agent to view validation information.
+            </p>
+          )}
         </div>
         )}
         {(!isEditMode || activeManagementTab === 'validation') && (

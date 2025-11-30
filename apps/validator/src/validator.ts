@@ -44,7 +44,7 @@ if (result.error) {
 
 import {
   getAgenticTrustClient,
-  getValidationClient,
+  getValidationRegistryClient,
   getValidatorApp,
   createValidatorAccountAbstraction,
   getENSClient,
@@ -117,7 +117,7 @@ export async function processValidationRequests(
   console.log(`[Validator] Initializing validation client...`);
   let validationClient;
   try {
-    validationClient = await getValidationClient(chainId);
+    validationClient = await getValidationRegistryClient(chainId);
     console.log(`[Validator] ✓ Validation client initialized successfully`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

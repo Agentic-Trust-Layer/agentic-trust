@@ -34,7 +34,9 @@ export type AgentsPageAgent = {
    createdAtTime?: number | null;
   feedbackCount?: number | null;
   feedbackAverageScore?: number | null;
+  validationPendingCount?: number | null;
   validationCompletedCount?: number | null;
+  validationRequestedCount?: number | null;
 };
 
 type Agent = AgentsPageAgent;
@@ -2809,6 +2811,16 @@ export function AgentsPage({
               agent.validationCompletedCount >= 0
                 ? agent.validationCompletedCount
                 : 0;
+            const validationsPendingCount =
+              typeof agent.validationPendingCount === 'number' &&
+              agent.validationPendingCount >= 0
+                ? agent.validationPendingCount
+                : 0;
+            const validationsRequestedCount =
+              typeof agent.validationRequestedCount === 'number' &&
+              agent.validationRequestedCount >= 0
+                ? agent.validationRequestedCount
+                : 0;
             const averageRating =
               typeof agent.feedbackAverageScore === 'number' &&
               Number.isFinite(agent.feedbackAverageScore)
@@ -3230,26 +3242,25 @@ export function AgentsPage({
                         reviews ({reviewsCount.toLocaleString()})
                       </button>
                     )}
-                    {validationsCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.stopPropagation();
-                          openActionDialog(agent, 'validations' as any);
-                        }}
-                        style={{
-                          padding: 0,
-                          border: 'none',
-                          background: 'none',
-                          color: palette.accent,
-                          fontSize: '0.8rem',
-                          cursor: 'pointer',
-                          textDecoration: 'underline',
-                        }}
-                      >
-                        validations ({validationsCount.toLocaleString()})
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={event => {
+                        event.stopPropagation();
+                        openActionDialog(agent, 'validations' as any);
+                      }}
+                      style={{
+                        padding: 0,
+                        border: 'none',
+                        background: 'none',
+                        color: palette.accent,
+                        fontSize: '0.8rem',
+                        cursor: 'pointer',
+                        textDecoration: 'underline',
+                      }}
+                      title={`Completed: ${validationsCount}, Pending: ${validationsPendingCount}, Requested: ${validationsRequestedCount}`}
+                    >
+                      validations ({validationsCount} / {validationsPendingCount} / {validationsRequestedCount})
+                    </button>
                   </div>
                 </div>
               </article>

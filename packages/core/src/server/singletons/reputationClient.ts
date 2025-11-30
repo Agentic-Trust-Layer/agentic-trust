@@ -52,7 +52,7 @@ const reputationDomainClient = new ReputationDomainClient();
  * Get or create the AIAgentReputationClient singleton
  * Initializes from session package if available, otherwise uses environment variables
  */
-export async function getReputationClient(
+export async function getReputationRegistryClient(
   chainId?: number,
 ): Promise<AIAgentReputationClient> {
   // Default to configured chain if no chainId provided
@@ -75,4 +75,3 @@ export function resetReputationClient(chainId?: number): void {
   const targetChainId = chainId || DEFAULT_CHAIN_ID;
   reputationDomainClient.reset(targetChainId);
 }
-

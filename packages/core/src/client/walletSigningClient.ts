@@ -13,6 +13,7 @@ export {
   createAgentWithWallet,
   updateAgentRegistrationWithWallet,
   giveFeedbackWithWallet,
+  requestENSValidationWithWallet,
   getCounterfactualAccountClientByAgentName,
   getDeployedAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,
@@ -29,6 +30,7 @@ export type {
   CreateAgentResult,
   UpdateAgentRegistrationWithWalletOptions,
   GiveFeedbackWithWalletOptions,
+  RequestValidationWithWalletOptions,
 } from './walletSigning';
 export type {
   CreateAgentDirectClientInput,

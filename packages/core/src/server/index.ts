@@ -272,7 +272,7 @@ export { buildAgentAccountFromSession } from './lib/sessionPackage';
 
 // Validation client and utilities
 export {
-  getValidationClient,
+  getValidationRegistryClient,
   isValidationClientInitialized,
   resetValidationClient,
 } from './singletons/validationClient';

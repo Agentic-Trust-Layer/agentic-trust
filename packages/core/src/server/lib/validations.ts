@@ -1,23 +1,28 @@
+import type { ValidationStatus } from '@agentic-trust/8004-sdk';
 import { buildDid8004 } from '../../index';
-import { getValidationClient } from '../singletons/validationClient';
+import { getValidationRegistryClient } from '../singletons/validationClient';
 import { keccak256, stringToHex, createPublicClient, http, createWalletClient, type Chain } from 'viem';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getChainRpcUrl, getChainById, DEFAULT_CHAIN_ID, requireChainEnvVar } from './chainConfig';
 
+export interface ValidationStatusWithHash extends ValidationStatus {
+  requestHash: string;
+}
+
 export interface AgentValidationsSummary {
   agentId: string;
   chainId: number;
   did8004: string;
-  pending: unknown[];
-  completed: unknown[];
+  pending: ValidationStatusWithHash[];
+  completed: ValidationStatusWithHash[];
 }
 
 export async function getAgentValidationsSummary(
   chainId: number,
   agentId: string | number,
 ): Promise<AgentValidationsSummary> {
-  const client = await getValidationClient(chainId);
+  const client = await getValidationRegistryClient(chainId);
 
   const numericAgentId =
     typeof agentId === 'string' ? Number.parseInt(agentId, 10) : Number(agentId);
@@ -30,17 +35,21 @@ export async function getAgentValidationsSummary(
   const requestHashes = await client.getAgentValidations(agentIdBigInt);
   console.log(`[getAgentValidationsSummary] Found ${requestHashes.length} validation request hash(es) for agent ${numericAgentId} on chain ${chainId}`);
 
-  const pending: unknown[] = [];
-  const completed: unknown[] = [];
+  const pending: ValidationStatusWithHash[] = [];
+  const completed: ValidationStatusWithHash[] = [];
 
   for (const hash of requestHashes) {
     try {
       const status = await client.getValidationStatus(hash);
       console.log(`[getAgentValidationsSummary] Validation ${hash}: response=${status.response}, validator=${status.validatorAddress}`);
+      const entry: ValidationStatusWithHash = {
+        requestHash: hash,
+        ...status,
+      };
       if (status.response === 0) {
-        pending.push(status);
+        pending.push(entry);
       } else {
-        completed.push(status);
+        completed.push(entry);
       }
     } catch (error) {
       console.warn(`[getAgentValidationsSummary] Failed to get status for hash ${hash}:`, error);

@@ -6,7 +6,7 @@
 
 import type { PublicClient, Account } from 'viem';
 import { ethers } from 'ethers';
-import { getReputationClient } from '../singletons/reputationClient';
+import { getReputationRegistryClient } from '../singletons/reputationClient';
 
 // Cache for the ABI to avoid reloading it multiple times
 let abiCache: any = null;
@@ -21,15 +21,15 @@ const getIdentityRegistryAbi = async (): Promise<any> => {
     return abiCache;
   }
 
-  // Dynamic import works with webpack's module resolution and the package.json exports
   try {
-    const abiModule = await import('@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json');
-    abiCache = abiModule.default || abiModule;
+    // Dynamic import to avoid bundling JSON in client-side code if this module is tree-shaken improperly
+    const mod = await import('@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json');
+    abiCache = mod.default;
     return abiCache;
-  } catch (error: any) {
+  } catch (error) {
+    console.error('Failed to load IdentityRegistry ABI:', error);
     throw new Error(
-      `Failed to load IdentityRegistry ABI: ${error?.message || error}. ` +
-      `Make sure @agentic-trust/8004-ext-sdk is installed and the ABI file exists.`
+      `Failed to load IdentityRegistry ABI: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 };
@@ -59,7 +59,7 @@ export async function createFeedbackAuth(
   } = params;
 
   // Get the shared reputation client singleton
-  const reputationClient = await getReputationClient();
+  const reputationClient = await getReputationRegistryClient();
 
   // Get identity registry from reputation client
   const identityReg = await reputationClient.getIdentityRegistry();
@@ -101,6 +101,7 @@ export async function createFeedbackAuth(
     console.warn('[IdentityRegistry] approval check failed:', e?.message || e);
     throw e;
   }
+
 
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
   const chainId = BigInt(publicClient.chain?.id ??  0);
@@ -155,13 +156,6 @@ export async function createFeedbackAuth(
 
   console.info("signature: ", signature);
 
-  // Return encoded tuple + signature concatenated
-  // Contract expects: encoded(FeedbackAuth struct) + signature
-  // This matches the format expected by the contract's giveFeedback function
-  const feedbackAuth = ethers.concat([encoded, signature]) as `0x${string}`;
-
-  console.info("feedbackAuth with signature: ", feedbackAuth);
-  console.info("**********************************");
-  return feedbackAuth;
+  const signedAuth = ethers.concat([encoded, signature]) as `0x${string}`;
+  return signedAuth;
 }
-

@@ -118,7 +118,9 @@ export async function discoverAgents(
         // Aggregated metrics
         feedbackCount: numeric(raw?.feedbackCount, 0),
         feedbackAverageScore: numeric(raw?.feedbackAverageScore, null),
+        validationPendingCount: numeric(raw?.validationPendingCount, 0),
         validationCompletedCount: numeric(raw?.validationCompletedCount, 0),
+        validationRequestedCount: numeric(raw?.validationRequestedCount, 0),
       };
     }),
     total,

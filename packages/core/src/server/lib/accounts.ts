@@ -10,7 +10,7 @@
 
 import { keccak256, stringToHex, createPublicClient, http, type PublicClient } from 'viem';
 import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
-import { getIdentityClient } from '../singletons/identityClient';
+import { getIdentityRegistryClient } from '../singletons/identityClient';
 import { getENSClient } from '../singletons/ensClient';
 import { getDiscoveryClient } from '../singletons/discoveryClient';
 import { getAdminApp } from '../userApps/adminApp';
@@ -68,7 +68,7 @@ export function parseEthrDid(didEthr: string): ParsedEthrDid {
   // Validate chain ID is supported (or use default) - but allow any numeric chainId
   if (!isChainSupported(chainId)) {
     console.warn(`Chain ID ${chainId} is not in supported list, but will attempt to use it`);
-    // Note: We still allow unsupported chainIds since getIdentityClient may support them
+    // Note: We still allow unsupported chainIds since getIdentityRegistryClient may support them
   }
 
   // Validate account address
@@ -95,7 +95,7 @@ export function parseEthrDid(didEthr: string): ParsedEthrDid {
 export async function getAccountOwnerByDidEthr(didEthr: string): Promise<string | null> {
   try {
     const { chainId, account } = parseEthrDid(didEthr);
-    const identityClient = await getIdentityClient(chainId);
+    const identityClient = await getIdentityRegistryClient(chainId);
     return await identityClient.getAccountOwner(account);
   } catch (error) {
     console.error('Error getting account owner by DID ETHR:', error);
@@ -116,7 +116,7 @@ export async function getAccountOwner(
 ): Promise<string | null> {
   try {
     const targetChainId = chainId || DEFAULT_CHAIN_ID;
-    const identityClient = await getIdentityClient(targetChainId);
+    const identityClient = await getIdentityRegistryClient(targetChainId);
     return await identityClient.getAccountOwner(accountAddress);
   } catch (error) {
     console.error('Error getting account owner:', error);
@@ -362,5 +362,3 @@ export async function getCounterfactualAAAddressByAgentName(
   const accountClient = await toMetaMaskSmartAccount(clientConfig as any);
   return accountClient.address as `0x${string}`;
 }
-
-

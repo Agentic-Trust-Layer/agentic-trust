@@ -75,7 +75,23 @@ function parseParamsParam(raw: string | null): DiscoverRequest['params'] | undef
 }
 
 async function executeSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
-  return discoverAgents(options, getAgenticTrustClient);
+  console.log('[AgenticTrust][Search] Executing search with options:', JSON.stringify(options, null, 2));
+  const result = await discoverAgents(options, getAgenticTrustClient);
+  
+  // Log sample validation counts if agents found
+  if (result.agents && result.agents.length > 0) {
+    const sample = result.agents[0];
+    if (sample) {
+      console.log('[AgenticTrust][Search] First agent result validation stats:', {
+        id: sample.agentId,
+        pending: sample.validationPendingCount,
+        completed: sample.validationCompletedCount,
+        requested: sample.validationRequestedCount
+      });
+    }
+  }
+  
+  return result;
 }
 
 export function searchAgentsGetRouteHandler() {

@@ -14,8 +14,8 @@ import { VeramoAPI, type AuthChallenge, type ChallengeVerificationResult } from 
 
 import { getENSClient } from './ensClient';
 import { getDiscoveryClient } from './discoveryClient';
-import { getReputationClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
-import { getIdentityClient } from '../singletons/identityClient';
+import { getReputationRegistryClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
+import { getIdentityRegistryClient } from '../singletons/identityClient';
 
 
 import { isUserAppEnabled } from '../userApps/userApp';
@@ -177,8 +177,8 @@ export class AgenticTrustClient {
       await Promise.allSettled([
         getDiscoveryClient(),                // discovery indexer
         getENSClient(defaultChainId),        // ENS client
-        getIdentityClient(defaultChainId),   // identity client
-        getReputationClient(defaultChainId), // reputation client
+        getIdentityRegistryClient(defaultChainId),   // identity client
+        getReputationRegistryClient(defaultChainId), // reputation client
       ]);
     } catch {
       // Individual domain client initialization errors are logged
@@ -322,7 +322,7 @@ export class AgenticTrustClient {
     }
 
     // 2. Fallback: on-chain ReputationRegistry readAllFeedback
-    const reputationClient = await getReputationClient(resolvedChainId);
+    const reputationClient = await getReputationRegistryClient(resolvedChainId);
     const raw = await (reputationClient as any).readAllFeedback(
       agentIdBigInt,
       clientAddresses,
@@ -392,7 +392,7 @@ export class AgenticTrustClient {
       throw new Error(`Invalid agentId for getReputationSummary: ${agentId}`);
     }
 
-    const reputationClient = await getReputationClient(resolvedChainId);
+    const reputationClient = await getReputationRegistryClient(resolvedChainId);
     return (reputationClient as any).getSummary(
       agentIdBigInt,
       clientAddresses,
@@ -755,7 +755,7 @@ export class AgenticTrustClient {
     }
 
     try {
-      const identityClient = await getIdentityClient(resolvedChainId);
+      const identityClient = await getIdentityRegistryClient(resolvedChainId);
       const owner = await (identityClient as any).getOwner(agentIdBigInt);
       if (typeof owner === 'string' && /^0x[a-fA-F0-9]{40}$/.test(owner)) {
         return owner as `0x${string}`;
@@ -942,7 +942,7 @@ export class AgenticTrustClient {
     const feedbackIndexBigInt =
       typeof feedbackIndex === 'bigint' ? feedbackIndex : BigInt(feedbackIndex);
 
-    const reputationClient = await getReputationClient(resolvedChainId);
+    const reputationClient = await getReputationRegistryClient(resolvedChainId);
     return (reputationClient as any).revokeFeedback(agentIdBigInt, feedbackIndexBigInt);
   }
 
@@ -975,7 +975,7 @@ export class AgenticTrustClient {
     const feedbackIndexBigInt =
       typeof feedbackIndex === 'bigint' ? feedbackIndex : BigInt(feedbackIndex);
 
-    const reputationClient = await getReputationClient(resolvedChainId);
+    const reputationClient = await getReputationRegistryClient(resolvedChainId);
     return (reputationClient as any).appendToFeedback({
       agentId: agentIdBigInt,
       clientAddress,
@@ -1227,8 +1227,8 @@ export class AgenticTrustClient {
     // Import the singleton module and set it directly
     //const reputationClientModule = await import('./reputationClient');
     // Access the singleton instance variable (we need to export a setter or access it)
-    // For now, we'll use a workaround - the singleton will be initialized when getReputationClient is called
-    // But we've created the client here, so future calls to getReputationClient should use the singleton's logic
+    // For now, we'll use a workaround - the singleton will be initialized when getReputationRegistryClient is called
+    // But we've created the client here, so future calls to getReputationRegistryClient should use the singleton's logic
     // Actually, the singleton pattern creates its own instance, so we need to either:
     // 1. Store this instance somewhere accessible to the singleton, or
     // 2. Make sure the singleton uses the same adapters

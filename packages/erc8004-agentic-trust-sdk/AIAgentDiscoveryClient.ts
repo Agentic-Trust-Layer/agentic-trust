@@ -35,6 +35,11 @@ export interface AgentData {
   active?: boolean | null;
   supportedTrust?: string | null;
   rawJson?: string | null;
+  feedbackCount?: number | null;
+  feedbackAverageScore?: number | null;
+  validationPendingCount?: number | null;
+  validationCompletedCount?: number | null;
+  validationRequestedCount?: number | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -313,6 +318,25 @@ export class AIAgentDiscoveryClient {
       return String(value);
     };
 
+    const toOptionalNumber = (value: unknown): number | undefined => {
+      if (value === undefined || value === null) {
+        return undefined;
+      }
+      const numeric = typeof value === 'number' ? value : Number(value);
+      return Number.isFinite(numeric) ? numeric : undefined;
+    };
+
+    const toOptionalNumberOrNull = (value: unknown): number | null | undefined => {
+      if (value === undefined) {
+        return undefined;
+      }
+      if (value === null) {
+        return null;
+      }
+      const numeric = typeof value === 'number' ? value : Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
     const normalized: AgentData = {
       ...(record as AgentData),
     };
@@ -345,6 +369,21 @@ export class AIAgentDiscoveryClient {
     const tokenUri = toOptionalString(record.tokenUri);
     if (tokenUri !== undefined) {
       normalized.tokenUri = tokenUri;
+    }
+
+    const validationPendingCount = toOptionalNumberOrNull(record.validationPendingCount);
+    if (validationPendingCount !== undefined) {
+      normalized.validationPendingCount = validationPendingCount;
+    }
+
+    const validationCompletedCount = toOptionalNumberOrNull(record.validationCompletedCount);
+    if (validationCompletedCount !== undefined) {
+      normalized.validationCompletedCount = validationCompletedCount;
+    }
+
+    const validationRequestedCount = toOptionalNumberOrNull(record.validationRequestedCount);
+    if (validationRequestedCount !== undefined) {
+      normalized.validationRequestedCount = validationRequestedCount;
     }
 
     const description = toOptionalStringOrNull(record.description);
@@ -527,6 +566,10 @@ export class AIAgentDiscoveryClient {
           const list = data?.searchAgents;
 
           console.log('>>>>>>>>>>>>>>>>>> 012 list.length', list?.length);
+          if (list && list.length > 0) {
+            console.log('>>>>>>>>>>>>>>>>>> 012 First raw agent sample:', JSON.stringify(list[0], null, 2));
+          }
+
           if (Array.isArray(list)) {
             const normalizedList = list
               .filter(Boolean)
@@ -638,6 +681,7 @@ export class AIAgentDiscoveryClient {
       feedbackAverageScore
       validationPendingCount
       validationCompletedCount
+      validationRequestedCount
     `;
 
     const addStringArg = (arg: ArgConfig | undefined, value: string | undefined) => {
@@ -859,6 +903,7 @@ export class AIAgentDiscoveryClient {
             feedbackAverageScore
             validationPendingCount
             validationCompletedCount
+            validationRequestedCount
           }
           total
           hasMore

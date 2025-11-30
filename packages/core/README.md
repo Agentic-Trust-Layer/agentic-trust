@@ -123,7 +123,7 @@ In addition to the `AgenticTrustClient` façade, you can still use the lower-lev
 ERC‑8004 domain clients directly via `@agentic-trust/8004-ext-sdk` and
 `@agentic-trust/8004-sdk` (Identity, ENS, Reputation, etc.). The core server
 entrypoint (`@agentic-trust/core/server`) wires these for you via singletons
-such as `getIdentityClient`, `getENSClient`, and `getReputationClient`.
+such as `getIdentityRegistryClient`, `getENSClient`, and `getReputationRegistryClient`.
 
 ## Dependencies
 
