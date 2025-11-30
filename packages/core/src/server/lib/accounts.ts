@@ -9,7 +9,7 @@
  */
 
 import { keccak256, stringToHex, createPublicClient, http, type PublicClient } from 'viem';
-import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/smart-accounts-kit';
 import { getIdentityRegistryClient } from '../singletons/identityClient';
 import { getENSClient } from '../singletons/ensClient';
 import { getDiscoveryClient } from '../singletons/discoveryClient';

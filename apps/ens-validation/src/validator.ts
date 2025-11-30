@@ -114,7 +114,7 @@ export async function processValidationRequests(
   console.log(`[Validator] Starting validation processing`);
   console.log(`[Validator] Chain ID: ${chainId}`);
   console.log(`[Validator] Validator AA Address: ${validatorAddress}`);
-  console.log(`[Validator] Validator App Address (signing): ${validatorApp.address}`);
+  console.log(`[Validator] Validator App Address (signing) ens: ${validatorApp.address}`);
   console.log(`[Validator] ========================================`);
 
   // Get validation client (will use validatorApp's account provider automatically)

@@ -17,7 +17,7 @@ import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/smart-accounts-kit';
 import { DomainClient } from './domainClient';
 import { resolveDomainUserApps, resolveENSAccountProvider, type DomainUserApps } from './domainAccountProviders';
 

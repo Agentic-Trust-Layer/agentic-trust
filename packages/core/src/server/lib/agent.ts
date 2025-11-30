@@ -836,6 +836,25 @@ export class Agent {
     };
   }
 
+  /**
+   * Get the approved NFT operator address for this agent
+   * Returns the address approved to operate on the agent's NFT token, or null if no operator is set
+   * 
+   * @param chainId - Optional chain ID (defaults to the agent's chainId from data, or DEFAULT_CHAIN_ID)
+   * @returns The approved operator address, or null if no operator is set
+   */
+  async getNFTOperator(chainId?: number): Promise<`0x${string}` | null> {
+    const agentId = this.agentId;
+    if (!agentId) {
+      throw new Error('Agent ID is required to get NFT operator');
+    }
+
+    const resolvedChainId = chainId ?? 
+      (Number.isFinite((this.data as any)?.chainId) ? Number((this.data as any).chainId) : DEFAULT_CHAIN_ID);
+
+    return this.client.agents.getNFTOperator(agentId, resolvedChainId);
+  }
+
 }
 
 /**

@@ -82,7 +82,7 @@ import { createPublicClient, encodeFunctionData, http } from 'viem';
 import type { Address } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import IdentityRegistryABIJson from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
-import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/smart-accounts-kit';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { addToL1OrgPK } from './names';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/accountClient';
@@ -278,6 +278,33 @@ export class AgentsAPI {
   async refreshAgentByDid(agentDid: string): Promise<any> {
     const { agentId, chainId } = parseDid8004(agentDid);
     return this.refreshAgent(agentId, chainId);
+  }
+
+  /**
+   * Get the approved NFT operator address for an agent
+   * Returns the address approved to operate on the agent's NFT token, or null if no operator is set
+   * 
+   * @param agentId - The agent ID (string or number)
+   * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
+   * @returns The approved operator address, or null if no operator is set
+   */
+  async getNFTOperator(agentId: string | number, chainId: number = 11155111): Promise<`0x${string}` | null> {
+    try {
+      const { getIdentityRegistryClient } = await import('../singletons/identityClient');
+      const resolvedChainId = chainId || DEFAULT_CHAIN_ID;
+      const agentIdBigInt = BigInt(agentId);
+      
+      const identityClient = await getIdentityRegistryClient(resolvedChainId);
+      const operatorAddress = await (identityClient as any).getNFTOperator(agentIdBigInt);
+      
+      if (typeof operatorAddress === 'string' && /^0x[a-fA-F0-9]{40}$/.test(operatorAddress)) {
+        return operatorAddress as `0x${string}`;
+      }
+      return null;
+    } catch (error) {
+      console.warn('[AgentsAPI.getNFTOperator] Failed to get NFT operator:', error);
+      return null;
+    }
   }
 
   /**

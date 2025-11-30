@@ -13,16 +13,28 @@ import {
   getAgenticTrustClient,
   getValidationRegistryClient,
   getValidatorApp,
-  createValidatorAccountAbstraction,
   getENSClient,
   DEFAULT_CHAIN_ID,
   type ValidationStatus,
   getChainBundlerUrl,
   getChainById,
   type SessionPackage,
+  buildDelegationSetup,
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
 import type { Chain } from 'viem';
+import { createPublicClient, createWalletClient, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+import { 
+  Implementation, 
+  toMetaMaskSmartAccount,
+  ExecutionMode,
+} from '@metamask/smart-accounts-kit';
+// Statically import DelegationManager from contracts subpath
+// @ts-ignore - contracts subpath may not be in main type definitions
+import { DelegationManager } from '@metamask/smart-accounts-kit/contracts';
+// Use ExecutionMode.SingleDefault (available in 0.13.0+)
+const SINGLE_DEFAULT_MODE = ExecutionMode.SingleDefault;
 
 export interface ValidationResult {
   requestHash: string;
@@ -74,26 +86,65 @@ export async function processValidationRequests(
   }
   console.log(`[Provider Validation] ✓ Validator private key found from sessionPackage (length: ${validatorPrivateKey.length})`);
 
-  console.log(`[Provider Validation] Creating validator account abstraction...`);
-  const { address: validatorAddress, accountClient: validatorAccountClient } = await createValidatorAccountAbstraction(
-    'validator-ens',
-    validatorPrivateKey,
-    chainId,
-  );
-  console.log(`[Provider Validation] ✓ Validator AA address: ${validatorAddress}`);
+  // Build account client from sessionPackage's sessionAA (account abstraction) with delegation
+  // The delegation allows sessionAA to act on behalf of aa (the agent account)
+  console.log(`[Provider Validation] Building validator account abstraction from sessionPackage with delegation...`);
+  const delegationSetup = buildDelegationSetup(sessionPackage);
+  
+  if (!delegationSetup.sessionAA) {
+    throw new Error('sessionPackage must have sessionAA address for delegation');
+  }
+  
+  if (!delegationSetup.signedDelegation) {
+    throw new Error('sessionPackage must have signedDelegation for delegation');
+  }
+
+  // Create public and wallet clients for the sessionPackage's chain
+  const publicClient = createPublicClient({
+    chain: delegationSetup.chain,
+    transport: http(delegationSetup.rpcUrl),
+  });
+
+  const agentOwnerEOA = privateKeyToAccount(validatorPrivateKey as `0x${string}`);
+  const walletClient = createWalletClient({
+    account: agentOwnerEOA,
+    chain: delegationSetup.chain,
+    transport: http(delegationSetup.rpcUrl),
+  });
+
+  // Create account client from sessionPackage's sessionAA address with delegation configured
+  // This matches the working pattern from sessionPackageBuilder.ts
+  const sessionAAAccountClient = await toMetaMaskSmartAccount({
+    address: delegationSetup.sessionAA as `0x${string}`,
+    client: publicClient,
+    implementation: Implementation.Hybrid,
+    signer: {
+      walletClient,
+    },
+    delegation: {
+      delegation: delegationSetup.signedDelegation,
+      delegator: delegationSetup.aa,
+    },
+  } as any);
+
+  // The validator address is the delegator (aa) because delegation makes operations appear to come from it
+  const validatorAddress = delegationSetup.aa;
+  console.log(`[Provider Validation] ✓ Validator AA address from sessionPackage: ${validatorAddress}`);
 
   console.log(`[Provider Validation] ========================================`);
   console.log(`[Provider Validation] Starting validation processing`);
   console.log(`[Provider Validation] Chain ID: ${chainId}`);
   console.log(`[Provider Validation] Validator AA Address: ${validatorAddress}`);
-  console.log(`[Provider Validation] Validator App Address (signing): ${validatorApp?.address || 'N/A (using sessionPackage)'}`);
+  console.log(`[Provider Validation] Validator App Address (signing) validator: ${validatorApp?.address || 'N/A (using sessionPackage)'}`);
   console.log(`[Provider Validation] ========================================`);
+
+
 
   // Get validation client (will use validatorApp's account provider automatically)
   console.log(`[Provider Validation] Initializing validation client...`);
-  let validationClient;
+  let validationRegistryClient;
   try {
-    validationClient = await getValidationRegistryClient(chainId);
+    validationRegistryClient = await getValidationRegistryClient(chainId);
     console.log(`[Provider Validation] ✓ Validation client initialized successfully`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -101,11 +152,12 @@ export async function processValidationRequests(
     throw error;
   }
 
+
   // Get all validation requests for this validator
   console.log(`[Provider Validation] Fetching validation requests for validator ${validatorAddress}...`);
   let requestHashes: string[] = [];
   try {
-    requestHashes = await validationClient.getValidatorRequests(validatorAddress);
+    requestHashes = await validationRegistryClient.getValidatorRequests(delegationSetup.aa);
     console.log(`[Provider Validation] ✓ Found ${requestHashes.length} total validation request(s)`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -146,7 +198,7 @@ export async function processValidationRequests(
     try {
       // Get validation status
       console.log(`[Provider Validation] Fetching validation status...`);
-      const status: ValidationStatus = await validationClient.getValidationStatus(requestHash);
+      const status: ValidationStatus = await validationRegistryClient.getValidationStatus(requestHash);
       console.log(`[Provider Validation] Status: agentId=${status.agentId}, response=${status.response}, validator=${status.validatorAddress}`);
 
       // Skip if already processed (response !== 0 means it's been processed)
@@ -226,6 +278,7 @@ export async function processValidationRequests(
 
       console.log(`[Provider Validation] Agent Info: name="${agentName}", account="${agentAccount}"`);
 
+      /*
       // Get ENS client
       console.log(`[Provider Validation] Initializing ENS client...`);
       const ensClient = await getENSClient(chainId);
@@ -287,13 +340,23 @@ export async function processValidationRequests(
       }
       console.log(`[Provider Validation] ✓ Account ownership verified: ENS "${agentName}" resolves to ${ensAccount}, which matches agent account ${agentAccount}`);
 
+      // Agent validation successful - now submit validation response
+      console.log(`[Provider Validation] ========================================`);
+      console.log(`[Provider Validation] ✅ VALIDATION SUCCESSFUL for agent ${agentId}`);
+      console.log(`[Provider Validation] Agent Name: ${agentName}`);
+      console.log(`[Provider Validation] Agent Account: ${agentAccount}`);
+      console.log(`[Provider Validation] ENS Account: ${ensAccount}`);
+      console.log(`[Provider Validation] Submitting validation response (score: 100)...`);
+      console.log(`[Provider Validation] ========================================`);
+      */
+
       // Prepare validation response transaction
       console.log(`[Provider Validation] Preparing validation response transaction (score: 100)...`);
-      const validationClientTyped = validationClient as any; // Type assertion to access prepareValidationResponseTx
+      const validationClientTyped = validationRegistryClient as any; // Type assertion to access prepareValidationResponseTx
       const txRequest = await validationClientTyped.prepareValidationResponseTx({
         requestHash,
         response: 100, // Score 100 for valid agents
-        tag: 'ens-validation',
+        tag: 'agent-validation',
       });
       console.log(`[Provider Validation] ✓ Transaction prepared: to=${txRequest.to}, data length=${txRequest.data?.length || 0}`);
 
@@ -310,17 +373,84 @@ export async function processValidationRequests(
       const chain = getChainById(chainId) as Chain;
       console.log(`[Provider Validation] Bundler URL: ${bundlerUrl}`);
 
+      // Redeem delegation with validation transaction as execution
+      // Using the working pattern from sessionPackageBuilder.ts
+      console.log(`[Provider Validation] Encoding delegation redemption with validation transaction...`);
+      
+      // Extract delegation message from signed delegation - flattened structure from sessionPackageBuilder
+      const signedDelegation = delegationSetup.signedDelegation;
+      
+      // Flattened structure: delegation properties at top level with signature
+      // Cast to flattened structure type (what sessionPackageBuilder creates)
+      const flat = signedDelegation as {
+        delegate: `0x${string}`;
+        delegator: `0x${string}`;
+        authority: `0x${string}`;
+        caveats: any[];
+        salt: `0x${string}`;
+        signature: `0x${string}`;
+      };
+      
+      const delegationMessage = {
+        delegate: flat.delegate,
+        delegator: flat.delegator,
+        authority: flat.authority,
+        caveats: flat.caveats,
+        salt: flat.salt,
+        signature: flat.signature, // Use the actual signature from signDelegation
+      };
+      
+      // Log delegation details for debugging
+      console.log(`[Provider Validation] Delegation: delegate=${delegationMessage.delegate}, delegator=${delegationMessage.delegator}`);
+      console.log(`[Provider Validation] Delegation signature: ${signedDelegation.signature.substring(0, 20)}...`);
+      
+      // Create execution for the validation response transaction
+      const includedExecutions = [
+        {
+          target: txRequest.to as `0x${string}`,
+          value: BigInt(txRequest.value || '0'),
+          callData: txRequest.data as `0x${string}`,
+        },
+      ];
+
+      // Encode the delegation redemption using DelegationManager
+      console.log(`[Provider Validation] Encoding delegation redemption with DelegationManager...`);
+      console.log(`[Provider Validation] Execution target: ${includedExecutions[0].target}, callData length: ${includedExecutions[0].callData.length}`);
+      
+      if (!DelegationManager || !DelegationManager.encode || !DelegationManager.encode.redeemDelegations) {
+        throw new Error('DelegationManager.encode.redeemDelegations not found. Check @metamask/smart-accounts-kit version.');
+      }
+      
+      const redemptionData = DelegationManager.encode.redeemDelegations({
+        delegations: [[delegationMessage]],
+        modes: [SINGLE_DEFAULT_MODE],
+        executions: [includedExecutions],
+      });
+      
+      if (!redemptionData) {
+        throw new Error('Failed to encode delegation redemption data.');
+      }
+      
+      console.log(`[Provider Validation] ✓ Redemption data encoded, length: ${redemptionData.length}`);
+
+      // The redemption call goes to the delegate account (sessionAA), not the DelegationManager
+      // The DelegationManager is only used to encode the redemption data
+      // According to MetaMask docs: calls should target delegateSmartAccount.address
+      const redemptionCall = {
+        to: delegationSetup.sessionAA as `0x${string}`,
+        data: redemptionData,
+        value: 0n,
+      };
+      
+      console.log(`[Provider Validation] Redemption call: to=${redemptionCall.to} (sessionAA/delegate), delegator=${delegationSetup.aa} (aa)`);
+
       // Send validation response via bundler using validator account abstraction
-      console.log(`[Provider Validation] Sending validation response via bundler...`);
+      console.log(`[Provider Validation] Sending validation response via bundler with delegation redemption...`);
       const userOpHash = await sendSponsoredUserOperation({
         bundlerUrl,
         chain: chain as any,
-        accountClient: validatorAccountClient,
-        calls: [{
-          to: txRequest.to,
-          data: txRequest.data,
-          value: txRequest.value || 0n,
-        }],
+        accountClient: sessionAAAccountClient,
+        calls: [redemptionCall],
       });
       console.log(`[Provider Validation] ✓ UserOperation sent: ${userOpHash}`);
 

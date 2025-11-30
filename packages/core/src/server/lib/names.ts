@@ -15,7 +15,7 @@ import {
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
 } from '../../client/accountClient';
-import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/smart-accounts-kit';
 
 export type AddToL1OrgPKParams = {
   orgName: string;

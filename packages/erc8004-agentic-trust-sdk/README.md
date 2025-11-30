@@ -150,7 +150,7 @@ This SDK depends on:
 - `@agentic-trust/8004-sdk` - Core ERC-8004 functionality
 - `viem` - Ethereum library
 - `ethers` - Alternative Ethereum library
-- `@metamask/delegation-toolkit` - MetaMask integration
+- `@metamask/smart-accounts-kit` - MetaMask Smart Accounts integration
 - `@thenamespace/mint-manager` - ENS minting
 - `@thenamespace/indexer` - ENS indexing
 

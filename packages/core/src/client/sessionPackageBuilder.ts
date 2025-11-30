@@ -5,6 +5,8 @@ import {
   custom,
   zeroAddress,
   encodeFunctionData,
+  keccak256,
+  stringToHex,
   type Address,
   type Chain,
 } from 'viem';
@@ -14,8 +16,13 @@ import {
   toMetaMaskSmartAccount,
   Implementation,
   createDelegation,
-} from '@metamask/delegation-toolkit';
+  getSmartAccountsEnvironment,
+  ExecutionMode,
+} from '@metamask/smart-accounts-kit';
+// @ts-ignore - contracts subpath may not be in main type definitions
+import { DelegationManager } from '@metamask/smart-accounts-kit/contracts';
 import IdentityRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
+import ValidationRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/ValidationRegistry.json';
 
 import { SessionPackage } from '../shared/sessionPackage';
 import {
@@ -38,7 +45,12 @@ type GenerateSessionPackageParams = {
   selector?: `0x${string}`;
 };
 
-const DEFAULT_SELECTOR = '0x8524d988';
+const VALIDATION_RESPONSE_SIGNATURE =
+  'validationResponse(bytes32,uint8,string,bytes32,bytes32)';
+const DEFAULT_SELECTOR = keccak256(stringToHex(VALIDATION_RESPONSE_SIGNATURE)).slice(
+  0,
+  10,
+) as `0x${string}`;
 const DEFAULT_ENTRY_POINT = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
 
 function normalizeHex(value?: string | null): `0x${string}` | undefined {
@@ -60,6 +72,15 @@ function getReputationRegistryAddress(chainId: number): `0x${string}` | undefine
   if (!cfg) return undefined;
   const key = `NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_${cfg.suffix}`;
   return normalizeHex(process.env[key] ?? process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY ?? undefined);
+}
+
+function getValidationRegistryAddress(chainId: number): `0x${string}` | undefined {
+  const cfg = getChainConfig(chainId);
+  if (!cfg) return undefined;
+  const key = `NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_${cfg.suffix}`;
+  console.info('*********** sessionPackageBuilder: validationRegistry', key);
+  console.info('*********** sessionPackageBuilder: validationRegistry', process.env[key]);
+  return normalizeHex(process.env[key] ?? process.env.NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY ?? undefined);
 }
 
 async function switchChain(provider: any, chainId: number, rpcUrl: string) {
@@ -141,6 +162,15 @@ export async function generateSessionPackage(
     );
   }
 
+  const validationRegistry = getValidationRegistryAddress(chainId);
+  if (!validationRegistry) {
+    throw new Error(
+      `Missing ValidationRegistry address for chain ${chainId}. ` +
+      `Set NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY or ` +
+      `NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_<CHAIN_SUFFIX> in your env.`
+    );
+  }
+
   await switchChain(provider, chainId, rpcUrl);
   await new Promise(resolve => setTimeout(resolve, 1000));
 
@@ -210,37 +240,191 @@ export async function generateSessionPackage(
     await waitForUserOperationReceipt({ bundlerUrl, chain, hash });
   }
 
+  // Get the correct HybridDeleGator address from the smart accounts kit
+  // This MUST match the EIP-712 domain used by the contract that verifies the delegation
+  const deleGatorEnv = getSmartAccountsEnvironment(chainId);
+  const entryPointAddress =
+    (deleGatorEnv.EntryPoint as `0x${string}` | undefined) || (entryPoint as `0x${string}`);
+  
+  // The HybridDeleGator address is in the implementations object
+  // The property name is HybridDeleGatorImpl (as confirmed by the environment structure)
+  let hybridDelegatorAddress = (deleGatorEnv.implementations as any)?.HybridDeleGatorImpl as `0x${string}` | undefined;
+  console.info('*********** sessionPackageBuilder: hybridDelegatorAddress', hybridDelegatorAddress);
+
+  // If not found in implementations, try to get from smart account
+  // For Hybrid implementation, the implementation address might be the HybridDeleGator
+  if (!hybridDelegatorAddress) {
+    const accountImpl = (smartAccount as any).implementationAddress || 
+                       (smartAccount as any).implementation?.address ||
+                       (smartAccount as any).getImplementationAddress?.();
+    
+    if (accountImpl) {
+      console.warn(`[sessionPackageBuilder] HybridDeleGator not found in deleGatorEnv, using smart account implementation: ${accountImpl}`);
+      hybridDelegatorAddress = accountImpl as `0x${string}`;
+    }
+  }
+  
+  if (!hybridDelegatorAddress) {
+    throw new Error(
+      `HybridDeleGator address not found for chainId ${chainId}. ` +
+      `DeleGatorEnvironment: ${JSON.stringify({ 
+        EntryPoint: deleGatorEnv.EntryPoint,
+        implementations: deleGatorEnv.implementations 
+      })}. ` +
+      `Check @metamask/smart-accounts-kit configuration.`
+    );
+  }
+
+
+/*
   const environment = (smartAccount as any).environment;
   if (!environment) {
     throw new Error('Delegation environment is unavailable on the smart account.');
   }
+  console.info('*********** sessionPackageBuilder: environment', environment);
+*/
 
   console.info('*********** sessionPackageBuilder: createDelegation');
+
+  // Create delegation scope that allows validationResponse (and a read-only test method) on ValidationRegistry
+  // Only include ValidationRegistry in the scope to keep caveats strict
+  const targets: Array<`0x${string}`> = [];
+  if (validationRegistry) {
+    targets.push(validationRegistry);
+  } else {
+    throw new Error('validationRegistry address is required to build delegation scope');
+  }
+
+  // Include getIdentityRegistry selector so the delegation test can call it successfully
+  const getIdentityRegistrySelector = encodeFunctionData({
+    abi: ValidationRegistryAbi as any,
+    functionName: 'getIdentityRegistry',
+    args: [],
+  }).slice(0, 10) as `0x${string}`;
+
+  const selectors = Array.from(new Set([selector, getIdentityRegistrySelector])) as `0x${string}`[];
+
   const delegation = createDelegation({
-    environment,
-      scope: {
-        type: 'functionCall',
-        targets: [reputationRegistry],
-        selectors: [selector],
-      },
-      from: agentAccount,
-      to: sessionAA,
-      caveats: [],
-    });
+    environment: deleGatorEnv,
+    scope: {
+      type: 'functionCall',
+      targets,
+      selectors,
+    },
+    from: agentAccount,
+    to: sessionAA,
+    caveats: [],
+  });
+
+
+
 
   let signature: `0x${string}`;
-  if (typeof (smartAccount as any).signDelegation === 'function') {
 
-    console.info('*********** sessionPackageBuilder: signDelegation smartAccount');
-    signature = (await (smartAccount as any).signDelegation({
-      delegation,
-    })) as `0x${string}`;
-  } else if (typeof (walletClient as any).signDelegation === 'function') {
-    signature = (await (walletClient as any).signDelegation({
-      delegation,
-    })) as `0x${string}`;
-  } else {
-    throw new Error('Current wallet does not support delegation signing.');
+  console.info('*********** sessionPackageBuilder yyyyy: signDelegation smartAccount');
+  signature = (await (smartAccount as any).signDelegation({
+    delegation,
+  })) as `0x${string}`;
+  const deligationWithSignature = {
+    ...delegation,
+    signature,
+  }
+
+  // Test the delegation by making a simple call to ValidationRegistry.getIdentityRegistry() from session account
+  // This demonstrates the full delegation redemption flow and should succeed because the selector is allowed
+  console.info('*********** sessionPackageBuilder: Testing delegation with ValidationRegistry.getIdentityRegistry() call (expected to succeed)...');
+  try {
+    // Create session account client with delegation
+    const sessionAccountClient = await toMetaMaskSmartAccount({
+      address: sessionAA,
+      client: publicClient as any,
+      implementation: Implementation.Hybrid,
+      signer: { account: sessionKeyAccount },
+      delegation: {
+        delegation: deligationWithSignature,
+        delegator: agentAccount,
+      },
+    } as any);
+
+    // Prepare a simple call to ValidationRegistry.getIdentityRegistry()
+    const testCallData = encodeFunctionData({
+      abi: ValidationRegistryAbi as any,
+      functionName: 'getIdentityRegistry',
+      args: [],
+    });
+
+    // Extract delegation message for redemption - use the signed delegation
+    const delegationMessage = {
+      delegate: deligationWithSignature.delegate,
+      delegator: deligationWithSignature.delegator,
+      authority: deligationWithSignature.authority,
+      caveats: deligationWithSignature.caveats,
+      salt: deligationWithSignature.salt,
+      signature: deligationWithSignature.signature, // Use the actual signature from signDelegation
+    };
+
+    // Encode delegation redemption
+    const SINGLE_DEFAULT_MODE = ExecutionMode.SingleDefault;
+    if (!DelegationManager || !DelegationManager.encode || !DelegationManager.encode.redeemDelegations) {
+      throw new Error('DelegationManager.encode.redeemDelegations not found. Check @metamask/smart-accounts-kit version.');
+    }
+
+    const includedExecutions = [
+      {
+        target: validationRegistry as `0x${string}`,
+        value: BigInt(0),
+        callData: testCallData,
+      },
+    ];
+
+    const redemptionData = DelegationManager.encode.redeemDelegations({
+      delegations: [[delegationMessage]],
+      modes: [SINGLE_DEFAULT_MODE],
+      executions: [includedExecutions],
+    });
+
+    // Send the test call through delegation
+    const testCall = {
+      to: sessionAA as `0x${string}`,
+      data: redemptionData,
+      value: 0n,
+    };
+
+    console.info('*********** sessionPackageBuilder: Sending delegated call to ValidationRegistry.getIdentityRegistry()...');
+    console.info('*********** sessionPackageBuilder: This demonstrates delegation redemption flow end-to-end');
+    
+    const testHash = await sendSponsoredUserOperation({
+      bundlerUrl,
+      chain,
+      accountClient: sessionAccountClient as any,
+      calls: [testCall],
+    });
+    
+    const testReceipt = await waitForUserOperationReceipt({ bundlerUrl, chain, hash: testHash });
+    console.info('*********** sessionPackageBuilder: ✓ Delegation test successful! Receipt:', testReceipt?.transactionHash || testHash);
+    
+    // Verify the call returned an address (should match identityRegistry)
+    const identityRegistryFromCall = await publicClient.readContract({
+      address: validationRegistry as `0x${string}`,
+      abi: ValidationRegistryAbi as any,
+      functionName: 'getIdentityRegistry',
+      args: [],
+    });
+    console.info('*********** sessionPackageBuilder: ✓ Delegation verified - IdentityRegistry address:', identityRegistryFromCall);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      message.includes('Invalid Smart Account nonce') ||
+      message.includes('AA25 invalid account deployment')
+    ) {
+      console.warn(
+        '*********** sessionPackageBuilder: Delegation test skipped due to pending deployment/nonce conflict:',
+        message,
+      );
+    } else {
+      console.error('*********** sessionPackageBuilder: Delegation test call failed:', error);
+      throw new Error(`Delegation test failed: ${message}`);
+    }
   }
 
   // set the operator of nft to this newly created sessionAA
@@ -287,10 +471,7 @@ export async function generateSessionPackage(
     },
     entryPoint,
     bundlerUrl,
-    signedDelegation: {
-      message: delegation,
-      signature,
-    },
+    signedDelegation: deligationWithSignature,
   };
 
   return sessionPackage;

@@ -825,6 +825,17 @@ export default function AdminPage() {
     validation: null,
   });
 
+  // NFT Operator state
+  const [nftOperator, setNftOperator] = useState<{
+    loading: boolean;
+    error: string | null;
+    operatorAddress: string | null;
+  }>({
+    loading: false,
+    error: null,
+    operatorAddress: null,
+  });
+
   useEffect(() => {
     if (!isEditMode || !queryAgentId || !queryChainId) {
       return;
@@ -880,6 +891,55 @@ export default function AdminPage() {
     }
     refreshAgentValidationRequests();
   }, [isEditMode, activeManagementTab, refreshAgentValidationRequests]);
+
+  // Fetch NFT operator when agentInfo tab is active
+  useEffect(() => {
+    if (!isEditMode || activeManagementTab !== 'agentInfo' || !queryAgentId || !queryChainId) {
+      setNftOperator({
+        loading: false,
+        error: null,
+        operatorAddress: null,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setNftOperator((prev) => ({ ...prev, loading: true, error: null }));
+
+    (async () => {
+      try {
+        const did8004 = buildDid8004(Number(queryChainId), queryAgentId);
+        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
+        
+        if (cancelled) return;
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to fetch NFT operator');
+        }
+
+        const data = await response.json();
+        if (cancelled) return;
+
+        setNftOperator({
+          loading: false,
+          error: null,
+          operatorAddress: data.operatorAddress || null,
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setNftOperator({
+          loading: false,
+          error: error?.message || 'Failed to fetch NFT operator',
+          operatorAddress: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, activeManagementTab, queryAgentId, queryChainId]);
 
   // Fetch A2A endpoint data when agentValidation tab is active
   useEffect(() => {
@@ -1107,7 +1167,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleSubmitValidationRequest = async (e: React.FormEvent) => {
+  const handleSubmitENSValidationRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isEditMode || !queryAgentId || !queryChainId || !queryAgentAddress) {
       setError('Agent information is required. Please navigate to an agent first.');
@@ -1466,6 +1526,18 @@ export default function AdminPage() {
                 const label = meta?.displayName || meta?.chainName || queryChainId;
                 return `${label} (chain ${queryChainId})`;
               })()}
+            </div>
+            <div>
+              <strong>NFT Operator:</strong>{' '}
+              {nftOperator.loading ? (
+                <span style={{ color: '#777', fontStyle: 'italic' }}>Loading...</span>
+              ) : nftOperator.error ? (
+                <span style={{ color: '#b91c1c' }}>Error: {nftOperator.error}</span>
+              ) : nftOperator.operatorAddress ? (
+                <span style={{ fontFamily: 'monospace' }}>{nftOperator.operatorAddress}</span>
+              ) : (
+                <span style={{ color: '#777', fontStyle: 'italic' }}>(none)</span>
+              )}
             </div>
           </div>
         </div>
@@ -2152,7 +2224,7 @@ export default function AdminPage() {
                   </div>
                 </div>
               </div>
-              <form onSubmit={handleSubmitValidationRequest}>
+              <form onSubmit={handleSubmitENSValidationRequest}>
                 <button
                   type="submit"
                   disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName')}

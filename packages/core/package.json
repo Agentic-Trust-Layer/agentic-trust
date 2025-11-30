@@ -34,7 +34,7 @@
     "@ensdomains/ensjs": "^3.0.0",
     "@agentic-trust/8004-ext-sdk": "workspace:*",
     "@agentic-trust/8004-sdk": "workspace:*",
-    "@metamask/delegation-toolkit": "^0.13.0",
+    "@metamask/smart-accounts-kit": "^0.1.0",
     "@veramo/did-manager": "^6.0.0",
     "@veramo/did-provider-ethr": "^6.0.0",
     "@veramo/did-resolver": "^6.0.0",

@@ -47,9 +47,9 @@ importers:
       '@emotion/styled':
         specifier: ^11.11.3
         version: 11.14.1(@emotion/react@11.14.0)(@types/react@18.3.26)(react@18.3.1)
-      '@metamask/delegation-toolkit':
-        specifier: ^0.13.0
-        version: 0.13.0(viem@2.39.0)
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
       '@mui/icons-material':
         specifier: ^5.15.17
         version: 5.18.0(@mui/material@5.18.0)(@types/react@18.3.26)(react@18.3.1)
@@ -135,9 +135,9 @@ importers:
       '@agentic-trust/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@metamask/delegation-toolkit':
-        specifier: ^0.13.0
-        version: 0.13.0(viem@2.39.0)
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -224,9 +224,9 @@ importers:
       '@agentic-trust/veramo-agent-extension':
         specifier: workspace:*
         version: link:../../packages/veramo-agent-extension
-      '@metamask/delegation-toolkit':
-        specifier: ^0.13.0
-        version: 0.13.0(viem@2.39.0)
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
       '@veramo/core':
         specifier: ^6.0.0
         version: 6.0.0
@@ -285,9 +285,9 @@ importers:
       '@agentic-trust/veramo-agent-extension':
         specifier: workspace:^
         version: link:../../packages/veramo-agent-extension
-      '@metamask/delegation-toolkit':
-        specifier: ^0.13.0
-        version: 0.13.0(viem@2.39.0)
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
       '@veramo/core':
         specifier: ^6.0.0
         version: 6.0.0
@@ -358,9 +358,9 @@ importers:
       '@ensdomains/ensjs':
         specifier: ^3.0.0
         version: 3.7.0(typescript@5.9.3)(viem@2.39.0)
-      '@metamask/delegation-toolkit':
-        specifier: ^0.13.0
-        version: 0.13.0(viem@2.39.0)
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
       '@veramo/core':
         specifier: ^6.0.0
         version: 6.0.0
@@ -431,9 +431,9 @@ importers:
       '@agentic-trust/8004-sdk':
         specifier: workspace:*
         version: link:../erc8004-sdk
-      '@metamask/delegation-toolkit':
-        specifier: ^0.13.0
-        version: 0.13.0(viem@2.39.0)
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
       '@thenamespace/indexer':
         specifier: ^1.0.2
         version: 1.0.2
@@ -1795,26 +1795,9 @@ packages:
       - supports-color
     dev: false
 
-  /@metamask/delegation-deployments@0.12.0:
-    resolution: {integrity: sha512-9SB5DhLAnbpIWbFxP3UKPXLhCt8iiRjBBjZ7hqF5dMXy9buBEDpCRg+FJYRxYRecwporrTVrv+NfKUyCbL2ncw==}
+  /@metamask/delegation-deployments@0.14.0:
+    resolution: {integrity: sha512-tQdBypR0JcJmRLlYF7Rvjv0EWWOgLdzgNmSQH40vN1hdBKqEqK37onMkMJWOjDxu3DiChdPDKZwXrVkN2elIcQ==}
     engines: {node: ^18.18 || >=20}
-    dev: false
-
-  /@metamask/delegation-toolkit@0.13.0(viem@2.39.0):
-    resolution: {integrity: sha512-SVc2gcnKQ8KQodugfuXMs49pHO1x9AYw3Wmdg4yBEsgm5TF5zPpWFmAj+bOL8q+Fn+mHJAibFIrJBtS970G9Dw==}
-    engines: {node: ^18.18 || >=20}
-    peerDependencies:
-      viem: ^2.31.4
-    dependencies:
-      '@metamask/7715-permission-types': 0.3.0
-      '@metamask/delegation-abis': 0.11.0
-      '@metamask/delegation-core': 0.2.0
-      '@metamask/delegation-deployments': 0.12.0
-      buffer: 6.0.3
-      viem: 2.39.0(typescript@5.9.3)
-      webauthn-p256: 0.0.10
-    transitivePeerDependencies:
-      - supports-color
     dev: false
 
   /@metamask/detect-provider@2.0.0:
@@ -1832,6 +1815,23 @@ packages:
       '@scure/base': 1.1.9
       ethereum-cryptography: 2.2.1
       tweetnacl: 1.0.3
+    transitivePeerDependencies:
+      - supports-color
+    dev: false
+
+  /@metamask/smart-accounts-kit@0.1.0(viem@2.39.0):
+    resolution: {integrity: sha512-8p+Q6m/oK37dnh2tsYwUgdPI7bC+XDdo0T+K7GFIrhSgeqPwFhR92wPsZs5X1xEvAFs3kRNABLaTjPWb5dZfRg==}
+    engines: {node: ^18.18 || >=20}
+    peerDependencies:
+      viem: ^2.31.4
+    dependencies:
+      '@metamask/7715-permission-types': 0.3.0
+      '@metamask/delegation-abis': 0.11.0
+      '@metamask/delegation-core': 0.2.0
+      '@metamask/delegation-deployments': 0.14.0
+      buffer: 6.0.3
+      viem: 2.39.0(typescript@5.9.3)
+      webauthn-p256: 0.0.10
     transitivePeerDependencies:
       - supports-color
     dev: false

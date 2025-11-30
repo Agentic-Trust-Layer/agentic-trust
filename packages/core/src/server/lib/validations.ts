@@ -2,7 +2,7 @@ import type { ValidationStatus } from '@agentic-trust/8004-sdk';
 import { buildDid8004 } from '../../index';
 import { getValidationRegistryClient } from '../singletons/validationClient';
 import { keccak256, stringToHex, createPublicClient, http, createWalletClient, type Chain } from 'viem';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/smart-accounts-kit';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getChainRpcUrl, getChainById, DEFAULT_CHAIN_ID, requireChainEnvVar } from './chainConfig';
 

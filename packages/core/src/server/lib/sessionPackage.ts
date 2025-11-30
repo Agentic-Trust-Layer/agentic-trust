@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 import { defineChain, http, createPublicClient, createWalletClient, type Chain, type PublicClient, type WalletClient } from 'viem';
 import { privateKeyToAccount, type Account } from 'viem/accounts';
 import { getChainEnvVar } from './chainConfig';
-import { Implementation, toMetaMaskSmartAccount } from '@metamask/delegation-toolkit';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/smart-accounts-kit';
 import type { SessionPackage } from '../../shared/sessionPackage';
 
 type Hex = `0x${string}`;
@@ -146,6 +146,11 @@ export function validateSessionPackage(pkg: SessionPackage): void {
   }
   if (!pkg.signedDelegation?.signature) {
     throw new Error('sessionPackage.signedDelegation.signature is required');
+  }
+  // Validate delegation structure: either message (legacy) or flattened (new)
+  const hasFlattened = 'delegate' in pkg.signedDelegation && 'delegator' in pkg.signedDelegation;
+  if (!hasFlattened) {
+    throw new Error('sessionPackage.signedDelegation must have either message (legacy) or flattened delegation properties (delegate, delegator, etc.)');
   }
   
   // Check if reputationRegistry is in package or env var

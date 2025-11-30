@@ -15,18 +15,18 @@ const nextConfig = {
           };
         }
 
-    // Mark @metamask/delegation-toolkit and 'module' as external for server-side
+    // Mark @metamask/smart-accounts-kit and 'module' as external for server-side
     // These are Node.js built-ins that should not be bundled
     if (isServer) {
       config.externals = config.externals || [];
       if (Array.isArray(config.externals)) {
-        config.externals.push('@metamask/delegation-toolkit', 'module');
+        config.externals.push('@metamask/smart-accounts-kit', 'module');
       } else if (typeof config.externals === 'function') {
         const originalExternals = config.externals;
         config.externals = [
           originalExternals,
           (context, request, callback) => {
-            if (request === '@metamask/delegation-toolkit' || 
+            if (request === '@metamask/smart-accounts-kit' || 
                 request.startsWith('@metamask/') ||
                 request === 'module') {
               return callback(null, 'commonjs ' + request);
@@ -40,7 +40,7 @@ const nextConfig = {
     // Suppress webpack warnings about dynamic imports
     config.ignoreWarnings = [
       ...(config.ignoreWarnings || []),
-      { module: /node_modules\/@metamask\/delegation-toolkit/ },
+      { module: /node_modules\/@metamask\/smart-accounts-kit/ },
       { message: /Critical dependency: the request of a dependency is an expression/ },
     ];
 

@@ -15,13 +15,13 @@ const nextConfig = {
     if (isServer) {
       config.externals = config.externals || [];
       if (Array.isArray(config.externals)) {
-        config.externals.push('@metamask/delegation-toolkit', 'module');
+        config.externals.push('@metamask/smart-accounts-kit', 'module');
       } else if (typeof config.externals === 'function') {
         const originalExternals = config.externals;
         config.externals = [
           originalExternals,
           (context, request, callback) => {
-            if (request === '@metamask/delegation-toolkit' || 
+            if (request === '@metamask/smart-accounts-kit' || 
                 request.startsWith('@metamask/') ||
                 request === 'module') {
               return callback(null, 'commonjs ' + request);

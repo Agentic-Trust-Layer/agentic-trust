@@ -492,4 +492,31 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   extractAgentIdFromLogs(receipt: any): bigint {
     return this.extractAgentIdFromReceiptPublic(receipt);
   }
+
+  /**
+   * Get the approved operator address for an agent NFT token
+   * Returns the address approved to operate on the token, or null if no operator is set
+   * 
+   * @param agentId - The agent ID (token ID)
+   * @returns The approved operator address, or null if no operator is set (zero address)
+   */
+  async getNFTOperator(agentId: bigint): Promise<`0x${string}` | null> {
+    try {
+      const operatorAddress = await this.accountProvider.call<`0x${string}`>({
+        to: this.identityRegistryAddress,
+        abi: IdentityRegistryABI as any,
+        functionName: 'getApproved',
+        args: [agentId],
+      });
+
+      // Check if operator is set (not zero address)
+      if (operatorAddress && operatorAddress !== '0x0000000000000000000000000000000000000000') {
+        return operatorAddress;
+      }
+      return null;
+    } catch (error) {
+      console.error('Failed to get NFT operator:', error);
+      return null;
+    }
+  }
 }

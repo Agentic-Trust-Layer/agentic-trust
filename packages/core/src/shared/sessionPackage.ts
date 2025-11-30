@@ -1,3 +1,28 @@
+export type DelegationMessage = {
+  delegate: `0x${string}`;
+  delegator: `0x${string}`;
+  authority: `0x${string}`;
+  caveats: any[];
+  salt: `0x${string}`;
+  signature: `0x${string}`;
+};
+
+export type SignedDelegation = 
+  | {
+      // New flattened structure: delegation properties at top level
+      delegate: `0x${string}`;
+      delegator: `0x${string}`;
+      authority: `0x${string}`;
+      caveats: any[];
+      salt: `0x${string}`;
+      signature: `0x${string}`;
+    }
+  | {
+      // Legacy structure: delegation properties nested under message
+      message: DelegationMessage;
+      signature: `0x${string}`;
+    };
+
 export type SessionPackage = {
   agentId: number;
   chainId: number;
@@ -13,17 +38,7 @@ export type SessionPackage = {
   entryPoint: `0x${string}`;
   bundlerUrl: string;
   delegationRedeemData?: `0x${string}`;
-  signedDelegation: {
-    message: {
-      delegate: `0x${string}`;
-      delegator: `0x${string}`;
-      authority: `0x${string}`;
-      caveats: any[];
-      salt: `0x${string}`;
-      signature: `0x${string}`;
-    };
-    signature: `0x${string}`;
-  };
+  signedDelegation: SignedDelegation;
 };
 
 

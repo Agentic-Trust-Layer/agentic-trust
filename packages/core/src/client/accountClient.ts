@@ -3,7 +3,7 @@ import { sepolia } from 'viem/chains';
 import type { PublicClient, WalletClient } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { getChainRpcUrl } from '../server/lib/chainConfig';
-import { toMetaMaskSmartAccount, Implementation } from '@metamask/delegation-toolkit';
+import { toMetaMaskSmartAccount, Implementation } from '@metamask/smart-accounts-kit';
 
 type GetAAAccountClientOptions = {
   chain?: Chain;
