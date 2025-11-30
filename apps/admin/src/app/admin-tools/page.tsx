@@ -143,6 +143,7 @@ export default function AdminPage() {
       return null;
     }
   }, [parsedQueryChainId, queryAgentId]);
+  const providerA2aEndpoint = process.env.NEXT_PUBLIC_PROVIDER_A2A_URL || '';
 
   function formatJsonIfPossible(text: string): string {
     try {
@@ -262,53 +263,74 @@ export default function AdminPage() {
     [isEditMode, queryAgentId, queryChainId, queryAgentAddress, eip1193Provider, headerAddress],
   );
 
-  const refreshAgentValidationSummary = useCallback(async () => {
-    if (!isEditMode || !queryAgentId || !parsedQueryChainId) {
-      setAgentValidationSummary({
+  const refreshAgentValidationRequests = useCallback(async () => {
+    if (!isEditMode || !queryAgentAddress || !parsedQueryChainId) {
+      setAgentValidationRequests({
         loading: false,
-        error: isEditMode ? 'Select an agent to view validations.' : null,
-        pending: [],
-        completed: [],
+        error: isEditMode ? 'Select an agent with account address to view validation requests.' : null,
+        requests: [],
       });
-      setValidatorAgentDetails({ loading: false, error: null, agent: null });
       return;
     }
 
-    const did8004 = buildDid8004(parsedQueryChainId, queryAgentId);
-    setAgentValidationSummary((prev) => ({
+    setAgentValidationRequests((prev) => ({
       ...prev,
       loading: true,
       error: null,
     }));
 
     try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/validations`);
+      const response = await fetch(
+        `/api/validations/by-validator?chainId=${parsedQueryChainId}&validatorAddress=${encodeURIComponent(queryAgentAddress)}`
+      );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || 'Failed to load validations');
+        throw new Error(errorData.error || 'Failed to load validation requests');
       }
 
       const data = await response.json();
-      const pendingArray = Array.isArray(data.pending) ? (data.pending as ValidationStatusWithHash[]) : [];
-      const completedArray = Array.isArray(data.completed) ? (data.completed as ValidationStatusWithHash[]) : [];
-      setAgentValidationSummary({
+      const requests = Array.isArray(data.validations) ? (data.validations as ValidationStatusWithHash[]) : [];
+      
+      // Fetch agent information for each validation request
+      const requestsWithAgents = await Promise.all(
+        requests.map(async (req) => {
+          const agentId = req.agentId?.toString();
+          if (!agentId) return { ...req, requestingAgent: null };
+
+          const cacheKey = `${parsedQueryChainId}-${agentId}`;
+          const cached = requestingAgentCacheRef.current.get(cacheKey);
+          if (cached) {
+            return { ...req, requestingAgent: cached };
+          }
+
+          try {
+            const did8004 = buildDid8004(parsedQueryChainId, agentId);
+            const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+            if (agentResponse.ok) {
+              const agentData = await agentResponse.json();
+              requestingAgentCacheRef.current.set(cacheKey, agentData);
+              return { ...req, requestingAgent: agentData };
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch agent ${agentId}:`, error);
+          }
+          return { ...req, requestingAgent: null };
+        })
+      );
+
+      setAgentValidationRequests({
         loading: false,
         error: null,
-        pending: pendingArray,
-        completed: completedArray,
+        requests: requestsWithAgents,
       });
-      setSelectedPendingValidationIndex(0);
-      setValidatorAgentDetails({ loading: false, error: null, agent: null });
     } catch (error: any) {
-      setAgentValidationSummary({
+      setAgentValidationRequests({
         loading: false,
-        error: error?.message ?? 'Failed to load validations',
-        pending: [],
-        completed: [],
+        error: error?.message ?? 'Failed to load validation requests',
+        requests: [],
       });
-      setValidatorAgentDetails({ loading: false, error: null, agent: null });
     }
-  }, [isEditMode, parsedQueryChainId, queryAgentId]);
+  }, [isEditMode, queryAgentAddress, parsedQueryChainId]);
   const adminReady = authPrivateKeyMode || authConnected;
   const adminGate = (
     <section
@@ -767,32 +789,21 @@ export default function AdminPage() {
   const [validatorAddress, setValidatorAddress] = useState<string | null>(null);
   const [requestUri, setRequestUri] = useState<string | null>(null);
   const [requestHash, setRequestHash] = useState<string | null>(null);
-  const [agentValidationSummary, setAgentValidationSummary] = useState<{
+  const [agentValidationRequests, setAgentValidationRequests] = useState<{
     loading: boolean;
     error: string | null;
-    pending: ValidationStatusWithHash[];
-    completed: ValidationStatusWithHash[];
+    requests: Array<ValidationStatusWithHash & { requestingAgent?: Record<string, any> }>;
   }>({
     loading: false,
     error: null,
-    pending: [],
-    completed: [],
+    requests: [],
   });
-  const [selectedPendingValidationIndex, setSelectedPendingValidationIndex] = useState(0);
-  const validatorAgentCacheRef = useRef<Map<string, Record<string, any>>>(new Map());
-  const [validatorAgentDetails, setValidatorAgentDetails] = useState<ValidatorAgentDetailsState>({
-    loading: false,
-    error: null,
-    agent: null,
-  });
-  const pendingValidations = agentValidationSummary.pending;
-  const completedValidations = agentValidationSummary.completed;
-  const selectedPendingValidation =
-    pendingValidations[selectedPendingValidationIndex] ?? null;
-  const validatorAgentEndpoint =
-    (validatorAgentDetails.agent?.a2aEndpoint as string | undefined) ??
-    (validatorAgentDetails.agent?.agentAccountEndpoint as string | undefined) ??
-    null;
+  const requestingAgentCacheRef = useRef<Map<string, Record<string, any>>>(new Map());
+  const [validationActionLoading, setValidationActionLoading] = useState<Record<string, boolean>>({});
+  const [validationActionFeedback, setValidationActionFeedback] = useState<Record<string, {
+    type: 'success' | 'error';
+    message: string;
+  }>>({});
 
   useEffect(() => {
     if (!isEditMode || !queryAgentId || !queryChainId) {
@@ -847,76 +858,100 @@ export default function AdminPage() {
     if (!isEditMode || activeManagementTab !== 'agentValidation') {
       return;
     }
-    refreshAgentValidationSummary();
-  }, [isEditMode, activeManagementTab, refreshAgentValidationSummary]);
+    refreshAgentValidationRequests();
+  }, [isEditMode, activeManagementTab, refreshAgentValidationRequests]);
 
-  useEffect(() => {
-    if (selectedPendingValidationIndex === 0) {
+  const handleSendValidationRequest = useCallback(async (validationRequest: ValidationStatusWithHash) => {
+    if (!isEditMode || !queryAgentId || !parsedQueryChainId) {
       return;
     }
-    if (selectedPendingValidationIndex >= agentValidationSummary.pending.length) {
-      setSelectedPendingValidationIndex(0);
-    }
-  }, [agentValidationSummary.pending.length, selectedPendingValidationIndex]);
-
-  useEffect(() => {
-    setSelectedPendingValidationIndex(0);
-    setValidatorAgentDetails({ loading: false, error: null, agent: null });
-  }, [queryAgentId, queryChainId]);
-
-  useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'agentValidation') {
-      return;
-    }
-    if (!selectedPendingValidation || !selectedPendingValidation.validatorAddress || !queryChainId) {
-      setValidatorAgentDetails((prev) =>
-        prev.loading || prev.agent
-          ? { loading: false, error: null, agent: null }
-          : prev,
-      );
+    
+    const requestHash = validationRequest.requestHash;
+    if (!requestHash) {
+      setValidationActionFeedback((prev) => ({
+        ...prev,
+        [requestHash || 'unknown']: {
+          type: 'error',
+          message: 'Request hash is missing.',
+        },
+      }));
       return;
     }
 
-    const validatorAddressNormalized = selectedPendingValidation.validatorAddress.toLowerCase();
-    const cached = validatorAgentCacheRef.current.get(validatorAddressNormalized);
-    if (cached) {
-      setValidatorAgentDetails({ loading: false, error: null, agent: cached });
-      return;
-    }
-
-    let cancelled = false;
-    setValidatorAgentDetails({ loading: true, error: null, agent: null });
-    const didEthr = `did:ethr:${queryChainId}:${selectedPendingValidation.validatorAddress}`;
-
-    (async () => {
-      try {
-        const response = await fetch(`/api/agents/by-account/${encodeURIComponent(didEthr)}`);
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || errorData.error || 'Failed to load validator agent');
-        }
-        const data = await response.json();
-        if (cancelled) {
-          return;
-        }
-        validatorAgentCacheRef.current.set(validatorAddressNormalized, data);
-        setValidatorAgentDetails({ loading: false, error: null, agent: data });
-      } catch (error: any) {
-        if (cancelled) {
-          return;
-        }
-        setValidatorAgentDetails({
-          loading: false,
-          error: error?.message ?? 'Failed to load validator agent',
-          agent: null,
-        });
+    // Get current agent's A2A endpoint
+    const did8004 = buildDid8004(parsedQueryChainId, queryAgentId);
+    let agentA2aEndpoint: string | null = null;
+    try {
+      const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+      if (agentResponse.ok) {
+        const agentData = await agentResponse.json();
+        agentA2aEndpoint = agentData.a2aEndpoint || agentData.agentAccountEndpoint || null;
       }
-    })();
+    } catch (error) {
+      console.warn('Failed to fetch agent A2A endpoint:', error);
+    }
 
-    return () => {
-      cancelled = true;
-    };
-  }, [isEditMode, activeManagementTab, selectedPendingValidation, queryChainId]);
+    if (!agentA2aEndpoint) {
+      setValidationActionFeedback((prev) => ({
+        ...prev,
+        [requestHash]: {
+          type: 'error',
+          message: 'Current agent A2A endpoint is not configured.',
+        },
+      }));
+      return;
+    }
+
+    setValidationActionLoading((prev) => ({ ...prev, [requestHash]: true }));
+    setValidationActionFeedback((prev) => ({
+      ...prev,
+      [requestHash]: undefined as any,
+    }));
+
+    try {
+      const requestingAgentId = validationRequest.agentId?.toString();
+      const response = await fetch(agentA2aEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          skillId: 'agent.validation.respond',
+          message: `Process validation request for agent ${requestingAgentId}`,
+          payload: {
+            agentId: requestingAgentId,
+            chainId: parsedQueryChainId,
+            requestHash: requestHash,
+          },
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.response?.error || 'Validation request failed.');
+      }
+      setValidationActionFeedback((prev) => ({
+        ...prev,
+        [requestHash]: {
+          type: 'success',
+          message: 'Validation request sent successfully.',
+        },
+      }));
+      // Refresh after a short delay
+      setTimeout(() => {
+        refreshAgentValidationRequests();
+      }, 1000);
+    } catch (error) {
+      setValidationActionFeedback((prev) => ({
+        ...prev,
+        [requestHash]: {
+          type: 'error',
+          message: error instanceof Error ? error.message : 'Failed to send validation request.',
+        },
+      }));
+    } finally {
+      setValidationActionLoading((prev) => ({ ...prev, [requestHash]: false }));
+    }
+  }, [isEditMode, queryAgentId, parsedQueryChainId, refreshAgentValidationRequests]);
 
 
 
@@ -1305,7 +1340,7 @@ export default function AdminPage() {
                 fontSize: '0.9rem',
               }}
             >
-              ENS Validation
+              Request ENS Validation
             </button>
             <button
               type="button"
@@ -1322,7 +1357,7 @@ export default function AdminPage() {
                 fontSize: '0.9rem',
               }}
             >
-              Agent Validation
+              Validate Agent Request
             </button>
           </nav>
         )}
@@ -1827,219 +1862,124 @@ export default function AdminPage() {
         {(!isEditMode || activeManagementTab === 'agentValidation') && (
         <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Validation</h2>
-          {isEditMode && queryAgentId && queryChainId ? (
+          {isEditMode && queryAgentAddress && queryChainId ? (
             <>
-              <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b', marginBottom: '1.25rem' }}>
-                Review pending validation requests for this agent, inspect the validator account, and surface the validator&apos;s A2A endpoint for quick follow-up.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 320px)', gap: '1.25rem', alignItems: 'flex-start' }}>
-                <section style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '0.75rem',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                    }}
-                  >
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem' }}>
-                      <div
-                        style={{
-                          padding: '0.5rem 0.75rem',
-                          borderRadius: '6px',
-                          border: '1px solid #dcdcdc',
-                          minWidth: '120px',
-                          backgroundColor: '#f7f7f7',
-                        }}
-                      >
-                        <div style={{ fontSize: '0.75rem', color: '#666' }}>Pending</div>
-                        <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{pendingValidations.length}</div>
-                      </div>
-                      <div
-                        style={{
-                          padding: '0.5rem 0.75rem',
-                          borderRadius: '6px',
-                          border: '1px solid #dcdcdc',
-                          minWidth: '120px',
-                          backgroundColor: '#f7f7f7',
-                        }}
-                      >
-                        <div style={{ fontSize: '0.75rem', color: '#666' }}>Completed</div>
-                        <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>{completedValidations.length}</div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={refreshAgentValidationSummary}
-                      disabled={agentValidationSummary.loading}
-                      style={{
-                        padding: '0.5rem 0.75rem',
-                        borderRadius: '6px',
-                        border: '1px solid #2f2f2f',
-                        backgroundColor: agentValidationSummary.loading ? '#cfcfcf' : '#2f2f2f',
-                        color: '#fff',
-                        cursor: agentValidationSummary.loading ? 'not-allowed' : 'pointer',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {agentValidationSummary.loading ? 'Refreshing…' : 'Refresh'}
-                    </button>
-                  </div>
-                  {agentValidationSummary.error && (
-                    <p style={{ color: '#b91c1c' }}>{agentValidationSummary.error}</p>
-                  )}
-                  {agentValidationSummary.loading ? (
-                    <p style={{ color: '#555' }}>Loading validations…</p>
-                  ) : (
-                    <div
-                      style={{
-                        border: '1px solid #dcdcdc',
-                        borderRadius: '8px',
-                        backgroundColor: '#f9f9f9',
-                        padding: '0.5rem',
-                        minHeight: '120px',
-                      }}
-                    >
-                      <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>
-                        Pending validations ({pendingValidations.length})
-                      </h3>
-                      {pendingValidations.length === 0 ? (
-                        <p style={{ color: '#666', margin: 0 }}>No pending validations.</p>
-                      ) : (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                          {pendingValidations.map((item, index) => {
-                            const isActive = index === selectedPendingValidationIndex;
-                            return (
-                              <button
-                                type="button"
-                                key={item.requestHash ?? `${item.validatorAddress}-${index}`}
-                                onClick={() => setSelectedPendingValidationIndex(index)}
-                                style={{
-                                  padding: '0.75rem',
-                                  borderRadius: '6px',
-                                  border: '1px solid',
-                                  borderColor: isActive ? '#4c51bf' : '#d1d5db',
-                                  backgroundColor: isActive ? '#eef2ff' : '#ffffff',
-                                  textAlign: 'left',
-                                  cursor: 'pointer',
-                                }}
-                              >
-                                <div style={{ fontSize: '0.9rem', fontWeight: 600, color: '#1f2937' }}>
-                                  Validator: {shortenHex(item.validatorAddress)}
-                                </div>
-                                <div style={{ fontSize: '0.8rem', color: '#4b5563' }}>
-                                  Updated: {formatValidationTimestamp(item.lastUpdate)}
-                                </div>
-                                <div style={{ fontSize: '0.8rem', color: '#4b5563' }}>
-                                  Request Hash: {shortenHex(item.requestHash)}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      border: '1px solid #dcdcdc',
-                      borderRadius: '8px',
-                      padding: '0.5rem 0.75rem',
-                      backgroundColor: '#fafafa',
-                    }}
-                  >
-                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>
-                      Completed validations ({completedValidations.length})
-                    </h3>
-                    {completedValidations.length === 0 ? (
-                      <p style={{ color: '#666', margin: 0 }}>No completed validations.</p>
-                    ) : (
-                      <ul style={{ margin: 0, paddingLeft: '1.25rem', fontSize: '0.85rem', color: '#374151' }}>
-                        {completedValidations.slice(0, 5).map((item, index) => (
-                          <li key={item.requestHash ?? `${item.validatorAddress}-completed-${index}`}>
-                            {shortenHex(item.requestHash)} • {shortenHex(item.validatorAddress)} • response {item.response}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                    {completedValidations.length > 5 && (
-                      <p style={{ color: '#6b7280', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                        And {completedValidations.length - 5} more…
-                      </p>
-                    )}
-                  </div>
-                </section>
-                <aside
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <p style={{ margin: 0, fontSize: '0.95rem', color: '#4b4b4b' }}>
+                  Validation requests where validator address equals agent account address: {shortenHex(queryAgentAddress)}
+                </p>
+                <button
+                  type="button"
+                  onClick={refreshAgentValidationRequests}
+                  disabled={agentValidationRequests.loading}
                   style={{
-                    border: '1px solid #dcdcdc',
-                    borderRadius: '8px',
-                    padding: '1rem',
-                    backgroundColor: '#fdfdfd',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1rem',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '6px',
+                    border: '1px solid #2f2f2f',
+                    backgroundColor: agentValidationRequests.loading ? '#cfcfcf' : '#2f2f2f',
+                    color: '#fff',
+                    cursor: agentValidationRequests.loading ? 'not-allowed' : 'pointer',
+                    fontWeight: 600,
                   }}
                 >
-                  <div>
-                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Selected Agent</h3>
-                    <div style={{ fontSize: '0.85rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                      <span><strong>Name:</strong> {searchParams?.get('agentName') || '(not available)'}</span>
-                      <span><strong>Agent ID:</strong> {queryAgentId}</span>
-                      <span><strong>DID:</strong> {selectedAgentDid8004 || 'Unavailable'}</span>
-                      <span><strong>Chain:</strong> {queryChainId}</span>
-                      <span>
-                        <strong>Account:</strong>{' '}
-                        {queryAgentAddress ? <span style={{ fontFamily: 'monospace' }}>{queryAgentAddress}</span> : '(not available)'}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Pending Validation Detail</h3>
-                    {pendingValidations.length === 0 || !selectedPendingValidation ? (
-                      <p style={{ color: '#666', margin: 0 }}>Select a pending validation to view details.</p>
-                    ) : (
-                      <div style={{ fontSize: '0.85rem', color: '#1f2937', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                        <span><strong>Validator:</strong> {selectedPendingValidation.validatorAddress}</span>
-                        <span><strong>Request hash:</strong> {selectedPendingValidation.requestHash || '(not available)'}</span>
-                        <span><strong>Last update:</strong> {formatValidationTimestamp(selectedPendingValidation.lastUpdate)}</span>
-                        <span><strong>Tag:</strong> {selectedPendingValidation.tag || '(none)'}</span>
-                        <span><strong>Response hash:</strong> {selectedPendingValidation.responseHash || '(none)'}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem' }}>Validator Agent</h3>
-                    {pendingValidations.length === 0 || !selectedPendingValidation ? (
-                      <p style={{ color: '#666', margin: 0 }}>No validator selected.</p>
-                    ) : validatorAgentDetails.loading ? (
-                      <p style={{ color: '#666', margin: 0 }}>Loading validator agent…</p>
-                    ) : validatorAgentDetails.error ? (
-                      <p style={{ color: '#b91c1c', margin: 0 }}>{validatorAgentDetails.error}</p>
-                    ) : validatorAgentDetails.agent ? (
-                      <div style={{ fontSize: '0.85rem', color: '#1f2937', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
-                        <span><strong>Name:</strong> {validatorAgentDetails.agent.agentName || '(not available)'}</span>
-                        <span><strong>Agent ID:</strong> {validatorAgentDetails.agent.agentId || '(not available)'}</span>
-                        <span><strong>DID:</strong> {validatorAgentDetails.agent.didIdentity || validatorAgentDetails.agent.did || '(not available)'}</span>
-                        <span><strong>A2A endpoint:</strong> {validatorAgentEndpoint || '(not available)'}</span>
-                      </div>
-                    ) : (
-                      <p style={{ color: '#666', margin: 0 }}>No agent information found for this validator.</p>
-                    )}
-                  </div>
-                </aside>
+                  {agentValidationRequests.loading ? 'Refreshing…' : 'Refresh'}
+                </button>
               </div>
+              {agentValidationRequests.error && (
+                <p style={{ color: '#b91c1c', marginBottom: '1rem' }}>{agentValidationRequests.error}</p>
+              )}
+              {agentValidationRequests.loading ? (
+                <p style={{ color: '#555' }}>Loading validation requests…</p>
+              ) : agentValidationRequests.requests.length === 0 ? (
+                <p style={{ color: '#666' }}>No validation requests found for this validator address.</p>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {agentValidationRequests.requests.map((req) => {
+                    const requestHash = req.requestHash || 'unknown';
+                    const requestingAgent = req.requestingAgent;
+                    const isLoading = validationActionLoading[requestHash] || false;
+                    const feedback = validationActionFeedback[requestHash];
+                    return (
+                      <div
+                        key={requestHash}
+                        style={{
+                          border: '1px solid #dcdcdc',
+                          borderRadius: '8px',
+                          padding: '1rem',
+                          backgroundColor: '#f9f9f9',
+                        }}
+                      >
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 600 }}>
+                            Requesting Agent
+                          </h3>
+                          {requestingAgent ? (
+                            <div style={{ fontSize: '0.85rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                              <span><strong>Name:</strong> {requestingAgent.agentName || '(not available)'}</span>
+                              <span><strong>Agent ID:</strong> {req.agentId?.toString() || '(not available)'}</span>
+                              <span><strong>DID:</strong> {requestingAgent.didIdentity || requestingAgent.did || '(not available)'}</span>
+                              <span><strong>Account:</strong> <span style={{ fontFamily: 'monospace' }}>{requestingAgent.agentAccount || '(not available)'}</span></span>
+                            </div>
+                          ) : (
+                            <p style={{ color: '#666', margin: 0, fontSize: '0.85rem' }}>
+                              Agent ID: {req.agentId?.toString() || 'Unknown'} (details not available)
+                            </p>
+                          )}
+                        </div>
+                        <div style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#4b5563' }}>
+                          <div><strong>Request Hash:</strong> {shortenHex(requestHash)}</div>
+                          <div><strong>Status:</strong> {req.response === 0 ? 'Pending' : `Completed (response: ${req.response})`}</div>
+                          {req.lastUpdate && (
+                            <div><strong>Last Update:</strong> {formatValidationTimestamp(req.lastUpdate)}</div>
+                          )}
+                        </div>
+                        {req.response === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleSendValidationRequest(req)}
+                            disabled={isLoading}
+                            style={{
+                              width: '100%',
+                              padding: '0.65rem',
+                              borderRadius: '6px',
+                              border: '1px solid',
+                              borderColor: isLoading ? '#d1d5db' : '#1f2937',
+                              backgroundColor: isLoading ? '#e5e7eb' : '#1f2937',
+                              color: isLoading ? '#6b7280' : '#ffffff',
+                              cursor: isLoading ? 'not-allowed' : 'pointer',
+                              fontWeight: 600,
+                            }}
+                          >
+                            {isLoading ? 'Sending…' : 'Send Validation Request to A2A Endpoint'}
+                          </button>
+                        )}
+                        {feedback && (
+                          <p
+                            style={{
+                              marginTop: '0.5rem',
+                              fontSize: '0.8rem',
+                              color: feedback.type === 'success' ? '#059669' : '#b91c1c',
+                            }}
+                          >
+                            {feedback.message}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           ) : (
             <p style={{ color: '#777', fontStyle: 'italic' }}>
-              Please navigate to an agent to view validation information.
+              Please navigate to an agent with an account address to view validation requests.
             </p>
           )}
         </div>
         )}
         {(!isEditMode || activeManagementTab === 'validation') && (
         <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>ENS Validation Request</h2>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Validate Agent Request</h2>
           {isEditMode && queryAgentId && queryChainId ? (
             <>
               <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b', marginBottom: '1.5rem' }}>

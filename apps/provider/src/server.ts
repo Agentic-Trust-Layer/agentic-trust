@@ -21,8 +21,11 @@ import {
   loadSessionPackage,
   mountAgentApiRoutes,
   getENSClient,
+  getAgentValidationsSummary,
+  DEFAULT_CHAIN_ID,
   type SessionPackage,
 } from '@agentic-trust/core/server';
+import { processValidationRequests } from './validation';
 
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
@@ -260,6 +263,15 @@ app.get('/.well-known/agent-card.json', (req: Request, res: Response) => {
         inputModes: ['text'],
         outputModes: ['text'],
         description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
+      },
+      {
+        id: 'agent.validation.respond',
+        name: 'agent.validation.respond',
+        tags: ['erc8004', 'validation', 'ens', 'a2a'],
+        examples: ['Process ENS validation requests for agents'],
+        inputModes: ['text'],
+        outputModes: ['text'],
+        description: 'Process validation requests by validating ENS names and submitting validation responses',
       },
     ],
     registrations: [
@@ -499,6 +511,94 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         console.error('Error creating feedback auth:', error);
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
+      }
+    } else if (skillId === 'agent.validation.respond') {
+      responseContent.skill = skillId;
+      const agentIdParam =
+        payload?.agentId ??
+        payload?.agentID ??
+        metadata?.agentId ??
+        metadata?.agentID ??
+        null;
+      if (!agentIdParam) {
+        responseContent.error = 'agentId is required in payload for agent.validation.respond skill';
+      } else {
+        const agentId = String(agentIdParam);
+        const chainId =
+          typeof payload?.chainId === 'number'
+            ? payload.chainId
+            : typeof metadata?.chainId === 'number'
+              ? metadata.chainId
+              : DEFAULT_CHAIN_ID;
+        const requestHash = payload?.requestHash as string | undefined;
+        
+        try {
+          // Load SessionPackage based on subdomain (or use default from env var)
+          // This uses the same sessionPackage that feedbackAuth uses
+          let sessionPackage: SessionPackage | null = null;
+
+          if (subdomain) {
+            // TODO: Implement your app-specific logic to load SessionPackage based on subdomain
+            // Example: const sessionPackagePath = `/path/to/sessionPackages/${subdomain}.json.secret`;
+            // sessionPackage = loadSessionPackage(sessionPackagePath);
+            // For now, fall back to env var if subdomain-based loading is not implemented
+            const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+            if (sessionPackagePath) {
+              sessionPackage = loadSessionPackage(sessionPackagePath);
+            }
+          } else {
+            // No subdomain, use default from env var
+            const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+            if (sessionPackagePath) {
+              sessionPackage = loadSessionPackage(sessionPackagePath);
+            }
+          }
+
+          if (!sessionPackage) {
+            throw new Error('SessionPackage is required for validation. Set AGENTIC_TRUST_SESSION_PACKAGE_PATH environment variable.');
+          }
+
+          console.log(`[Provider A2A] Processing validation request via internal validation service`);
+          console.log(`[Provider A2A] Agent ID: ${agentId}, Chain ID: ${chainId}, Request Hash: ${requestHash || 'ALL'}`);
+          
+          // Process validation requests using internal validation service with sessionPackage
+          const validationResults = await processValidationRequests(
+            sessionPackage,
+            chainId,
+            agentId,
+            requestHash,
+          );
+          
+          // Format response similar to the external validator service
+          const successCount = validationResults.filter(r => r.success).length;
+          const failureCount = validationResults.filter(r => !r.success).length;
+          
+          responseContent.validationResult = {
+            success: true,
+            chainId,
+            processed: validationResults.length,
+            successful: successCount,
+            failed: failureCount,
+            results: validationResults,
+          };
+          
+          // Also fetch validation summary
+          try {
+            const summary = await getAgentValidationsSummary(chainId, agentId);
+            responseContent.validationSummary = summary;
+          } catch (summaryError) {
+            responseContent.summaryError =
+              summaryError instanceof Error
+                ? summaryError.message
+                : 'Failed to load validation summary';
+          }
+        } catch (validationError: any) {
+          console.error('[Provider A2A] Error processing validation request:', validationError);
+          responseContent.error =
+            validationError instanceof Error
+              ? validationError.message
+              : 'Failed to process validation request';
+        }
       }
     } else if (skillId) {
       responseContent.response = `Received request for skill: ${skillId}. This skill is not yet implemented.`;

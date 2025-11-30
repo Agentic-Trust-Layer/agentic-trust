@@ -1,5 +1,5 @@
 /**
- * Validator Service
+ * ENS Validation Service
  * 
  * Processes ENS validation requests by:
  * 1. Reading validation requests for the validator address
@@ -70,10 +70,14 @@ export interface ValidationResult {
  */
 export async function processValidationRequests(
   chainId: number = DEFAULT_CHAIN_ID,
+  agentIdFilter?: string,
 ): Promise<ValidationResult[]> {
   console.log(`[Validator] ========================================`);
   console.log(`[Validator] processValidationRequests() called`);
   console.log(`[Validator] Chain ID parameter: ${chainId}`);
+  if (agentIdFilter) {
+    console.log(`[Validator] Agent filter: ${agentIdFilter}`);
+  }
   console.log(`[Validator] ========================================`);
   
   const results: ValidationResult[] = [];
@@ -177,6 +181,13 @@ export async function processValidationRequests(
       }
 
       const agentId = status.agentId.toString();
+      if (agentIdFilter && agentId !== agentIdFilter) {
+        skippedCount++;
+        console.log(
+          `[Validator] ⏭️  SKIPPED: Agent mismatch (request agentId=${agentId}, filter=${agentIdFilter})`,
+        );
+        continue;
+      }
       console.log(`[Validator] ✓ Processing validation for agent ${agentId}`);
 
       // Get agent information using core library

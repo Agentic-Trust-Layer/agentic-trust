@@ -1,5 +1,5 @@
 /**
- * Express.js Validator Server
+ * Express.js ENS Validation Server
  * 
  * Simple Express service that processes ENS validation requests.
  * Reads validation requests from the contract and validates agent ENS names.
@@ -61,10 +61,17 @@ app.post('/api/validate', async (req: Request, res: Response) => {
   
   try {
     const chainId = req.body.chainId ? Number(req.body.chainId) : DEFAULT_CHAIN_ID;
+    const agentIdFilter =
+      typeof req.body.agentId === 'string' && req.body.agentId.trim().length > 0
+        ? req.body.agentId.trim()
+        : undefined;
     console.log(`[Validator Server] Resolved chainId: ${chainId}`);
+    if (agentIdFilter) {
+      console.log(`[Validator Server] Filtering to agentId: ${agentIdFilter}`);
+    }
 
-    console.log(`[Validator Server] Calling processValidationRequests(${chainId})...`);
-    const results = await processValidationRequests(chainId);
+    console.log(`[Validator Server] Calling processValidationRequests(${chainId}, ${agentIdFilter ?? 'ALL'})...`);
+    const results = await processValidationRequests(chainId, agentIdFilter);
     console.log(`[Validator Server] processValidationRequests() returned ${results.length} results`);
 
     const successCount = results.filter((r) => r.success).length;
@@ -77,6 +84,7 @@ app.post('/api/validate', async (req: Request, res: Response) => {
     res.json({
       success: true,
       chainId,
+      agentId: agentIdFilter,
       processed: results.length,
       successful: successCount,
       failed: failureCount,
@@ -84,6 +92,37 @@ app.post('/api/validate', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('[Validator Server] Error processing validation requests:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+/**
+ * Convenience endpoint to process validations for a specific agent via URL param
+ */
+app.post('/api/validate/agent/:agentId', async (req: Request, res: Response) => {
+  const agentId = req.params.agentId;
+  if (!agentId) {
+    return res.status(400).json({ success: false, error: 'agentId parameter is required' });
+  }
+  try {
+    const chainId = req.body.chainId ? Number(req.body.chainId) : DEFAULT_CHAIN_ID;
+    const results = await processValidationRequests(chainId, agentId);
+    const successCount = results.filter((r) => r.success).length;
+    const failureCount = results.filter((r) => !r.success).length;
+    res.json({
+      success: true,
+      chainId,
+      agentId,
+      processed: results.length,
+      successful: successCount,
+      failed: failureCount,
+      results,
+    });
+  } catch (error) {
+    console.error('[Validator Server] Error processing agent-specific validation requests:', error);
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error',

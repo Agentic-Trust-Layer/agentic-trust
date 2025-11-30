@@ -1,4 +1,4 @@
-# Validator Service
+# ENS Validation Service
 
 A simple Express service that processes ENS validation requests for agents. The validator reads validation requests from the validation registry contract, validates that agent ENS names exist and are owned by the correct agent accounts, and submits validation responses with a score of 100 for valid agents.
 

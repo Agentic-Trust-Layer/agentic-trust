@@ -280,6 +280,7 @@ export {
 export {
   createValidatorAccountAbstraction,
   getAgentValidationsSummary,
+  getValidatorAddressValidations,
   type AgentValidationsSummary,
 } from './lib/validations';
 

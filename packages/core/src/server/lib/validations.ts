@@ -125,4 +125,35 @@ export async function createValidatorAccountAbstraction(
   return { accountClient, address: validatorAddress };
 }
 
+/**
+ * Get validation requests for a validator address
+ */
+export async function getValidatorAddressValidations(
+  chainId: number,
+  validatorAddress: string,
+): Promise<ValidationStatusWithHash[]> {
+  const client = await getValidationRegistryClient(chainId);
+
+  const requestHashes = await client.getValidatorRequests(validatorAddress);
+  console.log(`[getValidatorAddressValidations] Found ${requestHashes.length} validation request hash(es) for validator ${validatorAddress} on chain ${chainId}`);
+
+  const results: ValidationStatusWithHash[] = [];
+
+  for (const hash of requestHashes) {
+    try {
+      const status = await client.getValidationStatus(hash);
+      const entry: ValidationStatusWithHash = {
+        requestHash: hash,
+        ...status,
+      };
+      results.push(entry);
+    } catch (error) {
+      console.warn(`[getValidatorAddressValidations] Failed to get status for hash ${hash}:`, error);
+      // Ignore invalid entries but continue
+    }
+  }
+
+  return results;
+}
+
 
