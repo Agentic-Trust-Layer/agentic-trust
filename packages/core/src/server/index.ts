@@ -278,6 +278,15 @@ export {
 } from './singletons/validationClient';
 
 export {
+  processValidationRequestsWithSessionPackage,
+  buildDelegatedValidationContext,
+} from './services/delegatedValidation';
+export type {
+  ValidationResult,
+  DelegatedValidationContext,
+} from './services/delegatedValidation';
+
+export {
   createValidatorAccountAbstraction,
   getAgentValidationsSummary,
   getValidatorAddressValidations,
