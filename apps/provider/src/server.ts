@@ -27,6 +27,33 @@ import {
 } from '@agentic-trust/core/server';
 import { processValidationRequests } from './validation';
 
+/**
+ * Recursively convert BigInt values to strings for JSON serialization
+ */
+function serializeBigInt(obj: any): any {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  
+  if (typeof obj === 'bigint') {
+    return obj.toString();
+  }
+  
+  if (Array.isArray(obj)) {
+    return obj.map(serializeBigInt);
+  }
+  
+  if (typeof obj === 'object') {
+    const result: any = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[key] = serializeBigInt(value);
+    }
+    return result;
+  }
+  
+  return obj;
+}
+
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3001;
 
@@ -612,8 +639,11 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
       response: responseContent,
     };
 
+    // Serialize BigInt values to strings before JSON serialization
+    const serializedResponse = serializeBigInt(response);
+
     res.set(getCorsHeaders());
-    res.json(response);
+    res.json(serializedResponse);
   } catch (error) {
     console.error('Error processing A2A request:', error);
     res.set(getCorsHeaders());

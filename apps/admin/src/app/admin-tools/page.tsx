@@ -804,6 +804,26 @@ export default function AdminPage() {
     type: 'success' | 'error';
     message: string;
   }>>({});
+  
+  // A2A endpoint validation state
+  const [a2aEndpointData, setA2aEndpointData] = useState<{
+    loading: boolean;
+    error: string | null;
+    tokenUri: string | null;
+    a2aEndpoint: string | null;
+    validation: {
+      verified: boolean;
+      hasSkill: boolean;
+      skillName?: string;
+      error?: string;
+    } | null;
+  }>({
+    loading: false,
+    error: null,
+    tokenUri: null,
+    a2aEndpoint: null,
+    validation: null,
+  });
 
   useEffect(() => {
     if (!isEditMode || !queryAgentId || !queryChainId) {
@@ -861,6 +881,61 @@ export default function AdminPage() {
     refreshAgentValidationRequests();
   }, [isEditMode, activeManagementTab, refreshAgentValidationRequests]);
 
+  // Fetch A2A endpoint data when agentValidation tab is active
+  useEffect(() => {
+    if (!isEditMode || activeManagementTab !== 'agentValidation' || !queryAgentId || !queryChainId) {
+      setA2aEndpointData({
+        loading: false,
+        error: null,
+        tokenUri: null,
+        a2aEndpoint: null,
+        validation: null,
+      });
+      return;
+    }
+
+    let cancelled = false;
+    setA2aEndpointData((prev) => ({ ...prev, loading: true, error: null }));
+
+    (async () => {
+      try {
+        const did8004 = buildDid8004(Number(queryChainId), queryAgentId);
+        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/a2a-endpoint`);
+        
+        if (cancelled) return;
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to fetch A2A endpoint');
+        }
+
+        const data = await response.json();
+        if (cancelled) return;
+
+        setA2aEndpointData({
+          loading: false,
+          error: null,
+          tokenUri: data.tokenUri || null,
+          a2aEndpoint: data.a2aEndpoint || null,
+          validation: data.validation || null,
+        });
+      } catch (error: any) {
+        if (cancelled) return;
+        setA2aEndpointData({
+          loading: false,
+          error: error?.message || 'Failed to fetch A2A endpoint',
+          tokenUri: null,
+          a2aEndpoint: null,
+          validation: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, activeManagementTab, queryAgentId, queryChainId]);
+
   const handleSendValidationRequest = useCallback(async (validationRequest: ValidationStatusWithHash) => {
     if (!isEditMode || !queryAgentId || !parsedQueryChainId) {
       return;
@@ -878,25 +953,19 @@ export default function AdminPage() {
       return;
     }
 
-    // Get current agent's A2A endpoint
-    const did8004 = buildDid8004(parsedQueryChainId, queryAgentId);
-    let agentA2aEndpoint: string | null = null;
-    try {
-      const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
-      if (agentResponse.ok) {
-        const agentData = await agentResponse.json();
-        agentA2aEndpoint = agentData.a2aEndpoint || agentData.agentAccountEndpoint || null;
-      }
-    } catch (error) {
-      console.warn('Failed to fetch agent A2A endpoint:', error);
-    }
+    // Use the verified A2A endpoint from the verification process
+    const agentA2aEndpoint = a2aEndpointData.a2aEndpoint;
 
     if (!agentA2aEndpoint) {
       setValidationActionFeedback((prev) => ({
         ...prev,
         [requestHash]: {
           type: 'error',
-          message: 'Current agent A2A endpoint is not configured.',
+          message: a2aEndpointData.loading 
+            ? 'A2A endpoint is still being verified. Please wait...'
+            : a2aEndpointData.error
+            ? `A2A endpoint verification failed: ${a2aEndpointData.error}`
+            : 'Current agent A2A endpoint is not configured or verified.',
         },
       }));
       return;
@@ -910,12 +979,14 @@ export default function AdminPage() {
 
     try {
       const requestingAgentId = validationRequest.agentId?.toString();
-      const response = await fetch(agentA2aEndpoint, {
+      // Use server-side proxy to avoid browser port restrictions (e.g., Chrome blocks port 6000)
+      const response = await fetch('/api/a2a/send-validation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          a2aEndpoint: agentA2aEndpoint,
           skillId: 'agent.validation.respond',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
@@ -951,7 +1022,7 @@ export default function AdminPage() {
     } finally {
       setValidationActionLoading((prev) => ({ ...prev, [requestHash]: false }));
     }
-  }, [isEditMode, queryAgentId, parsedQueryChainId, refreshAgentValidationRequests]);
+  }, [isEditMode, queryAgentId, parsedQueryChainId, refreshAgentValidationRequests, a2aEndpointData]);
 
 
 
@@ -1861,7 +1932,7 @@ export default function AdminPage() {
         )}
         {(!isEditMode || activeManagementTab === 'agentValidation') && (
         <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Validation</h2>
+          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Validate Agent Request</h2>
           {isEditMode && queryAgentAddress && queryChainId ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -1934,24 +2005,70 @@ export default function AdminPage() {
                           )}
                         </div>
                         {req.response === 0 && (
-                          <button
-                            type="button"
-                            onClick={() => handleSendValidationRequest(req)}
-                            disabled={isLoading}
-                            style={{
-                              width: '100%',
-                              padding: '0.65rem',
-                              borderRadius: '6px',
-                              border: '1px solid',
-                              borderColor: isLoading ? '#d1d5db' : '#1f2937',
-                              backgroundColor: isLoading ? '#e5e7eb' : '#1f2937',
-                              color: isLoading ? '#6b7280' : '#ffffff',
-                              cursor: isLoading ? 'not-allowed' : 'pointer',
-                              fontWeight: 600,
-                            }}
-                          >
-                            {isLoading ? 'Sending…' : 'Send Validation Request to A2A Endpoint'}
-                          </button>
+                          <>
+                            <div style={{ marginBottom: '0.75rem', padding: '0.75rem', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
+                              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', fontWeight: 600 }}>Current Agent A2A Endpoint</h4>
+                              {a2aEndpointData.loading ? (
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#777', fontStyle: 'italic' }}>Loading A2A endpoint data...</p>
+                              ) : a2aEndpointData.error ? (
+                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#b91c1c' }}>Error: {a2aEndpointData.error}</p>
+                              ) : (
+                                <div style={{ fontSize: '0.85rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                  <div>
+                                    <strong>Token URI:</strong>{' '}
+                                    {a2aEndpointData.tokenUri ? (
+                                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}>{a2aEndpointData.tokenUri}</span>
+                                    ) : (
+                                      <span style={{ color: '#777', fontStyle: 'italic' }}>(not available)</span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <strong>A2A Endpoint:</strong>{' '}
+                                    {a2aEndpointData.a2aEndpoint ? (
+                                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}>{a2aEndpointData.a2aEndpoint}</span>
+                                    ) : (
+                                      <span style={{ color: '#777', fontStyle: 'italic' }}>(not available)</span>
+                                    )}
+                                  </div>
+                                  <div>
+                                    <strong>Endpoint Verification:</strong>{' '}
+                                    {a2aEndpointData.validation ? (
+                                      <span style={{ 
+                                        color: a2aEndpointData.validation.verified && a2aEndpointData.validation.hasSkill ? '#059669' : '#b91c1c',
+                                        fontWeight: 600,
+                                      }}>
+                                        {a2aEndpointData.validation.verified && a2aEndpointData.validation.hasSkill 
+                                          ? `✓ Verified - Skill "${a2aEndpointData.validation.skillName}" found`
+                                          : a2aEndpointData.validation.verified
+                                            ? '✗ Endpoint accessible but validation skill not found'
+                                            : `✗ Verification failed: ${a2aEndpointData.validation.error || 'Unknown error'}`}
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: '#777', fontStyle: 'italic' }}>(not verified)</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSendValidationRequest(req)}
+                              disabled={isLoading}
+                              style={{
+                                width: '100%',
+                                padding: '0.65rem',
+                                borderRadius: '6px',
+                                border: '1px solid',
+                                borderColor: isLoading ? '#d1d5db' : '#1f2937',
+                                backgroundColor: isLoading ? '#e5e7eb' : '#1f2937',
+                                color: isLoading ? '#6b7280' : '#ffffff',
+                                cursor: isLoading ? 'not-allowed' : 'pointer',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {isLoading ? 'Sending…' : 'Send Validation Request to A2A Endpoint'}
+                            </button>
+                          </>
                         )}
                         {feedback && (
                           <p
@@ -2052,7 +2169,7 @@ export default function AdminPage() {
                     opacity: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? 0.7 : 1,
                   }}
                 >
-                  {validationSubmitting ? 'Submitting...' : 'Submit Validation Request'}
+                  {validationSubmitting ? 'Submitting...' : 'Submit ENS Validation Request'}
                 </button>
                 {(!eip1193Provider || !eoaAddress) && (
                   <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#d32f2f', textAlign: 'center' }}>

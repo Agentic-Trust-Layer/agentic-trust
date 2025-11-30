@@ -64,10 +64,42 @@ export async function getValidatorApp(chainId: number = DEFAULT_CHAIN_ID): Promi
 
       logUserAppInitStart('validator', `chainId=${chainId}`);
 
-      // Get validator private key from environment
-      const privateKey = process.env.AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY;
+      // Try to get validator private key from sessionPackage first, then fall back to environment variable
+      let privateKey: string | undefined;
+      
+      // Try sessionPackage first (same as feedbackAuth uses)
+      try {
+        const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+        if (sessionPackagePath) {
+          const { loadSessionPackage } = await import('../lib/sessionPackage');
+          const sessionPackage = loadSessionPackage(sessionPackagePath);
+          if (sessionPackage?.sessionKey?.privateKey) {
+            privateKey = sessionPackage.sessionKey.privateKey;
+            console.log('[ValidatorApp] Using private key from sessionPackage');
+          }
+        }
+      } catch (sessionError) {
+        // If sessionPackage loading fails, fall through to environment variable
+        console.warn('[ValidatorApp] Failed to load sessionPackage, falling back to environment variable:', sessionError);
+      }
+
+      // Fall back to environment variable if sessionPackage didn't provide a key
       if (!privateKey) {
-        throw new Error('AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY environment variable is not set');
+        privateKey = process.env.AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY;
+        if (privateKey) {
+          console.log('[ValidatorApp] Using private key from AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY environment variable');
+        }
+      }
+
+      if (!privateKey) {
+        console.warn(
+          'ValidatorApp role is enabled but no private key found. ' +
+          'Set either AGENTIC_TRUST_SESSION_PACKAGE_PATH (with sessionKey.privateKey) or AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY. ' +
+          'Skipping ValidatorApp initialization for this process.',
+        );
+        validatorAppInstances.delete(instanceKey);
+        initializationPromises.delete(instanceKey);
+        return undefined as any;
       }
 
       // Get chain-specific RPC URL and chain config
