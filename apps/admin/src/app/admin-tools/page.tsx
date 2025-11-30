@@ -7,8 +7,7 @@ import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
 import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestENSValidationWithWallet } from '@agentic-trust/core';
-import type { DiscoverParams as AgentSearchParams, DiscoverResponse } from '@agentic-trust/core/server';
-import type { ValidationStatus } from '@agentic-trust/8004-sdk';
+import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
   getSupportedChainIds,
   getChainDisplayMetadata,
