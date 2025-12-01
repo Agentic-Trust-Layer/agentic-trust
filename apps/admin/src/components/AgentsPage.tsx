@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import ShadowAgentImage from '../../../../docs/8004ShadowAgent.png';
 import { grayscalePalette as palette } from '@/styles/palette';
 import {
@@ -158,6 +159,7 @@ export function AgentsPage({
   const [registrationEditSaving, setRegistrationEditSaving] = useState(false);
   const registrationEditRef = useRef<HTMLTextAreaElement | null>(null);
   const [latestTokenUri, setLatestTokenUri] = useState<string | null>(null);
+  const router = useRouter();
   const [tokenUriLoading, setTokenUriLoading] = useState(false);
   const [a2aPreview, setA2APreview] = useState<{
     key: string | null;
@@ -2841,6 +2843,10 @@ export function AgentsPage({
               chainMeta?.displayName ||
               chainMeta?.chainName ||
               `Chain ${agent.chainId}`;
+            const ownerDisplay =
+              typeof agent.agentAccount === 'string' && agent.agentAccount.length > 10
+                ? `${agent.agentAccount.slice(0, 5)}…${agent.agentAccount.slice(-5)}`
+                : agent.agentAccount || null;
 
             const reviewsCount =
               typeof agent.feedbackCount === 'number' && agent.feedbackCount >= 0
@@ -2872,10 +2878,16 @@ export function AgentsPage({
                 ? agent.createdAtTime
                 : null;
             const nowSeconds = Math.floor(Date.now() / 1000);
-            const daysAgo =
+            const secondsAgo =
               createdAtTimeSeconds && createdAtTimeSeconds > 0
-                ? Math.max(0, Math.floor((nowSeconds - createdAtTimeSeconds) / (24 * 60 * 60)))
+                ? Math.max(0, nowSeconds - createdAtTimeSeconds)
                 : null;
+            const daysAgo =
+              secondsAgo !== null ? Math.floor(secondsAgo / (24 * 60 * 60)) : null;
+            const hoursAgo =
+              secondsAgo !== null ? Math.floor(secondsAgo / (60 * 60)) : null;
+            const minutesAgo =
+              secondsAgo !== null ? Math.floor(secondsAgo / 60) : null;
             return (
               <article
                 key={`${agent.chainId}-${agent.agentId}`}
@@ -2889,60 +2901,112 @@ export function AgentsPage({
                   flexDirection: 'column',
                   gap: '0.75rem',
                   position: 'relative',
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  cursor: 'pointer',
+                }}
+                onMouseEnter={(event) => {
+                  event.currentTarget.style.transform = 'translateY(-4px)';
+                  event.currentTarget.style.boxShadow = '0 12px 30px rgba(15,23,42,0.12)';
+                }}
+                onMouseLeave={(event) => {
+                  event.currentTarget.style.transform = 'none';
+                  event.currentTarget.style.boxShadow = '0 6px 16px rgba(15,23,42,0.06)';
+                }}
+                onClick={(event) => {
+                  if (event.defaultPrevented) {
+                    return;
+                  }
+                  const target = event.target as HTMLElement | null;
+                  if (target?.closest('button,[data-agent-card-link]')) {
+                    return;
+                  }
+                  router.push(`/agents/${agent.chainId}/${agent.agentId}`);
                 }}
               >
-                {isOwned && (
-                  <div
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '0.75rem',
+                    right: '0.75rem',
+                    display: 'flex',
+                    gap: '0.4rem',
+                  }}
+                >
+                  {isOwned && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onEditAgent?.(agent);
+                        }}
+                        aria-label={`Manage Agent ${agent.agentId}`}
+                        title="Manage Agent"
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '999px',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surface,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                        }}
+                      >
+                        ⚙️
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openActionDialog(agent, 'give-feedback');
+                        }}
+                        aria-label={`Give feedback for agent ${agent.agentId}`}
+                        title="Give feedback"
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '999px',
+                          border: `1px solid ${palette.border}`,
+                          backgroundColor: palette.surface,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer',
+                          boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                        }}
+                      >
+                        💬
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      router.push(`/agents/${agent.chainId}/${agent.agentId}`);
+                    }}
+                    aria-label={`View agent ${agent.agentId} details`}
+                    title="Open shareable agent details"
                     style={{
-                      position: 'absolute',
-                      top: '0.75rem',
-                      right: '0.75rem',
+                      width: '32px',
+                      height: '32px',
+                      borderRadius: '999px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surface,
                       display: 'flex',
-                      gap: '0.4rem',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                      fontSize: '0.85rem',
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={() => onEditAgent?.(agent)}
-                      aria-label={`Manage Agent ${agent.agentId}`}
-                      title="Manage Agent"
-                      style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '999px',
-                        border: `1px solid ${palette.border}`,
-                        backgroundColor: palette.surface,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
-                      }}
-                    >
-                      ⚙️
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => openActionDialog(agent, 'give-feedback')}
-                      aria-label={`Give feedback for agent ${agent.agentId}`}
-                      title="Give feedback"
-                      style={{
-                        width: '32px',
-                        height: '32px',
-                        borderRadius: '999px',
-                        border: `1px solid ${palette.border}`,
-                        backgroundColor: palette.surface,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        cursor: 'pointer',
-                        boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
-                      }}
-                    >
-                      💬
-                    </button>
-                  </div>
-                )}
+                    🔍
+                  </button>
+                </div>
                 <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
                   <img
                     src={imageUrl}
@@ -2963,6 +3027,8 @@ export function AgentsPage({
                   <div>
                     {nftTransfersUrl ? (
                       <a
+                        data-agent-card-link
+                        onClick={(event) => event.stopPropagation()}
                         href={nftTransfersUrl}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -3017,6 +3083,8 @@ export function AgentsPage({
                         <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
                           {ensLink && isEnsName ? (
                             <a
+                              data-agent-card-link
+                              onClick={(event) => event.stopPropagation()}
                               href={ensLink.href}
                               target="_blank"
                               rel="noopener noreferrer"
@@ -3033,6 +3101,8 @@ export function AgentsPage({
                         </h4>
                         {ensLink && !isEnsName && (
                           <a
+                            data-agent-card-link
+                            onClick={(event) => event.stopPropagation()}
                             href={ensLink.href}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -3088,6 +3158,22 @@ export function AgentsPage({
                       minWidth: 0,
                     }}
                   >
+                    {ownerDisplay && (
+                      <div
+                        style={{
+                          fontSize: '0.75rem',
+                          color: palette.textSecondary,
+                          maxWidth: '100%',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                        title={agent.agentAccount || undefined}
+                      >
+                        <strong style={{ fontWeight: 600 }}>Owner:</strong>{' '}
+                        <span>{ownerDisplay}</span>
+                      </div>
+                    )}
                     {agent.a2aEndpoint && (
                       <div
                         style={{
@@ -3252,7 +3338,15 @@ export function AgentsPage({
                   }}
                 >
                   <span>
-                    {daysAgo !== null ? `${daysAgo} day${daysAgo === 1 ? '' : 's'} ago` : 'Age N/A'}
+                    {secondsAgo === null
+                      ? 'Age N/A'
+                      : daysAgo && daysAgo > 0
+                        ? `${daysAgo} day${daysAgo === 1 ? '' : 's'} ago`
+                        : hoursAgo && hoursAgo > 0
+                          ? `${hoursAgo} hour${hoursAgo === 1 ? '' : 's'} ago`
+                          : minutesAgo && minutesAgo > 0
+                            ? `${minutesAgo} minute${minutesAgo === 1 ? '' : 's'} ago`
+                            : `${secondsAgo} second${secondsAgo === 1 ? '' : 's'} ago`}
                   </span>
                   <div
                     style={{
@@ -3282,25 +3376,27 @@ export function AgentsPage({
                         reviews ({reviewsCount.toLocaleString()})
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openActionDialog(agent, 'validations' as any);
-                      }}
-                      style={{
-                        padding: 0,
-                        border: 'none',
-                        background: 'none',
-                        color: palette.accent,
-                        fontSize: '0.8rem',
-                        cursor: 'pointer',
-                        textDecoration: 'underline',
-                      }}
-                      title={`Completed: ${validationsCount}, Pending: ${validationsPendingCount}, Requested: ${validationsRequestedCount}`}
-                    >
-                      validations ({validationsCount} / {validationsPendingCount} / {validationsRequestedCount})
-                    </button>
+                    {(validationsCount > 0 || validationsPendingCount > 0) && (
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.stopPropagation();
+                          openActionDialog(agent, 'validations' as any);
+                        }}
+                        style={{
+                          padding: 0,
+                          border: 'none',
+                          background: 'none',
+                          color: palette.accent,
+                          fontSize: '0.8rem',
+                          cursor: 'pointer',
+                          textDecoration: 'underline',
+                        }}
+                        title={`Completed: ${validationsCount}, Pending: ${validationsPendingCount}`}
+                      >
+                        validations ({validationsCount} / {validationsPendingCount})
+                      </button>
+                    )}
                   </div>
                 </div>
               </article>
