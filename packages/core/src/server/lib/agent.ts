@@ -1011,6 +1011,7 @@ export async function loadAgentDetail(
       }
     }
     // If agentUrl exists and a2aEndpoint not found, construct it
+    /*
     if (!flattened.a2aEndpoint && typeof reg.agentUrl === 'string') {
       const baseUrl = (reg.agentUrl as string).replace(/\/$/, '');
       flattened.a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
@@ -1020,6 +1021,7 @@ export async function loadAgentDetail(
       const baseUrl = (reg.external_url as string).replace(/\/$/, '');
       flattened.a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
     }
+    */
   }
 
   // Priority 2: On-chain metadata (only fill if not already set from registration)

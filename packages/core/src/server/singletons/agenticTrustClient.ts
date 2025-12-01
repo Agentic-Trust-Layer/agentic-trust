@@ -757,7 +757,7 @@ export class AgenticTrustClient {
     try {
       const identityClient = await getIdentityRegistryClient(resolvedChainId);
       const owner = await (identityClient as any).getOwner(agentIdBigInt);
-      if (typeof owner === 'string' && /^0x[a-fA-F0-9]{40}$/.test(owner)) {
+      if (owner && typeof owner === 'string' && /^0x[a-fA-F0-9]{40}$/.test(owner)) {
         return owner as `0x${string}`;
       }
       return null;

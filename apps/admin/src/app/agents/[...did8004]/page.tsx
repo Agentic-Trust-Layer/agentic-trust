@@ -1,12 +1,12 @@
 import { notFound } from 'next/navigation';
-import { buildDid8004 } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
 import {
   getAgenticTrustClient,
   getAgentValidationsSummary,
   type AgentValidationsSummary,
 } from '@agentic-trust/core/server';
 import type { AgentsPageAgent } from '@/components/AgentsPage';
-import ShadowAgentImage from '../../../../../../../docs/8004ShadowAgent.png';
+import ShadowAgentImage from '../../../../../../docs/8004ShadowAgent.png';
 import AgentDetailsPageContent from '@/components/AgentDetailsPageContent';
 import type {
   AgentDetailsValidationsSummary,
@@ -14,26 +14,77 @@ import type {
 } from '@/components/AgentDetailsTabs';
 
 type DetailsPageParams = {
-  params: {
-    chainId: string;
-    agentId: string;
-  };
+  params: Promise<{
+    did8004: string[];
+  }>;
 };
 
 export default async function AgentDetailsPage({ params }: DetailsPageParams) {
-  const chainId = Number(params.chainId);
-  const agentIdParam = params.agentId;
-  if (!Number.isFinite(chainId) || !agentIdParam) {
+  const { did8004: did8004Array } = await params;
+  
+  let decodedDid = '';
+
+  // Handle legacy path format: /agents/[chainId]/[agentId]
+  // If we have exactly 2 segments and the first one looks like a chain ID (numeric), construct a DID from it.
+  if (Array.isArray(did8004Array) && did8004Array.length === 2 && /^\d+$/.test(did8004Array[0])) {
+    const [chainId, agentId] = did8004Array;
+    try {
+      decodedDid = buildDid8004(Number(chainId), agentId);
+    } catch {
+      // Fallback to standard processing if build fails
+      decodedDid = did8004Array.join('/');
+    }
+  } else {
+    // Standard processing for DID paths (which might be split by slashes if encoded)
+    decodedDid = Array.isArray(did8004Array) ? did8004Array.join('/') : did8004Array;
+  }
+  
+  let parsed;
+  try {
+    // Keep decoding until no more % encoded characters remain
+    let previousDecoded = '';
+    let decodeCount = 0;
+    while (decodedDid !== previousDecoded && decodedDid.includes('%') && decodeCount < 5) {
+      previousDecoded = decodedDid;
+      try {
+        decodedDid = decodeURIComponent(decodedDid);
+        decodeCount++;
+      } catch {
+        // If decoding fails, break the loop
+        break;
+      }
+    }
+    
+    parsed = parseDid8004(decodedDid);
+  } catch (error) {
+    console.error('[AgentDetailsPage] Failed to parse DID:', {
+      original: did8004Array,
+      decoded: decodedDid,
+      error: error instanceof Error ? error.message : String(error),
+    });
     notFound();
   }
 
+  if (!parsed || !parsed.chainId || !parsed.agentId) {
+    notFound();
+  }
+
+  const chainId = parsed.chainId;
+  const agentIdParam = parsed.agentId.toString();
+
   const client = await getAgenticTrustClient();
-  const agent = await client.agents.getAgent(agentIdParam.toString(), chainId);
+  const agent = await client.agents.getAgent(agentIdParam, chainId);
   if (!agent) {
     notFound();
   }
 
-  const numericAgentId = agent.agentId?.toString?.() ?? agentIdParam.toString();
+  const numericAgentId = agent.agentId?.toString?.() ?? agentIdParam;
+  let ownerAddress: string | null = null;
+  try {
+    ownerAddress = await client.getAgentOwner(numericAgentId, chainId);
+  } catch (error) {
+    console.warn('[AgentDetailsPage] Failed to resolve owner address:', error);
+  }
 
   const [feedbackItems, feedbackSummary, validations] = await Promise.all([
     client
@@ -64,10 +115,20 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
                         null;
 
   const serializedAgent: AgentsPageAgent = {
-    agentId: agent.agentId?.toString?.() ?? agentIdParam.toString(),
+    agentId: agent.agentId?.toString?.() ?? agentIdParam,
     chainId,
     agentName: agent.agentName ?? null,
-    agentAccount: (agent as any).agentAccount ?? null,
+    agentAccount: (agent as any).agentAccount ?? 
+                  (agent as any).account ?? 
+                  (agent as any).owner ?? 
+                  (agent as any).data?.agentAccount ?? 
+                  (agent as any).data?.account ?? 
+                  (agent as any).data?.owner ??
+                  null,
+    ownerAddress: ownerAddress ??
+                  (agent as any).ownerAddress ??
+                  (agent as any).data?.ownerAddress ??
+                  null,
     tokenUri: agentTokenUri,
     description: (agent as any).description ?? null,
     image: agentImage,
@@ -106,10 +167,14 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   const shadowAgentSrc =
     (ShadowAgentImage as unknown as { src?: string }).src ?? '/8004ShadowAgent.png';
   const heroImageSrc = (await getAgentHeroImage(serializedAgent)) ?? shadowAgentSrc;
+  const ownerDisplaySource =
+    serializedAgent.ownerAddress ??
+    serializedAgent.agentAccount ??
+    null;
   const ownerDisplay =
-    serializedAgent.agentAccount && serializedAgent.agentAccount.length > 10
-      ? `${serializedAgent.agentAccount.slice(0, 6)}…${serializedAgent.agentAccount.slice(-4)}`
-      : serializedAgent.agentAccount || '—';
+    ownerDisplaySource && ownerDisplaySource.length > 10
+      ? `${ownerDisplaySource.slice(0, 6)}…${ownerDisplaySource.slice(-4)}`
+      : ownerDisplaySource || '—';
   const validationSummaryText = `${serializedAgent.validationCompletedCount ?? 0} completed · ${
     serializedAgent.validationPendingCount ?? 0
   } pending`;

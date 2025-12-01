@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
 import { keccak256, toHex } from "viem";
-import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestENSValidationWithWallet } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestENSValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
   getSupportedChainIds,
@@ -89,10 +90,22 @@ export default function AdminPage() {
 
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  
+  // Extract DID from pathname if it matches /admin-tools/[encoded-did]
+  const pathDidMatch = pathname?.match(/^\/admin-tools\/(.+)$/);
+  const pathDid = pathDidMatch ? pathDidMatch[1] : null;
+  
+  // Support both old format (?agentId=X&chainId=Y) and new format (encoded DID in path)
   const queryAgentId = searchParams?.get('agentId') ?? null;
   const queryChainId = searchParams?.get('chainId') ?? null;
   const queryAgentAddress = searchParams?.get('agentAccount') ?? null;
-  const isEditMode = queryAgentId !== null && queryChainId !== null;
+  const queryAgent = searchParams?.get('agent') ?? null; // Legacy query param format
+  const queryTab = searchParams?.get('tab') ?? 'agentInfo';
+  
+  // Prefer path DID over query params
+  const didSource = pathDid ?? queryAgent;
+  const isEditMode = (queryAgentId !== null && queryChainId !== null) || didSource !== null;
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -208,6 +221,60 @@ export default function AdminPage() {
   }
 
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
+  // Parse DID from path or query if present
+  let parsedDid: { chainId: number; agentId: string } | null = null;
+  if (didSource) {
+    try {
+      let decoded = didSource;
+      // Handle double-encoding
+      while (decoded.includes('%')) {
+        try {
+          const next = decodeURIComponent(decoded);
+          if (next === decoded) break;
+          decoded = next;
+        } catch {
+          break;
+        }
+      }
+      parsedDid = parseDid8004(decoded);
+    } catch (error) {
+      console.error('Failed to parse DID:', error);
+    }
+  }
+  
+  // Use parsed DID or fall back to query params
+  const effectiveAgentId = parsedDid?.agentId?.toString() ?? queryAgentId;
+  const effectiveChainId = parsedDid?.chainId?.toString() ?? queryChainId;
+  
+  // Update queryAgentId/queryChainId to use effective values for backward compatibility
+  const finalAgentId = effectiveAgentId ?? queryAgentId;
+  const finalChainId = effectiveChainId ?? queryChainId;
+  
+  // State for fetched agent info (name, address, etc) when navigating via DID
+  const [fetchedAgentInfo, setFetchedAgentInfo] = useState<Record<string, any> | null>(null);
+
+  // Fetch agent info if we have ID/Chain but missing details (e.g. via DID route)
+  useEffect(() => {
+    if (isEditMode && finalAgentId && finalChainId && (!queryAgentAddress || !searchParams?.get('agentName'))) {
+      const fetchAgentInfo = async () => {
+        try {
+          const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
+          const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+          if (response.ok) {
+            const data = await response.json();
+            setFetchedAgentInfo(data);
+          }
+        } catch (err) {
+          console.error('Failed to fetch agent info:', err);
+        }
+      };
+      fetchAgentInfo();
+    }
+  }, [isEditMode, finalAgentId, finalChainId, queryAgentAddress, searchParams]);
+
+  const displayAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
+  const displayAgentAddress = queryAgentAddress ?? fetchedAgentInfo?.agentAccount ?? null;
+
   const [activeManagementTab, setActiveManagementTab] = useState<
     | 'agentInfo'
     | 'registration'
@@ -216,11 +283,31 @@ export default function AdminPage() {
     | 'transfer'
     | 'validation'
     | 'agentValidation'
-  >('agentInfo');
+  >((queryTab as any) || 'agentInfo');
+  
+  // Update URL when tab changes
+  const handleTabChange = useCallback((tab: typeof activeManagementTab) => {
+    setActiveManagementTab(tab);
+    if (isEditMode && effectiveAgentId && effectiveChainId) {
+      const did8004 = buildDid8004(Number(effectiveChainId), effectiveAgentId);
+      const newUrl = `/admin-tools/${encodeURIComponent(did8004)}?tab=${tab}`;
+      router.push(newUrl);
+    } else if (isEditMode && didSource) {
+      const newUrl = `/admin-tools/${didSource}?tab=${tab}`;
+      router.push(newUrl);
+    }
+  }, [isEditMode, effectiveAgentId, effectiveChainId, didSource, router]);
+  
+  // Sync tab from URL
+  useEffect(() => {
+    if (queryTab && queryTab !== activeManagementTab) {
+      setActiveManagementTab(queryTab as any);
+    }
+  }, [queryTab, activeManagementTab]);
  
   const handleGenerateSessionPackage = useCallback(
     async () => {
-      if (!isEditMode || !queryAgentId || !queryChainId || !queryAgentAddress) {
+      if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
         return;
       }
 
@@ -233,12 +320,12 @@ export default function AdminPage() {
           throw new Error('Wallet not connected. Connect your wallet to generate a session package.');
         }
 
-        const parsedChainId = Number.parseInt(queryChainId, 10);
+        const parsedChainId = Number.parseInt(finalChainId, 10);
         if (!Number.isFinite(parsedChainId)) {
           throw new Error('Invalid chainId in URL');
         }
 
-        const agentIdNumeric = Number.parseInt(queryAgentId, 10);
+        const agentIdNumeric = Number.parseInt(finalAgentId, 10);
         if (!Number.isFinite(agentIdNumeric)) {
           throw new Error('Agent ID is invalid.');
         }
@@ -273,7 +360,7 @@ export default function AdminPage() {
         const pkg = await generateSessionPackage({
           agentId: agentIdNumeric,
           chainId: parsedChainId,
-          agentAccount: queryAgentAddress as `0x${string}`,
+          agentAccount: displayAgentAddress as `0x${string}`,
           provider: eip1193Provider,
           ownerAddress: headerAddress as `0x${string}`,
           rpcUrl: chainEnv.rpcUrl,
@@ -302,11 +389,15 @@ export default function AdminPage() {
         setSessionPackageLoading(false);
       }
     },
-    [isEditMode, queryAgentId, queryChainId, queryAgentAddress, eip1193Provider, headerAddress],
+    [isEditMode, finalAgentId, finalChainId, displayAgentAddress, eip1193Provider, headerAddress],
   );
 
   const refreshAgentValidationRequests = useCallback(async () => {
-    if (!isEditMode || !queryAgentAddress || !parsedQueryChainId) {
+    // Parse chain ID from finalChainId if available, otherwise fallback
+    const effectiveParsedChainId = finalChainId ? Number.parseInt(finalChainId, 10) : null;
+    const targetChainId = Number.isFinite(effectiveParsedChainId) ? effectiveParsedChainId : parsedQueryChainId;
+
+    if (!isEditMode || !displayAgentAddress || !targetChainId) {
       setAgentValidationRequests({
         loading: false,
         error: isEditMode ? 'Select an agent with account address to view validation requests.' : null,
@@ -323,7 +414,7 @@ export default function AdminPage() {
 
     try {
       const response = await fetch(
-        `/api/validations/by-validator?chainId=${parsedQueryChainId}&validatorAddress=${encodeURIComponent(queryAgentAddress)}`
+        `/api/validations/by-validator?chainId=${targetChainId}&validatorAddress=${encodeURIComponent(displayAgentAddress)}`
       );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -339,14 +430,14 @@ export default function AdminPage() {
           const agentId = req.agentId?.toString();
           if (!agentId) return { ...req, requestingAgent: null };
 
-          const cacheKey = `${parsedQueryChainId}-${agentId}`;
+          const cacheKey = `${targetChainId}-${agentId}`;
           const cached = requestingAgentCacheRef.current.get(cacheKey);
           if (cached) {
             return { ...req, requestingAgent: cached };
           }
 
           try {
-            const did8004 = buildDid8004(parsedQueryChainId, agentId);
+            const did8004 = buildDid8004(targetChainId as number, agentId);
             const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
             if (agentResponse.ok) {
               const agentData = await agentResponse.json();
@@ -372,7 +463,7 @@ export default function AdminPage() {
         requests: [],
       });
     }
-  }, [isEditMode, queryAgentAddress, parsedQueryChainId]);
+  }, [isEditMode, displayAgentAddress, finalChainId, parsedQueryChainId]);
   const adminReady = authPrivateKeyMode || authConnected;
   const adminGate = (
     <section
@@ -402,21 +493,20 @@ export default function AdminPage() {
         Create, update, delete, and transfer ERC-8004 agents once authenticated.
       </p>
       <div style={{ marginTop: '2rem' }}>
-        <button
+        <Button
+          variant="contained"
           onClick={openLoginModal}
-          style={{
-            padding: '0.85rem 2rem',
-            borderRadius: '999px',
-            border: 'none',
-            backgroundColor: '#4f4f4f',
-            color: '#fff',
-            fontSize: '1rem',
+          sx={{
+            py: 1.5,
+            px: 4,
+            borderRadius: 999,
+            bgcolor: 'grey.800',
+            '&:hover': { bgcolor: 'grey.900' },
             fontWeight: 600,
-            cursor: 'pointer',
           }}
         >
           Connect to Continue
-        </button>
+        </Button>
       </div>
     </section>
   );
@@ -456,7 +546,7 @@ export default function AdminPage() {
 
   // Load registration JSON when viewing the Registration tab in edit mode
   useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'registration' || !queryAgentId || !queryChainId) {
+    if (!isEditMode || activeManagementTab !== 'registration' || !finalAgentId || !finalChainId) {
       return;
     }
 
@@ -478,12 +568,12 @@ export default function AdminPage() {
         setRegistrationA2aError(null);
         setRegistrationMcpError(null);
 
-        const parsedChainId = Number.parseInt(queryChainId, 10);
+        const parsedChainId = Number.parseInt(finalChainId, 10);
         if (!Number.isFinite(parsedChainId)) {
           throw new Error('Invalid chainId in URL');
         }
 
-        const did8004 = buildDid8004(parsedChainId, queryAgentId);
+        const did8004 = buildDid8004(parsedChainId, finalAgentId);
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
@@ -575,8 +665,8 @@ export default function AdminPage() {
   }, [
     isEditMode,
     activeManagementTab,
-    queryAgentId,
-    queryChainId,
+    finalAgentId,
+    finalChainId,
     validateUrlLike,
   ]);
 
@@ -696,7 +786,7 @@ export default function AdminPage() {
 
   const handleSaveRegistration = useCallback(
     async () => {
-      if (!isEditMode || !queryAgentId || !queryChainId) {
+      if (!isEditMode || !finalAgentId || !finalChainId) {
         return;
       }
 
@@ -738,7 +828,7 @@ export default function AdminPage() {
           return;
         }
 
-        const parsedChainId = Number.parseInt(queryChainId, 10);
+        const parsedChainId = Number.parseInt(finalChainId, 10);
         if (!Number.isFinite(parsedChainId)) {
           setRegistrationEditError('Invalid chainId in URL.');
           return;
@@ -756,8 +846,8 @@ export default function AdminPage() {
 
         setRegistrationEditSaving(true);
 
-        const did8004 = buildDid8004(parsedChainId, queryAgentId);
-        const agentNameForAA = searchParams?.get('agentName') ?? '';
+        const did8004 = buildDid8004(parsedChainId, finalAgentId);
+        const agentNameForAA = displayAgentName === '...' ? '' : displayAgentName;
 
         const accountClient = await getDeployedAccountClientByAgentName(
           bundlerEnv,
@@ -791,11 +881,11 @@ export default function AdminPage() {
     },
     [
       isEditMode,
-      queryAgentId,
-      queryChainId,
+      finalAgentId,
+      finalChainId,
       eip1193Provider,
       headerAddress,
-      searchParams,
+      displayAgentName,
       registrationParsed,
       registrationPreviewText,
       registrationImageError,
@@ -879,27 +969,27 @@ export default function AdminPage() {
   });
 
   useEffect(() => {
-    if (!isEditMode || !queryAgentId || !queryChainId) {
+    if (!isEditMode || !finalAgentId || !finalChainId) {
       return;
     }
-    const parsedChainId = Number(queryChainId);
+    const parsedChainId = Number(finalChainId);
     if (!Number.isFinite(parsedChainId)) {
       return;
     }
     setUpdateForm({
-      agentId: queryAgentId,
-      chainId: queryChainId,
+      agentId: finalAgentId,
+      chainId: finalChainId,
       tokenUri: '',
       metadataKey: '',
       metadataValue: '',
     });
     setDeleteForm({
-      agentId: queryAgentId,
-      chainId: queryChainId,
+      agentId: finalAgentId,
+      chainId: finalChainId,
     });
     setTransferForm({
-      agentId: queryAgentId,
-      chainId: queryChainId,
+      agentId: finalAgentId,
+      chainId: finalChainId,
       to: '',
     });
     // Compute validation request info for the current agent
@@ -936,7 +1026,7 @@ export default function AdminPage() {
 
   // Fetch NFT operator when agentInfo tab is active
   useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'agentInfo' || !queryAgentId || !queryChainId) {
+    if (!isEditMode || activeManagementTab !== 'agentInfo' || !finalAgentId || !finalChainId) {
       setNftOperator({
         loading: false,
         error: null,
@@ -950,7 +1040,7 @@ export default function AdminPage() {
 
     (async () => {
       try {
-        const did8004 = buildDid8004(Number(queryChainId), queryAgentId);
+        const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
         
         if (cancelled) return;
@@ -985,7 +1075,7 @@ export default function AdminPage() {
 
   // Fetch A2A endpoint data when agentValidation tab is active
   useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'agentValidation' || !queryAgentId || !queryChainId) {
+    if (!isEditMode || activeManagementTab !== 'agentValidation' || !finalAgentId || !finalChainId) {
       setA2aEndpointData({
         loading: false,
         error: null,
@@ -1001,7 +1091,7 @@ export default function AdminPage() {
 
     (async () => {
       try {
-        const did8004 = buildDid8004(Number(queryChainId), queryAgentId);
+        const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/a2a-endpoint`);
         
         if (cancelled) return;
@@ -1036,10 +1126,10 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [isEditMode, activeManagementTab, queryAgentId, queryChainId]);
+  }, [isEditMode, activeManagementTab, finalAgentId, finalChainId]);
 
   const handleSendValidationRequest = useCallback(async (validationRequest: ValidationStatusWithHash) => {
-    if (!isEditMode || !queryAgentId || !parsedQueryChainId) {
+    if (!isEditMode || !finalAgentId || !finalChainId) {
       return;
     }
     
@@ -1093,7 +1183,7 @@ export default function AdminPage() {
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
-            chainId: parsedQueryChainId,
+            chainId: Number(finalChainId),
             requestHash: requestHash,
           },
         }),
@@ -1211,12 +1301,12 @@ export default function AdminPage() {
 
   const handleSubmitENSValidationRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isEditMode || !queryAgentId || !queryChainId || !queryAgentAddress) {
+    if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
       setError('Agent information is required. Please navigate to an agent first.');
       return;
     }
-    const agentName = searchParams?.get('agentName');
-    if (!agentName) {
+    const agentName = displayAgentName;
+    if (!agentName || agentName === '...') {
       setError('Agent name is required. Please ensure the agent has a name.');
       return;
     }
@@ -1228,7 +1318,7 @@ export default function AdminPage() {
     try {
       setError(null);
       setValidationSubmitting(true);
-      const chainId = Number.parseInt(queryChainId, 10);
+      const chainId = Number.parseInt(finalChainId, 10);
       if (!Number.isFinite(chainId)) {
         throw new Error('Invalid chainId');
       }
@@ -1251,10 +1341,10 @@ export default function AdminPage() {
       );
 
       // Build did8004 for the validation request
-      const did8004 = buildDid8004(chainId, queryAgentId);
+      const did8004 = buildDid8004(chainId, finalAgentId);
 
       const requestJson = {
-        agentId: queryAgentId,
+        agentId: finalAgentId,
         agentName: agentName,
         checks: ["Check Valid ENS Entry"]
       };
@@ -1347,1013 +1437,730 @@ export default function AdminPage() {
         onDisconnect={authHandleDisconnect}
         disableConnect={authLoading}
       />
-      <main style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
+      <Box component="main" sx={{ p: 4, maxWidth: '1400px', mx: 'auto' }}>
         {!adminReady ? (
           adminGate
         ) : (
           <>
-        {error && (
-          <div style={{ 
-            marginBottom: '1rem', 
-            padding: '1rem', 
-            backgroundColor: '#f5f5f5', 
-            borderRadius: '4px', 
-            border: '1px solid #3a3a3a',
-            color: '#3a3a3a'
-          }}>
-            Error: {error}
-          </div>
-        )}
-
-      {success && (
-        <div style={{ 
-          marginBottom: '1rem', 
-          padding: '1rem', 
-          backgroundColor: '#f2f2f2', 
-          borderRadius: '4px', 
-          border: '1px solid #3c3c3c',
-          color: '#3c3c3c'
-        }}>
-          Success: {success}
-        </div>
-      )}
-
-      {isEditMode && queryAgentId && queryChainId && (
-        <div
-          style={{
-            marginBottom: '1.5rem',
-            padding: '1rem 1.5rem',
-            borderRadius: '14px',
-            border: '1px solid #dadada',
-            backgroundColor: '#f3f3f3',
-            display: 'flex',
-            flexWrap: 'wrap',
-            gap: '1rem',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <div>
-            <div style={{ fontWeight: 700, color: '#2f2f2f' }}>
-              Manage Agent #{queryAgentId} (chain {queryChainId})
-            </div>
-
-            {queryAgentAddress && (
-              <div
-                style={{
-                  marginTop: '0.25rem',
-                  fontSize: '0.85rem',
-                  color: '#4b4b4b',
-                }}
-              >
-                Account:{' '}
-                <span style={{ fontFamily: 'monospace' }}>{queryAgentAddress}</span>
-              </div>
+            {error && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {error}
+              </Alert>
             )}
-          </div>
 
-        </div>
-      )}
-
-
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: isEditMode ? '260px 1fr' : 'repeat(auto-fit, minmax(320px, 1fr))',
-          gap: '1.5rem',
-          marginBottom: '2rem',
-        }}
-      >
-        {/* Left-side navigation for edit mode */}
-        {isEditMode && (
-          <nav
-            style={{
-              padding: '1rem',
-              backgroundColor: '#ffffff',
-              borderRadius: '8px',
-              border: '1px solid #dcdcdc',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.5rem',
-              position: 'sticky',
-              top: '6rem',
-              alignSelf: 'flex-start',
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('agentInfo')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'agentInfo' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'agentInfo' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Agent Info
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('registration')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'registration' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'registration' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Registration
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('session')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'session' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'session' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Session Package
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('transfer')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'transfer' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'transfer' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Transfer Agent
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('delete')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'delete' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'delete' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Delete Agent
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('validation')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'validation' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'validation' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Request ENS Validation
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveManagementTab('agentValidation')}
-              style={{
-                padding: '0.5rem 0.75rem',
-                borderRadius: '6px',
-                border: '1px solid',
-                borderColor: activeManagementTab === 'agentValidation' ? '#2f2f2f' : '#dcdcdc',
-                backgroundColor: activeManagementTab === 'agentValidation' ? '#f3f3f3' : '#ffffff',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontWeight: 600,
-                fontSize: '0.9rem',
-              }}
-            >
-              Validate Agent Request
-            </button>
-          </nav>
-        )}
-
-        {(!isEditMode || activeManagementTab === 'agentInfo') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>
-            {isEditMode && queryAgentId
-              ? `Agent #${queryAgentId} Information`
-              : 'Agent Information'}
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.95rem', color: '#333' }}>
-            <div>
-              <strong>Agent Name:</strong>{' '}
-              {searchParams?.get('agentName') || '(not provided)'}
-            </div>
-            <div>
-              <strong>Agent ID:</strong>{' '}
-              {queryAgentId || '(not provided)'}
-            </div>
-            <div>
-              <strong>Agent Account Address:</strong>{' '}
-              {queryAgentAddress ? (
-                <span style={{ fontFamily: 'monospace' }}>{queryAgentAddress}</span>
-              ) : (
-                '(not provided)'
-              )}
-            </div>
-            <div>
-              <strong>Chain:</strong>{' '}
-              {(() => {
-                if (!queryChainId) return '(not provided)';
-                const parsed = Number.parseInt(queryChainId, 10);
-                const meta = Number.isFinite(parsed) ? CHAIN_METADATA[parsed] : undefined;
-                const label = meta?.displayName || meta?.chainName || queryChainId;
-                return `${label} (chain ${queryChainId})`;
-              })()}
-            </div>
-            <div>
-              <strong>NFT Operator:</strong>{' '}
-              {nftOperator.loading ? (
-                <span style={{ color: '#777', fontStyle: 'italic' }}>Loading...</span>
-              ) : nftOperator.error ? (
-                <span style={{ color: '#b91c1c' }}>Error: {nftOperator.error}</span>
-              ) : nftOperator.operatorAddress ? (
-                <span style={{ fontFamily: 'monospace' }}>{nftOperator.operatorAddress}</span>
-              ) : (
-                <span style={{ color: '#777', fontStyle: 'italic' }}>(none)</span>
-              )}
-            </div>
-          </div>
-        </div>
-        )}
-        {(!isEditMode || activeManagementTab === 'registration') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Edit Registration</h2>
-          <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b' }}>
-            Update the image and protocol endpoints for this agent. Other registration fields are
-            preserved as-is. The JSON that will be saved is shown on the right.
-          </p>
-          <div
-            style={{
-              marginTop: '0.75rem',
-              marginBottom: '0.75rem',
-              padding: '0.75rem',
-              borderRadius: '8px',
-              backgroundColor: '#f7f7f7',
-              border: '1px solid #dcdcdc',
-            }}
-          >
-            <div style={{ fontSize: '0.8rem', color: '#666', marginBottom: '0.25rem' }}>
-              Latest TokenUri (from contract):
-            </div>
-            {registrationTokenUriLoading ? (
-              <div style={{ fontSize: '0.85rem', color: '#777' }}>
-                Loading tokenUri from contract...
-              </div>
-            ) : registrationLatestTokenUri ? (
-              <div
-                style={{
-                  fontSize: '0.85rem',
-                  fontFamily: 'ui-monospace, monospace',
-                  color: '#111',
-                  wordBreak: 'break-all',
-                }}
-              >
-                {registrationLatestTokenUri}
-              </div>
-            ) : (
-              <div style={{ fontSize: '0.85rem', color: '#b91c1c' }}>
-                No tokenUri found on contract
-              </div>
+            {success && (
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {success}
+              </Alert>
             )}
-          </div>
-          {registrationPreviewError && (
-            <p style={{ color: '#b91c1c', marginTop: '0.5rem' }}>{registrationPreviewError}</p>
-          )}
-          {registrationEditError && (
-            <p style={{ color: '#b91c1c', marginTop: '0.5rem' }}>
-              {registrationEditError}
-            </p>
-          )}
 
-          <div
-            style={{
-              marginTop: '1rem',
-              display: 'grid',
-              gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)',
-              gap: '1.25rem',
-              alignItems: 'flex-start',
-            }}
-          >
-            {/* Left: field-by-field editor */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  Image URL
-                </label>
-                <input
-                  type="url"
-                  value={registrationImage}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setRegistrationImage(val);
-                    setRegistrationImageError(validateUrlLike(val));
-                  }}
-                  placeholder="https://example.com/agent-image.png or ipfs://..."
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    border: '1px solid #dcdcdc',
-                    borderRadius: '4px',
-                  }}
-                  disabled={!registrationParsed}
-                />
-                {registrationImageError && (
-                  <p style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: '#b91c1c' }}>
-                    {registrationImageError}
-                  </p>
-                )}
-              </div>
+            {isEditMode && finalAgentId && finalChainId && (
+              <Paper sx={{ mb: 3, p: 3, bgcolor: 'grey.50' }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid item xs={12} md={8}>
+                    <Typography variant="h5" fontWeight="bold" color="text.primary">
+                      Manage Agent #{finalAgentId} (chain {finalChainId})
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      Name: <strong>{displayAgentName}</strong>
+                    </Typography>
+                    {displayAgentAddress && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        Account: <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
+                      </Typography>
+                    )}
+                  </Grid>
+                </Grid>
+              </Paper>
+            )}
 
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  A2A Endpoint
-                </label>
-                <input
-                  type="url"
-                  value={registrationA2aEndpoint}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setRegistrationA2aEndpoint(val);
-                    setRegistrationA2aError(validateUrlLike(val));
-                  }}
-                  placeholder="https://agent.example.com/.well-known/agent-card.json"
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    border: '1px solid #dcdcdc',
-                    borderRadius: '4px',
-                  }}
-                  disabled={!registrationParsed}
-                />
-                <p style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: '#666' }}>
-                  Single Agent Card (A2A) endpoint. This will be stored in the <code>endpoints</code>{' '}
-                  array with name <code>A2A</code>.
-                </p>
-                {registrationA2aError && (
-                  <p style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: '#b91c1c' }}>
-                    {registrationA2aError}
-                  </p>
-                )}
-              </div>
-
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                  MCP Endpoint
-                </label>
-                <input
-                  type="url"
-                  value={registrationMcpEndpoint}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setRegistrationMcpEndpoint(val);
-                    setRegistrationMcpError(validateUrlLike(val));
-                  }}
-                  placeholder="https://agent.example.com/mcp"
-                  style={{
-                    width: '100%',
-                    padding: '0.5rem',
-                    border: '1px solid #dcdcdc',
-                    borderRadius: '4px',
-                  }}
-                  disabled={!registrationParsed}
-                />
-                <p style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: '#666' }}>
-                  Single MCP endpoint. This will be stored in the <code>endpoints</code> array with
-                  name <code>MCP</code>.
-                </p>
-                {registrationMcpError && (
-                  <p style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: '#b91c1c' }}>
-                    {registrationMcpError}
-                  </p>
-                )}
-              </div>
-
-              <div
-                style={{
-                  marginTop: '0.25rem',
-                  display: 'flex',
-                  justifyContent: 'flex-end',
-                  gap: '0.5rem',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!registrationEditSaving) {
-                      setRegistrationEditError(null);
-                      setRegistrationPreviewText(null);
-                      setRegistrationParsed(null);
-                    }
-                  }}
-                  style={{
-                    padding: '0.4rem 0.9rem',
-                    borderRadius: '8px',
-                    border: '1px solid #dcdcdc',
-                    backgroundColor: '#ffffff',
-                    fontSize: '0.8rem',
-                    fontWeight: 500,
-                    cursor: registrationEditSaving ? 'not-allowed' : 'pointer',
-                    opacity: registrationEditSaving ? 0.6 : 1,
-                    color: '#555',
-                  }}
-                  disabled={registrationEditSaving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveRegistration}
-                  style={{
-                    padding: '0.4rem 0.9rem',
-                    borderRadius: '8px',
-                    border: 'none',
-                    backgroundColor: '#2f2f2f',
-                    fontSize: '0.8rem',
-                    fontWeight: 600,
-                    cursor:
-                      registrationEditSaving ||
-                      registrationPreviewLoading ||
-                      !registrationParsed
-                        ? 'not-allowed'
-                        : 'pointer',
-                    opacity:
-                      registrationEditSaving ||
-                      registrationPreviewLoading ||
-                      !registrationParsed
-                        ? 0.5
-                        : 1,
-                    color: '#ffffff',
-                  }}
-                  disabled={
-                    registrationEditSaving ||
-                    registrationPreviewLoading ||
-                    !registrationParsed ||
-                    !!registrationImageError ||
-                    !!registrationA2aError ||
-                    !!registrationMcpError
-                  }
-                >
-                  {registrationEditSaving ? 'Saving…' : 'Save registration'}
-                </button>
-              </div>
-            </div>
-
-            {/* Right: read-only JSON preview */}
-            <div
-              style={{
-                border: '1px solid #dcdcdc',
-                borderRadius: '10px',
-                padding: '0.75rem',
-                backgroundColor: '#f7f7f7',
-                maxHeight: '500px',
-                overflow: 'auto',
-                fontFamily: 'ui-monospace, monospace',
-                fontSize: '0.85rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {registrationPreviewLoading ? (
-                <span style={{ color: '#777' }}>Loading registration JSON…</span>
-              ) : !registrationPreviewText ? (
-                <span style={{ color: '#777' }}>No registration JSON available to edit.</span>
-              ) : (
-                <pre style={{ margin: 0 }}>{registrationPreviewText}</pre>
+            <Grid container spacing={3}>
+              {/* Left-side vertical tabs for edit mode */}
+              {isEditMode && (
+                <Grid item xs={12} md={3}>
+                  <Paper sx={{ height: '100%' }}>
+                    <Tabs
+                      orientation="vertical"
+                      variant="scrollable"
+                      value={activeManagementTab}
+                      onChange={(_, newValue) => handleTabChange(newValue)}
+                      sx={{
+                        borderRight: 1,
+                        borderColor: 'divider',
+                        '& .MuiTab-root': {
+                          alignItems: 'flex-start',
+                          textAlign: 'left',
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          minHeight: 48,
+                        },
+                      }}
+                    >
+                      <Tab label="Agent Info" value="agentInfo" />
+                      <Tab label="Registration" value="registration" />
+                      <Tab label="Session Package" value="session" />
+                      <Tab label="Transfer Agent" value="transfer" />
+                      <Tab label="Delete Agent" value="delete" />
+                      <Tab label="Request ENS Validation" value="validation" />
+                      <Tab label="Validate Agent Request" value="agentValidation" />
+                    </Tabs>
+                  </Paper>
+                </Grid>
               )}
-            </div>
-          </div>
-        </div>
-        )}
-        {(!isEditMode || activeManagementTab === 'delete') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem', color: '#3a3a3a' }}>Delete Agent</h2>
-          <form onSubmit={handleDeleteAgent}>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Agent ID *
-              </label>
-              <input
-                type="text"
-                value={deleteForm.agentId}
-                onChange={(e) => setDeleteForm({ ...deleteForm, agentId: e.target.value })}
-                required
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
-              />
-            </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Chain ID *
-              </label>
-              <input
-                type="number"
-                value={deleteForm.chainId}
-                onChange={(e) =>
-                  setDeleteForm({ ...deleteForm, chainId: e.target.value })
-                }
-                required
-                min={0}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
-              />
-            </div>
-            <button
-              type="submit"
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                backgroundColor: '#3a3a3a',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '1rem',
-                fontWeight: 'bold',
-              }}
-            >
-              Delete Agent
-            </button>
-          </form>
-        </div>
-        )}
 
-        {(!isEditMode || activeManagementTab === 'session') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Session Package</h2>
-          <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b' }}>
-            Generate a session package for this agent. 
-          </p>
-          <p>
-          Session packages describe delegated AA
-          access and can be used by tools to perform actions on behalf of this agent.
-          </p>
-          <br />
-          <br />
-          <button
-            type="button"
-            onClick={handleGenerateSessionPackage}
-            disabled={sessionPackageLoading}
-            style={{
-              padding: '0.5rem 0.9rem',
-              borderRadius: '8px',
-              border: 'none',
-              backgroundColor: sessionPackageLoading ? '#b0b0b0' : '#2f2f2f',
-              color: '#ffffff',
-              fontWeight: 600,
-              cursor: sessionPackageLoading ? 'not-allowed' : 'pointer',
-              marginBottom: '0.75rem',
-            }}
-          >
-            {sessionPackageLoading ? 'Generating…' : 'Generate Session Package'}
-          </button>
-          {sessionPackageLoading && (
-            <div style={{ width: '100%', marginTop: '0.35rem', marginBottom: '0.75rem' }}>
-              <div
-                style={{
-                  height: '6px',
-                  borderRadius: '999px',
-                  backgroundColor: '#e0e0e0',
-                  overflow: 'hidden',
-                }}
-              >
-                <div
-                  style={{
-                    width: `${sessionPackageProgress}%`,
-                    height: '100%',
-                    backgroundColor: '#2f2f2f',
-                    transition: 'width 0.3s ease',
-                  }}
-                />
-              </div>
-              <p style={{ marginTop: '0.3rem', fontSize: '0.8rem', color: '#4f4f4f' }}>
-                Generating session package… {Math.round(sessionPackageProgress)}% (up to 60 seconds)
-              </p>
-            </div>
-          )}
-          {sessionPackageError && (
-            <p style={{ color: '#b91c1c', marginTop: '0.25rem' }}>{sessionPackageError}</p>
-          )}
-          {sessionPackageText && (
-            <div
-              style={{
-                marginTop: '0.75rem',
-                border: '1px solid #dcdcdc',
-                borderRadius: '10px',
-                padding: '0.75rem',
-                backgroundColor: '#f7f7f7',
-                maxHeight: '500px',
-                overflow: 'auto',
-                fontFamily: 'ui-monospace, monospace',
-                fontSize: '0.85rem',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof navigator !== 'undefined' && navigator.clipboard && sessionPackageText) {
-                      void navigator.clipboard.writeText(sessionPackageText);
-                    }
-                  }}
-                  style={{
-                    padding: '0.3rem 0.6rem',
-                    borderRadius: '999px',
-                    border: '1px solid #dcdcdc',
-                    backgroundColor: '#ffffff',
-                    fontSize: '0.8rem',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Copy JSON
-                </button>
-              </div>
-              <pre style={{ margin: 0 }}>{sessionPackageText}</pre>
-            </div>
-          )}
-        </div>
-        )}
-        {(!isEditMode || activeManagementTab === 'transfer') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Transfer Agent</h2>
-          <form onSubmit={handleTransferAgent}>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Agent ID *
-              </label>
-              <input
-                type="text"
-                value={transferForm.agentId}
-                onChange={(e) => setTransferForm({ ...transferForm, agentId: e.target.value })}
-                required
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
-              />
-            </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Chain ID *
-              </label>
-              <input
-                type="number"
-                value={transferForm.chainId}
-                onChange={(e) =>
-                  setTransferForm({ ...transferForm, chainId: e.target.value })
-                }
-                required
-                min={0}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
-              />
-            </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Transfer To (0x...) *
-              </label>
-              <input
-                type="text"
-                value={transferForm.to}
-                onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })}
-                required
-                pattern="^0x[a-fA-F0-9]{40}$"
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', fontFamily: 'monospace' }}
-              />
-            </div>
-            <button
-              type="submit"
-              style={{
-                width: '100%',
-                padding: '0.75rem',
-                backgroundColor: '#d4d4d4',
-                color: '#000',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '1rem',
-                fontWeight: 'bold',
-              }}
-            >
-              Transfer Agent
-            </button>
-          </form>
-        </div>
-        )}
-        {(!isEditMode || activeManagementTab === 'agentValidation') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Validate Agent Request</h2>
-          {isEditMode && queryAgentAddress && queryChainId ? (
-            <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
-                <div style={{ fontSize: '0.95rem', color: '#4b4b4b', flex: '1' }}>
-                  <p style={{ margin: 0 }}>
-                    Validation requests where validator address equals agent account address: {shortenHex(queryAgentAddress)}
-                  </p>
-                  <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: '#555' }}>
-                    {a2aEndpointData.loading
-                      ? 'Determining agent A2A endpoint...'
-                      : a2aEndpointData.error
-                        ? `A2A endpoint unavailable: ${a2aEndpointData.error}`
-                        : a2aEndpointData.a2aEndpoint
-                          ? (
-                            <>
-                              Validating against A2A endpoint:&nbsp;
-                              <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', fontSize: '0.8rem' }}>
-                                {a2aEndpointData.a2aEndpoint}
-                              </span>
-                            </>
-                          )
-                          : 'A2A endpoint not available for this agent.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={refreshAgentValidationRequests}
-                  disabled={agentValidationRequests.loading}
-                  style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '6px',
-                    border: '1px solid #2f2f2f',
-                    backgroundColor: agentValidationRequests.loading ? '#cfcfcf' : '#2f2f2f',
-                    color: '#fff',
-                    cursor: agentValidationRequests.loading ? 'not-allowed' : 'pointer',
-                    fontWeight: 600,
-                  }}
-                >
-                  {agentValidationRequests.loading ? 'Refreshing…' : 'Refresh'}
-                </button>
-              </div>
-              {agentValidationRequests.error && (
-                <p style={{ color: '#b91c1c', marginBottom: '1rem' }}>{agentValidationRequests.error}</p>
-              )}
-              {agentValidationRequests.loading ? (
-                <p style={{ color: '#555' }}>Loading validation requests…</p>
-              ) : agentValidationRequests.requests.length === 0 ? (
-                <p style={{ color: '#666' }}>No validation requests found for this validator address.</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {agentValidationRequests.requests.map((req) => {
-                    const requestHash = req.requestHash || 'unknown';
-                    const requestingAgent = req.requestingAgent;
-                    const isLoading = validationActionLoading[requestHash] || false;
-                    const feedback = validationActionFeedback[requestHash];
-                    return (
-                      <div
-                        key={requestHash}
-                        style={{
-                          border: '1px solid #dcdcdc',
-                          borderRadius: '8px',
-                          padding: '1rem',
-                          backgroundColor: '#f9f9f9',
+              {/* Content Area */}
+              <Grid item xs={12} md={isEditMode ? 9 : 12}>
+                {(!isEditMode || activeManagementTab === 'agentInfo') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      {isEditMode && finalAgentId
+                        ? `Agent #${finalAgentId} Information`
+                        : 'Agent Information'}
+                    </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Typography variant="body1">
+                        <strong>Agent Name:</strong> {displayAgentName}
+                      </Typography>
+                      <Typography variant="body1">
+                        <strong>Agent ID:</strong> {finalAgentId || '(not provided)'}
+                      </Typography>
+                      <Typography variant="body1">
+                        <strong>Agent Account Address:</strong>{' '}
+                        {displayAgentAddress ? (
+                          <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
+                        ) : (
+                          '(not provided)'
+                        )}
+                      </Typography>
+                      <Typography variant="body1">
+                        <strong>Chain:</strong>{' '}
+                        {(() => {
+                          if (!finalChainId) return '(not provided)';
+                          const parsed = Number.parseInt(finalChainId, 10);
+                          const meta = Number.isFinite(parsed) ? CHAIN_METADATA[parsed] : undefined;
+                          const label = meta?.displayName || meta?.chainName || finalChainId;
+                          return `${label} (chain ${finalChainId})`;
+                        })()}
+                      </Typography>
+                      <Typography variant="body1">
+                        <strong>NFT Operator:</strong>{' '}
+                        {nftOperator.loading ? (
+                          <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
+                        ) : nftOperator.error ? (
+                          <Box component="span" color="error.main">Error: {nftOperator.error}</Box>
+                        ) : nftOperator.operatorAddress ? (
+                          <Box component="span" fontFamily="monospace">{nftOperator.operatorAddress}</Box>
+                        ) : (
+                          <Box component="span" color="text.secondary" fontStyle="italic">(none)</Box>
+                        )}
+                      </Typography>
+                    </Box>
+                  </Paper>
+                )}
+                {(!isEditMode || activeManagementTab === 'registration') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Edit Registration
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" paragraph>
+                      Update the image and protocol endpoints for this agent. Other registration fields are
+                      preserved as-is. The JSON that will be saved is shown on the right.
+                    </Typography>
+
+                    <Box sx={{ mt: 2, mb: 2, p: 2, borderRadius: 1, bgcolor: 'grey.100', border: 1, borderColor: 'grey.300' }}>
+                      <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
+                        Latest TokenUri (from contract):
+                      </Typography>
+                      {registrationTokenUriLoading ? (
+                        <Typography variant="body2" color="text.secondary">
+                          Loading tokenUri from contract...
+                        </Typography>
+                      ) : registrationLatestTokenUri ? (
+                        <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
+                          {registrationLatestTokenUri}
+                        </Typography>
+                      ) : (
+                        <Typography variant="body2" color="error">
+                          No tokenUri found on contract
+                        </Typography>
+                      )}
+                    </Box>
+
+                    {registrationPreviewError && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        {registrationPreviewError}
+                      </Alert>
+                    )}
+                    {registrationEditError && (
+                      <Alert severity="error" sx={{ mt: 1 }}>
+                        {registrationEditError}
+                      </Alert>
+                    )}
+
+                    <Grid container spacing={3} sx={{ mt: 2 }}>
+                      {/* Left: field-by-field editor */}
+                      <Grid item xs={12} md={7}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <TextField
+                            label="Image URL"
+                            fullWidth
+                            value={registrationImage}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRegistrationImage(val);
+                              setRegistrationImageError(validateUrlLike(val));
+                            }}
+                            placeholder="https://example.com/agent-image.png or ipfs://..."
+                            disabled={!registrationParsed}
+                            error={!!registrationImageError}
+                            helperText={registrationImageError}
+                            variant="outlined"
+                            size="small"
+                          />
+
+                          <TextField
+                            label="A2A Endpoint"
+                            fullWidth
+                            value={registrationA2aEndpoint}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRegistrationA2aEndpoint(val);
+                              setRegistrationA2aError(validateUrlLike(val));
+                            }}
+                            placeholder="https://agent.example.com/.well-known/agent-card.json"
+                            disabled={!registrationParsed}
+                            error={!!registrationA2aError}
+                            helperText={
+                              registrationA2aError || 
+                              'Single Agent Card (A2A) endpoint. This will be stored in the endpoints array with name A2A.'
+                            }
+                            variant="outlined"
+                            size="small"
+                          />
+
+                          <TextField
+                            label="MCP Endpoint"
+                            fullWidth
+                            value={registrationMcpEndpoint}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRegistrationMcpEndpoint(val);
+                              setRegistrationMcpError(validateUrlLike(val));
+                            }}
+                            placeholder="https://agent.example.com/mcp"
+                            disabled={!registrationParsed}
+                            error={!!registrationMcpError}
+                            helperText={
+                              registrationMcpError || 
+                              'Single MCP endpoint. This will be stored in the endpoints array with name MCP.'
+                            }
+                            variant="outlined"
+                            size="small"
+                          />
+
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
+                            <Button
+                              variant="outlined"
+                              onClick={() => {
+                                if (!registrationEditSaving) {
+                                  setRegistrationEditError(null);
+                                  setRegistrationPreviewText(null);
+                                  setRegistrationParsed(null);
+                                }
+                              }}
+                              disabled={registrationEditSaving}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              variant="contained"
+                              onClick={handleSaveRegistration}
+                              disabled={
+                                registrationEditSaving ||
+                                registrationPreviewLoading ||
+                                !registrationParsed ||
+                                !!registrationImageError ||
+                                !!registrationA2aError ||
+                                !!registrationMcpError
+                              }
+                            >
+                              {registrationEditSaving ? 'Saving…' : 'Save registration'}
+                            </Button>
+                          </Box>
+                        </Box>
+                      </Grid>
+
+                      {/* Right: read-only JSON preview */}
+                      <Grid item xs={12} md={5}>
+                        <Paper
+                          variant="outlined"
+                          sx={{
+                            p: 2,
+                            bgcolor: 'grey.50',
+                            maxHeight: 500,
+                            overflow: 'auto',
+                            fontFamily: 'monospace',
+                            fontSize: '0.85rem',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                          }}
+                        >
+                          {registrationPreviewLoading ? (
+                            <Typography color="text.secondary">Loading registration JSON…</Typography>
+                          ) : !registrationPreviewText ? (
+                            <Typography color="text.secondary">No registration JSON available to edit.</Typography>
+                          ) : (
+                            <pre style={{ margin: 0 }}>{registrationPreviewText}</pre>
+                          )}
+                        </Paper>
+                      </Grid>
+                    </Grid>
+                  </Paper>
+                )}
+                {(!isEditMode || activeManagementTab === 'delete') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom color="text.primary">
+                      Delete Agent
+                    </Typography>
+                    <Box component="form" onSubmit={handleDeleteAgent} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <TextField
+                        label="Agent ID"
+                        fullWidth
+                        required
+                        value={deleteForm.agentId}
+                        onChange={(e) => setDeleteForm({ ...deleteForm, agentId: e.target.value })}
+                        variant="outlined"
+                        size="small"
+                      />
+                      <TextField
+                        label="Chain ID"
+                        fullWidth
+                        required
+                        type="number"
+                        value={deleteForm.chainId}
+                        onChange={(e) => setDeleteForm({ ...deleteForm, chainId: e.target.value })}
+                        inputProps={{ min: 0 }}
+                        variant="outlined"
+                        size="small"
+                      />
+                      <Button
+                        type="submit"
+                        variant="contained"
+                        sx={{
+                          bgcolor: 'grey.800',
+                          color: 'white',
+                          '&:hover': { bgcolor: 'grey.900' },
+                          py: 1.5,
+                          fontWeight: 'bold'
                         }}
                       >
-                        <div style={{ marginBottom: '0.75rem' }}>
-                          <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 600 }}>
-                            Requesting Agent
-                          </h3>
-                          {requestingAgent ? (
-                            <div style={{ fontSize: '0.85rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                              <span><strong>Name:</strong> {requestingAgent.agentName || '(not available)'}</span>
-                              <span><strong>Agent ID:</strong> {req.agentId?.toString() || '(not available)'}</span>
-                              <span><strong>DID:</strong> {requestingAgent.didIdentity || requestingAgent.did || '(not available)'}</span>
-                              <span><strong>Account:</strong> <span style={{ fontFamily: 'monospace' }}>{requestingAgent.agentAccount || '(not available)'}</span></span>
-                            </div>
-                          ) : (
-                            <p style={{ color: '#666', margin: 0, fontSize: '0.85rem' }}>
-                              Agent ID: {req.agentId?.toString() || 'Unknown'} (details not available)
-                            </p>
-                          )}
-                        </div>
-                        <div style={{ marginBottom: '0.75rem', fontSize: '0.85rem', color: '#4b5563' }}>
-                          <div><strong>Request Hash:</strong> {shortenHex(requestHash)}</div>
-                          <div><strong>Status:</strong> {req.response === 0 ? 'Pending' : `Completed (response: ${req.response})`}</div>
-                          {req.lastUpdate && (
-                            <div><strong>Last Update:</strong> {formatValidationTimestamp(req.lastUpdate)}</div>
-                          )}
-                        </div>
-                        {req.response === 0 && (
-                          <>
-                            <div style={{ marginBottom: '0.75rem', padding: '0.75rem', backgroundColor: '#f0f9ff', borderRadius: '6px', border: '1px solid #bfdbfe' }}>
-                              <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.9rem', fontWeight: 600 }}>Current Agent A2A Endpoint</h4>
-                              {a2aEndpointData.loading ? (
-                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#777', fontStyle: 'italic' }}>Loading A2A endpoint data...</p>
-                              ) : a2aEndpointData.error ? (
-                                <p style={{ margin: 0, fontSize: '0.85rem', color: '#b91c1c' }}>Error: {a2aEndpointData.error}</p>
-                              ) : (
-                                <div style={{ fontSize: '0.85rem', color: '#374151', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                                  <div>
-                                    <strong>Token URI:</strong>{' '}
-                                    {a2aEndpointData.tokenUri ? (
-                                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}>{a2aEndpointData.tokenUri}</span>
-                                    ) : (
-                                      <span style={{ color: '#777', fontStyle: 'italic' }}>(not available)</span>
-                                    )}
-                                  </div>
-                                  <div>
-                                    <strong>A2A Endpoint:</strong>{' '}
-                                    {a2aEndpointData.a2aEndpoint ? (
-                                      <span style={{ fontFamily: 'monospace', fontSize: '0.8rem', wordBreak: 'break-all' }}>{a2aEndpointData.a2aEndpoint}</span>
-                                    ) : (
-                                      <span style={{ color: '#777', fontStyle: 'italic' }}>(not available)</span>
-                                    )}
-                                  </div>
-                                  <div>
-                                    <strong>Endpoint Verification:</strong>{' '}
-                                    {a2aEndpointData.validation ? (
-                                      <span style={{ 
-                                        color: a2aEndpointData.validation.verified && a2aEndpointData.validation.hasSkill ? '#059669' : '#b91c1c',
-                                        fontWeight: 600,
-                                      }}>
-                                        {a2aEndpointData.validation.verified && a2aEndpointData.validation.hasSkill 
-                                          ? `✓ Verified - Skill "${a2aEndpointData.validation.skillName}" found`
-                                          : a2aEndpointData.validation.verified
-                                            ? '✗ Endpoint accessible but validation skill not found'
-                                            : `✗ Verification failed: ${a2aEndpointData.validation.error || 'Unknown error'}`}
-                                      </span>
-                                    ) : (
-                                      <span style={{ color: '#777', fontStyle: 'italic' }}>(not verified)</span>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleSendValidationRequest(req)}
-                              disabled={isLoading}
-                              style={{
-                                width: '100%',
-                                padding: '0.65rem',
-                                borderRadius: '6px',
-                                border: '1px solid',
-                                borderColor: isLoading ? '#d1d5db' : '#1f2937',
-                                backgroundColor: isLoading ? '#e5e7eb' : '#1f2937',
-                                color: isLoading ? '#6b7280' : '#ffffff',
-                                cursor: isLoading ? 'not-allowed' : 'pointer',
-                                fontWeight: 600,
-                              }}
-                            >
-                              {isLoading ? 'Sending…' : 'Process Validation Request (A2A endpoint will process validation)'}
-                            </button>
-                          </>
-                        )}
-                        {feedback && (
-                          <p
-                            style={{
-                              marginTop: '0.5rem',
-                              fontSize: '0.8rem',
-                              color: feedback.type === 'success' ? '#059669' : '#b91c1c',
+                        Delete Agent
+                      </Button>
+                    </Box>
+                  </Paper>
+                )}
+
+                {(!isEditMode || activeManagementTab === 'session') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Session Package
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" paragraph>
+                      Generate a session package for this agent. Session packages describe delegated AA
+                      access and can be used by tools to perform actions on behalf of this agent.
+                    </Typography>
+
+                    <Button
+                      variant="contained"
+                      onClick={handleGenerateSessionPackage}
+                      disabled={sessionPackageLoading}
+                      sx={{ mb: 2 }}
+                    >
+                      {sessionPackageLoading ? 'Generating…' : 'Generate Session Package'}
+                    </Button>
+
+                    {sessionPackageLoading && (
+                      <Box sx={{ width: '100%', mb: 2 }}>
+                        <Box
+                          sx={{
+                            height: 6,
+                            borderRadius: 999,
+                            bgcolor: 'grey.300',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          <Box
+                            sx={{
+                              width: `${sessionPackageProgress}%`,
+                              height: '100%',
+                              bgcolor: 'primary.main',
+                              transition: 'width 0.3s ease',
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                          Generating session package… {Math.round(sessionPackageProgress)}% (up to 60 seconds)
+                        </Typography>
+                      </Box>
+                    )}
+
+                    {sessionPackageError && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        {sessionPackageError}
+                      </Alert>
+                    )}
+
+                    {sessionPackageText && (
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          mt: 2,
+                          p: 2,
+                          bgcolor: 'grey.50',
+                          maxHeight: 500,
+                          overflow: 'auto',
+                          fontFamily: 'monospace',
+                          fontSize: '0.85rem',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => {
+                              if (typeof navigator !== 'undefined' && navigator.clipboard && sessionPackageText) {
+                                void navigator.clipboard.writeText(sessionPackageText);
+                              }
                             }}
                           >
-                            {feedback.message}
-                          </p>
+                            Copy JSON
+                          </Button>
+                        </Box>
+                        <pre style={{ margin: 0 }}>{sessionPackageText}</pre>
+                      </Paper>
+                    )}
+                  </Paper>
+                )}
+        {(!isEditMode || activeManagementTab === 'transfer') && (
+          <Paper sx={{ p: 3 }}>
+            <Typography variant="h5" gutterBottom>
+              Transfer Agent
+            </Typography>
+            <Box component="form" onSubmit={handleTransferAgent} sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <TextField
+                label="Agent ID"
+                fullWidth
+                required
+                value={transferForm.agentId}
+                onChange={(e) => setTransferForm({ ...transferForm, agentId: e.target.value })}
+                variant="outlined"
+                size="small"
+              />
+              <TextField
+                label="Chain ID"
+                fullWidth
+                required
+                type="number"
+                value={transferForm.chainId}
+                onChange={(e) => setTransferForm({ ...transferForm, chainId: e.target.value })}
+                inputProps={{ min: 0 }}
+                variant="outlined"
+                size="small"
+              />
+              <TextField
+                label="Transfer To (0x...)"
+                fullWidth
+                required
+                value={transferForm.to}
+                onChange={(e) => setTransferForm({ ...transferForm, to: e.target.value })}
+                inputProps={{ pattern: '^0x[a-fA-F0-9]{40}$' }}
+                placeholder="0x..."
+                variant="outlined"
+                size="small"
+                sx={{ fontFamily: 'monospace' }}
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                sx={{
+                  bgcolor: 'grey.400',
+                  color: 'common.black',
+                  '&:hover': { bgcolor: 'grey.500' },
+                  py: 1.5,
+                  fontWeight: 'bold'
+                }}
+              >
+                Transfer Agent
+              </Button>
+            </Box>
+          </Paper>
+        )}
+                {(!isEditMode || activeManagementTab === 'agentValidation') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Validate Agent Request
+                    </Typography>
+                    {isEditMode && displayAgentAddress && finalChainId ? (
+                      <>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 2 }}>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                              Validation requests where validator address equals agent account address: <strong>{shortenHex(displayAgentAddress)}</strong>
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                              {a2aEndpointData.loading
+                                ? 'Determining agent A2A endpoint...'
+                                : a2aEndpointData.error
+                                  ? `A2A endpoint unavailable: ${a2aEndpointData.error}`
+                                  : a2aEndpointData.a2aEndpoint
+                                    ? `Validating against A2A endpoint: ${a2aEndpointData.a2aEndpoint}`
+                                    : 'A2A endpoint not available for this agent.'}
+                            </Typography>
+                          </Box>
+                          <Button
+                            variant="outlined"
+                            onClick={refreshAgentValidationRequests}
+                            disabled={agentValidationRequests.loading}
+                            size="small"
+                          >
+                            {agentValidationRequests.loading ? 'Refreshing…' : 'Refresh'}
+                          </Button>
+                        </Box>
+
+                        {agentValidationRequests.error && (
+                          <Alert severity="error" sx={{ mb: 2 }}>
+                            {agentValidationRequests.error}
+                          </Alert>
                         )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          ) : (
-            <p style={{ color: '#777', fontStyle: 'italic' }}>
-              Please navigate to an agent with an account address to view validation requests.
-            </p>
-          )}
-        </div>
-        )}
-        {(!isEditMode || activeManagementTab === 'validation') && (
-        <div style={{ padding: '1.5rem', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-          <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Validate Agent Request</h2>
-          {isEditMode && queryAgentId && queryChainId ? (
-            <>
-              <p style={{ marginTop: 0, fontSize: '0.95rem', color: '#4b4b4b', marginBottom: '1.5rem' }}>
-                Submit an ENS validation request for the current agent. The agent account abstraction will be used as the requester,
-                and a validator account abstraction (name: 'validator-ens') will be used as the validator.
-              </p>
-              <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f7f7f7', borderRadius: '8px', border: '1px solid #e0e0e0' }}>
-                <h3 style={{ marginTop: 0, marginBottom: '1rem', fontSize: '1.1rem', fontWeight: 600 }}>Validation Request Information</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.9rem' }}>
-                  <div>
-                    <strong>Agent ID:</strong>{' '}
-                    <span style={{ fontFamily: 'monospace' }}>{queryAgentId}</span>
-                  </div>
-                  <div>
-                    <strong>Agent Name:</strong>{' '}
-                    {searchParams?.get('agentName') || '(not available)'}
-                  </div>
-                  <div>
-                    <strong>Chain ID:</strong>{' '}
-                    {queryChainId}
-                  </div>
-                  <div>
-                    <strong>Agent Account Address:</strong>{' '}
-                    {queryAgentAddress ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{queryAgentAddress}</span>
+
+                        {agentValidationRequests.loading ? (
+                          <Typography color="text.secondary">Loading validation requests…</Typography>
+                        ) : agentValidationRequests.requests.length === 0 ? (
+                          <Typography color="text.secondary">No validation requests found for this validator address.</Typography>
+                        ) : (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {agentValidationRequests.requests.map((req) => {
+                              const requestHash = req.requestHash || 'unknown';
+                              const requestingAgent = req.requestingAgent;
+                              const isLoading = validationActionLoading[requestHash] || false;
+                              const feedback = validationActionFeedback[requestHash];
+                              
+                              return (
+                                <Paper key={requestHash} variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+                                  <Box sx={{ mb: 1.5 }}>
+                                    <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                                      Requesting Agent
+                                    </Typography>
+                                    {requestingAgent ? (
+                                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                        <Typography variant="body2"><strong>Name:</strong> {requestingAgent.agentName || '(not available)'}</Typography>
+                                        <Typography variant="body2"><strong>Agent ID:</strong> {req.agentId?.toString() || '(not available)'}</Typography>
+                                        <Typography variant="body2"><strong>DID:</strong> {requestingAgent.didIdentity || requestingAgent.did || '(not available)'}</Typography>
+                                        <Typography variant="body2"><strong>Account:</strong> <Box component="span" fontFamily="monospace">{requestingAgent.agentAccount || '(not available)'}</Box></Typography>
+                                      </Box>
+                                    ) : (
+                                      <Typography variant="body2" color="text.secondary">
+                                        Agent ID: {req.agentId?.toString() || 'Unknown'} (details not available)
+                                      </Typography>
+                                    )}
+                                  </Box>
+
+                                  <Box sx={{ mb: 1.5 }}>
+                                    <Typography variant="body2" color="text.secondary">
+                                      <strong>Request Hash:</strong> {shortenHex(requestHash)}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      <strong>Status:</strong> {req.response === 0 ? 'Pending' : `Completed (response: ${req.response})`}
+                                    </Typography>
+                                    {req.lastUpdate && (
+                                      <Typography variant="body2" color="text.secondary">
+                                        <strong>Last Update:</strong> {formatValidationTimestamp(req.lastUpdate)}
+                                      </Typography>
+                                    )}
+                                  </Box>
+
+                                  {req.response === 0 && (
+                                    <>
+                                      <Paper variant="outlined" sx={{ mb: 1.5, p: 1.5, bgcolor: 'primary.50', borderColor: 'primary.200' }}>
+                                        <Typography variant="subtitle2" fontWeight={600} gutterBottom>
+                                          Current Agent A2A Endpoint
+                                        </Typography>
+                                        {a2aEndpointData.loading ? (
+                                          <Typography variant="body2" fontStyle="italic" color="text.secondary">Loading A2A endpoint data...</Typography>
+                                        ) : a2aEndpointData.error ? (
+                                          <Typography variant="body2" color="error">Error: {a2aEndpointData.error}</Typography>
+                                        ) : (
+                                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                            <Typography variant="body2">
+                                              <strong>Token URI:</strong>{' '}
+                                              {a2aEndpointData.tokenUri ? (
+                                                <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{a2aEndpointData.tokenUri}</Box>
+                                              ) : (
+                                                <Box component="span" color="text.secondary" fontStyle="italic">(not available)</Box>
+                                              )}
+                                            </Typography>
+                                            <Typography variant="body2">
+                                              <strong>A2A Endpoint:</strong>{' '}
+                                              {a2aEndpointData.a2aEndpoint ? (
+                                                <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{a2aEndpointData.a2aEndpoint}</Box>
+                                              ) : (
+                                                <Box component="span" color="text.secondary" fontStyle="italic">(not available)</Box>
+                                              )}
+                                            </Typography>
+                                            <Typography variant="body2">
+                                              <strong>Verification:</strong>{' '}
+                                              {a2aEndpointData.validation ? (
+                                                <Box 
+                                                  component="span" 
+                                                  color={a2aEndpointData.validation.verified && a2aEndpointData.validation.hasSkill ? 'success.main' : 'error.main'}
+                                                  fontWeight={600}
+                                                >
+                                                  {a2aEndpointData.validation.verified && a2aEndpointData.validation.hasSkill 
+                                                    ? `✓ Verified - Skill "${a2aEndpointData.validation.skillName}" found`
+                                                    : a2aEndpointData.validation.verified
+                                                      ? '✗ Endpoint accessible but validation skill not found'
+                                                      : `✗ Verification failed: ${a2aEndpointData.validation.error || 'Unknown error'}`}
+                                                </Box>
+                                              ) : (
+                                                <Box component="span" color="text.secondary" fontStyle="italic">(not verified)</Box>
+                                              )}
+                                            </Typography>
+                                          </Box>
+                                        )}
+                                      </Paper>
+
+                                      <Button
+                                        variant="contained"
+                                        onClick={() => handleSendValidationRequest(req)}
+                                        disabled={isLoading}
+                                        fullWidth
+                                        color="primary"
+                                      >
+                                        {isLoading ? 'Sending…' : 'Process Validation Request (A2A endpoint)'}
+                                      </Button>
+                                    </>
+                                  )}
+
+                                  {feedback && (
+                                    <Typography 
+                                      variant="body2" 
+                                      sx={{ mt: 1 }} 
+                                      color={feedback.type === 'success' ? 'success.main' : 'error.main'}
+                                    >
+                                      {feedback.message}
+                                    </Typography>
+                                  )}
+                                </Paper>
+                              );
+                            })}
+                          </Box>
+                        )}
+                      </>
                     ) : (
-                      '(not available)'
+                      <Typography color="text.secondary" fontStyle="italic">
+                        Please navigate to an agent with an account address to view validation requests.
+                      </Typography>
                     )}
-                  </div>
-                  <div>
-                    <strong>Validator Address:</strong>{' '}
-                    {validatorAddress ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{validatorAddress}</span>
-                    ) : (
-                      <span style={{ color: '#777', fontStyle: 'italic' }}>(will be computed server-side)</span>
-                    )}
-                  </div>
-                  <div>
-                    <strong>Request URI:</strong>{' '}
-                    {requestUri ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>{requestUri}</span>
-                    ) : (
-                      <span style={{ color: '#777', fontStyle: 'italic' }}>Loading...</span>
-                    )}
-                  </div>
-                  <div>
-                    <strong>Request Hash:</strong>{' '}
-                    {requestHash ? (
-                      <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{requestHash}</span>
-                    ) : (
-                      <span style={{ color: '#777', fontStyle: 'italic' }}>Loading...</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <form onSubmit={handleSubmitENSValidationRequest}>
-                <button
-                  type="submit"
-                  disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName')}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem',
-                    backgroundColor: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? '#787878' : '#2f2f2f',
-                    color: '#fff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? 'not-allowed' : 'pointer',
-                    fontSize: '1rem',
-                    fontWeight: 'bold',
-                    opacity: validationSubmitting || !eip1193Provider || !eoaAddress || !searchParams?.get('agentName') ? 0.7 : 1,
-                  }}
-                >
-                  {validationSubmitting ? 'Submitting...' : 'Submit ENS Validation Request'}
-                </button>
-                {(!eip1193Provider || !eoaAddress) && (
-                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#d32f2f', textAlign: 'center' }}>
-                    Wallet connection required to submit validation request
-                  </p>
+                  </Paper>
                 )}
-                {!searchParams?.get('agentName') && (
-                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#d32f2f', textAlign: 'center' }}>
-                    Agent name is required to submit validation request
-                  </p>
+
+                {(!isEditMode || activeManagementTab === 'validation') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Request ENS Validation
+                    </Typography>
+                    {isEditMode && finalAgentId && finalChainId ? (
+                      <>
+                        <Typography variant="body2" color="text.secondary" paragraph>
+                          Submit an ENS validation request for the current agent. The agent account abstraction will be used as the requester,
+                          and a validator account abstraction (name: 'validator-ens') will be used as the validator.
+                        </Typography>
+
+                        <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
+                          <Typography variant="h6" gutterBottom fontSize="1.1rem">
+                            Validation Request Information
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Typography variant="body2">
+                              <strong>Agent ID:</strong> {finalAgentId}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Agent Name:</strong> {displayAgentName}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Chain ID:</strong> {finalChainId}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Account:</strong>{' '}
+                              {displayAgentAddress ? (
+                                <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
+                              ) : (
+                                '(not available)'
+                              )}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Validator:</strong>{' '}
+                              {validatorAddress ? (
+                                <Box component="span" fontFamily="monospace">{validatorAddress}</Box>
+                              ) : (
+                                <Box component="span" color="text.secondary" fontStyle="italic">(will be computed server-side)</Box>
+                              )}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Request URI:</strong>{' '}
+                              {requestUri ? (
+                                <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{requestUri}</Box>
+                              ) : (
+                                <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
+                              )}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Request Hash:</strong>{' '}
+                              {requestHash ? (
+                                <Box component="span" fontFamily="monospace">{requestHash}</Box>
+                              ) : (
+                                <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
+                              )}
+                            </Typography>
+                          </Box>
+                        </Paper>
+
+                        <Box component="form" onSubmit={handleSubmitENSValidationRequest}>
+                          <Button
+                            type="submit"
+                            variant="contained"
+                            fullWidth
+                            disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !displayAgentName}
+                            sx={{ py: 1.5, fontWeight: 'bold' }}
+                          >
+                            {validationSubmitting ? 'Submitting...' : 'Submit ENS Validation Request'}
+                          </Button>
+                          {(!eip1193Provider || !eoaAddress) && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Wallet connection required to submit validation request
+                            </Typography>
+                          )}
+                          {!displayAgentName && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Agent name is required to submit validation request
+                            </Typography>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography color="text.secondary" fontStyle="italic">
+                        Please navigate to an agent to view validation request information.
+                      </Typography>
+                    )}
+                  </Paper>
                 )}
-              </form>
-            </>
-          ) : (
-            <p style={{ color: '#777', fontStyle: 'italic' }}>
-              Please navigate to an agent to view validation request information.
-            </p>
-          )}
-        </div>
+              </Grid>
+            </Grid>
+          </>
         )}
-      </div>
-        </>
-        )}
-    </main>
+      </Box>
     </>
   );
 }

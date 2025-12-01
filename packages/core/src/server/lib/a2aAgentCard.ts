@@ -9,17 +9,29 @@ import { request as httpsRequest } from 'https';
 export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard | null> {
   try {
     // Normalize the URL - handle both full URLs and base URLs
-    if (!cardUrl.startsWith('http://') && !cardUrl.startsWith('https://')) {
-      // Relative URL - not supported in server context
-      throw new Error('Relative URLs are not supported in server context. Provide full URL with protocol.');
+    let url = cardUrl?.trim() ?? '';
+    if (!url) {
+      throw new Error('Agent card URL is empty');
+    }
+
+    /*
+    // Support scheme-less inputs like "agent.example.com" or "//agent.example.com"
+    if (normalizedUrl.startsWith('//')) {
+      normalizedUrl = `https:${normalizedUrl}`;
+    } else if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
+      normalizedUrl = `https://${normalizedUrl.replace(/^\/+/, '')}`;
     }
 
     // Parse the URL to handle it properly
     let urlObj: URL;
     try {
-      urlObj = new URL(cardUrl);
+      urlObj = new URL(normalizedUrl);
     } catch (urlError) {
-      throw new Error(`Invalid URL format: ${cardUrl}. ${urlError instanceof Error ? urlError.message : 'Unknown error'}`);
+      throw new Error(
+        `Invalid URL format: ${normalizedUrl}. ${
+          urlError instanceof Error ? urlError.message : 'Unknown error'
+        }`,
+      );
     }
 
     // Normalize localhost to 127.0.0.1 for better Node.js compatibility
@@ -35,6 +47,7 @@ export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard |
     }
 
     const url = urlObj.toString();
+    */
     console.log('[fetchA2AAgentCard] Fetching from:', url);
     
     // Try fetch first, fallback to native http/https if it fails

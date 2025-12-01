@@ -269,6 +269,25 @@ export class BaseIdentityClient {
   }
 
   /**
+   * Get the owner of an agent
+   * Spec: Standard ERC-721 ownerOf function
+   * @param agentId - The agent's ID
+   */
+  async getOwner(agentId: bigint): Promise<string> {
+    // Ensure ABI is loaded (handle potential bundling issues)
+    if (!IdentityRegistryABI || !Array.isArray(IdentityRegistryABI)) {
+      throw new Error('IdentityRegistryABI is not loaded correctly. ABI must be an array.');
+    }
+
+    return await this.accountProvider.call<string>({
+      to: this.contractAddress,
+      abi: IdentityRegistryABI as any,
+      functionName: 'ownerOf',
+      args: [agentId],
+    });
+  }
+
+  /**
    * Get the token URI for an agent
    * Spec: Standard ERC-721 tokenURI function
    * @param agentId - The agent's ID
@@ -278,7 +297,7 @@ export class BaseIdentityClient {
     if (!IdentityRegistryABI || !Array.isArray(IdentityRegistryABI)) {
       throw new Error('IdentityRegistryABI is not loaded correctly. ABI must be an array.');
     }
-    
+
     return await this.accountProvider.call<string>({
       to: this.contractAddress,
       abi: IdentityRegistryABI as any,

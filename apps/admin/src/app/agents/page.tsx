@@ -4,7 +4,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Box, Container } from '@mui/material';
 import { createPublicClient, http, type PublicClient, type Address } from 'viem';
 import { useRouter } from 'next/navigation';
-import { getSupportedChainIds, getChainDisplayMetadata, getChainRpcUrl } from '@agentic-trust/core';
+import { getSupportedChainIds, getChainDisplayMetadata, getChainRpcUrl, buildDid8004 } from '@agentic-trust/core';
 
 import { Header } from '@/components/Header';
 import {

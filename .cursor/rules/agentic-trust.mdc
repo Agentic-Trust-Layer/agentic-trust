@@ -12,6 +12,64 @@ When working with the Agentic Trust library, ERC-8004, agent identity, reputatio
     -   **Agent Identity**: Veramo integration, DID management.
     -   **Reputation**: ERC-8004 feedback mechanisms.
     -   **Validation**: Agent validation workflows.
+-   **Agent Ownership Determination**:
+    -   **Relationship**: Agent NFT is owned by Agent Account (account abstraction/smart contract), which is owned by an EOA (user wallet).
+    -   **EOA Check**: If agent account has no bytecode, directly compare addresses.
+    -   **Smart Contract Check**: Try ownership functions in order: `owner()`, `getOwner()`, `owners()[0]`.
+    -   Always use case-insensitive comparison for Ethereum addresses.
+
+    ```typescript
+    // Determine if connected wallet owns an agent
+    async function isWalletOwnerOfAgent(walletAddress: string, agentAccount: string, chainId: number): Promise<boolean> {
+      const lowerWallet = walletAddress.toLowerCase();
+
+      // Get bytecode to check if it's a contract
+      const client = createPublicClient({ chain: getChain(chainId), transport: http(rpcUrl) });
+      const code = await client.getBytecode({ address: agentAccount as Address });
+
+      // EOA ownership: direct address comparison
+      if (!code || code === '0x') {
+        return agentAccount.toLowerCase() === lowerWallet;
+      }
+
+      // Smart contract ownership: try different patterns
+      let controller: string | null = null;
+
+      // Try ERC-173 owner() function
+      try {
+        controller = await client.readContract({
+          address: agentAccount as Address,
+          abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }],
+          functionName: 'owner',
+        }) as string;
+      } catch {}
+
+      // Fallback: try getOwner() function
+      if (!controller) {
+        try {
+          controller = await client.readContract({
+            address: agentAccount as Address,
+            abi: [{ name: 'getOwner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }],
+            functionName: 'getOwner',
+          }) as string;
+        } catch {}
+      }
+
+      // Fallback: try owners() array function
+      if (!controller) {
+        try {
+          const owners = await client.readContract({
+            address: agentAccount as Address,
+            abi: [{ name: 'owners', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address[]' }] }],
+            functionName: 'owners',
+          }) as string[];
+          controller = owners?.[0] ?? null;
+        } catch {}
+      }
+
+      return Boolean(controller && controller.toLowerCase() === lowerWallet);
+    }
+    ```
 -   **Sending UserOperations (Bundler)**:
     -   When sending a UserOperation via a bundler (Account Abstraction), always use the following pattern to ensure proper sponsorship and fee handling.
     -   Use `permissionless` to fetch gas prices if available.

@@ -451,17 +451,14 @@ export class A2AProtocolProvider {
     // Authenticate on first message if Veramo agent is available
     let authChallenge: any = null;
     if (this.veramoAgent && !this.authenticated) {
-      // Use the agent card's URL as the audience (provider's base URL)
-      // This should match what the provider expects
-      const agentCard = await this.fetchAgentCard();
-      if (!agentCard?.provider?.url) {
-        throw new Error('Agent card URL is required for authentication');
+      // Use the A2A endpoint as the audience (the exact URL we're sending the request to)
+      // This should match what the agent expects for authentication
+      const endpointInfo = await this.getA2AEndpoint();
+      if (!endpointInfo?.endpoint) {
+        throw new Error('A2A endpoint is required for authentication');
       }
-      // Verify agentCard.provider?.url is absolute
-      if (!agentCard.provider?.url.startsWith('http://') && !agentCard.provider?.url.startsWith('https://')) {
-        console.log(`Warning: Agent card URL should be an absolute URL (starting with http:// or https://), got: ${agentCard.provider?.url}`);
-      }
-      const aud = agentCard.provider?.url;
+      const aud = endpointInfo.endpoint;
+      console.log('[A2A] Using audience for authentication:', aud);
       authChallenge = await this.createSignedChallenge(aud);
       if (authChallenge) {
         this.authenticated = true;

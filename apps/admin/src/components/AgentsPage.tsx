@@ -25,6 +25,7 @@ export type AgentsPageAgent = {
   chainId: number;
   agentName?: string | null;
   agentAccount?: string | null;
+  ownerAddress?: string | null;
   tokenUri?: string | null;
   description?: string | null;
   image?: string | null;
@@ -81,7 +82,6 @@ type AgentsPageProps = {
   ) => void;
   onSearch: (filtersOverride?: AgentsPageFilters) => void;
   onClear: () => void;
-  onEditAgent?: (agent: Agent) => void;
   onPageChange?: (page: number) => void;
 };
 
@@ -154,7 +154,6 @@ export function AgentsPage({
   onFilterChange,
   onSearch,
   onClear,
-  onEditAgent,
   onPageChange,
 }: AgentsPageProps) {
   // Ensure filters is never undefined
@@ -178,6 +177,7 @@ export function AgentsPage({
   const [latestTokenUri, setLatestTokenUri] = useState<string | null>(null);
   const router = useRouter();
   const [tokenUriLoading, setTokenUriLoading] = useState(false);
+  const [navigatingToAgent, setNavigatingToAgent] = useState<string | null>(null);
   const [a2aPreview, setA2APreview] = useState<{
     key: string | null;
     loading: boolean;
@@ -2099,6 +2099,52 @@ export function AgentsPage({
 
   return (
     <>
+      {navigatingToAgent && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000,
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff',
+              padding: '2rem',
+              borderRadius: '8px',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '1rem',
+            }}
+          >
+            <div
+              style={{
+                width: '40px',
+                height: '40px',
+                border: '4px solid #f3f3f3',
+                borderTop: '4px solid #2f2f2f',
+                borderRadius: '50%',
+                animation: 'spin 1s linear infinite',
+              }}
+            />
+            <div style={{ fontSize: '1rem', fontWeight: 600 }}>Loading agent details...</div>
+          </div>
+        </div>
+      )}
+      <style>{`
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      `}</style>
       <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
 
@@ -2909,25 +2955,28 @@ export function AgentsPage({
               <article
                 key={`${agent.chainId}-${agent.agentId}`}
                 style={{
-                  borderRadius: '16px',
+                  borderRadius: '20px',
                   border: `1px solid ${palette.border}`,
-                  padding: '1.5rem',
+                  padding: '1.75rem',
                   backgroundColor: palette.surface,
-                  boxShadow: '0 6px 16px rgba(15,23,42,0.06)',
+                  boxShadow: '0 4px 12px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '0.75rem',
+                  gap: '1rem',
                   position: 'relative',
-                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   cursor: 'pointer',
+                  overflow: 'hidden',
                 }}
                 onMouseEnter={(event) => {
-                  event.currentTarget.style.transform = 'translateY(-4px)';
-                  event.currentTarget.style.boxShadow = '0 12px 30px rgba(15,23,42,0.12)';
+                  event.currentTarget.style.transform = 'translateY(-6px)';
+                  event.currentTarget.style.boxShadow = '0 12px 32px rgba(15,23,42,0.15), 0 4px 8px rgba(15,23,42,0.08)';
+                  event.currentTarget.style.borderColor = palette.accent + '40';
                 }}
                 onMouseLeave={(event) => {
                   event.currentTarget.style.transform = 'none';
-                  event.currentTarget.style.boxShadow = '0 6px 16px rgba(15,23,42,0.06)';
+                  event.currentTarget.style.boxShadow = '0 4px 12px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04)';
+                  event.currentTarget.style.borderColor = palette.border;
                 }}
                 onClick={(event) => {
                   if (event.defaultPrevented) {
@@ -2937,7 +2986,9 @@ export function AgentsPage({
                   if (target?.closest('button,[data-agent-card-link]')) {
                     return;
                   }
-                  router.push(`/agents/${agent.chainId}/${agent.agentId}`);
+                  const did8004 = buildDid8004(agent.chainId, Number(agent.agentId));
+                  setNavigatingToAgent(did8004);
+                  router.push(`/agents/${encodeURIComponent(did8004)}`);
                 }}
               >
                 <div
@@ -2955,7 +3006,9 @@ export function AgentsPage({
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          onEditAgent?.(agent);
+                          const did8004 = buildDid8004(agent.chainId, Number(agent.agentId));
+                          setNavigatingToAgent(did8004);
+                          router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
                         }}
                         aria-label={`Manage Agent ${agent.agentId}`}
                         title="Manage Agent"
@@ -2974,55 +3027,8 @@ export function AgentsPage({
                       >
                         ⚙️
                       </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openActionDialog(agent, 'give-feedback');
-                        }}
-                        aria-label={`Give feedback for agent ${agent.agentId}`}
-                        title="Give feedback"
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '999px',
-                          border: `1px solid ${palette.border}`,
-                          backgroundColor: palette.surface,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
-                        }}
-                      >
-                        💬
-                      </button>
                     </>
                   )}
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      router.push(`/agents/${agent.chainId}/${agent.agentId}`);
-                    }}
-                    aria-label={`View agent ${agent.agentId} details`}
-                    title="Open shareable agent details"
-                    style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '999px',
-                      border: `1px solid ${palette.border}`,
-                      backgroundColor: palette.surface,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      cursor: 'pointer',
-                      boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    🔍
-                  </button>
                 </div>
                 <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center' }}>
                   <img
