@@ -14,6 +14,7 @@ import {
 } from '@/components/AgentsPage';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
+import { useAgentsContext } from '@/context/AgentsContext';
 
 type Agent = AgentsPageAgent;
 
@@ -31,6 +32,8 @@ type DiscoverParams = {
   only8004Agents?: boolean;
 };
 
+const PAGE_SIZE = 18;
+
 const DEFAULT_FILTERS: AgentsPageFilters = {
   chainId: 'all',
   address: '',
@@ -45,8 +48,6 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   minAvgRating: '',
   createdWithinDays: '',
 };
-
-const PAGE_SIZE = 18;
 
 const OWNER_ABI = [
   {
@@ -90,14 +91,25 @@ export default function AgentsRoute() {
   const { eip1193Provider } = useWallet();
   const router = useRouter();
 
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [filters, setFilters] = useState<AgentsPageFilters>(DEFAULT_FILTERS);
-  const [loadingAgents, setLoadingAgents] = useState(false);
+  const {
+    agents,
+    setAgents,
+    filters,
+    setFilters,
+    total,
+    setTotal,
+    totalPages,
+    setTotalPages,
+    currentPage,
+    setCurrentPage,
+    loading: loadingAgents,
+    setLoading: setLoadingAgents,
+    hasLoaded,
+    setHasLoaded,
+  } = useAgentsContext();
+
   const [error, setError] = useState<string | null>(null);
   const [ownedMap, setOwnedMap] = useState<Record<string, boolean>>({});
-  const [currentPage, setCurrentPage] = useState(1);
-  const [total, setTotal] = useState<number | undefined>(undefined);
-  const [totalPages, setTotalPages] = useState<number | undefined>(undefined);
   const clientCache = useRef<Record<number, PublicClient>>({});
 
   const supportedChainIds = getSupportedChainIds();
@@ -113,44 +125,44 @@ export default function AgentsRoute() {
 
   const buildParams = useCallback((source: AgentsPageFilters): DiscoverParams => {
     const params: DiscoverParams = {};
-    if (source.chainId && source.chainId !== 'all') {
+    if (source?.chainId && source.chainId !== 'all') {
       const parsed = Number(source.chainId);
       if (!Number.isNaN(parsed)) {
         params.chains = [parsed];
       }
     }
-    const addressQuery = source.address.trim();
+    const addressQuery = (source?.address || '').trim();
     if (addressQuery && /^0x[a-fA-F0-9]{40}$/.test(addressQuery)) {
       params.agentAccount = addressQuery as Address;
     }
-    if (source.name.trim()) {
-      params.agentName = source.name.trim();
+    if ((source?.name || '').trim()) {
+      params.agentName = (source.name || '').trim();
     }
-    if (source.agentId.trim()) {
-      params.agentId = source.agentId.trim();
+    if ((source?.agentId || '').trim()) {
+      params.agentId = (source.agentId || '').trim();
     }
-    if (source.protocol === 'a2a') {
+    if (source?.protocol === 'a2a') {
       params.a2a = true;
-    } else if (source.protocol === 'mcp') {
+    } else if (source?.protocol === 'mcp') {
       params.mcp = true;
     }
 
-    const minReviews = Number.parseInt(source.minReviews.trim(), 10);
+    const minReviews = Number.parseInt((source?.minReviews || '').trim(), 10);
     if (Number.isFinite(minReviews) && minReviews > 0) {
       params.minFeedbackCount = minReviews;
     }
 
-    const minValidations = Number.parseInt(source.minValidations.trim(), 10);
+    const minValidations = Number.parseInt((source?.minValidations || '').trim(), 10);
     if (Number.isFinite(minValidations) && minValidations > 0) {
       params.minValidationCompletedCount = minValidations;
     }
 
-    const minAvgRating = Number.parseFloat(source.minAvgRating.trim());
+    const minAvgRating = Number.parseFloat((source?.minAvgRating || '').trim());
     if (Number.isFinite(minAvgRating) && minAvgRating > 0) {
       params.minFeedbackAverageScore = minAvgRating;
     }
 
-    const createdWithinDays = Number.parseInt(source.createdWithinDays.trim(), 10);
+    const createdWithinDays = Number.parseInt((source?.createdWithinDays || '').trim(), 10);
     if (Number.isFinite(createdWithinDays) && createdWithinDays > 0) {
       params.createdWithinDays = createdWithinDays;
     }
@@ -163,10 +175,12 @@ export default function AgentsRoute() {
       try {
         setLoadingAgents(true);
         setError(null);
-        const params = buildParams(sourceFilters);
+        // Ensure sourceFilters is never undefined
+        const safeFilters = sourceFilters || filters || DEFAULT_FILTERS;
+        const params = buildParams(safeFilters);
         const pathQuery =
-          typeof sourceFilters.path === 'string' && sourceFilters.path.trim().length > 0
-            ? sourceFilters.path.trim()
+          typeof safeFilters.path === 'string' && safeFilters.path.trim().length > 0
+            ? safeFilters.path.trim()
             : undefined;
         const payload = {
           page,
@@ -194,6 +208,7 @@ export default function AgentsRoute() {
         setTotal(data.total);
         setTotalPages(data.totalPages);
         setCurrentPage(data.page ?? page);
+        setHasLoaded(true);
       } catch (err) {
         console.error('Failed to fetch agents:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch agents');
@@ -201,12 +216,60 @@ export default function AgentsRoute() {
         setLoadingAgents(false);
       }
     },
-    [buildParams],
+    [buildParams, filters, setAgents, setTotal, setTotalPages, setCurrentPage, setLoadingAgents, setHasLoaded],
   );
 
+  // Initial load: only if we haven't loaded yet or if explicitly refreshing.
+  // But careful: filters might have changed.
+  // For now, we load if (!hasLoaded).
   useEffect(() => {
-    searchAgents(DEFAULT_FILTERS);
-  }, [searchAgents]);
+    if (!hasLoaded) {
+      searchAgents(filters, currentPage);
+    }
+  }, [hasLoaded, searchAgents, filters, currentPage]);
+
+  // When user manually changes filters or page in AgentsPage, we call searchAgents.
+  // We need to update the context state when that happens.
+  const handleSearch = useCallback((filtersOverride?: AgentsPageFilters) => {
+    const filtersToUse = filtersOverride ?? filters;
+    if (filtersOverride) {
+      setFilters(filtersToUse);
+    }
+    setCurrentPage(1); // Reset to page 1 on new filter
+    searchAgents(filtersToUse, 1);
+  }, [filters, setFilters, setCurrentPage, searchAgents]);
+
+  const handlePageChange = useCallback((newPage: number) => {
+    setCurrentPage(newPage);
+    searchAgents(filters, newPage);
+  }, [filters, setCurrentPage, searchAgents]);
+
+  const handleFilterChange = useCallback(<K extends keyof AgentsPageFilters>(
+    key: K,
+    value: AgentsPageFilters[K],
+  ) => {
+    setFilters({ ...filters, [key]: value });
+  }, [filters, setFilters]);
+
+  const handleClear = useCallback(() => {
+    const defaultFilters: AgentsPageFilters = {
+      chainId: 'all',
+      address: '',
+      name: '',
+      agentId: '',
+      mineOnly: false,
+      only8004Agents: false,
+      protocol: 'all',
+      path: '',
+      minReviews: '',
+      minValidations: '',
+      minAvgRating: '',
+      createdWithinDays: '',
+    };
+    setFilters(defaultFilters);
+    setCurrentPage(1);
+    searchAgents(defaultFilters, 1);
+  }, [setFilters, setCurrentPage, searchAgents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,32 +369,12 @@ export default function AgentsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [agents, eip1193Provider, isConnected, walletAddress]);
-
-  const displayAddress = walletAddress;
-
-  const handleEditAgent = useCallback(
-    (agent: Agent) => {
-      const query = new URLSearchParams({
-        mode: 'edit',
-        agentId: agent.agentId,
-        chainId: String(agent.chainId),
-      });
-      if (typeof agent.agentAccount === 'string' && agent.agentAccount) {
-        query.set('agentAccount', agent.agentAccount);
-      }
-      if (typeof agent.agentName === 'string' && agent.agentName) {
-        query.set('agentName', agent.agentName);
-      }
-      router.push(`/admin-tools?${query.toString()}`);
-    },
-    [router],
-  );
+  }, [agents, isConnected, walletAddress, eip1193Provider]);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
       <Header
-        displayAddress={displayAddress ?? null}
+        displayAddress={walletAddress ?? null}
         privateKeyMode={privateKeyMode}
         isConnected={isConnected}
         onConnect={openLoginModal}
@@ -339,52 +382,32 @@ export default function AgentsRoute() {
         disableConnect={loading}
       />
       <Container
-        maxWidth="xl"
+        maxWidth="lg"
         sx={{
-          py: { xs: 3, md: 4 },
+          py: { xs: 4, md: 6 },
         }}
       >
         {error && (
-          <Alert
-            severity="error"
-            sx={{ mb: 2 }}
-          >
+          <Alert severity="error" sx={{ mb: 4 }}>
             {error}
           </Alert>
         )}
 
         <AgentsPage
           agents={agents}
-          filters={filters}
-          chainOptions={chainOptions}
           loading={loadingAgents}
+          filters={filters}
+          onSearch={handleSearch}
+          onFilterChange={handleFilterChange}
+          onClear={handleClear}
+          chainOptions={chainOptions}
           ownedMap={ownedMap}
-          isConnected={isConnected}
-          provider={eip1193Provider}
-          walletAddress={walletAddress}
           total={total}
           currentPage={currentPage}
           totalPages={totalPages}
-          onFilterChange={(key, value) => {
-            setFilters(prev => ({ ...prev, [key]: value }));
-          }}
-          onSearch={override => {
-            setCurrentPage(1);
-            searchAgents(override ?? filters, 1);
-          }}
-          onClear={() => {
-            setFilters(DEFAULT_FILTERS);
-            setCurrentPage(1);
-            searchAgents(DEFAULT_FILTERS, 1);
-          }}
-          onEditAgent={handleEditAgent}
-          onPageChange={(page) => {
-            setCurrentPage(page);
-            searchAgents(filters, page);
-          }}
+          onPageChange={handlePageChange}
         />
       </Container>
     </Box>
   );
 }
-

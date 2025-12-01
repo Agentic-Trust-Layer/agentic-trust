@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic';
 import { ThemeRegistry } from '@/lib/ThemeRegistry';
 
 import { AuthProvider } from '@/components/AuthProvider';
+import { AgentsProvider } from '@/context/AgentsContext';
 
 // Dynamically import providers to prevent SSR execution
 const Web3AuthProvider = dynamic(
@@ -35,7 +36,9 @@ export default function RootLayout({
         <ThemeRegistry>
           <Web3AuthProvider>
             <WalletProvider>
-              <AuthProvider>{children}</AuthProvider>
+              <AuthProvider>
+                <AgentsProvider>{children}</AgentsProvider>
+              </AuthProvider>
             </WalletProvider>
           </Web3AuthProvider>
         </ThemeRegistry>
@@ -43,4 +46,3 @@ export default function RootLayout({
     </html>
   );
 }
-

@@ -55,14 +55,22 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     ),
   ]);
 
+  // Access image from agent data - try multiple paths
+  const agentImage = (agent as any).image ?? 
+                     ((agent as any).data?.image) ?? 
+                     null;
+  const agentTokenUri = (agent as any).tokenUri ?? 
+                        ((agent as any).data?.tokenUri) ?? 
+                        null;
+
   const serializedAgent: AgentsPageAgent = {
     agentId: agent.agentId?.toString?.() ?? agentIdParam.toString(),
     chainId,
     agentName: agent.agentName ?? null,
     agentAccount: (agent as any).agentAccount ?? null,
-    tokenUri: (agent as any).tokenUri ?? null,
+    tokenUri: agentTokenUri,
     description: (agent as any).description ?? null,
-    image: (agent as any).image ?? null,
+    image: agentImage,
     contractAddress: (agent as any).contractAddress ?? null,
     a2aEndpoint: (agent as any).a2aEndpoint ?? null,
     agentAccountEndpoint: (agent as any).agentAccountEndpoint ?? null,
@@ -111,7 +119,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
           serializedAgent.feedbackAverageScore ?? 0
         } avg`
       : 'No reviews yet';
-  const displayDid = serializedAgent.did ?? did8004;
+  const displayDid = decodeDid(serializedAgent.did) ?? did8004;
 
   return (
     <AgentDetailsPageContent
@@ -131,11 +139,16 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
 }
 
 async function getAgentHeroImage(agent: AgentsPageAgent): Promise<string | null> {
-  const direct = resolveAgentImage(agent.image);
-  if (direct) {
-    return direct;
+  // First, try direct image field (same as AgentsPage does)
+  if (typeof agent.image === 'string' && agent.image.trim()) {
+    const normalized = normalizeResourceUrl(agent.image.trim());
+    if (normalized) {
+      return normalized;
+    }
   }
-  const tokenUri = resolveAgentImage(agent.tokenUri);
+  
+  // Fallback: try to fetch from tokenUri metadata
+  const tokenUri = normalizeResourceUrl(agent.tokenUri);
   if (!tokenUri) {
     return null;
   }
@@ -148,27 +161,64 @@ async function getAgentHeroImage(agent: AgentsPageAgent): Promise<string | null>
     if (!metadata || typeof metadata !== 'object') {
       return null;
     }
-    const fromMetadata =
-      typeof metadata.image === 'string'
-        ? metadata.image
-        : typeof metadata.image_url === 'string'
-          ? metadata.image_url
-          : null;
-    return resolveAgentImage(fromMetadata);
+    const fromMetadata = extractImageFromMetadata(metadata);
+    return normalizeResourceUrl(fromMetadata);
   } catch (error) {
     console.warn('[Agent Details] Failed to load tokenUri metadata for image', error);
     return null;
   }
 }
 
-function resolveAgentImage(src?: string | null): string | null {
+function extractImageFromMetadata(metadata: Record<string, unknown>): string | null {
+  const candidates: Array<unknown> = [
+    metadata.image,
+    (metadata as any).image_url,
+    (metadata as any).imageUrl,
+    (metadata as any).imageURI,
+    (metadata as any).image_uri,
+    (metadata as any).properties?.image,
+    (metadata as any).properties?.image_url,
+  ];
+  for (const value of candidates) {
+    if (typeof value === 'string' && value.trim()) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function normalizeResourceUrl(src?: string | null): string | null {
   if (!src) {
     return null;
   }
-  if (src.startsWith('ipfs://')) {
-    return `https://ipfs.io/ipfs/${src.slice('ipfs://'.length)}`;
+  let value = src.trim();
+  if (!value) {
+    return null;
   }
-  return src;
+  try {
+    value = decodeURIComponent(value);
+  } catch {
+    // ignore
+  }
+  if (value.startsWith('ipfs://')) {
+    const path = value.slice('ipfs://'.length).replace(/^ipfs\//i, '');
+    return `https://ipfs.io/ipfs/${path}`;
+  }
+  if (value.startsWith('ar://')) {
+    return `https://arweave.net/${value.slice('ar://'.length)}`;
+  }
+  return value;
+}
+
+function decodeDid(value?: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function serializeValidationEntry(entry: AgentValidationsSummary['pending'][number]) {

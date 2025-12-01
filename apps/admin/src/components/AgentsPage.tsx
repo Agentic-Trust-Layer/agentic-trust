@@ -124,9 +124,24 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   'give-feedback': 'Give Feedback',
 };
 
+const DEFAULT_FILTERS: AgentsPageFilters = {
+  chainId: 'all',
+  address: '',
+  name: '',
+  agentId: '',
+  mineOnly: false,
+  only8004Agents: false,
+  protocol: 'all',
+  path: '',
+  minReviews: '',
+  minValidations: '',
+  minAvgRating: '',
+  createdWithinDays: '',
+};
+
 export function AgentsPage({
   agents,
-  filters,
+  filters: filtersProp,
   chainOptions,
   loading,
   ownedMap = {},
@@ -142,6 +157,8 @@ export function AgentsPage({
   onEditAgent,
   onPageChange,
 }: AgentsPageProps) {
+  // Ensure filters is never undefined
+  const filters = filtersProp || DEFAULT_FILTERS;
 
   const [activeDialog, setActiveDialog] = useState<{ agent: Agent; action: AgentActionType } | null>(null);
   const [registrationPreview, setRegistrationPreview] = useState<{
