@@ -42,6 +42,9 @@ type GenerateSessionPackageParams = {
   ownerAddress: `0x${string}`;
   reputationRegistry?: `0x${string}`;
   identityRegistry?: `0x${string}`;
+  validationRegistry?: `0x${string}`;
+  bundlerUrl?: string;
+  rpcUrl?: string;
   selector?: `0x${string}`;
 };
 
@@ -120,6 +123,11 @@ export async function generateSessionPackage(
     agentAccount,
     provider,
     ownerAddress,
+    rpcUrl: rpcUrlOverride,
+    bundlerUrl: bundlerUrlOverride,
+    identityRegistry: identityRegistryOverride,
+    reputationRegistry: reputationRegistryOverride,
+    validationRegistry: validationRegistryOverride,
     selector = DEFAULT_SELECTOR as `0x${string}`,
   } = params;
 
@@ -133,18 +141,19 @@ export async function generateSessionPackage(
     throw new Error('Agent account is required to generate a session package.');
   }
 
-  const rpcUrl = getChainRpcUrl(chainId);
+  const rpcUrl = rpcUrlOverride ?? getChainRpcUrl(chainId);
   if (!rpcUrl) {
     throw new Error(`Missing RPC URL for chain ${chainId}`);
   }
-  const bundlerUrl = getChainBundlerUrl(chainId);
+  const bundlerUrl = bundlerUrlOverride ?? getChainBundlerUrl(chainId);
   if (!bundlerUrl) {
     throw new Error(`Missing bundler URL for chain ${chainId}`);
   }
 
   const chain = getChainById(chainId) as Chain;
 
-  const identityRegistry = getIdentityRegistryAddress(chainId);
+  const identityRegistry =
+    identityRegistryOverride ?? getIdentityRegistryAddress(chainId);
   if (!identityRegistry) {
     throw new Error(
       `Missing IdentityRegistry address for chain ${chainId}. ` +
@@ -153,7 +162,8 @@ export async function generateSessionPackage(
     );
   }
 
-  const reputationRegistry = getReputationRegistryAddress(chainId);
+  const reputationRegistry =
+    reputationRegistryOverride ?? getReputationRegistryAddress(chainId);
   if (!reputationRegistry) {
     throw new Error(
       `Missing ReputationRegistry address for chain ${chainId}. ` +
@@ -162,7 +172,8 @@ export async function generateSessionPackage(
     );
   }
 
-  const validationRegistry = getValidationRegistryAddress(chainId);
+  const validationRegistry =
+    validationRegistryOverride ?? getValidationRegistryAddress(chainId);
   if (!validationRegistry) {
     throw new Error(
       `Missing ValidationRegistry address for chain ${chainId}. ` +

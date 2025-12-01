@@ -6,6 +6,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
+import { keccak256, toHex } from "viem";
 import { buildDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestENSValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
@@ -15,7 +16,7 @@ import {
   DEFAULT_CHAIN_ID,
   getChainBundlerUrl,
 } from '@agentic-trust/core/server';
-import { getClientBundlerUrl } from '@/lib/clientChainEnv';
+import { getClientBundlerUrl, getClientChainEnv } from '@/lib/clientChainEnv';
 type Agent = DiscoverResponse['agents'][number];
 type ValidationStatusWithHash = ValidationStatus & { requestHash?: string };
 type ValidatorAgentDetailsState = {
@@ -242,15 +243,56 @@ export default function AdminPage() {
           throw new Error('Agent ID is invalid.');
         }
 
+        const chainEnv = getClientChainEnv(parsedChainId);
+        if (!chainEnv.rpcUrl) {
+          throw new Error(
+            'Missing RPC URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_* env vars.',
+          );
+        }
+        if (!chainEnv.bundlerUrl) {
+          throw new Error(
+            'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
+          );
+        }
+        if (!chainEnv.identityRegistry) {
+          throw new Error(
+            'Missing IdentityRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_* env vars.',
+          );
+        }
+        if (!chainEnv.reputationRegistry) {
+          throw new Error(
+            'Missing ReputationRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_* env vars.',
+          );
+        }
+        if (!chainEnv.validationRegistry) {
+          throw new Error(
+            'Missing ValidationRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_* env vars.',
+          );
+        }
+
         const pkg = await generateSessionPackage({
           agentId: agentIdNumeric,
           chainId: parsedChainId,
           agentAccount: queryAgentAddress as `0x${string}`,
           provider: eip1193Provider,
           ownerAddress: headerAddress as `0x${string}`,
+          rpcUrl: chainEnv.rpcUrl,
+          bundlerUrl: chainEnv.bundlerUrl,
+          identityRegistry: chainEnv.identityRegistry,
+          reputationRegistry: chainEnv.reputationRegistry,
+          validationRegistry: chainEnv.validationRegistry,
         });
 
         setSessionPackageText(JSON.stringify(pkg, null, 2));
+
+        try {
+          await fetch(
+            `/api/agents/${encodeURIComponent(buildDid8004(parsedChainId, agentIdNumeric))}/refresh`,
+            { method: 'POST' },
+          );
+        } catch (refreshError) {
+          console.warn('Agent refresh failed after registration update:', refreshError);
+        }
       } catch (error: any) {
         console.error('Error creating session package (admin-tools):', error);
         setSessionPackageError(
@@ -1211,9 +1253,37 @@ export default function AdminPage() {
       // Build did8004 for the validation request
       const did8004 = buildDid8004(chainId, queryAgentId);
 
+      const requestJson = {
+        agentId: queryAgentId,
+        agentName: agentName,
+        checks: ["Check Valid ENS Entry"]
+      };
+      const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
+      
+      // Upload requestJson to IPFS
+      console.log('[Alliance Registration] Uploading validation request to IPFS...');
+      const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
+      const formData = new FormData();
+      formData.append('file', jsonBlob, 'validation-request.json');
+      
+      const ipfsResponse = await fetch('/api/ipfs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!ipfsResponse.ok) {
+        throw new Error('Failed to upload validation request to IPFS');
+      }
+      
+      const ipfsResult = await ipfsResponse.json();
+      const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
+
       // Submit validation request using the new pattern
       const result = await requestENSValidationWithWallet({
         requesterDid: did8004,
+        requestUri: requestUri,
+        requestHash: requestHash,
         chain: chain as any,
         requesterAccountClient: agentAccountClient,
         onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
@@ -2007,10 +2077,28 @@ export default function AdminPage() {
           <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Validate Agent Request</h2>
           {isEditMode && queryAgentAddress && queryChainId ? (
             <>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-                <p style={{ margin: 0, fontSize: '0.95rem', color: '#4b4b4b' }}>
-                  Validation requests where validator address equals agent account address: {shortenHex(queryAgentAddress)}
-                </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem', gap: '1rem' }}>
+                <div style={{ fontSize: '0.95rem', color: '#4b4b4b', flex: '1' }}>
+                  <p style={{ margin: 0 }}>
+                    Validation requests where validator address equals agent account address: {shortenHex(queryAgentAddress)}
+                  </p>
+                  <p style={{ margin: '0.35rem 0 0', fontSize: '0.85rem', color: '#555' }}>
+                    {a2aEndpointData.loading
+                      ? 'Determining agent A2A endpoint...'
+                      : a2aEndpointData.error
+                        ? `A2A endpoint unavailable: ${a2aEndpointData.error}`
+                        : a2aEndpointData.a2aEndpoint
+                          ? (
+                            <>
+                              Validating against A2A endpoint:&nbsp;
+                              <span style={{ fontFamily: 'monospace', wordBreak: 'break-all', fontSize: '0.8rem' }}>
+                                {a2aEndpointData.a2aEndpoint}
+                              </span>
+                            </>
+                          )
+                          : 'A2A endpoint not available for this agent.'}
+                  </p>
+                </div>
                 <button
                   type="button"
                   onClick={refreshAgentValidationRequests}
@@ -2138,7 +2226,7 @@ export default function AdminPage() {
                                 fontWeight: 600,
                               }}
                             >
-                              {isLoading ? 'Sending…' : 'Send Validation Request to A2A Endpoint'}
+                              {isLoading ? 'Sending…' : 'Process Validation Request (A2A endpoint will process validation)'}
                             </button>
                           </>
                         )}

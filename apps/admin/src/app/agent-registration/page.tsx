@@ -21,6 +21,7 @@ import {
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
 import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
+import { keccak256, toHex } from "viem";
 
 const CREATE_STEPS = ['Name', 'Information', 'Protocols', 'Review & Register'] as const;
 const REGISTRATION_PROGRESS_DURATION_MS = 60_000;
@@ -41,6 +42,22 @@ const getEnvVarHints = (chainId: number) => {
     bundlerClient: `NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_${suffix}`,
     bundlerServer: `AGENTIC_TRUST_BUNDLER_URL_${suffix}`,
   };
+};
+
+const formatAgentSubdomain = (name?: string): string => {
+  if (!name) return '';
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+};
+
+const buildDefaultAgentUrl = (name?: string): string => {
+  const slug = formatAgentSubdomain(name);
+  return slug ? `https://${slug}.8004-agent.io` : '';
 };
 
 export default function AgentRegistrationPage() {
@@ -73,6 +90,7 @@ export default function AgentRegistrationPage() {
     image: getDefaultImageUrl(),
     agentUrl: '',
   });
+  const [agentUrlAutofillDisabled, setAgentUrlAutofillDisabled] = useState(false);
   const [imagePreviewError, setImagePreviewError] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -157,6 +175,23 @@ export default function AgentRegistrationPage() {
       setCreateForm(prev => ({ ...prev, image: `${window.location.origin}/8004Agent.png` }));
     }
   }, [createForm.image]);
+
+  useEffect(() => {
+    if (agentUrlAutofillDisabled) {
+      return;
+    }
+    const defaultUrl = buildDefaultAgentUrl(createForm.agentName);
+    setCreateForm(prev => {
+      const current = (prev.agentUrl || '').trim();
+      if ((current || '') === (defaultUrl || '')) {
+        return prev;
+      }
+      if (!current && !defaultUrl) {
+        return prev;
+      }
+      return { ...prev, agentUrl: defaultUrl };
+    });
+  }, [agentUrlAutofillDisabled, createForm.agentName]);
 
   // Get admin EOA for private key mode display
   const [adminEOA, setAdminEOA] = useState<string | null>(null);
@@ -656,7 +691,7 @@ export default function AgentRegistrationPage() {
 
   const didAgentPreview = useMemo(() => {
     // AgentId is not known until after registration; show a placeholder
-    return `did:agent:${selectedChainId}:<agentId>`;
+    return `did:8004:${selectedChainId}:<agentId>`;
   }, [selectedChainId]);
 
   const computeStepValidation = useCallback((): { valid: boolean; message?: string } => {
@@ -949,11 +984,38 @@ export default function AgentRegistrationPage() {
               // Build did8004 for the validation request
               const did8004 = buildDid8004(selectedChainId || DEFAULT_CHAIN_ID, finalAgentId);
 
+              const requestJson = {
+                agentId: finalAgentId,
+                agentName: createForm.agentName,
+                checks: ["Check Valid ENS Entry"]
+              };
+              const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
+              
+              // Upload requestJson to IPFS
+              console.log('[Alliance Registration] Uploading validation request to IPFS...');
+              const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
+              const formData = new FormData();
+              formData.append('file', jsonBlob, 'validation-request.json');
+              
+              const ipfsResponse = await fetch('/api/ipfs/upload', {
+                method: 'POST',
+                body: formData,
+              });
+              
+              if (!ipfsResponse.ok) {
+                throw new Error('Failed to upload validation request to IPFS');
+              }
+              
+              const ipfsResult = await ipfsResponse.json();
+              const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
               // Submit validation request using the new pattern
               const validationResult = await requestENSValidationWithWallet({
                 requesterDid: did8004,
                 chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
                 requesterAccountClient: agentAccountClient,
+                requestHash: requestHash,
+                requestUri: requestUri,
                 onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
               });
 
@@ -975,6 +1037,7 @@ export default function AgentRegistrationPage() {
       
       
       setCreateForm({ agentName: '', agentAccount: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
+      setAgentUrlAutofillDisabled(false);
       setAaAddress(null);
       setCreateStep(0);
       setProtocolSettings({ publishA2A: true, publishMcp: true, a2aEndpoint: '', mcpEndpoint: '' });
@@ -1049,6 +1112,16 @@ export default function AgentRegistrationPage() {
       }
     }
   };
+  const handleAgentUrlInputChange = useCallback((value: string) => {
+    setAgentUrlAutofillDisabled(true);
+    setCreateForm(prev => ({ ...prev, agentUrl: value }));
+  }, []);
+
+  const handleResetAgentUrlToDefault = useCallback(() => {
+    setAgentUrlAutofillDisabled(false);
+    const defaultUrl = buildDefaultAgentUrl(createForm.agentName);
+    setCreateForm(prev => ({ ...prev, agentUrl: defaultUrl }));
+  }, [createForm.agentName]);
   const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent-card.json` : '';
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
@@ -1327,13 +1400,33 @@ export default function AgentRegistrationPage() {
         return (
           <>
             <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Agent URL (Base URL for A2A and MCP endpoints) *
-              </label>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                  Agent URL (Base URL for A2A and MCP endpoints) *
+                </label>
+                {agentUrlAutofillDisabled && (
+                  <button
+                    type="button"
+                    onClick={handleResetAgentUrlToDefault}
+                    style={{
+                      padding: '0.35rem 0.85rem',
+                      borderRadius: '999px',
+                      border: '1px solid #dcdcdc',
+                      backgroundColor: '#f9f9f9',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      color: '#2a2a2a',
+                    }}
+                  >
+                    Use default domain
+                  </button>
+                )}
+              </div>
               <input
                 type="url"
                 value={createForm.agentUrl}
-                onChange={(e) => setCreateForm({ ...createForm, agentUrl: e.target.value })}
+                onChange={(e) => handleAgentUrlInputChange(e.target.value)}
                 placeholder="https://agent.example.com"
                 required
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}

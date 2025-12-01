@@ -1,3 +1,4 @@
+import { zeroAddress } from 'viem';
 import { uploadRegistration } from '../../server/lib/agentRegistration';
 import { getAgenticTrustClient } from '../../server/lib/agenticTrust';
 import { parseDid8004 } from '../../shared/did8004';
@@ -502,6 +503,34 @@ export async function prepareValidationRequestCore(
     requestUri: input.requestUri,
     requestHash: input.requestHash,
   });
+
+  try {
+    const existing = await validationClient.getValidationStatus(requestHash);
+    const existingValidator = existing?.validatorAddress?.toLowerCase?.();
+    if (existingValidator && existingValidator !== zeroAddress && existingValidator !== zeroAddress.toLowerCase()) {
+      throw new AgentApiError(
+        existingValidator === validatorAddress.toLowerCase()
+          ? 'Validation request already exists for this agent and validator. Await the existing request to be processed before submitting another.'
+          : 'Validation request with this request hash already exists for a different validator. Provide a unique requestUri/requestHash before retrying.',
+        409,
+        {
+          requestHash,
+          existingValidator: existing.validatorAddress,
+          existingAgentId: existing.agentId?.toString?.(),
+          response: existing.response,
+        },
+      );
+    }
+  } catch (error) {
+    if (error instanceof AgentApiError) {
+      throw error;
+    }
+    // Ignore read errors (some chains may not support the call yet)
+    console.warn(
+      `[prepareValidationRequestCore] Unable to check existing validation status for requestHash=${requestHash}`,
+      error,
+    );
+  }
 
   // Get bundler URL for AA mode
   const bundlerUrl = getChainBundlerUrl(parsed.chainId);

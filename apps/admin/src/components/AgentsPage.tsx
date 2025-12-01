@@ -17,6 +17,7 @@ import {
 } from '@agentic-trust/core';
 import { signAndSendTransaction } from '@agentic-trust/core/client';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { getClientChainEnv } from '@/lib/clientChainEnv';
 
 export type AgentsPageAgent = {
   agentId: string;
@@ -91,10 +92,7 @@ function getChainForId(chainId: number) {
 }
 
 function getBundlerUrlForId(chainId: number) {
-  if (chainId === 11155111) return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
-  if (chainId === 84532) return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA;
-  if (chainId === 11155420) return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA;
-  return process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
+  return getClientChainEnv(chainId).bundlerUrl;
 }
 
 
@@ -102,6 +100,7 @@ type AgentActionType =
   | 'info'
   | 'registration'
   | 'did-web'
+  | 'did-8004'
   | 'did-agent'
   | 'a2a'
   | 'session'
@@ -116,6 +115,7 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   'registration-edit': 'Edit Reg',
   'did-web': 'DID:Web',
   'did-agent': 'DID:Agent',
+  'did-8004': 'DID:8004',
   a2a: 'A2A',
   session: 'Session',
   feedback: 'Feedback',
@@ -1093,6 +1093,14 @@ export function AgentsPage({
                         console.log('[RegistrationUpdate]', msg);
                       },
                     });
+                    try {
+                      await fetch(
+                        `/api/agents/${encodeURIComponent(did8004)}/refresh`,
+                        { method: 'POST' },
+                      );
+                    } catch (refreshError) {
+                      console.warn('Agent refresh failed after registration update:', refreshError);
+                    }
 
                     closeDialog();
                     onSearch?.();
@@ -1143,11 +1151,11 @@ export function AgentsPage({
         return (
           <>
             <p style={{ marginTop: 0 }}>
-              DID:Agent binds ERC-8004 identities directly to smart accounts.
+              DID:8004 binds ERC-8004 identities directly to smart accounts.
             </p>
             <p>
               Suggested identifier:{' '}
-              <code>did:agent:{agent.chainId}:{agent.agentId}</code>
+              <code>did:8004:{agent.chainId}:{agent.agentId}</code>
             </p>
             <p style={{ color: palette.textSecondary }}>
               Use your preferred wallet to generate a signed DID document containing the ERC-8004 registry information.
@@ -1996,12 +2004,44 @@ export function AgentsPage({
         
         setSessionPreview(prev => ({ ...prev, key: did8004, loading: true, error: null, text: null }));
 
+        const chainEnv = getClientChainEnv(agent.chainId);
+        if (!chainEnv.rpcUrl) {
+          throw new Error(
+            'Missing RPC URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_* env vars.',
+          );
+        }
+        if (!chainEnv.bundlerUrl) {
+          throw new Error(
+            'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
+          );
+        }
+        if (!chainEnv.identityRegistry) {
+          throw new Error(
+            'Missing IdentityRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_* env vars.',
+          );
+        }
+        if (!chainEnv.reputationRegistry) {
+          throw new Error(
+            'Missing ReputationRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_* env vars.',
+          );
+        }
+        if (!chainEnv.validationRegistry) {
+          throw new Error(
+            'Missing ValidationRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_* env vars.',
+          );
+        }
+
         const pkg = await generateSessionPackage({
           agentId: agentIdNumeric,
           chainId: agent.chainId,
           agentAccount: agent.agentAccount as `0x${string}`,
           provider,
           ownerAddress: walletAddress as `0x${string}`,
+          rpcUrl: chainEnv.rpcUrl,
+          bundlerUrl: chainEnv.bundlerUrl,
+          identityRegistry: chainEnv.identityRegistry,
+          reputationRegistry: chainEnv.reputationRegistry,
+          validationRegistry: chainEnv.validationRegistry,
         });
 
         // Complete progress
