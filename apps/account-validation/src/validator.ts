@@ -104,7 +104,7 @@ export async function processValidationRequests(
 
   console.log(`[Validator] Creating validator account abstraction...`);
   const { address: validatorAddress, accountClient: validatorAccountClient } = await createValidatorAccountAbstraction(
-    'validator-ens',
+    'account-validator',
     validatorEnsPrivateKey,
     chainId,
   );
@@ -243,74 +243,13 @@ export async function processValidationRequests(
 
       console.log(`[Validator] Agent Info: name="${agentName}", account="${agentAccount}"`);
 
-      // Get ENS client
-      console.log(`[Validator] Initializing ENS client...`);
-      const ensClient = await getENSClient(chainId);
-      if (!ensClient) {
-        errorCount++;
-        const error = `ENS client not available for chain ${chainId}`;
-        console.error(`[Validator] ❌ ERROR: ${error}`);
-        results.push({
-          requestHash,
-          agentId,
-          chainId,
-          success: false,
-          error,
-        });
-        continue;
-      }
-
-      // Validate ENS name exists and is owned by agent account
-      console.log(`[Validator] Validating ENS name "${agentName}"...`);
-      console.log(`[Validator] Agent account address from agent info: ${agentAccount}`);
-      
-      // Get account address from ENS name (addr text record)
-      console.log(`[Validator] Resolving ENS name "${agentName}" to account address (addr text record)...`);
-      const ensAccount = await ensClient.getAgentAccountByName(agentName);
-      console.log(`[Validator] ENS name "${agentName}" resolves to address: ${ensAccount || 'null'}`);
-      console.log(`[Validator] Comparing addresses:`);
-      console.log(`[Validator]   - Agent account: ${agentAccount}`);
-      console.log(`[Validator]   - ENS account (addr):  ${ensAccount || 'null'}`);
-      if (!ensAccount) {
-        errorCount++;
-        const error = `ENS name "${agentName}" does not resolve to an account address`;
-        console.error(`[Validator] ❌ ERROR: ${error}`);
-        results.push({
-          requestHash,
-          agentId,
-          chainId,
-          success: false,
-          error,
-        });
-        continue;
-      }
-      console.log(`[Validator] ✓ ENS name resolves to: ${ensAccount}`);
-
-      // Verify ENS account matches agent account
-      const addressesMatch = ensAccount.toLowerCase() === agentAccount.toLowerCase();
-      console.log(`[Validator] Address comparison: ${addressesMatch ? 'MATCH ✓' : 'MISMATCH ✗'}`);
-      if (!addressesMatch) {
-        errorCount++;
-        const error = `ENS name "${agentName}" resolves to ${ensAccount}, but agent account is ${agentAccount}`;
-        console.error(`[Validator] ❌ ERROR: ${error}`);
-        results.push({
-          requestHash,
-          agentId,
-          chainId,
-          success: false,
-          error,
-        });
-        continue;
-      }
-      console.log(`[Validator] ✓ Account ownership verified: ENS "${agentName}" resolves to ${ensAccount}, which matches agent account ${agentAccount}`);
-
       // Prepare validation response transaction
       console.log(`[Validator] Preparing validation response transaction (score: 100)...`);
       const validationClientTyped = validationClient as any; // Type assertion to access prepareValidationResponseTx
       const txRequest = await validationClientTyped.prepareValidationResponseTx({
         requestHash,
         response: 100, // Score 100 for valid agents
-        tag: 'ens-validation',
+        tag: 'account-validation',
       });
       console.log(`[Validator] ✓ Transaction prepared: to=${txRequest.to}, data length=${txRequest.data?.length || 0}`);
 

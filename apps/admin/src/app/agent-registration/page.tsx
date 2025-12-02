@@ -7,7 +7,6 @@ import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address } from 'viem';
 import { createAgentWithWallet, getCounterfactualAAAddressByAgentName, createAgentDirect, getDeployedAccountClientByAgentName } from '@agentic-trust/core/client';
-import { requestENSValidationWithWallet, buildDid8004 } from '@agentic-trust/core';
 import type { Chain } from 'viem';
 import {
   getEnsOrgName,
@@ -965,73 +964,8 @@ export default function AgentRegistrationPage() {
           setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
         }
 
-        // Submit ENS validation request if agent was created successfully
-        if (finalAgentId && useAA && agentAccountToUse && eip1193Provider && eoaAddress) {
-          try {
-            // Get agent account client for validation request
-            const bundlerUrl = getChainBundlerUrl(selectedChainId || DEFAULT_CHAIN_ID);
-            if (bundlerUrl) {
-              const agentAccountClient = await getDeployedAccountClientByAgentName(
-                bundlerUrl,
-                createForm.agentName,
-                eoaAddress as `0x${string}`,
-                {
-                  chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
-                  ethereumProvider: eip1193Provider as any,
-                }
-              );
-
-              // Build did8004 for the validation request
-              const did8004 = buildDid8004(selectedChainId || DEFAULT_CHAIN_ID, finalAgentId);
-
-              const requestJson = {
-                agentId: finalAgentId,
-                agentName: createForm.agentName,
-                checks: ["Check Valid ENS Entry"]
-              };
-              const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
-              
-              // Upload requestJson to IPFS
-              console.log('[Alliance Registration] Uploading validation request to IPFS...');
-              const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
-              const formData = new FormData();
-              formData.append('file', jsonBlob, 'validation-request.json');
-              
-              const ipfsResponse = await fetch('/api/ipfs/upload', {
-                method: 'POST',
-                body: formData,
-              });
-              
-              if (!ipfsResponse.ok) {
-                throw new Error('Failed to upload validation request to IPFS');
-              }
-              
-              const ipfsResult = await ipfsResponse.json();
-              const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
-
-              // Submit validation request using the new pattern
-              const validationResult = await requestENSValidationWithWallet({
-                requesterDid: did8004,
-                chain: CHAIN_OBJECTS[selectedChainId] ?? CHAIN_OBJECTS[DEFAULT_CHAIN_ID],
-                requesterAccountClient: agentAccountClient,
-                requestHash: requestHash,
-                requestUri: requestUri,
-                onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
-              });
-
-              setSuccess(
-                `Agent created and validation request submitted! Agent ID: ${finalAgentId}, Validation TX: ${validationResult.txHash}, Validator: ${validationResult.validatorAddress}`
-              );
-            }
-          } catch (validationError) {
-            // Don't fail the whole registration if validation request fails
-            console.error('Failed to submit validation request:', validationError);
-            setSuccess(
-              `Agent created successfully! Agent ID: ${finalAgentId}, TX: ${result.txHash}. Note: Validation request failed (check console for details).`
-            );
-          }
-        }
-        }
+     
+      }
       
 
       

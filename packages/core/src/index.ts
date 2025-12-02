@@ -121,7 +121,9 @@ export {
   createAgentWithWallet,
   updateAgentRegistrationWithWallet,
   giveFeedbackWithWallet,
-  requestENSValidationWithWallet,
+  requestNameValidationWithWallet,
+  requestAccountValidationWithWallet,
+  requestAppValidationWithWallet,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,

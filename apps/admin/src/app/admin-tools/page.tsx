@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider } from '@mui/material';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
 import { keccak256, toHex } from "viem";
-import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestENSValidationWithWallet } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
   getSupportedChainIds,
@@ -101,7 +101,7 @@ export default function AdminPage() {
   const queryChainId = searchParams?.get('chainId') ?? null;
   const queryAgentAddress = searchParams?.get('agentAccount') ?? null;
   const queryAgent = searchParams?.get('agent') ?? null; // Legacy query param format
-  const queryTab = searchParams?.get('tab') ?? 'agentInfo';
+  const queryTab = searchParams?.get('tab') ?? 'registration';
   
   // Prefer path DID over query params
   const didSource = pathDid ?? queryAgent;
@@ -275,14 +275,15 @@ export default function AdminPage() {
   const displayAgentAddress = queryAgentAddress ?? fetchedAgentInfo?.agentAccount ?? null;
 
   const [activeManagementTab, setActiveManagementTab] = useState<
-    | 'agentInfo'
     | 'registration'
     | 'session'
     | 'delete'
     | 'transfer'
     | 'validation'
+    | 'accountValidation'
+    | 'appValidation'
     | 'agentValidation'
-  >((queryTab as any) || 'agentInfo');
+  >((queryTab as any) || 'registration');
   
   // Update URL when tab changes
   const handleTabChange = useCallback((tab: typeof activeManagementTab) => {
@@ -533,6 +534,7 @@ export default function AdminPage() {
   const [sessionPackageError, setSessionPackageError] = useState<string | null>(null);
   const [sessionPackageProgress, setSessionPackageProgress] = useState(0);
   const sessionPackageProgressTimerRef = useRef<number | null>(null);
+  const [sessionPackageConfirmOpen, setSessionPackageConfirmOpen] = useState(false);
 
   const validateUrlLike = useCallback((value: string): string | null => {
     const trimmed = value.trim();
@@ -1023,9 +1025,9 @@ export default function AdminPage() {
     refreshAgentValidationRequests();
   }, [isEditMode, activeManagementTab, refreshAgentValidationRequests]);
 
-  // Fetch NFT operator when agentInfo tab is active
+  // Fetch NFT operator when registration tab is active
   useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'agentInfo' || !finalAgentId || !finalChainId) {
+    if (!isEditMode || activeManagementTab !== 'registration' || !finalAgentId || !finalChainId) {
       setNftOperator({
         loading: false,
         error: null,
@@ -1298,7 +1300,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleSubmitENSValidationRequest = async (e: React.FormEvent) => {
+  const handleSubmitNameValidationRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
       setError('Agent information is required. Please navigate to an agent first.');
@@ -1345,7 +1347,7 @@ export default function AdminPage() {
       const requestJson = {
         agentId: finalAgentId,
         agentName: agentName,
-        checks: ["Check Valid ENS Entry"]
+        checks: ["Check Valid Name Entry"]
       };
       const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
       
@@ -1369,7 +1371,7 @@ export default function AdminPage() {
 
 
       // Submit validation request using the new pattern
-      const result = await requestENSValidationWithWallet({
+      const result = await requestNameValidationWithWallet({
         requesterDid: did8004,
         requestUri: requestUri,
         requestHash: requestHash,
@@ -1379,7 +1381,195 @@ export default function AdminPage() {
       });
 
       setSuccess(
-        `ENS validation request submitted successfully! TX: ${result.txHash}, Validator: ${result.validatorAddress}, Request Hash: ${result.requestHash}`
+        `Name validation request submitted successfully! TX: ${result.txHash}, Validator: ${result.validatorAddress}, Request Hash: ${result.requestHash}`
+      );
+      // Update displayed validator address and request hash
+      setValidatorAddress(result.validatorAddress);
+      setRequestHash(result.requestHash);
+    } catch (err) {
+      console.error('Error submitting validation request:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit validation request');
+    } finally {
+      setValidationSubmitting(false);
+    }
+  };
+
+  const handleSubmitAccountValidationRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
+      setError('Agent information is required. Please navigate to an agent first.');
+      return;
+    }
+    const agentName = displayAgentName;
+    if (!agentName || agentName === '...') {
+      setError('Agent name is required. Please ensure the agent has a name.');
+      return;
+    }
+    if (!eip1193Provider || !eoaAddress) {
+      setError('Wallet connection is required for validation requests');
+      return;
+    }
+
+    try {
+      setError(null);
+      setValidationSubmitting(true);
+      const chainId = Number.parseInt(finalChainId, 10);
+      if (!Number.isFinite(chainId)) {
+        throw new Error('Invalid chainId');
+      }
+      const chain = getChainById(chainId);
+      const bundlerUrl = getChainBundlerUrl(chainId);
+
+      if (!bundlerUrl) {
+        throw new Error(`Bundler URL not configured for chain ${chainId}`);
+      }
+
+      // Get agent account client
+      const agentAccountClient = await getDeployedAccountClientByAgentName(
+        bundlerUrl,
+        agentName,
+        eoaAddress as `0x${string}`,
+        {
+          chain: chain as any,
+          ethereumProvider: eip1193Provider as any,
+        }
+      );
+
+      // Build did8004 for the validation request
+      const did8004 = buildDid8004(chainId, finalAgentId);
+
+      const requestJson = {
+        agentId: finalAgentId,
+        agentName: agentName,
+        checks: ["Check Valid Account Entry"]
+      };
+      const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
+      
+      // Upload requestJson to IPFS
+      console.log('[Alliance Registration] Uploading validation request to IPFS...');
+      const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
+      const formData = new FormData();
+      formData.append('file', jsonBlob, 'validation-request.json');
+      
+      const ipfsResponse = await fetch('/api/ipfs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!ipfsResponse.ok) {
+        throw new Error('Failed to upload validation request to IPFS');
+      }
+      
+      const ipfsResult = await ipfsResponse.json();
+      const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
+
+      // Submit validation request using the new pattern
+      const result = await requestAccountValidationWithWallet({
+        requesterDid: did8004,
+        requestUri: requestUri,
+        requestHash: requestHash,
+        chain: chain as any,
+        requesterAccountClient: agentAccountClient,
+        onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
+      });
+
+      setSuccess(
+        `Account validation request submitted successfully! TX: ${result.txHash}, Validator: ${result.validatorAddress}, Request Hash: ${result.requestHash}`
+      );
+      // Update displayed validator address and request hash
+      setValidatorAddress(result.validatorAddress);
+      setRequestHash(result.requestHash);
+    } catch (err) {
+      console.error('Error submitting validation request:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit validation request');
+    } finally {
+      setValidationSubmitting(false);
+    }
+  };
+
+  const handleSubmitAppValidationRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
+      setError('Agent information is required. Please navigate to an agent first.');
+      return;
+    }
+    const agentName = displayAgentName;
+    if (!agentName || agentName === '...') {
+      setError('Agent name is required. Please ensure the agent has a name.');
+      return;
+    }
+    if (!eip1193Provider || !eoaAddress) {
+      setError('Wallet connection is required for validation requests');
+      return;
+    }
+
+    try {
+      setError(null);
+      setValidationSubmitting(true);
+      const chainId = Number.parseInt(finalChainId, 10);
+      if (!Number.isFinite(chainId)) {
+        throw new Error('Invalid chainId');
+      }
+      const chain = getChainById(chainId);
+      const bundlerUrl = getChainBundlerUrl(chainId);
+
+      if (!bundlerUrl) {
+        throw new Error(`Bundler URL not configured for chain ${chainId}`);
+      }
+
+      // Get agent account client
+      const agentAccountClient = await getDeployedAccountClientByAgentName(
+        bundlerUrl,
+        agentName,
+        eoaAddress as `0x${string}`,
+        {
+          chain: chain as any,
+          ethereumProvider: eip1193Provider as any,
+        }
+      );
+
+      // Build did8004 for the validation request
+      const did8004 = buildDid8004(chainId, finalAgentId);
+
+      const requestJson = {
+        agentId: finalAgentId,
+        agentName: agentName,
+        checks: ["Check Valid App Entry"]
+      };
+      const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
+      
+      // Upload requestJson to IPFS
+      console.log('[Alliance Registration] Uploading validation request to IPFS...');
+      const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
+      const formData = new FormData();
+      formData.append('file', jsonBlob, 'validation-request.json');
+      
+      const ipfsResponse = await fetch('/api/ipfs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!ipfsResponse.ok) {
+        throw new Error('Failed to upload validation request to IPFS');
+      }
+      
+      const ipfsResult = await ipfsResponse.json();
+      const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
+
+      // Submit validation request using the new pattern
+      const result = await requestAppValidationWithWallet({
+        requesterDid: did8004,
+        requestUri: requestUri,
+        requestHash: requestHash,
+        chain: chain as any,
+        requesterAccountClient: agentAccountClient,
+        onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
+      });
+
+      setSuccess(
+        `App validation request submitted successfully! TX: ${result.txHash}, Validator: ${result.validatorAddress}, Request Hash: ${result.requestHash}`
       );
       // Update displayed validator address and request hash
       setValidatorAddress(result.validatorAddress);
@@ -1495,12 +1685,13 @@ export default function AdminPage() {
                         },
                       }}
                     >
-                      <Tab label="Agent Info" value="agentInfo" />
-                      <Tab label="Registration" value="registration" />
-                      <Tab label="Session Package" value="session" />
+                      <Tab label="Agent Info" value="registration" />
+                      <Tab label="Agent Operator" value="session" />
                       <Tab label="Transfer Agent" value="transfer" />
                       <Tab label="Delete Agent" value="delete" />
-                      <Tab label="Request ENS Validation" value="validation" />
+                      <Tab label="Agent Name Validation" value="validation" />
+                      <Tab label="Agent Account Validation" value="accountValidation" />
+                      <Tab label="Agent App Validation" value="appValidation" />
                       <Tab label="Validate Agent Request" value="agentValidation" />
                     </Tabs>
                   </Paper>
@@ -1509,62 +1700,56 @@ export default function AdminPage() {
 
               {/* Content Area */}
               <Grid item xs={12} md={isEditMode ? 9 : 12}>
-                {(!isEditMode || activeManagementTab === 'agentInfo') && (
-                  <Paper sx={{ p: 3 }}>
-                    <Typography variant="h5" gutterBottom>
-                      {isEditMode && finalAgentId
-                        ? `Agent #${finalAgentId} Information`
-                        : 'Agent Information'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <Typography variant="body1">
-                        <strong>Agent Name:</strong> {displayAgentName}
-                      </Typography>
-                      <Typography variant="body1">
-                        <strong>Agent ID:</strong> {finalAgentId || '(not provided)'}
-                      </Typography>
-                      <Typography variant="body1">
-                        <strong>Agent Account Address:</strong>{' '}
-                        {displayAgentAddress ? (
-                          <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
-                        ) : (
-                          '(not provided)'
-                        )}
-                      </Typography>
-                      <Typography variant="body1">
-                        <strong>Chain:</strong>{' '}
-                        {(() => {
-                          if (!finalChainId) return '(not provided)';
-                          const parsed = Number.parseInt(finalChainId, 10);
-                          const meta = Number.isFinite(parsed) ? CHAIN_METADATA[parsed] : undefined;
-                          const label = meta?.displayName || meta?.chainName || finalChainId;
-                          return `${label} (chain ${finalChainId})`;
-                        })()}
-                      </Typography>
-                      <Typography variant="body1">
-                        <strong>NFT Operator:</strong>{' '}
-                        {nftOperator.loading ? (
-                          <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
-                        ) : nftOperator.error ? (
-                          <Box component="span" color="error.main">Error: {nftOperator.error}</Box>
-                        ) : nftOperator.operatorAddress ? (
-                          <Box component="span" fontFamily="monospace">{nftOperator.operatorAddress}</Box>
-                        ) : (
-                          <Box component="span" color="text.secondary" fontStyle="italic">(none)</Box>
-                        )}
-                      </Typography>
-                    </Box>
-                  </Paper>
-                )}
                 {(!isEditMode || activeManagementTab === 'registration') && (
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h5" gutterBottom>
-                      Edit Registration
+                      Agent Info
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" paragraph>
-                      Update the image and protocol endpoints for this agent. Other registration fields are
-                      preserved as-is. The JSON that will be saved is shown on the right.
-                    </Typography>
+                    
+                    {/* Agent Info Section */}
+                    <Box sx={{ mb: 3, p: 2, borderRadius: 1, bgcolor: 'grey.50', border: 1, borderColor: 'grey.300' }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                      <Typography variant="body1">
+                          <strong>Agent ID:</strong> {finalAgentId || '(not provided)'}
+                        </Typography>
+                        <Typography variant="body1">
+                          <strong>Agent Name:</strong> {displayAgentName}
+                        </Typography>
+                        <Typography variant="body1">
+                          <strong>Chain:</strong>{' '}
+                          {(() => {
+                            if (!finalChainId) return '(not provided)';
+                            const parsed = Number.parseInt(finalChainId, 10);
+                            const meta = Number.isFinite(parsed) ? CHAIN_METADATA[parsed] : undefined;
+                            const label = meta?.displayName || meta?.chainName || finalChainId;
+                            return `${label} (chain ${finalChainId})`;
+                          })()}
+                        </Typography>
+                        <Typography variant="body1">
+                          <strong>Agent Account Address:</strong>{' '}
+                          {displayAgentAddress ? (
+                            <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
+                          ) : (
+                            '(not provided)'
+                          )}
+                        </Typography>
+                        
+                        <Typography variant="body1">
+                          <strong>Agent Operator Address:</strong>{' '}
+                          {nftOperator.loading ? (
+                            <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
+                          ) : nftOperator.error ? (
+                            <Box component="span" color="error.main">Error: {nftOperator.error}</Box>
+                          ) : nftOperator.operatorAddress ? (
+                            <Box component="span" fontFamily="monospace">{nftOperator.operatorAddress}</Box>
+                          ) : (
+                            <Box component="span" color="text.secondary" fontStyle="italic">(none)</Box>
+                          )}
+                        </Typography>
+                      </Box>
+                    </Box>
+
+                    
 
                     <Box sx={{ mt: 2, mb: 2, p: 2, borderRadius: 1, bgcolor: 'grey.100', border: 1, borderColor: 'grey.300' }}>
                       <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
@@ -1596,124 +1781,183 @@ export default function AdminPage() {
                       </Alert>
                     )}
 
-                    <Grid container spacing={3} sx={{ mt: 2 }}>
-                      {/* Left: field-by-field editor */}
-                      <Grid item xs={12} md={7}>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <TextField
-                            label="Image URL"
-                            fullWidth
-                            value={registrationImage}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRegistrationImage(val);
-                              setRegistrationImageError(validateUrlLike(val));
-                            }}
-                            placeholder="https://example.com/agent-image.png or ipfs://..."
-                            disabled={!registrationParsed}
-                            error={!!registrationImageError}
-                            helperText={registrationImageError}
-                            variant="outlined"
-                            size="small"
-                          />
-
-                          <TextField
-                            label="A2A Endpoint"
-                            fullWidth
-                            value={registrationA2aEndpoint}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRegistrationA2aEndpoint(val);
-                              setRegistrationA2aError(validateUrlLike(val));
-                            }}
-                            placeholder="https://agent.example.com/.well-known/agent-card.json"
-                            disabled={!registrationParsed}
-                            error={!!registrationA2aError}
-                            helperText={
-                              registrationA2aError || 
-                              'Single Agent Card (A2A) endpoint. This will be stored in the endpoints array with name A2A.'
-                            }
-                            variant="outlined"
-                            size="small"
-                          />
-
-                          <TextField
-                            label="MCP Endpoint"
-                            fullWidth
-                            value={registrationMcpEndpoint}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRegistrationMcpEndpoint(val);
-                              setRegistrationMcpError(validateUrlLike(val));
-                            }}
-                            placeholder="https://agent.example.com/mcp"
-                            disabled={!registrationParsed}
-                            error={!!registrationMcpError}
-                            helperText={
-                              registrationMcpError || 
-                              'Single MCP endpoint. This will be stored in the endpoints array with name MCP.'
-                            }
-                            variant="outlined"
-                            size="small"
-                          />
-
-                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
-                            <Button
-                              variant="outlined"
-                              onClick={() => {
-                                if (!registrationEditSaving) {
-                                  setRegistrationEditError(null);
-                                  setRegistrationPreviewText(null);
-                                  setRegistrationParsed(null);
-                                }
-                              }}
-                              disabled={registrationEditSaving}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              variant="contained"
-                              onClick={handleSaveRegistration}
-                              disabled={
-                                registrationEditSaving ||
-                                registrationPreviewLoading ||
-                                !registrationParsed ||
-                                !!registrationImageError ||
-                                !!registrationA2aError ||
-                                !!registrationMcpError
-                              }
-                            >
-                              {registrationEditSaving ? 'Saving…' : 'Save registration'}
-                            </Button>
-                          </Box>
-                        </Box>
-                      </Grid>
-
-                      {/* Right: read-only JSON preview */}
-                      <Grid item xs={12} md={5}>
-                        <Paper
-                          variant="outlined"
-                          sx={{
-                            p: 2,
-                            bgcolor: 'grey.50',
-                            maxHeight: 500,
-                            overflow: 'auto',
-                            fontFamily: 'monospace',
-                            fontSize: '0.85rem',
-                            whiteSpace: 'pre-wrap',
-                            wordBreak: 'break-word',
+                    <Box sx={{ mt: 2 }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <TextField
+                          label="Image URL"
+                          fullWidth
+                          value={registrationImage}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setRegistrationImage(val);
+                            setRegistrationImageError(validateUrlLike(val));
                           }}
-                        >
-                          {registrationPreviewLoading ? (
-                            <Typography color="text.secondary">Loading registration JSON…</Typography>
-                          ) : !registrationPreviewText ? (
-                            <Typography color="text.secondary">No registration JSON available to edit.</Typography>
-                          ) : (
-                            <pre style={{ margin: 0 }}>{registrationPreviewText}</pre>
-                          )}
-                        </Paper>
-                      </Grid>
-                    </Grid>
+                          placeholder="https://example.com/agent-image.png or ipfs://..."
+                          disabled={!registrationParsed}
+                          error={!!registrationImageError}
+                          helperText={registrationImageError}
+                          variant="outlined"
+                          size="small"
+                        />
+
+                        <TextField
+                          label="A2A Endpoint"
+                          fullWidth
+                          value={registrationA2aEndpoint}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setRegistrationA2aEndpoint(val);
+                            setRegistrationA2aError(validateUrlLike(val));
+                          }}
+                          placeholder="https://agent.example.com/.well-known/agent-card.json"
+                          disabled={!registrationParsed}
+                          error={!!registrationA2aError}
+                          helperText={
+                            registrationA2aError || 
+                            'Single Agent Card (A2A) endpoint. This will be stored in the endpoints array with name A2A.'
+                          }
+                          variant="outlined"
+                          size="small"
+                        />
+
+                        <TextField
+                          label="MCP Endpoint"
+                          fullWidth
+                          value={registrationMcpEndpoint}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setRegistrationMcpEndpoint(val);
+                            setRegistrationMcpError(validateUrlLike(val));
+                          }}
+                          placeholder="https://agent.example.com/mcp"
+                          disabled={!registrationParsed}
+                          error={!!registrationMcpError}
+                          helperText={
+                            registrationMcpError || 
+                            'Single MCP endpoint. This will be stored in the endpoints array with name MCP.'
+                          }
+                          variant="outlined"
+                          size="small"
+                        />
+
+                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
+                          <Button
+                            variant="outlined"
+                            onClick={async () => {
+                              if (!isEditMode || !finalAgentId || !finalChainId || registrationEditSaving) {
+                                return;
+                              }
+
+                              try {
+                                setRegistrationEditError(null);
+                                setRegistrationTokenUriLoading(true);
+                                setRegistrationPreviewLoading(true);
+                                setRegistrationPreviewError(null);
+                                setRegistrationPreviewText(null);
+                                setRegistrationParsed(null);
+                                setRegistrationImage('');
+                                setRegistrationA2aEndpoint('');
+                                setRegistrationMcpEndpoint('');
+                                setRegistrationImageError(null);
+                                setRegistrationA2aError(null);
+                                setRegistrationMcpError(null);
+
+                                const parsedChainId = Number.parseInt(finalChainId, 10);
+                                if (!Number.isFinite(parsedChainId)) {
+                                  throw new Error('Invalid chainId in URL');
+                                }
+
+                                const did8004 = buildDid8004(parsedChainId, finalAgentId);
+                                const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+                                if (!response.ok) {
+                                  const errorData = await response.json().catch(() => ({}));
+                                  throw new Error(
+                                    errorData.message || errorData.error || 'Failed to fetch agent details for registration',
+                                  );
+                                }
+
+                                const agentDetails = await response.json();
+                                const tokenUri: string | undefined = agentDetails.tokenUri;
+                                setRegistrationLatestTokenUri(tokenUri ?? null);
+                                setRegistrationTokenUriLoading(false);
+
+                                if (!tokenUri) {
+                                  setRegistrationPreviewLoading(false);
+                                  setRegistrationPreviewError('No registration URI available for this agent.');
+                                  return;
+                                }
+
+                                const text = await loadRegistrationContent(tokenUri);
+                                const formatted = formatJsonIfPossible(text);
+                                let parsed: any;
+                                try {
+                                  parsed = JSON.parse(formatted);
+                                } catch {
+                                  setRegistrationParsed(null);
+                                  setRegistrationPreviewText(formatted);
+                                  setRegistrationPreviewError(
+                                    'Registration JSON is not valid JSON. Field-by-field editing is disabled.',
+                                  );
+                                  setRegistrationPreviewLoading(false);
+                                  return;
+                                }
+
+                                const image = typeof parsed.image === 'string' ? parsed.image : '';
+                                const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
+                                const a2a = endpoints.find(
+                                  (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
+                                );
+                                const mcp = endpoints.find(
+                                  (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
+                                );
+
+                                setRegistrationParsed(parsed);
+                                setRegistrationImage(image);
+                                setRegistrationA2aEndpoint(
+                                  a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
+                                );
+                                setRegistrationMcpEndpoint(
+                                  mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+                                );
+                                setRegistrationImageError(validateUrlLike(image) ?? null);
+                                setRegistrationA2aError(
+                                  a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
+                                );
+                                setRegistrationMcpError(
+                                  mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
+                                );
+
+                                setRegistrationPreviewText(JSON.stringify(parsed, null, 2));
+                                setRegistrationPreviewLoading(false);
+                              } catch (error: any) {
+                                setRegistrationTokenUriLoading(false);
+                                setRegistrationPreviewLoading(false);
+                                setRegistrationPreviewError(
+                                  error?.message ?? 'Failed to refresh registration information for this agent.',
+                                );
+                              }
+                            }}
+                            disabled={registrationEditSaving || registrationPreviewLoading}
+                          >
+                            {registrationPreviewLoading ? 'Refreshing…' : 'Refresh'}
+                          </Button>
+                          <Button
+                            variant="contained"
+                            onClick={handleSaveRegistration}
+                            disabled={
+                              registrationEditSaving ||
+                              registrationPreviewLoading ||
+                              !registrationParsed ||
+                              !!registrationImageError ||
+                              !!registrationA2aError ||
+                              !!registrationMcpError
+                            }
+                          >
+                            {registrationEditSaving ? 'Saving…' : 'Save'}
+                          </Button>
+                        </Box>
+                      </Box>
+                    </Box>
                   </Paper>
                 )}
                 {(!isEditMode || activeManagementTab === 'delete') && (
@@ -1762,20 +2006,19 @@ export default function AdminPage() {
                 {(!isEditMode || activeManagementTab === 'session') && (
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h5" gutterBottom>
-                      Session Package
+                      Agent Operator
                     </Typography>
                     <Typography variant="body2" color="text.secondary" paragraph>
-                      Generate a session package for this agent. Session packages describe delegated AA
-                      access and can be used by tools to perform actions on behalf of this agent.
+                      The Agent Operator is a delegation from the Agent Owner to an operator that allows the agent app to interact with the Reputation Registry and Validation Registry. A session package contains the operator session keys and delegation information that enables this functionality.
                     </Typography>
 
                     <Button
                       variant="contained"
-                      onClick={handleGenerateSessionPackage}
+                      onClick={() => setSessionPackageConfirmOpen(true)}
                       disabled={sessionPackageLoading}
                       sx={{ mb: 2 }}
                     >
-                      {sessionPackageLoading ? 'Generating…' : 'Generate Session Package'}
+                      {sessionPackageLoading ? 'Setting Operator Session Keys…' : 'Set Operator Session Keys and Delegation'}
                     </Button>
 
                     {sessionPackageLoading && (
@@ -1798,7 +2041,7 @@ export default function AdminPage() {
                           />
                         </Box>
                         <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                          Generating session package… {Math.round(sessionPackageProgress)}% (up to 60 seconds)
+                          Setting operator session keys and delegation… {Math.round(sessionPackageProgress)}% (up to 60 seconds)
                         </Typography>
                       </Box>
                     )}
@@ -1840,6 +2083,37 @@ export default function AdminPage() {
                         <pre style={{ margin: 0 }}>{sessionPackageText}</pre>
                       </Paper>
                     )}
+
+                    {/* Confirmation Dialog */}
+                    <Dialog
+                      open={sessionPackageConfirmOpen}
+                      onClose={() => setSessionPackageConfirmOpen(false)}
+                    >
+                      <DialogTitle>Confirm Operator Session Keys Change</DialogTitle>
+                      <DialogContent>
+                        <Typography variant="body1" paragraph>
+                          Are you sure you want to set new Operator Session Keys and Delegation?
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          This will create a new session package with new operator session keys. The previous operator session keys will be replaced. This action allows the agent app to interact with the Reputation Registry and Validation Registry.
+                        </Typography>
+                      </DialogContent>
+                      <DialogActions>
+                        <Button onClick={() => setSessionPackageConfirmOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={() => {
+                            setSessionPackageConfirmOpen(false);
+                            handleGenerateSessionPackage();
+                          }}
+                          variant="contained"
+                          autoFocus
+                        >
+                          Confirm
+                        </Button>
+                      </DialogActions>
+                    </Dialog>
                   </Paper>
                 )}
         {(!isEditMode || activeManagementTab === 'transfer') && (
@@ -2068,13 +2342,74 @@ export default function AdminPage() {
                 {(!isEditMode || activeManagementTab === 'validation') && (
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h5" gutterBottom>
-                      Request ENS Validation
+                      Agent Name Validation
                     </Typography>
                     {isEditMode && finalAgentId && finalChainId ? (
                       <>
                         <Typography variant="body2" color="text.secondary" paragraph>
-                          Submit an ENS validation request for the current agent. The agent account abstraction will be used as the requester,
-                          and a validator account abstraction (name: 'validator-ens') will be used as the validator.
+                          Submit an Name validation request for the current agent. The agent account abstraction will be used as the requester,
+                          and a validator account abstraction (name: 'name-validator') will be used as the validator.
+                        </Typography>
+
+                        <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
+                          <Typography variant="h6" gutterBottom fontSize="1.1rem">
+                            Validation Request Information
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            <Typography variant="body2">
+                              <strong>Agent ID:</strong> {finalAgentId}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Agent Name:</strong> {displayAgentName}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Chain ID:</strong> {finalChainId}
+                            </Typography>
+                            
+                            
+                          </Box>
+                        </Paper>
+
+                        <Box component="form" onSubmit={handleSubmitNameValidationRequest}>
+                          <Button
+                            type="submit"
+                            variant="contained"
+                            fullWidth
+                            disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !displayAgentName}
+                            sx={{ py: 1.5, fontWeight: 'bold' }}
+                          >
+                            {validationSubmitting ? 'Submitting...' : 'Submit Name Validation Request'}
+                          </Button>
+                          {(!eip1193Provider || !eoaAddress) && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Wallet connection required to submit validation request
+                            </Typography>
+                          )}
+                          {!displayAgentName && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Agent name is required to submit validation request
+                            </Typography>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography color="text.secondary" fontStyle="italic">
+                        Please navigate to an agent to view validation request information.
+                      </Typography>
+                    )}
+                  </Paper>
+                )}
+
+                {(!isEditMode || activeManagementTab === 'accountValidation') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Agent Account Validation
+                    </Typography>
+                    {isEditMode && finalAgentId && finalChainId ? (
+                      <>
+                        <Typography variant="body2" color="text.secondary" paragraph>
+                          Submit an agent account validation request for the current agent. The agent account abstraction will be used as the requester,
+                          and a validator account abstraction will be used as the validator.
                         </Typography>
 
                         <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
@@ -2099,46 +2434,99 @@ export default function AdminPage() {
                                 '(not available)'
                               )}
                             </Typography>
+                          </Box>
+                        </Paper>
+
+                        <Box component="form" onSubmit={handleSubmitAccountValidationRequest}>
+                          <Button
+                            type="submit"
+                            variant="contained"
+                            fullWidth
+                            disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !displayAgentAddress || !displayAgentName}
+                            sx={{ py: 1.5, fontWeight: 'bold' }}
+                          >
+                            {validationSubmitting ? 'Submitting...' : 'Submit Agent Account Validation Request'}
+                          </Button>
+                          {(!eip1193Provider || !eoaAddress) && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Wallet connection required to submit validation request
+                            </Typography>
+                          )}
+                          {!displayAgentAddress && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Agent account address is required to submit validation request
+                            </Typography>
+                          )}
+                          {!displayAgentName && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Agent name is required to submit validation request
+                            </Typography>
+                          )}
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography color="text.secondary" fontStyle="italic">
+                        Please navigate to an agent to view validation request information.
+                      </Typography>
+                    )}
+                  </Paper>
+                )}
+
+                {(!isEditMode || activeManagementTab === 'appValidation') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Agent App Validation
+                    </Typography>
+                    {isEditMode && finalAgentId && finalChainId ? (
+                      <>
+                        <Typography variant="body2" color="text.secondary" paragraph>
+                          Submit an agent app validation request for the current agent. The agent account abstraction will be used as the requester,
+                          and a validator account abstraction will be used as the validator.
+                        </Typography>
+
+                        <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
+                          <Typography variant="h6" gutterBottom fontSize="1.1rem">
+                            Validation Request Information
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                             <Typography variant="body2">
-                              <strong>Validator:</strong>{' '}
-                              {validatorAddress ? (
-                                <Box component="span" fontFamily="monospace">{validatorAddress}</Box>
-                              ) : (
-                                <Box component="span" color="text.secondary" fontStyle="italic">(will be computed server-side)</Box>
-                              )}
+                              <strong>Agent ID:</strong> {finalAgentId}
                             </Typography>
                             <Typography variant="body2">
-                              <strong>Request URI:</strong>{' '}
-                              {requestUri ? (
-                                <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{requestUri}</Box>
-                              ) : (
-                                <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
-                              )}
+                              <strong>Agent Name:</strong> {displayAgentName}
                             </Typography>
                             <Typography variant="body2">
-                              <strong>Request Hash:</strong>{' '}
-                              {requestHash ? (
-                                <Box component="span" fontFamily="monospace">{requestHash}</Box>
+                              <strong>Chain ID:</strong> {finalChainId}
+                            </Typography>
+                            <Typography variant="body2">
+                              <strong>Account:</strong>{' '}
+                              {displayAgentAddress ? (
+                                <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
                               ) : (
-                                <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
+                                '(not available)'
                               )}
                             </Typography>
                           </Box>
                         </Paper>
 
-                        <Box component="form" onSubmit={handleSubmitENSValidationRequest}>
+                        <Box component="form" onSubmit={handleSubmitAppValidationRequest}>
                           <Button
                             type="submit"
                             variant="contained"
                             fullWidth
-                            disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !displayAgentName}
+                            disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !displayAgentAddress || !displayAgentName}
                             sx={{ py: 1.5, fontWeight: 'bold' }}
                           >
-                            {validationSubmitting ? 'Submitting...' : 'Submit ENS Validation Request'}
+                            {validationSubmitting ? 'Submitting...' : 'Submit Agent App Validation Request'}
                           </Button>
                           {(!eip1193Provider || !eoaAddress) && (
                             <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
                               Wallet connection required to submit validation request
+                            </Typography>
+                          )}
+                          {!displayAgentAddress && (
+                            <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                              Agent account address is required to submit validation request
                             </Typography>
                           )}
                           {!displayAgentName && (

@@ -353,14 +353,12 @@ export async function requestFeedbackAuthCore(
       chainId: feedbackAuth.chainId,
     };
   } catch (error) {
-    throw new AgentApiError(
-      error instanceof Error ? error.message : 'Failed to get feedback auth',
-      502,
-      {
-        agentId,
-        chainId,
-      },
-    );
+    return {
+      feedbackAuthId: "0x0",
+      agentId: "0x0",
+      chainId: 0,
+    };
+
   }
 }
 
@@ -478,7 +476,6 @@ export async function prepareValidationRequestCore(
   const { getValidationRegistryClient } = await import('../../server/singletons/validationClient');
   const validationClient = await getValidationRegistryClient(parsed.chainId);
 
-  // Get validator account address server-side (name: 'validator-ens')
   const { createValidatorAccountAbstraction } = await import('../../server/lib/validations');
   const validatorPrivateKey = process.env.AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY;
   if (!validatorPrivateKey) {
@@ -488,7 +485,11 @@ export async function prepareValidationRequestCore(
     );
   }
 
-  const validatorName = 'validator-ens';
+  if (!input.validatorName?.trim()) {
+    throw new AgentApiError('validatorName parameter is required', 400);
+  }
+
+  const validatorName = input.validatorName;
   const { address: validatorAddress } = await createValidatorAccountAbstraction(
     validatorName,
     validatorPrivateKey,

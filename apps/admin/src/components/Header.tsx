@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import { grayscalePalette as palette } from '@/styles/palette';
@@ -31,9 +31,11 @@ export function Header({
   rightSlot,
 }: HeaderProps) {
   const pathname = usePathname() ?? '/';
+  const router = useRouter();
   const [graphLoading, setGraphLoading] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [navigatingToRegistration, setNavigatingToRegistration] = useState(false);
 
   const shortAddress = useMemo(() => {
     if (!displayAddress || displayAddress.length < 10) return displayAddress ?? '';
@@ -123,6 +125,7 @@ export function Header({
   }, [displayAddress, graphiqlFallback]);
 
   return (
+    <>
     <header
       style={{
         padding: '0.9rem 2rem 1.3rem',
@@ -221,8 +224,14 @@ export function Header({
             }}
           >
             {isConnected && (
-              <Link
-                href="/agent-registration"
+              <button
+                onClick={async () => {
+                  setNavigatingToRegistration(true);
+                  router.push('/agent-registration');
+                  // Keep loading state for a short time to show spinner
+                  setTimeout(() => setNavigatingToRegistration(false), 1000);
+                }}
+                disabled={navigatingToRegistration}
                 style={{
                   textDecoration: 'none',
                   padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
@@ -232,10 +241,27 @@ export function Header({
                   color: pathname.startsWith('/agent-registration') ? palette.surface : palette.textPrimary,
                   fontWeight: 600,
                   fontSize: isMobile ? '0.9rem' : '0.95rem',
+                  cursor: navigatingToRegistration ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  opacity: navigatingToRegistration ? 0.7 : 1,
                 }}
               >
+                {navigatingToRegistration && (
+                  <div
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      border: '2px solid currentColor',
+                      borderTop: '2px solid transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite',
+                    }}
+                  />
+                )}
                 {isMobile ? 'Register' : 'Agent Registration'}
-              </Link>
+              </button>
             )}
             {navItems.map(item => {
               const isActive =
@@ -407,6 +433,13 @@ export function Header({
         </div>
       </div>
     </header>
+    <style>{`
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `}    </style>
+    </>
   );
 }
 

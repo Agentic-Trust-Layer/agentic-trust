@@ -1,5 +1,5 @@
 {
-  "name": "@agentic-trust/ens-validation",
+  "name": "@agentic-trust/account-validation",
   "version": "0.1.0",
   "private": true,
   "type": "module",

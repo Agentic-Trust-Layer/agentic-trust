@@ -184,10 +184,17 @@ export default function AgentDetailsPageContent({
           `/api/agents/${encodeURIComponent(did8004)}/feedback-auth?${params.toString()}`,
         );
 
+        
+
         if (cancelled) return;
 
         if (response.ok) {
           const data = await response.json();
+
+          if (data.feedbackAuthId === "0x0") {
+            setFeedbackAuth(null);
+            return;
+          }
           if (data.feedbackAuthId) {
             setFeedbackAuth(data.feedbackAuthId);
           } else {
@@ -477,7 +484,6 @@ export default function AgentDetailsPageContent({
             <div
               style={{
                 width: '260px',
-                height: '260px',
                 borderRadius: '24px',
                 overflow: 'hidden',
                 border: '1px solid rgba(248,250,252,0.2)',
@@ -495,7 +501,6 @@ export default function AgentDetailsPageContent({
                 }}
                 style={{
                   width: '100%',
-                  height: '100%',
                   objectFit: 'cover',
                   display: 'block',
                 }}

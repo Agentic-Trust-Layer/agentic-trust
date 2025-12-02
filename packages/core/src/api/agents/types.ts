@@ -112,6 +112,7 @@ export interface PrepareValidationRequestPayload {
   requestUri?: string;
   requestHash?: string;
   mode?: AgentOperationMode;
+  validatorName?: string;
 }
 
 export interface DirectFeedbackPayload {

@@ -1,12 +1,12 @@
-# ENS Validation Service
+# Name Validation Service
 
-A simple Express service that processes ENS validation requests for agents. The validator reads validation requests from the validation registry contract, validates that agent ENS names exist and are owned by the correct agent accounts, and submits validation responses with a score of 100 for valid agents.
+A simple Express service that processes name validation requests for agents. The validator reads validation requests from the validation registry contract, validates that agent names exist and are owned by the correct agent accounts, and submits validation responses with a score of 100 for valid agents.
 
 ## Features
 
 - Reads validation requests from the validation registry contract
 - Filters for unprocessed requests matching the validator address
-- Validates agent ENS names exist and are owned by agent accounts
+- Validates agent names exist and are owned by agent accounts
 - Submits validation responses with score 100 for valid agents
 - Processes all pending validation requests in a single run
 
@@ -128,7 +128,7 @@ Get the current status of validation requests for the validator.
 
 1. **Validator App**: The validator app uses `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY` for signing transactions via the `validatorApp` userApp.
 
-2. **Validator Address**: The validator address (AA address) is derived from `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY` using the same method as in the admin app (seed: 'validator-ens'). This is the address that validation requests are sent to.
+2. **Validator Address**: The validator address (AA address) is derived from `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY` using the same method as in the admin app (seed: 'name-validator'). This is the address that validation requests are sent to.
 
 2. **Reading Requests**: The service calls `getValidatorRequests(validatorAddress)` to get all validation requests for the validator.
 
@@ -136,8 +136,8 @@ Get the current status of validation requests for the validator.
 
 4. **Validation**: For each request:
    - Gets agent information using the core library
-   - Validates the agent's ENS name exists using `getAgentIdentityByName`
-   - Verifies the ENS name resolves to the agent's account address using `getAgentAccountByName`
+   - Validates the agent's name exists using `getAgentIdentityByName`
+   - Verifies the name resolves to the agent's account address using `getAgentAccountByName`
    - Checks that the resolved address matches the agent's account address
 
 5. **Response**: If validation passes, submits a validation response with score 100 using `validationResponse`.
@@ -147,6 +147,6 @@ Get the current status of validation requests for the validator.
 - The validator only processes requests where `response === 0` (pending/unprocessed)
 - Validation responses are submitted with a score of 100 for valid agents
 - The validator uses `validatorApp` (via `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY`) for signing transactions
-- The validator address (AA address) uses the same account abstraction address calculation as the admin app (seed: 'validator-ens')
+- The validator address (AA address) uses the same account abstraction address calculation as the admin app (seed: 'name-validator')
 - All validation logic uses the `@agentic-trust/core` library and `AgenticTrustClient` for consistency
 

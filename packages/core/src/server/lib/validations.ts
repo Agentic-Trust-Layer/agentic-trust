@@ -71,7 +71,7 @@ export async function getAgentValidationsSummary(
 }
 
 /**
- * Create a validator account abstraction using the name 'validator-ens' as the seed from a private key.
+ * Create a validator account abstraction using the name 'name-validator' as the seed from a private key.
  * The validator address is determined server-side based on AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY.
  */
 export async function createValidatorAccountAbstraction(
@@ -104,7 +104,7 @@ export async function createValidatorAccountAbstraction(
     transport: http(rpcUrl),
   }) as any;
 
-  // Create salt from validator name 'validator-ens'
+  // Create salt from validator name 'name-validator'
 
   const salt: `0x${string}` = keccak256(stringToHex(validatorName)) as `0x${string}`;
 
