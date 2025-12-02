@@ -223,14 +223,24 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     ownerDisplaySource && ownerDisplaySource.length > 10
       ? `${ownerDisplaySource.slice(0, 6)}…${ownerDisplaySource.slice(-4)}`
       : ownerDisplaySource || '—';
-  const validationSummaryText = `${serializedAgent.validationCompletedCount ?? 0} completed · ${
-    serializedAgent.validationPendingCount ?? 0
-  } pending`;
+  
+  // Use actual fetched validation data instead of agent object fields
+  const validationCompletedCount = serializedValidations?.completed?.length ?? 0;
+  const validationPendingCount = serializedValidations?.pending?.length ?? 0;
+  const validationSummaryText = `${validationCompletedCount} completed · ${validationPendingCount} pending`;
+  
+  // Use actual fetched feedback summary instead of agent object fields
+  const feedbackCount = feedbackSummary 
+    ? (typeof feedbackSummary.count === 'bigint' 
+        ? Number(feedbackSummary.count) 
+        : typeof feedbackSummary.count === 'string'
+          ? Number.parseInt(feedbackSummary.count, 10)
+          : feedbackSummary.count ?? 0)
+    : Array.isArray(feedbackItems) ? feedbackItems.length : 0;
+  const feedbackAvg = feedbackSummary?.averageScore ?? null;
   const reviewsSummaryText =
-    serializedAgent.feedbackCount && serializedAgent.feedbackCount > 0
-      ? `${serializedAgent.feedbackCount} reviews · ${
-          serializedAgent.feedbackAverageScore ?? 0
-        } avg`
+    feedbackCount > 0
+      ? `${feedbackCount} reviews · ${feedbackAvg ?? 0} avg`
       : 'No reviews yet';
   const displayDid = decodeDid(serializedAgent.did) ?? did8004;
 
