@@ -147,6 +147,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
                         ((agent as any).data?.tokenUri) ?? 
                         null;
 
+                        
   const serializedAgent: AgentsPageAgent = {
     agentId: agent.agentId?.toString?.() ?? agentIdParam,
     chainId,
