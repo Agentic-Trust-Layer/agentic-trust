@@ -13,6 +13,7 @@ export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard |
     if (!url) {
       throw new Error('Agent card URL is empty');
     }
+    let urlObj: URL = new URL(url);
 
     /*
     // Support scheme-less inputs like "agent.example.com" or "//agent.example.com"

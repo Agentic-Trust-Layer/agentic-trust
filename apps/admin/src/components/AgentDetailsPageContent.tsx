@@ -1,6 +1,6 @@
 'use client';
 
-import { Box, Container, Dialog, DialogTitle, DialogContent, IconButton, Button, Typography, Stack } from '@mui/material';
+import { Box, Container, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button, Typography, Stack, TextField, Alert, Rating } from '@mui/material';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
@@ -12,47 +12,13 @@ import type { AgentsPageAgent } from '@/components/AgentsPage';
 import BackToAgentsButton from '@/components/BackToAgentsButton';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
-import { buildDid8004, getChainRpcUrl } from '@agentic-trust/core';
+import { buildDid8004 } from '@agentic-trust/core';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import ShareIcon from '@mui/icons-material/Share';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CloseIcon from '@mui/icons-material/Close';
-import { createPublicClient, http } from 'viem';
-import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
-import type { Address, PublicClient } from 'viem';
-
-// Ownership checking ABIs
-const OWNER_ABI = [
-  {
-    name: 'owner',
-    type: 'function',
-    stateMutability: 'view' as const,
-    inputs: [],
-    outputs: [{ type: 'address' }],
-  },
-] as const;
-
-const GET_OWNER_ABI = [
-  {
-    name: 'getOwner',
-    type: 'function',
-    stateMutability: 'view' as const,
-    inputs: [],
-    outputs: [{ type: 'address' }],
-  },
-] as const;
-
-const OWNERS_ABI = [
-  {
-    name: 'owners',
-    type: 'function',
-    stateMutability: 'view' as const,
-    inputs: [],
-    outputs: [{ type: 'address[]' }],
-  },
-] as const;
 
 type AgentDetailsPageContentProps = {
   agent: AgentsPageAgent;
@@ -105,94 +71,53 @@ export default function AgentDetailsPageContent({
   const [copied, setCopied] = useState(false);
   const [ownershipVerified, setOwnershipVerified] = useState<boolean | null>(null);
   const [ownershipChecking, setOwnershipChecking] = useState(false);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackRating, setFeedbackRating] = useState<number>(5);
+  const [feedbackSkillId, setFeedbackSkillId] = useState('');
+  const [feedbackTag1, setFeedbackTag1] = useState('');
+  const [feedbackTag2, setFeedbackTag2] = useState('');
+  const [feedbackContext, setFeedbackContext] = useState('');
+  const [feedbackCapability, setFeedbackCapability] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [agentCard, setAgentCard] = useState<any>(null);
 
   const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
 
-  // Get chain object for the current chainId
-  const getChain = useCallback((chainId: number) => {
-    if (chainId === 11155111) return sepolia;
-    if (chainId === 84532) return baseSepolia;
-    if (chainId === 11155420) return optimismSepolia;
-    return sepolia;
-  }, []);
-
-  // Check if wallet owns the agent account
+  // Check if wallet owns the agent account using the isOwner API
   const checkOwnership = useCallback(async () => {
-    if (!isConnected || !walletAddress || !agent.agentAccount) {
+    if (!isConnected || !walletAddress) {
       setOwnershipVerified(false);
       return;
     }
 
     setOwnershipChecking(true);
     try {
-      const chain = getChain(chainId);
-      const rpcUrl = getChainRpcUrl(chainId);
-      const client = createPublicClient({
-        chain,
-        transport: http(rpcUrl),
+      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'isOwner',
+          walletAddress,
+        }),
       });
 
-      const account = agent.agentAccount;
-      const lowerWallet = walletAddress.toLowerCase();
-
-      // Get bytecode to check if it's a contract
-      const code = await client.getBytecode({ address: account as Address });
-
-      // EOA ownership: direct address comparison
-      if (!code || code === '0x') {
-        setOwnershipVerified(account.toLowerCase() === lowerWallet);
-        return;
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
       }
 
-      // Smart contract ownership: try different patterns
-      let controller: string | null = null;
-
-      // Try ERC-173 owner() function
-      try {
-        controller = (await client.readContract({
-          address: account as Address,
-          abi: OWNER_ABI,
-          functionName: 'owner',
-        })) as `0x${string}`;
-      } catch {
-        // ignore
-      }
-
-      // Fallback: try getOwner() function
-      if (!controller) {
-        try {
-          controller = (await client.readContract({
-            address: account as Address,
-            abi: GET_OWNER_ABI,
-            functionName: 'getOwner',
-          })) as `0x${string}`;
-        } catch {
-          // ignore
-        }
-      }
-
-      // Fallback: try owners() array function
-      if (!controller) {
-        try {
-          const owners = (await client.readContract({
-            address: account as Address,
-            abi: OWNERS_ABI,
-            functionName: 'owners',
-          })) as `0x${string}`[];
-          controller = owners?.[0] ?? null;
-        } catch {
-          // ignore
-        }
-      }
-
-      setOwnershipVerified(Boolean(controller && controller.toLowerCase() === lowerWallet));
+      const data = await response.json();
+      setOwnershipVerified(data.isOwner);
     } catch (error) {
       console.error('[AgentDetails] Ownership check failed:', error);
       setOwnershipVerified(false);
     } finally {
       setOwnershipChecking(false);
     }
-  }, [isConnected, walletAddress, agent.agentAccount, chainId, getChain]);
+  }, [isConnected, walletAddress, did8004]);
 
   // Show Manage Agent button when user is connected AND ownership is verified
   const showManageButton = isConnected && ownershipVerified === true;
@@ -214,6 +139,27 @@ export default function AgentDetailsPageContent({
       agentId: agent.agentId
     });
   }, [isConnected, walletAddress, agent.ownerAddress, agent.agentAccount, showManageButton, ownershipVerified, ownershipChecking, agent.agentId]);
+
+  // Fetch agent card when feedback dialog opens
+  useEffect(() => {
+    if (dialogState.type === 'give-feedback' && agent.a2aEndpoint && !agentCard) {
+      const fetchAgentCard = async (a2aEndpoint: string) => {
+        try {
+          // Construct the agent-card.json URL from the A2A endpoint
+          if (a2aEndpoint.includes('agent-card.json')) {
+            const response = await fetch(a2aEndpoint);
+            if (response.ok) {
+                const card = await response.json();
+                setAgentCard(card);
+            }
+          }
+        } catch (error) {
+            console.warn('[AgentDetails] Failed to fetch agent card:', error);
+        }
+      };
+      fetchAgentCard(agent.a2aEndpoint);
+    }
+  }, [dialogState.type, agent.a2aEndpoint, agentCard]);
 
   // Try to get feedbackAuth on page load
   useEffect(() => {
@@ -621,6 +567,277 @@ export default function AgentDetailsPageContent({
             </div>
           </div>
         </DialogContent>
+      </Dialog>
+
+      {/* Give Feedback Dialog */}
+      <Dialog
+        open={dialogState.type === 'give-feedback'}
+        onClose={closeDialog}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Give Feedback
+          <IconButton
+            onClick={closeDialog}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent>
+          {agent.agentName && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Agent: {agent.agentName}
+            </Typography>
+          )}
+
+          {agent.a2aEndpoint && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
+                A2A Endpoint
+              </Typography>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontFamily: "monospace",
+                  wordBreak: "break-all",
+                  fontSize: "0.75rem"
+                }}
+              >
+                {agent.a2aEndpoint}
+              </Typography>
+            </Box>
+          )}
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Rating
+            </Typography>
+            <Rating
+              value={feedbackRating}
+              onChange={(_, newValue) => {
+                if (newValue !== null) {
+                  setFeedbackRating(newValue);
+                }
+              }}
+              max={5}
+              size="large"
+            />
+          </Box>
+
+          {agentCard?.skills && agentCard.skills.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1 }}>
+                Skill (optional)
+              </Typography>
+              <TextField
+                select
+                fullWidth
+                value={feedbackSkillId}
+                onChange={(e) => setFeedbackSkillId(e.target.value)}
+                disabled={submittingFeedback}
+                SelectProps={{
+                  native: true,
+                }}
+              >
+                <option value="">Select a skill…</option>
+                {agentCard.skills.map((skill: any) => (
+                  <option key={skill.id} value={skill.id}>
+                    {skill.name || skill.id}
+                  </option>
+                ))}
+              </TextField>
+            </Box>
+          )}
+
+          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+            <TextField
+              label="Tag 1 (optional)"
+              fullWidth
+              value={feedbackTag1}
+              onChange={(e) => setFeedbackTag1(e.target.value)}
+              disabled={submittingFeedback}
+              size="small"
+            />
+            <TextField
+              label="Tag 2 (optional)"
+              fullWidth
+              value={feedbackTag2}
+              onChange={(e) => setFeedbackTag2(e.target.value)}
+              disabled={submittingFeedback}
+              size="small"
+            />
+          </Box>
+
+          <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+            <TextField
+              label="Context (optional)"
+              fullWidth
+              value={feedbackContext}
+              onChange={(e) => setFeedbackContext(e.target.value)}
+              disabled={submittingFeedback}
+              size="small"
+            />
+            <TextField
+              label="Capability (optional)"
+              fullWidth
+              value={feedbackCapability}
+              onChange={(e) => setFeedbackCapability(e.target.value)}
+              disabled={submittingFeedback}
+              size="small"
+            />
+          </Box>
+
+          <TextField
+            label="Comment"
+            fullWidth
+            multiline
+            rows={4}
+            value={feedbackComment}
+            onChange={(e) => setFeedbackComment(e.target.value)}
+            disabled={submittingFeedback}
+            sx={{ mb: 2 }}
+          />
+
+          {feedbackSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Feedback submitted successfully!
+            </Alert>
+          )}
+
+          {feedbackError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {feedbackError}
+            </Alert>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button
+            onClick={closeDialog}
+            disabled={submittingFeedback}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={async () => {
+              if (!feedbackComment.trim()) {
+                setFeedbackError("Please enter a comment");
+                return;
+              }
+
+              if (!agent.agentId || !chainId) {
+                setFeedbackError("Agent information is incomplete");
+                return;
+              }
+
+              setSubmittingFeedback(true);
+              setFeedbackSuccess(false);
+              setFeedbackError(null);
+
+              try {
+                // Get client address from wallet
+                const clientAddress = walletAddress;
+                if (!clientAddress) {
+                  throw new Error('Wallet address not available. Please connect your wallet.');
+                }
+
+                const agentId = String(agent.agentId);
+                const agentName = typeof agent.agentName === 'string' ? agent.agentName : undefined;
+
+                // Request feedbackAuth from server-side API endpoint
+                const feedbackAuthParams = new URLSearchParams();
+                feedbackAuthParams.set('clientAddress', clientAddress);
+                if (agentName && typeof agentName === 'string') {
+                  feedbackAuthParams.set('agentName', agentName);
+                }
+                if (agentId) {
+                  feedbackAuthParams.set('agentId', agentId);
+                }
+                if (chainId) {
+                  feedbackAuthParams.set('chainId', chainId.toString());
+                }
+
+                const feedbackAuthResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth?${feedbackAuthParams.toString()}`);
+                if (!feedbackAuthResponse.ok) {
+                  const errorData = await feedbackAuthResponse.json().catch(() => ({}));
+                  throw new Error(errorData.message || errorData.error || 'Failed to get feedback auth');
+                }
+
+                const feedbackAuthData = await feedbackAuthResponse.json();
+                const feedbackAuthId = feedbackAuthData.feedbackAuthId;
+                const resolvedAgentId = feedbackAuthData.agentId || agentId;
+                const resolvedChainId = feedbackAuthData.chainId || chainId;
+
+                if (!feedbackAuthId) {
+                  throw new Error('No feedbackAuth returned by provider');
+                }
+
+                if (!resolvedAgentId) {
+                  throw new Error('Agent ID is required');
+                }
+
+                // Submit feedback to the API
+                const score = feedbackRating * 20; // Convert 1-5 to 0-100
+
+                const feedbackResponse = await fetch('/api/feedback', {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    agentId: resolvedAgentId,
+                    chainId: resolvedChainId,
+                    score,
+                    feedback: feedbackComment,
+                    feedbackAuth: feedbackAuthId,
+                    clientAddress,
+                    ...(agentName && { agentName }),
+                    ...(feedbackTag1 && { tag1: feedbackTag1 }),
+                    ...(feedbackTag2 && { tag2: feedbackTag2 }),
+                    ...(feedbackSkillId && { skill: feedbackSkillId }),
+                    ...(feedbackContext && { context: feedbackContext }),
+                    ...(feedbackCapability && { capability: feedbackCapability }),
+                  }),
+                });
+
+                if (!feedbackResponse.ok) {
+                  const errorData = await feedbackResponse.json().catch(() => ({}));
+                  throw new Error(errorData.message || errorData.error || 'Failed to submit feedback');
+                }
+
+                const feedbackResult = await feedbackResponse.json();
+
+                setFeedbackSuccess(true);
+
+                // Reset form
+                setFeedbackComment('');
+                setFeedbackRating(5);
+                setFeedbackTag1('');
+                setFeedbackTag2('');
+                setFeedbackSkillId('');
+                setFeedbackContext('');
+                setFeedbackCapability('');
+
+                setTimeout(() => {
+                  setFeedbackSuccess(false);
+                  closeDialog();
+                }, 1500);
+              } catch (err) {
+                console.error('Failed to submit feedback:', err);
+                setFeedbackError(err instanceof Error ? err.message : 'Failed to submit feedback');
+              } finally {
+                setSubmittingFeedback(false);
+              }
+            }}
+            disabled={submittingFeedback || !feedbackComment.trim()}
+            variant="contained"
+          >
+            {submittingFeedback ? 'Submitting...' : 'Submit'}
+          </Button>
+        </DialogActions>
       </Dialog>
     </Box>
   );

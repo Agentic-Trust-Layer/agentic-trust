@@ -361,6 +361,7 @@ export class Agent {
     }
 
     // Check if agent has a valid A2A endpoint
+    console.log(">>>>>>>>>>>>> sendMessage: ", this.data.a2aEndpoint);
     if (!this.data.a2aEndpoint) {
       throw new Error(
         'Agent does not have an A2A endpoint configured. ' +
@@ -371,7 +372,7 @@ export class Agent {
     // Build A2A request format
     const endpointInfo = await this.getEndpoint();
     if (!endpointInfo) {
-      throw new Error('Agent endpoint not available');
+      throw new Error('Agent endpoint not available 1');
     }
 
     const a2aRequest = {
@@ -402,7 +403,7 @@ export class Agent {
       // Get endpoint info
       const endpointInfo = await this.getEndpoint();
       if (!endpointInfo) {
-        throw new Error('Agent endpoint not available');
+        throw new Error('Agent endpoint not available 2');
       }
 
       // Get agent card to determine audience for challenge
@@ -993,6 +994,7 @@ export async function loadAgentDetail(
     
     // Extract a2aEndpoint from registration
     // Priority: 1) direct a2aEndpoint field, 2) from endpoints array (name: 'A2A'), 3) from agentUrl
+    /*
     if (typeof reg.a2aEndpoint === 'string') {
       flattened.a2aEndpoint = reg.a2aEndpoint;
     } else if (Array.isArray(reg.endpoints)) {
@@ -1010,18 +1012,8 @@ export async function loadAgentDetail(
         flattened.a2aEndpoint = a2aEndpointEntry.endpoint;
       }
     }
-    // If agentUrl exists and a2aEndpoint not found, construct it
-    /*
-    if (!flattened.a2aEndpoint && typeof reg.agentUrl === 'string') {
-      const baseUrl = (reg.agentUrl as string).replace(/\/$/, '');
-      flattened.a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
-    }
-    // Also check external_url as fallback
-    if (!flattened.a2aEndpoint && typeof reg.external_url === 'string') {
-      const baseUrl = (reg.external_url as string).replace(/\/$/, '');
-      flattened.a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
-    }
     */
+
   }
 
   // Priority 2: On-chain metadata (only fill if not already set from registration)
@@ -1046,9 +1038,9 @@ export async function loadAgentDetail(
       typeof discoveryRecord.a2aEndpoint === 'string'
         ? (discoveryRecord.a2aEndpoint as string)
         : undefined;
-    if (a2aEndpointFromDiscovery && !flattened.a2aEndpoint) {
-      flattened.a2aEndpoint = a2aEndpointFromDiscovery;
-    }
+    //if (a2aEndpointFromDiscovery && !flattened.a2aEndpoint) {
+    //  flattened.a2aEndpoint = a2aEndpointFromDiscovery;
+    //}
 
     // Timestamps from discovery only if not in registration
     const createdAtTimeFromDiscovery =

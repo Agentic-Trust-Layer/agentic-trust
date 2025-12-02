@@ -98,12 +98,14 @@ export async function GET(
     
     // Ensure we're returning the actual A2A endpoint, not the agent-card.json URL
     // If somehow we got the agent-card.json URL, extract the base URL and construct /api/a2a
+    /*
     if (a2aEndpoint && a2aEndpoint.includes('agent-card.json')) {
       console.warn('[API] A2A endpoint appears to be agent-card.json URL, correcting...');
       const baseUrl = a2aEndpoint.replace(/\/\.well-known\/agent-card\.json$/, '').replace(/\/api\/a2a$/, '');
       a2aEndpoint = `${baseUrl.replace(/\/$/, '')}/api/a2a`;
       console.log('[API] Corrected A2A endpoint to:', a2aEndpoint);
     }
+    */
     
     console.log('[API] Final A2A endpoint being returned:', a2aEndpoint);
 

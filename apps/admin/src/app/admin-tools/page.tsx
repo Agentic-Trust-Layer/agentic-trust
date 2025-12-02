@@ -157,7 +157,6 @@ export default function AdminPage() {
       return null;
     }
   }, [parsedQueryChainId, queryAgentId]);
-  const providerA2aEndpoint = process.env.NEXT_PUBLIC_PROVIDER_A2A_URL || '';
 
   function formatJsonIfPossible(text: string): string {
     try {
@@ -190,7 +189,7 @@ export default function AdminPage() {
               ? window.atob(payload)
               : payload;
           return formatJsonIfPossible(decoded);
-        } catch (error) {
+      } catch (error) {
           throw new Error('Unable to decode base64 data URI.');
         }
       }
@@ -1009,7 +1008,7 @@ export default function AdminPage() {
         setRequestUri(null);
         setRequestHash(null);
       }
-    } else {
+            } else {
       setRequestUri(null);
       setRequestHash(null);
     }
@@ -1035,11 +1034,11 @@ export default function AdminPage() {
       return;
     }
 
-    let cancelled = false;
+      let cancelled = false;
     setNftOperator((prev) => ({ ...prev, loading: true, error: null }));
 
-    (async () => {
-      try {
+      (async () => {
+        try {
         const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
         
@@ -1095,7 +1094,7 @@ export default function AdminPage() {
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/a2a-endpoint`);
         
         if (cancelled) return;
-        
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || 'Failed to fetch A2A endpoint');
@@ -1173,11 +1172,11 @@ export default function AdminPage() {
       const requestingAgentId = validationRequest.agentId?.toString();
       // Use server-side proxy to avoid browser port restrictions (e.g., Chrome blocks port 6000)
       const response = await fetch('/api/a2a/send-validation', {
-        method: 'POST',
+            method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
+            body: JSON.stringify({
           a2aEndpoint: agentA2aEndpoint,
           skillId: 'agent.validation.respond',
           message: `Process validation request for agent ${requestingAgentId}`,
@@ -1185,9 +1184,9 @@ export default function AdminPage() {
             agentId: requestingAgentId,
             chainId: Number(finalChainId),
             requestHash: requestHash,
-          },
-        }),
-      });
+              },
+            }),
+          });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || data?.success === false) {
         throw new Error(data?.error || data?.response?.error || 'Validation request failed.');
@@ -1442,13 +1441,13 @@ export default function AdminPage() {
           adminGate
         ) : (
           <>
-            {error && (
+        {error && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {error}
               </Alert>
-            )}
+        )}
 
-            {success && (
+      {success && (
               <Alert severity="success" sx={{ mb: 2 }}>
                 {success}
               </Alert>
@@ -1786,13 +1785,13 @@ export default function AdminPage() {
                             height: 6,
                             borderRadius: 999,
                             bgcolor: 'grey.300',
-                            overflow: 'hidden',
-                          }}
-                        >
+                    overflow: 'hidden',
+                  }}
+                >
                           <Box
                             sx={{
                               width: `${sessionPackageProgress}%`,
-                              height: '100%',
+                      height: '100%',
                               bgcolor: 'primary.main',
                               transition: 'width 0.3s ease',
                             }}
@@ -1882,7 +1881,7 @@ export default function AdminPage() {
                 sx={{ fontFamily: 'monospace' }}
               />
               <Button
-                type="submit"
+              type="submit"
                 variant="contained"
                 sx={{
                   bgcolor: 'grey.400',
@@ -1890,9 +1889,9 @@ export default function AdminPage() {
                   '&:hover': { bgcolor: 'grey.500' },
                   py: 1.5,
                   fontWeight: 'bold'
-                }}
-              >
-                Transfer Agent
+              }}
+            >
+              Transfer Agent
               </Button>
             </Box>
           </Paper>
@@ -2040,8 +2039,8 @@ export default function AdminPage() {
                                       >
                                         {isLoading ? 'Sending…' : 'Process Validation Request (A2A endpoint)'}
                                       </Button>
-                                    </>
-                                  )}
+          </>
+        )}
 
                                   {feedback && (
                                     <Typography 

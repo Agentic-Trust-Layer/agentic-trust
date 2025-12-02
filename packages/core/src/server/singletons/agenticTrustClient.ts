@@ -16,6 +16,7 @@ import { getENSClient } from './ensClient';
 import { getDiscoveryClient } from './discoveryClient';
 import { getReputationRegistryClient, isReputationClientInitialized, resetReputationClient } from './reputationClient';
 import { getIdentityRegistryClient } from '../singletons/identityClient';
+import { getChainById, getChainRpcUrl } from '../lib/chainConfig';
 
 
 import { isUserAppEnabled } from '../userApps/userApp';
@@ -28,6 +29,7 @@ import type { RequestAuthParams } from '../lib/agentFeedback';
 import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 
 import type { SessionPackage } from '../../shared/sessionPackage';
+import type { Address } from 'viem';
 
 type OwnerType = 'eoa' | 'aa';
 type ExecutionMode = 'auto' | 'server' | 'client';
@@ -764,6 +766,138 @@ export class AgenticTrustClient {
     } catch (error) {
       console.warn('[AgenticTrustClient.getAgentOwner] Failed to resolve owner:', error);
       return null;
+    }
+  }
+
+  /**
+   * Check if a wallet address owns an agent.
+   * Performs blockchain verification to determine ownership relationship.
+   * Agent NFT → Agent Account (AA) → EOA (wallet)
+   */
+  async isOwner(
+    did8004: string,
+    walletAddress: `0x${string}`,
+    chainId?: number,
+  ): Promise<boolean> {
+    const resolvedChainId = chainId ?? DEFAULT_CHAIN_ID;
+
+    // Parse the DID to get agent info
+    let agentId: string;
+    try {
+      const parsed = parseDid8004(did8004);
+      agentId = parsed.agentId;
+    } catch (error) {
+      console.warn('[AgenticTrustClient.isOwner] Invalid DID format:', did8004, error);
+      return false;
+    }
+
+    // Get the agent account (which is the agent owner)
+    const agent = await this.getAgent(agentId, resolvedChainId);
+    if (!agent?.agentAccount) {
+      console.warn('[AgenticTrustClient.isOwner] Agent not found or no account:', did8004);
+      return false;
+    }
+
+    const agentAccount = agent.agentAccount;
+    const lowerWallet = walletAddress.toLowerCase();
+
+    // Check if agent account is valid
+    if (!agentAccount || !agentAccount.startsWith('0x')) {
+      return false;
+    }
+
+    try {
+      // Create a client for the chain
+      const chain = getChainById(resolvedChainId);
+      const rpcUrl = getChainRpcUrl(resolvedChainId);
+      if (!rpcUrl) {
+        console.warn('[AgenticTrustClient.isOwner] No RPC URL for chain:', resolvedChainId);
+        return false;
+      }
+
+      const { createPublicClient, http } = await import('viem');
+      const client = createPublicClient({
+        chain,
+        transport: http(rpcUrl),
+      });
+
+      // Get bytecode to check if it's a contract
+      const code = await client.getBytecode({ address: agentAccount as Address });
+
+      // EOA ownership: direct address comparison
+      if (!code || code === '0x') {
+        return agentAccount.toLowerCase() === lowerWallet;
+      }
+
+      // Smart contract ownership: try different patterns
+      let controller: string | null = null;
+
+      // Try ERC-173 owner() function
+      try {
+        controller = (await client.readContract({
+          address: agentAccount as Address,
+          abi: [
+            {
+              name: 'owner',
+              type: 'function',
+              stateMutability: 'view' as const,
+              inputs: [],
+              outputs: [{ type: 'address' }],
+            },
+          ],
+          functionName: 'owner',
+        })) as string;
+      } catch {
+        // ignore
+      }
+
+      // Fallback: try getOwner() function
+      if (!controller) {
+        try {
+          controller = (await client.readContract({
+            address: agentAccount as Address,
+            abi: [
+              {
+                name: 'getOwner',
+                type: 'function',
+                stateMutability: 'view' as const,
+                inputs: [],
+                outputs: [{ type: 'address' }],
+              },
+            ],
+            functionName: 'getOwner',
+          })) as string;
+        } catch {
+          // ignore
+        }
+      }
+
+      // Fallback: try owners() array function
+      if (!controller) {
+        try {
+          const owners = (await client.readContract({
+            address: agentAccount as Address,
+            abi: [
+              {
+                name: 'owners',
+                type: 'function',
+                stateMutability: 'view' as const,
+                inputs: [],
+                outputs: [{ type: 'address[]' }],
+              },
+            ],
+            functionName: 'owners',
+          })) as string[];
+          controller = owners?.[0] ?? null;
+        } catch {
+          // ignore
+        }
+      }
+
+      return Boolean(controller && controller.toLowerCase() === lowerWallet);
+    } catch (error) {
+      console.warn('[AgenticTrustClient.isOwner] Ownership check failed:', error);
+      return false;
     }
   }
 

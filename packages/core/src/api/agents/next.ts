@@ -184,6 +184,7 @@ export function requestFeedbackAuthRouteHandler(
     context?: { params?: RouteParams },
   ) => {
     try {
+      console.log(">>>>>>>>>>>>> feedback auth request: ", req);
       const url = new URL(req.url);
       const params = url.searchParams;
 

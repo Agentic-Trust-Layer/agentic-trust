@@ -229,6 +229,7 @@ export class A2AProtocolProvider {
           console.log(`Warning: Agent card URL should be an absolute URL (starting with http:// or https://), got: ${cardUrl}`);
         }
         
+        
         this.a2aEndpoint = cardUrl.endsWith('/api/a2a') 
           ? cardUrl 
           : `${cardUrl.replace(/\/$/, '')}/api/a2a`;
@@ -237,6 +238,7 @@ export class A2AProtocolProvider {
         if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
           console.log(`Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got: ${this.a2aEndpoint}`);
         }
+        
       }
       return card;
     } catch (error) {
