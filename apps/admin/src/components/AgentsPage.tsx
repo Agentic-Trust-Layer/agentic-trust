@@ -587,25 +587,53 @@ export function AgentsPage({
             ? Number.parseInt(agent.agentId, 10)
             : Number(agent.agentId ?? 0);
         const did8004 = buildDid8004(parsedChainId, parsedAgentId);
-        const response = await fetch(
-          `/api/agents/${encodeURIComponent(did8004)}/feedback?includeRevoked=true`,
-        );
+        
+        const feedbackResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback?includeRevoked=true`);
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+        if (!feedbackResponse.ok) {
+          const errorData = await feedbackResponse.json().catch(() => ({}));
           throw new Error(
             errorData.message || errorData.error || 'Failed to fetch feedback',
           );
         }
 
-        const data = await response.json();
+        const data = await feedbackResponse.json();
         if (cancelled) return;
+
+        console.log('[FeedbackModal] Feedback API response:', {
+          fullResponse: data,
+          feedbackArray: data.feedback,
+          summary: data.summary,
+        });
+
+        const feedbackItems = Array.isArray(data.feedback) ? data.feedback : [];
+        
+        console.log('[FeedbackModal] Feedback items:', {
+          count: feedbackItems.length,
+          items: feedbackItems.map((item: any, index: number) => ({
+            index,
+            fullItem: item,
+            id: item.id,
+            agentId: item.agentId,
+            clientAddress: item.clientAddress,
+            score: item.score,
+            feedbackUri: item.feedbackUri,
+            feedbackJson: item.feedbackJson ? 'present' : null,
+            comment: item.comment,
+            ratingPct: item.ratingPct,
+            txHash: item.txHash,
+            blockNumber: item.blockNumber,
+            timestamp: item.timestamp,
+            isRevoked: item.isRevoked,
+            responseCount: item.responseCount,
+          })),
+        });
 
         setFeedbackPreview({
           key,
           loading: false,
           error: null,
-          items: Array.isArray(data.feedback) ? data.feedback : [],
+          items: feedbackItems,
           summary: data.summary ?? null,
         });
       } catch (error: any) {
@@ -674,16 +702,8 @@ export function AgentsPage({
   }, [activeDialog]);
 
   useEffect(() => {
-    console.log('[ValidationsModal] useEffect triggered:', {
-      hasActiveDialog: !!activeDialog,
-      action: activeDialog?.action,
-      agent: activeDialog?.agent ? { chainId: activeDialog.agent.chainId, agentId: activeDialog.agent.agentId } : null,
-    });
-    
     if (!activeDialog || activeDialog.action !== 'validations') {
-      // Reset preview when dialog closes or changes action
       if (activeDialog?.action !== 'validations') {
-        console.log('[ValidationsModal] Resetting preview (not validations action)');
         setValidationsPreview({
           key: null,
           loading: false,
@@ -697,16 +717,12 @@ export function AgentsPage({
 
     const { agent } = activeDialog;
     const key = getAgentKey(agent);
-    console.log('[ValidationsModal] Computed key:', key, 'from agent:', { chainId: agent.chainId, agentId: agent.agentId });
     if (!key) {
-      console.warn('[ValidationsModal] No key computed, returning early');
       return;
     }
 
     let cancelled = false;
 
-    console.log('[ValidationsModal] Starting fetch for agent key:', key);
-    console.log('[ValidationsModal] Setting initial state with key:', key);
     setValidationsPreview({
       key,
       loading: true,
@@ -714,7 +730,6 @@ export function AgentsPage({
       pending: null,
       completed: null,
     });
-    console.log('[ValidationsModal] Initial state set, key should now be:', key);
 
     (async () => {
       try {
@@ -727,61 +742,94 @@ export function AgentsPage({
             ? Number.parseInt(agent.agentId, 10)
             : Number(agent.agentId ?? 0);
         const did8004 = buildDid8004(parsedChainId, parsedAgentId);
-        const response = await fetch(
-          `/api/agents/${encodeURIComponent(did8004)}/validations`,
-        );
+        
+        // Fetch both on-chain validations and GraphQL validation responses
+        const [validationsResponse, validationResponsesResponse] = await Promise.all([
+          fetch(`/api/agents/${encodeURIComponent(did8004)}/validations`),
+          fetch(`/api/agents/${encodeURIComponent(did8004)}/validation-responses?limit=100&offset=0&orderBy=timestamp&orderDirection=DESC`).catch(() => null),
+        ]);
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
+        if (!validationsResponse.ok) {
+          const errorData = await validationsResponse.json().catch(() => ({}));
           throw new Error(
             errorData.message || errorData.error || 'Failed to fetch validations',
           );
         }
 
-        const data = await response.json();
-        console.log('[ValidationsModal] API Response:', {
-          url: `/api/agents/${encodeURIComponent(did8004)}/validations`,
-          status: response.status,
-          data,
-          pending: Array.isArray(data.pending) ? data.pending : data.pending,
-          completed: Array.isArray(data.completed) ? data.completed : data.completed,
-          pendingType: typeof data.pending,
-          completedType: typeof data.completed,
-          pendingIsArray: Array.isArray(data.pending),
-          completedIsArray: Array.isArray(data.completed),
-        });
+        const data = await validationsResponse.json();
+        const graphQLData = validationResponsesResponse?.ok ? await validationResponsesResponse.json().catch(() => null) : null;
+        
         if (cancelled) return;
 
         const pendingArray = Array.isArray(data.pending) ? data.pending : [];
         const completedArray = Array.isArray(data.completed) ? data.completed : [];
-        console.log('[ValidationsModal] Setting state:', {
-          key,
-          pendingCount: pendingArray.length,
-          completedCount: completedArray.length,
-        });
-        // Log full completed validations for debugging (BigInts already JSON-safe via API)
-        try {
-          console.log(
-            '[ValidationsModal] Completed validations (JSON):',
-            JSON.stringify(completedArray, null, 2),
-          );
-        } catch (e) {
-          console.log('[ValidationsModal] Completed validations (raw):', completedArray);
+        
+        // Merge GraphQL data with on-chain data by matching on requestHash
+        // Normalize requestHash for comparison: convert to string, ensure 0x prefix, lowercase
+        const normalizeRequestHash = (hash: unknown): string | null => {
+          if (!hash) return null;
+          let hashStr: string;
+          if (typeof hash === 'string') {
+            hashStr = hash;
+          } else if (typeof hash === 'bigint' || typeof hash === 'number') {
+            hashStr = hash.toString(16);
+            if (!hashStr.startsWith('0x')) {
+              hashStr = '0x' + hashStr.padStart(64, '0');
+            }
+          } else {
+            hashStr = String(hash);
+          }
+          // Ensure 0x prefix and normalize to lowercase
+          if (!hashStr.startsWith('0x')) {
+            hashStr = '0x' + hashStr;
+          }
+          return hashStr.toLowerCase();
+        };
+
+        const graphQLRequests = graphQLData?.validationRequests || [];
+
+        const graphQLByRequestHash = new Map<string, typeof graphQLRequests[0]>();
+        for (const request of graphQLRequests) {
+          const normalized = normalizeRequestHash(request.requestHash);
+          if (normalized) {
+            graphQLByRequestHash.set(normalized, request);
+          }
         }
 
-        console.log('[ValidationsModal] About to set state with data:', {
-          key,
-          pendingCount: pendingArray.length,
-          completedCount: completedArray.length,
-        });
+        const augmentValidation = (entry: any, type: 'pending' | 'completed'): any => {
+          const contractRequestHash = entry.requestHash;
+          const normalizedRequestHash = normalizeRequestHash(contractRequestHash);
+
+          if (normalizedRequestHash) {
+            const graphQLEntry = graphQLByRequestHash.get(normalizedRequestHash);
+            if (graphQLEntry) {
+              return {
+                ...entry,
+                txHash: typeof graphQLEntry.txHash === 'string' ? graphQLEntry.txHash : entry.txHash ?? null,
+                blockNumber: typeof graphQLEntry.blockNumber === 'number' ? graphQLEntry.blockNumber : entry.blockNumber ?? null,
+                timestamp: graphQLEntry.timestamp ?? entry.lastUpdate ?? null,
+                requestUri: typeof graphQLEntry.requestUri === 'string' ? graphQLEntry.requestUri : null,
+                requestJson: typeof graphQLEntry.requestJson === 'string' ? graphQLEntry.requestJson : null,
+                responseUri: typeof graphQLEntry.responseUri === 'string' ? graphQLEntry.responseUri : null,
+                responseJson: typeof graphQLEntry.responseJson === 'string' ? graphQLEntry.responseJson : null,
+                createdAt: typeof graphQLEntry.createdAt === 'string' ? graphQLEntry.createdAt : null,
+                updatedAt: typeof graphQLEntry.updatedAt === 'string' ? graphQLEntry.updatedAt : null,
+              };
+            }
+          }
+          return entry;
+        };
+
+        const augmentedPending = pendingArray.map((entry: any) => augmentValidation(entry, 'pending'));
+        const augmentedCompleted = completedArray.map((entry: any) => augmentValidation(entry, 'completed'));
+
         setValidationsPreview({
           key,
           loading: false,
           error: null,
-          pending: pendingArray,
-          completed: completedArray,
+          pending: augmentedPending,
+          completed: augmentedCompleted,
         });
-        console.log('[ValidationsModal] State set, should trigger re-render');
       } catch (error: any) {
         if (cancelled) return;
         setValidationsPreview({
@@ -1238,25 +1286,6 @@ export function AgentsPage({
         const error = previewMatchesAgent ? validationsPreview.error : null;
         const pending = previewMatchesAgent && Array.isArray(validationsPreview.pending) ? validationsPreview.pending : [];
         const completed = previewMatchesAgent && Array.isArray(validationsPreview.completed) ? validationsPreview.completed : [];
-        
-        console.log('[ValidationsModal] Rendering:', {
-          agentKey,
-          previewKey: validationsPreview.key,
-          keyMatch: agentKey === validationsPreview.key,
-          previewMatchesAgent,
-          loading,
-          validationsPreviewLoading: validationsPreview.loading,
-          validationsPreviewError: validationsPreview.error,
-          validationsPreviewPendingType: typeof validationsPreview.pending,
-          validationsPreviewCompletedType: typeof validationsPreview.completed,
-          validationsPreviewPendingIsArray: Array.isArray(validationsPreview.pending),
-          validationsPreviewCompletedIsArray: Array.isArray(validationsPreview.completed),
-          validationsPreviewPendingLength: Array.isArray(validationsPreview.pending) ? validationsPreview.pending.length : 'N/A',
-          validationsPreviewCompletedLength: Array.isArray(validationsPreview.completed) ? validationsPreview.completed.length : 'N/A',
-          pendingCount: pending.length,
-          completedCount: completed.length,
-          error,
-        });
 
         return (
           <>
@@ -1293,19 +1322,120 @@ export function AgentsPage({
                     Completed validations ({completed.length})
                   </h4>
                   {completed.length > 0 ? (
-                    <ul
-                      style={{
-                        listStyle: 'disc',
-                        paddingLeft: '1.25rem',
-                        margin: 0,
-                      }}
-                    >
-                      {completed.map((item, index) => (
-                        <li key={index}>
-                          <code>{JSON.stringify(item)}</code>
-                        </li>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {completed.map((item: any, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            border: `1px solid ${palette.border}`,
+                            borderRadius: '8px',
+                            padding: '0.75rem',
+                            backgroundColor: palette.surfaceMuted,
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {item.requestHash && (
+                              <div>
+                                <strong>Request Hash:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.requestHash.length > 20 ? `${item.requestHash.slice(0, 10)}…${item.requestHash.slice(-8)}` : item.requestHash}
+                                </code>
+                              </div>
+                            )}
+                            {item.response !== undefined && (
+                              <div>
+                                <strong>Response:</strong> {item.response}
+                              </div>
+                            )}
+                            {item.tag && (
+                              <div>
+                                <strong>Tag:</strong> {item.tag}
+                              </div>
+                            )}
+                            {item.txHash && (
+                              <div>
+                                <strong>TX Hash:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.txHash.length > 20 ? `${item.txHash.slice(0, 10)}…${item.txHash.slice(-8)}` : item.txHash}
+                                </code>
+                              </div>
+                            )}
+                            {item.blockNumber && (
+                              <div>
+                                <strong>Block:</strong> {item.blockNumber}
+                              </div>
+                            )}
+                            {item.timestamp && (
+                              <div>
+                                <strong>Timestamp:</strong> {new Date(Number(item.timestamp) * 1000).toLocaleString()}
+                              </div>
+                            )}
+                            {item.validatorAddress && (
+                              <div>
+                                <strong>Validator:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.validatorAddress.length > 20 ? `${item.validatorAddress.slice(0, 10)}…${item.validatorAddress.slice(-8)}` : item.validatorAddress}
+                                </code>
+                              </div>
+                            )}
+                            {item.requestUri && (
+                              <div>
+                                <strong>Request URI:</strong>{' '}
+                                <a href={item.requestUri} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, wordBreak: 'break-all', fontSize: '0.85em' }}>
+                                  {item.requestUri}
+                                </a>
+                              </div>
+                            )}
+                            {item.requestJson && (
+                              <div>
+                                <strong>Request JSON:</strong>
+                                <pre
+                                  style={{
+                                    margin: '0.5rem 0 0',
+                                    padding: '0.5rem',
+                                    backgroundColor: palette.background,
+                                    borderRadius: '4px',
+                                    fontSize: '0.75em',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >
+                                  {formatJsonIfPossible(item.requestJson)}
+                                </pre>
+                              </div>
+                            )}
+                            {item.responseUri && (
+                              <div>
+                                <strong>Response URI:</strong>{' '}
+                                <a href={item.responseUri} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, wordBreak: 'break-all', fontSize: '0.85em' }}>
+                                  {item.responseUri}
+                                </a>
+                              </div>
+                            )}
+                            {item.responseJson && (
+                              <div>
+                                <strong>Response JSON:</strong>
+                                <pre
+                                  style={{
+                                    margin: '0.5rem 0 0',
+                                    padding: '0.5rem',
+                                    backgroundColor: palette.background,
+                                    borderRadius: '4px',
+                                    fontSize: '0.75em',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >
+                                  {formatJsonIfPossible(item.responseJson)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   ) : (
                     <p style={{ color: palette.textSecondary, margin: 0 }}>
                       No completed validations.
@@ -1322,19 +1452,78 @@ export function AgentsPage({
                     Pending validations ({pending.length})
                   </h4>
                   {pending.length > 0 ? (
-                    <ul
-                      style={{
-                        listStyle: 'disc',
-                        paddingLeft: '1.25rem',
-                        margin: 0,
-                      }}
-                    >
-                      {pending.map((item, index) => (
-                        <li key={index}>
-                          <code>{JSON.stringify(item)}</code>
-                        </li>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {pending.map((item: any, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            border: `1px solid ${palette.border}`,
+                            borderRadius: '8px',
+                            padding: '0.75rem',
+                            backgroundColor: palette.surfaceMuted,
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {item.requestHash && (
+                              <div>
+                                <strong>Request Hash:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.requestHash.length > 20 ? `${item.requestHash.slice(0, 10)}…${item.requestHash.slice(-8)}` : item.requestHash}
+                                </code>
+                              </div>
+                            )}
+                            <div style={{ color: palette.textSecondary }}>
+                              <strong>Status:</strong> Awaiting response
+                            </div>
+                            {item.tag && (
+                              <div>
+                                <strong>Tag:</strong> {item.tag}
+                              </div>
+                            )}
+                            {item.validatorAddress && (
+                              <div>
+                                <strong>Validator:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.validatorAddress.length > 20 ? `${item.validatorAddress.slice(0, 10)}…${item.validatorAddress.slice(-8)}` : item.validatorAddress}
+                                </code>
+                              </div>
+                            )}
+                            {item.lastUpdate && (
+                              <div>
+                                <strong>Last Update:</strong> {new Date(Number(item.lastUpdate) * 1000).toLocaleString()}
+                              </div>
+                            )}
+                            {item.requestUri && (
+                              <div>
+                                <strong>Request URI:</strong>{' '}
+                                <a href={item.requestUri} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, wordBreak: 'break-all', fontSize: '0.85em' }}>
+                                  {item.requestUri}
+                                </a>
+                              </div>
+                            )}
+                            {item.requestJson && (
+                              <div>
+                                <strong>Request JSON:</strong>
+                                <pre
+                                  style={{
+                                    margin: '0.5rem 0 0',
+                                    padding: '0.5rem',
+                                    backgroundColor: palette.background,
+                                    borderRadius: '4px',
+                                    fontSize: '0.75em',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >
+                                  {formatJsonIfPossible(item.requestJson)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   ) : (
                     <p style={{ color: palette.textSecondary, margin: 0 }}>
                       No pending validations.
@@ -1412,16 +1601,32 @@ export function AgentsPage({
                 >
                   {items.map((item, index) => {
                     const record = item as any;
+                    const id = record.id as string | undefined;
+                    const agentId = record.agentId as string | number | undefined;
                     const clientAddress = record.clientAddress as string | undefined;
                     const score = record.score as number | undefined;
                     const isRevoked = record.isRevoked as boolean | undefined;
                     const feedbackUri = record.feedbackUri as string | undefined;
+                    const feedbackJson = record.feedbackJson as string | undefined;
+                    const txHash = record.txHash as string | undefined;
+                    const blockNumber = record.blockNumber as number | undefined;
+                    const timestamp = record.timestamp as number | string | undefined;
+                    const comment = record.comment as string | null | undefined;
+                    const ratingPct = record.ratingPct as number | null | undefined;
+                    const responseCount = record.responseCount as number | null | undefined;
+                    const createdAt = record.createdAt as string | undefined;
+                    const updatedAt = record.updatedAt as string | undefined;
+
+                    // Convert IPFS URI to HTTP URL if needed
+                    const displayFeedbackUri = feedbackUri?.startsWith('ipfs://')
+                      ? `https://ipfs.io/ipfs/${feedbackUri.replace('ipfs://', '').replace(/^ipfs\//i, '')}`
+                      : feedbackUri;
 
                     return (
                       <li
-                        key={record.index ?? index}
+                        key={id ?? record.index ?? index}
                         style={{
-                          padding: '0.6rem 0.75rem',
+                          padding: '0.75rem',
                           borderRadius: '8px',
                           border: `1px solid ${palette.border}`,
                           backgroundColor: palette.surface,
@@ -1430,54 +1635,150 @@ export function AgentsPage({
                         <div
                           style={{
                             display: 'flex',
-                            justifyContent: 'space-between',
-                            gap: '0.75rem',
-                            marginBottom: '0.25rem',
+                            flexDirection: 'column',
+                            gap: '0.5rem',
                           }}
                         >
-                          <span>
-                            <strong>Score:</strong>{' '}
-                            {typeof score === 'number' ? score : 'N/A'}
-                          </span>
-                          {typeof isRevoked === 'boolean' && isRevoked && (
-                            <span
-                              style={{
-                                color: palette.dangerText,
-                                fontWeight: 600,
-                              }}
-                            >
-                              Revoked
-                            </span>
-                          )}
-                        </div>
-                        {clientAddress && (
                           <div
                             style={{
-                              fontFamily: 'monospace',
-                              fontSize: '0.8rem',
-                              color: palette.textSecondary,
-                              marginBottom: feedbackUri ? '0.25rem' : 0,
-                              wordBreak: 'break-all',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: '0.75rem',
+                              fontSize: '0.9rem',
+                              fontWeight: 600,
                             }}
                           >
-                            {clientAddress}
+                            <span>
+                              <strong>Score:</strong>{' '}
+                              {typeof score === 'number' ? score : 'N/A'}
+                            </span>
+                            {typeof isRevoked === 'boolean' && isRevoked && (
+                              <span
+                                style={{
+                                  color: palette.dangerText,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Revoked
+                              </span>
+                            )}
                           </div>
-                        )}
-                        {feedbackUri && (
-                          <a
-                            href={feedbackUri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontSize: '0.8rem',
-                              color: palette.accent,
-                              textDecoration: 'none',
-                              wordBreak: 'break-all',
-                            }}
-                          >
-                            View feedback details
-                          </a>
-                        )}
+                          {id && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>ID:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                {id.length > 40 ? `${id.slice(0, 20)}…${id.slice(-18)}` : id}
+                              </code>
+                            </div>
+                          )}
+                          {agentId !== undefined && agentId !== null && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Agent ID:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{String(agentId)}</span>
+                            </div>
+                          )}
+                          {clientAddress && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Client:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                {clientAddress.length > 20 ? `${clientAddress.slice(0, 10)}…${clientAddress.slice(-8)}` : clientAddress}
+                              </code>
+                            </div>
+                          )}
+                          {comment && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Comment:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{comment}</span>
+                            </div>
+                          )}
+                          {ratingPct !== null && ratingPct !== undefined && typeof ratingPct === 'number' && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Rating %:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{ratingPct}%</span>
+                            </div>
+                          )}
+                          {txHash && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>TX Hash:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                {txHash.length > 20 ? `${txHash.slice(0, 10)}…${txHash.slice(-8)}` : txHash}
+                              </code>
+                            </div>
+                          )}
+                          {typeof blockNumber === 'number' && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Block:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{blockNumber}</span>
+                            </div>
+                          )}
+                          {timestamp && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Time:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>
+                                {new Date(Number(timestamp) * 1000).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                          {responseCount !== null && responseCount !== undefined && typeof responseCount === 'number' && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Response Count:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{responseCount}</span>
+                            </div>
+                          )}
+                          {displayFeedbackUri && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback URI:</strong>{' '}
+                              <a
+                                href={displayFeedbackUri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontSize: '0.85rem',
+                                  color: palette.accent,
+                                  textDecoration: 'none',
+                                  wordBreak: 'break-all',
+                                }}
+                              >
+                                {feedbackUri}
+                              </a>
+                            </div>
+                          )}
+                          {feedbackJson && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback JSON:</strong>
+                              <pre
+                                style={{
+                                  margin: '0.5rem 0 0',
+                                  padding: '0.5rem',
+                                  backgroundColor: palette.background,
+                                  borderRadius: '4px',
+                                  fontSize: '0.75em',
+                                  overflow: 'auto',
+                                  maxHeight: '200px',
+                                  fontFamily: 'ui-monospace, monospace',
+                                }}
+                              >
+                                {formatJsonIfPossible(feedbackJson)}
+                              </pre>
+                            </div>
+                          )}
+                          {createdAt && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Created At:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>
+                                {new Date(createdAt).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                          {updatedAt && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Updated At:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>
+                                {new Date(updatedAt).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </li>
                     );
                   })}

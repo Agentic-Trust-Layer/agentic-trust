@@ -279,14 +279,17 @@ export class AgenticTrustClient {
             feedbacks {
               id
               agentId
-              chainId
               clientAddress
               score
-              tag1
-              tag2
               feedbackUri
-              feedbackHash
+              feedbackJson
+              comment
+              ratingPct
+              txHash
+              blockNumber
+              timestamp
               isRevoked
+              responseCount
             }
             total
             hasMore
@@ -1131,6 +1134,44 @@ export class AgenticTrustClient {
   async getDiscoveryClient(): Promise<any> {
     const { getDiscoveryClient } = await import('./discoveryClient');
     return await getDiscoveryClient();
+  }
+
+  /**
+   * Search validation requests for an agent using GraphQL
+   */
+  async searchValidationRequestsAdvanced(params: {
+    chainId: number;
+    agentId: string | number;
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+    orderDirection?: 'ASC' | 'DESC';
+  }): Promise<{ validationRequests: Array<Record<string, unknown>> } | null> {
+    const { getDiscoveryClient } = await import('./discoveryClient');
+    const discoveryClient = await getDiscoveryClient();
+    if (!discoveryClient || typeof discoveryClient.searchValidationRequestsAdvanced !== 'function') {
+      return null;
+    }
+    return await discoveryClient.searchValidationRequestsAdvanced(params);
+  }
+
+  /**
+   * Search feedback for an agent using GraphQL
+   */
+  async searchFeedbackAdvanced(params: {
+    chainId: number;
+    agentId: string | number;
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+    orderDirection?: 'ASC' | 'DESC';
+  }): Promise<{ feedbacks: Array<Record<string, unknown>> } | null> {
+    const { getDiscoveryClient } = await import('./discoveryClient');
+    const discoveryClient = await getDiscoveryClient();
+    if (!discoveryClient || typeof discoveryClient.searchFeedbackAdvanced !== 'function') {
+      return null;
+    }
+    return await discoveryClient.searchFeedbackAdvanced(params);
   }
 
   /**

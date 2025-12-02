@@ -235,6 +235,74 @@ export interface SearchAgentsAdvancedOptions {
   orderDirection?: 'ASC' | 'DESC';
 }
 
+export interface ValidationResponseData {
+  id?: string;
+  agentId?: string | number;
+  validatorAddress?: string;
+  requestHash?: string;
+  response?: number;
+  responseUri?: string;
+  responseJson?: string;
+  responseHash?: string;
+  tag?: string;
+  txHash?: string;
+  blockNumber?: number;
+  timestamp?: string | number;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: unknown;
+}
+
+export interface ValidationRequestData {
+  id?: string;
+  agentId?: string | number;
+  validatorAddress?: string;
+  requestUri?: string;
+  requestJson?: string;
+  requestHash?: string;
+  txHash?: string;
+  blockNumber?: number;
+  timestamp?: string | number;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: unknown;
+}
+
+export interface SearchValidationRequestsAdvancedOptions {
+  chainId: number;
+  agentId: string | number;
+  limit?: number;
+  offset?: number;
+  orderBy?: string;
+  orderDirection?: 'ASC' | 'DESC';
+}
+
+export interface FeedbackData {
+  id?: string;
+  agentId?: string | number;
+  clientAddress?: string;
+  score?: number;
+  feedbackUri?: string;
+  feedbackJson?: string;
+  comment?: string;
+  ratingPct?: number;
+  txHash?: string;
+  blockNumber?: number;
+  timestamp?: string | number;
+  isRevoked?: boolean;
+  responseCount?: number;
+  [key: string]: unknown;
+}
+
+export interface SearchFeedbackAdvancedOptions {
+  chainId: number;
+  agentId: string | number;
+  limit?: number;
+  offset?: number;
+  orderBy?: string;
+  orderDirection?: 'ASC' | 'DESC';
+}
+
 export interface RefreshAgentResponse {
   indexAgent: {
     success: boolean;
@@ -1338,6 +1406,137 @@ export class AIAgentDiscoveryClient {
       throw new Error(
         `Failed to refresh agent: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
+    }
+  }
+
+  /**
+   * Search validation requests for an agent using GraphQL
+   */
+  async searchValidationRequestsAdvanced(
+    options: SearchValidationRequestsAdvancedOptions,
+  ): Promise<{ validationRequests: ValidationRequestData[] } | null> {
+    const { chainId, agentId, limit = 10, offset = 0, orderBy = 'blockNumber', orderDirection = 'DESC' } = options;
+
+    const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+
+    const queryText = `
+      query ValidationRequestsForAgent(
+        $agentId: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        validationRequests(
+          agentId: $agentId
+          limit: $limit
+          offset: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          id
+          agentId
+          validatorAddress
+          requestUri
+          requestJson
+          requestHash
+          txHash
+          blockNumber
+          timestamp
+          createdAt
+          updatedAt
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      agentId: agentIdString,
+      limit: typeof limit === 'number' ? limit : undefined,
+      offset: typeof offset === 'number' ? offset : undefined,
+      orderBy: typeof orderBy === 'string' ? orderBy : undefined,
+      orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+    };
+
+    try {
+      const data = await this.client.request<{ validationRequests: ValidationRequestData[] }>(queryText, variables);
+      const requests = data?.validationRequests;
+      if (!Array.isArray(requests)) {
+        return null;
+      }
+      return {
+        validationRequests: requests.filter(Boolean) as ValidationRequestData[],
+      };
+    } catch (error) {
+      console.warn('[AIAgentDiscoveryClient] searchValidationRequestsAdvanced failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Search feedback for an agent using GraphQL
+   */
+  async searchFeedbackAdvanced(
+    options: SearchFeedbackAdvancedOptions,
+  ): Promise<{ feedbacks: FeedbackData[] } | null> {
+    const { chainId, agentId, limit = 10, offset = 0, orderBy = 'timestamp', orderDirection = 'DESC' } = options;
+
+    const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+
+    const queryText = `
+      query FeedbackForAgent(
+        $chainId: Int!
+        $agentId: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        feedbacks(
+          chainId: $chainId
+          agentId: $agentId
+          limit: $limit
+          offset: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          id
+          agentId
+          clientAddress
+          score
+          feedbackUri
+          feedbackJson
+          comment
+          ratingPct
+          txHash
+          blockNumber
+          timestamp
+          isRevoked
+          responseCount
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      chainId,
+      agentId: agentIdString,
+      limit: typeof limit === 'number' ? limit : undefined,
+      offset: typeof offset === 'number' ? offset : undefined,
+      orderBy: typeof orderBy === 'string' ? orderBy : undefined,
+      orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+    };
+
+    try {
+      const data = await this.client.request<{ feedbacks: FeedbackData[] }>(queryText, variables);
+      const feedbacks = data?.feedbacks;
+      if (!Array.isArray(feedbacks)) {
+        return null;
+      }
+      return {
+        feedbacks: feedbacks.filter(Boolean) as FeedbackData[],
+      };
+    } catch (error) {
+      console.warn('[AIAgentDiscoveryClient] searchFeedbackAdvanced failed:', error);
+      return null;
     }
   }
 

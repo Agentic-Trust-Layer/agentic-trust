@@ -11,6 +11,7 @@ import AgentDetailsPageContent from '@/components/AgentDetailsPageContent';
 import type {
   AgentDetailsValidationsSummary,
   AgentDetailsFeedbackSummary,
+  ValidationEntry,
 } from '@/components/AgentDetailsTabs';
 
 type DetailsPageParams = {
@@ -18,6 +19,28 @@ type DetailsPageParams = {
     did8004: string[];
   }>;
 };
+
+// Normalize requestHash for comparison between contract (bytes32) and GraphQL (string)
+// Handles different formats: string, bigint, number, and ensures consistent 0x-prefixed lowercase hex
+function normalizeRequestHash(hash: unknown): string | null {
+  if (!hash) return null;
+  let hashStr: string;
+  if (typeof hash === 'string') {
+    hashStr = hash;
+  } else if (typeof hash === 'bigint' || typeof hash === 'number') {
+    hashStr = hash.toString(16);
+    if (!hashStr.startsWith('0x')) {
+      hashStr = '0x' + hashStr.padStart(64, '0');
+    }
+  } else {
+    hashStr = String(hash);
+  }
+  // Ensure 0x prefix and normalize to lowercase
+  if (!hashStr.startsWith('0x')) {
+    hashStr = '0x' + hashStr;
+  }
+  return hashStr.toLowerCase();
+}
 
 export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   const { did8004: did8004Array } = await params;
@@ -86,7 +109,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     console.warn('[AgentDetailsPage] Failed to resolve owner address:', error);
   }
 
-  const [feedbackItems, feedbackSummary, validations] = await Promise.all([
+  const [feedbackItems, feedbackSummary, validations, validationResponses] = await Promise.all([
     client
       .getAgentFeedback({
         agentId: numericAgentId,
@@ -104,6 +127,16 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     getAgentValidationsSummary(chainId, numericAgentId).catch(
       () => null as AgentValidationsSummary | null,
     ),
+    client
+      .searchValidationRequestsAdvanced({
+        chainId,
+        agentId: numericAgentId,
+        limit: 100,
+        offset: 0,
+        orderBy: 'timestamp',
+        orderDirection: 'DESC',
+      })
+      .catch(() => null),
   ]);
 
   // Access image from agent data - try multiple paths
@@ -146,7 +179,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   };
 
   const serializedFeedback = JSON.parse(
-    JSON.stringify(feedbackItems ?? []),
+    JSON.stringify(Array.isArray(feedbackItems) ? feedbackItems : []),
   ) as unknown[];
   const serializedSummary: AgentDetailsFeedbackSummary = feedbackSummary
     ? {
@@ -157,10 +190,24 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
         averageScore: feedbackSummary.averageScore ?? null,
       }
     : null;
+  const graphQLRequests = validationResponses?.validationRequests || [];
+
+  const graphQLByRequestHash = new Map<string, typeof graphQLRequests[0]>();
+  const graphQLValidationByTxHash = new Map<string, typeof graphQLRequests[0]>();
+  for (const request of graphQLRequests) {
+    const normalizedRequestHash = normalizeRequestHash(request.requestHash);
+    if (normalizedRequestHash) {
+      graphQLByRequestHash.set(normalizedRequestHash, request);
+    }
+    if (request.txHash && typeof request.txHash === 'string') {
+      graphQLValidationByTxHash.set(request.txHash.toLowerCase(), request);
+    }
+  }
+
   const serializedValidations: AgentDetailsValidationsSummary | null = validations
     ? {
-        pending: validations.pending.map(serializeValidationEntry),
-        completed: validations.completed.map(serializeValidationEntry),
+        pending: validations.pending.map((entry) => serializeValidationEntry(entry, graphQLByRequestHash, graphQLValidationByTxHash)),
+        completed: validations.completed.map((entry) => serializeValidationEntry(entry, graphQLByRequestHash, graphQLValidationByTxHash)),
       }
     : null;
   const did8004 = buildDid8004(chainId, Number(numericAgentId));
@@ -286,7 +333,11 @@ function decodeDid(value?: string | null): string | null {
   }
 }
 
-function serializeValidationEntry(entry: AgentValidationsSummary['pending'][number]) {
+function serializeValidationEntry(
+  entry: AgentValidationsSummary['pending'][number],
+  graphQLByRequestHash?: Map<string, Record<string, unknown>>,
+  graphQLByTxHash?: Map<string, Record<string, unknown>>,
+) {
   const agentIdValue = entry.agentId as unknown;
   let agentId: string | null = null;
   if (typeof agentIdValue === 'bigint') {
@@ -308,7 +359,19 @@ function serializeValidationEntry(entry: AgentValidationsSummary['pending'][numb
     typeof entry.response === 'number'
       ? entry.response
       : Number(entry.response ?? 0);
-  return {
+
+  let graphQLData: Record<string, unknown> | undefined;
+  
+  if (entry.requestHash && graphQLByRequestHash) {
+    const contractRequestHash = entry.requestHash;
+    const normalizedRequestHash = normalizeRequestHash(contractRequestHash);
+
+    if (normalizedRequestHash) {
+      graphQLData = graphQLByRequestHash.get(normalizedRequestHash);
+    }
+  }
+
+  const baseEntry: ValidationEntry = {
     agentId,
     requestHash: entry.requestHash ?? null,
     validatorAddress: entry.validatorAddress ?? null,
@@ -317,6 +380,23 @@ function serializeValidationEntry(entry: AgentValidationsSummary['pending'][numb
     tag: entry.tag ?? null,
     lastUpdate: normalizeTimestamp(entry.lastUpdate as unknown as number | bigint | string | null),
   };
+
+  if (graphQLData) {
+    return {
+      ...baseEntry,
+      txHash: typeof graphQLData.txHash === 'string' ? graphQLData.txHash : null,
+      blockNumber: typeof graphQLData.blockNumber === 'number' ? graphQLData.blockNumber : null,
+      timestamp: normalizeTimestamp(graphQLData.timestamp as unknown as number | bigint | string | null),
+      requestUri: typeof graphQLData.requestUri === 'string' ? graphQLData.requestUri : null,
+      requestJson: typeof graphQLData.requestJson === 'string' ? graphQLData.requestJson : null,
+      responseUri: typeof graphQLData.responseUri === 'string' ? graphQLData.responseUri : null,
+      responseJson: typeof graphQLData.responseJson === 'string' ? graphQLData.responseJson : null,
+      createdAt: typeof graphQLData.createdAt === 'string' ? graphQLData.createdAt : null,
+      updatedAt: typeof graphQLData.updatedAt === 'string' ? graphQLData.updatedAt : null,
+    };
+  }
+
+  return baseEntry;
 }
 
 function normalizeTimestamp(

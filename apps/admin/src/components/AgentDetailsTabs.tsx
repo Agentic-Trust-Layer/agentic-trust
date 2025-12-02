@@ -11,7 +11,7 @@ type FeedbackSummary = {
 
 export type AgentDetailsFeedbackSummary = FeedbackSummary;
 
-type ValidationEntry = {
+export type ValidationEntry = {
   agentId?: string | null;
   requestHash?: string | null;
   validatorAddress?: string | null;
@@ -19,6 +19,16 @@ type ValidationEntry = {
   responseHash?: string | null;
   lastUpdate?: number | null;
   tag?: string | null;
+  // Augmented fields from GraphQL
+  txHash?: string | null;
+  blockNumber?: number | null;
+  timestamp?: number | null;
+  requestUri?: string | null;
+  requestJson?: string | null;
+  responseUri?: string | null;
+  responseJson?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 export type AgentDetailsValidationsSummary = {
@@ -47,6 +57,15 @@ const shorten = (value?: string | null) => {
   if (value.length <= 12) return value;
   return `${value.slice(0, 6)}…${value.slice(-6)}`;
 };
+
+function formatJsonIfPossible(text: string | null | undefined): string | null {
+  if (!text) return null;
+  try {
+    return JSON.stringify(JSON.parse(text), null, 2);
+  } catch {
+    return text;
+  }
+}
 
 const formatRelativeTime = (timestamp?: number | null) => {
   if (!timestamp) return 'Unknown';
@@ -393,46 +412,110 @@ const AgentDetailsTabs = ({
                         <div
                           style={{
                             display: 'flex',
-                            justifyContent: 'space-between',
-                            flexWrap: 'wrap',
-                            marginBottom: '0.35rem',
-                            fontSize: '0.9rem',
-                            fontWeight: 600,
+                            flexDirection: 'column',
+                            gap: '0.5rem',
                           }}
                         >
-                          <span>Score: {record.score ?? 'N/A'}</span>
-                          {record.isRevoked && (
-                            <span style={{ color: palette.dangerText }}>Revoked</span>
-                          )}
-                        </div>
-                        {record.clientAddress && (
                           <div
                             style={{
-                              fontFamily: 'monospace',
-                              fontSize: '0.8rem',
-                              color: palette.textSecondary,
-                              marginBottom: record.feedbackUri ? '0.35rem' : 0,
-                              wordBreak: 'break-all',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              flexWrap: 'wrap',
+                              fontSize: '0.9rem',
+                              fontWeight: 600,
                             }}
                           >
-                            {record.clientAddress}
+                            <span>Score: {record.score ?? 'N/A'}</span>
+                            {record.isRevoked && (
+                              <span style={{ color: palette.dangerText }}>Revoked</span>
+                            )}
                           </div>
-                        )}
-                        {record.feedbackUri && (
-                          <a
-                            href={record.feedbackUri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              fontSize: '0.8rem',
-                              color: palette.accent,
-                              textDecoration: 'none',
-                              wordBreak: 'break-all',
-                            }}
-                          >
-                            View feedback details
-                          </a>
-                        )}
+                          {record.clientAddress && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Client:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{shorten(record.clientAddress)}</code>
+                            </div>
+                          )}
+                          {record.comment && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Comment:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{record.comment}</span>
+                            </div>
+                          )}
+                          {typeof record.ratingPct === 'number' && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Rating:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{record.ratingPct}%</span>
+                            </div>
+                          )}
+                          {record.txHash && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>TX Hash:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{shorten(record.txHash)}</code>
+                            </div>
+                          )}
+                          {record.blockNumber && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Block:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{record.blockNumber}</span>
+                            </div>
+                          )}
+                          {(record.timestamp || record.createdAt) && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Time:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{formatRelativeTime(record.timestamp ?? (record.createdAt ? new Date(record.createdAt).getTime() / 1000 : null))}</span>
+                            </div>
+                          )}
+                          {typeof record.responseCount === 'number' && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Responses:</strong>{' '}
+                              <span style={{ fontSize: '0.85rem' }}>{record.responseCount}</span>
+                            </div>
+                          )}
+                          {record.feedbackUri && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback URI:</strong>{' '}
+                              <a
+                                href={record.feedbackUri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  fontSize: '0.85rem',
+                                  color: palette.accent,
+                                  textDecoration: 'none',
+                                  wordBreak: 'break-all',
+                                }}
+                              >
+                                {record.feedbackUri}
+                              </a>
+                            </div>
+                          )}
+                          {record.feedbackJson && (
+                            <div>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback JSON:</strong>
+                              <pre
+                                style={{
+                                  margin: '0.5rem 0 0',
+                                  padding: '0.5rem',
+                                  backgroundColor: palette.background,
+                                  borderRadius: '4px',
+                                  fontSize: '0.75em',
+                                  overflow: 'auto',
+                                  maxHeight: '200px',
+                                  fontFamily: 'ui-monospace, monospace',
+                                }}
+                              >
+                                {(() => {
+                                  try {
+                                    return JSON.stringify(JSON.parse(record.feedbackJson), null, 2);
+                                  } catch {
+                                    return record.feedbackJson;
+                                  }
+                                })()}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
                       </li>
                     );
                   })}
@@ -455,73 +538,227 @@ const AgentDetailsTabs = ({
             ) : (
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  display: 'flex',
+                  flexDirection: 'column',
                   gap: '1rem',
                 }}
               >
-                <div
-                  style={{
-                    border: `1px solid ${palette.border}`,
-                    borderRadius: '12px',
-                    padding: '1rem',
-                    backgroundColor: palette.surfaceMuted,
-                  }}
-                >
-                  <h4 style={{ marginTop: 0, fontSize: '1rem', fontWeight: 600 }}>
-                    Completed ({completedValidations.length})
+                <div>
+                  <h4
+                    style={{
+                      margin: '0 0 0.5rem',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Completed validations ({completedValidations.length})
                   </h4>
-                  {completedValidations.length === 0 ? (
+                  {completedValidations.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {completedValidations.map((item: any, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            border: `1px solid ${palette.border}`,
+                            borderRadius: '8px',
+                            padding: '0.75rem',
+                            backgroundColor: palette.surfaceMuted,
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {item.requestHash && (
+                              <div>
+                                <strong>Request Hash:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.requestHash.length > 20 ? `${item.requestHash.slice(0, 10)}…${item.requestHash.slice(-8)}` : item.requestHash}
+                                </code>
+                              </div>
+                            )}
+                            {item.response !== undefined && (
+                              <div>
+                                <strong>Response:</strong> {item.response}
+                              </div>
+                            )}
+                            {item.tag && (
+                              <div>
+                                <strong>Tag:</strong> {item.tag}
+                              </div>
+                            )}
+                            {item.txHash && (
+                              <div>
+                                <strong>TX Hash:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.txHash.length > 20 ? `${item.txHash.slice(0, 10)}…${item.txHash.slice(-8)}` : item.txHash}
+                                </code>
+                              </div>
+                            )}
+                            {item.blockNumber && (
+                              <div>
+                                <strong>Block:</strong> {item.blockNumber}
+                              </div>
+                            )}
+                            {item.timestamp && (
+                              <div>
+                                <strong>Timestamp:</strong> {new Date(Number(item.timestamp) * 1000).toLocaleString()}
+                              </div>
+                            )}
+                            {item.validatorAddress && (
+                              <div>
+                                <strong>Validator:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.validatorAddress.length > 20 ? `${item.validatorAddress.slice(0, 10)}…${item.validatorAddress.slice(-8)}` : item.validatorAddress}
+                                </code>
+                              </div>
+                            )}
+                            {item.requestUri && (
+                              <div>
+                                <strong>Request URI:</strong>{' '}
+                                <a href={item.requestUri} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, wordBreak: 'break-all', fontSize: '0.85em' }}>
+                                  {item.requestUri}
+                                </a>
+                              </div>
+                            )}
+                            {item.requestJson && (
+                              <div>
+                                <strong>Request JSON:</strong>
+                                <pre
+                                  style={{
+                                    margin: '0.5rem 0 0',
+                                    padding: '0.5rem',
+                                    backgroundColor: palette.background,
+                                    borderRadius: '4px',
+                                    fontSize: '0.75em',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >
+                                  {formatJsonIfPossible(item.requestJson)}
+                                </pre>
+                              </div>
+                            )}
+                            {item.responseUri && (
+                              <div>
+                                <strong>Response URI:</strong>{' '}
+                                <a href={item.responseUri} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, wordBreak: 'break-all', fontSize: '0.85em' }}>
+                                  {item.responseUri}
+                                </a>
+                              </div>
+                            )}
+                            {item.responseJson && (
+                              <div>
+                                <strong>Response JSON:</strong>
+                                <pre
+                                  style={{
+                                    margin: '0.5rem 0 0',
+                                    padding: '0.5rem',
+                                    backgroundColor: palette.background,
+                                    borderRadius: '4px',
+                                    fontSize: '0.75em',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >
+                                  {formatJsonIfPossible(item.responseJson)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
                     <p style={{ color: palette.textSecondary, margin: 0 }}>
                       No completed validations.
                     </p>
-                  ) : (
-                    <ul
-                      style={{
-                        listStyle: 'disc',
-                        paddingLeft: '1.2rem',
-                        margin: 0,
-                        fontSize: '0.85rem',
-                      }}
-                    >
-                      {completedValidations.map((item, idx) => (
-                        <li key={item.requestHash ?? idx} style={{ marginBottom: '0.5rem' }}>
-                          <code style={{ fontFamily: 'monospace' }}>{item.requestHash}</code> — response {item.response}
-                        </li>
-                      ))}
-                    </ul>
                   )}
                 </div>
-                <div
-                  style={{
-                    border: `1px solid ${palette.border}`,
-                    borderRadius: '12px',
-                    padding: '1rem',
-                    backgroundColor: palette.surfaceMuted,
-                  }}
-                >
-                  <h4 style={{ marginTop: 0, fontSize: '1rem', fontWeight: 600 }}>
-                    Pending ({pendingValidations.length})
+                <div>
+                  <h4
+                    style={{
+                      margin: '0 0 0.5rem',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    Pending validations ({pendingValidations.length})
                   </h4>
-                  {pendingValidations.length === 0 ? (
+                  {pendingValidations.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                      {pendingValidations.map((item: any, index) => (
+                        <div
+                          key={index}
+                          style={{
+                            border: `1px solid ${palette.border}`,
+                            borderRadius: '8px',
+                            padding: '0.75rem',
+                            backgroundColor: palette.surfaceMuted,
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {item.requestHash && (
+                              <div>
+                                <strong>Request Hash:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.requestHash.length > 20 ? `${item.requestHash.slice(0, 10)}…${item.requestHash.slice(-8)}` : item.requestHash}
+                                </code>
+                              </div>
+                            )}
+                            <div style={{ color: palette.textSecondary }}>
+                              <strong>Status:</strong> Awaiting response
+                            </div>
+                            {item.tag && (
+                              <div>
+                                <strong>Tag:</strong> {item.tag}
+                              </div>
+                            )}
+                            {item.validatorAddress && (
+                              <div>
+                                <strong>Validator:</strong>{' '}
+                                <code style={{ fontFamily: 'monospace', fontSize: '0.85em' }}>
+                                  {item.validatorAddress.length > 20 ? `${item.validatorAddress.slice(0, 10)}…${item.validatorAddress.slice(-8)}` : item.validatorAddress}
+                                </code>
+                              </div>
+                            )}
+                            {item.lastUpdate && (
+                              <div>
+                                <strong>Last Update:</strong> {new Date(Number(item.lastUpdate) * 1000).toLocaleString()}
+                              </div>
+                            )}
+                            {item.requestUri && (
+                              <div>
+                                <strong>Request URI:</strong>{' '}
+                                <a href={item.requestUri} target="_blank" rel="noopener noreferrer" style={{ color: palette.accent, wordBreak: 'break-all', fontSize: '0.85em' }}>
+                                  {item.requestUri}
+                                </a>
+                              </div>
+                            )}
+                            {item.requestJson && (
+                              <div>
+                                <strong>Request JSON:</strong>
+                                <pre
+                                  style={{
+                                    margin: '0.5rem 0 0',
+                                    padding: '0.5rem',
+                                    backgroundColor: palette.background,
+                                    borderRadius: '4px',
+                                    fontSize: '0.75em',
+                                    overflow: 'auto',
+                                    maxHeight: '200px',
+                                    fontFamily: 'ui-monospace, monospace',
+                                  }}
+                                >
+                                  {formatJsonIfPossible(item.requestJson)}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
                     <p style={{ color: palette.textSecondary, margin: 0 }}>
                       No pending validations.
                     </p>
-                  ) : (
-                    <ul
-                      style={{
-                        listStyle: 'disc',
-                        paddingLeft: '1.2rem',
-                        margin: 0,
-                        fontSize: '0.85rem',
-                      }}
-                    >
-                      {pendingValidations.map((item, idx) => (
-                        <li key={item.requestHash ?? idx} style={{ marginBottom: '0.5rem' }}>
-                          <code style={{ fontFamily: 'monospace' }}>{item.requestHash}</code> — awaiting response
-                        </li>
-                      ))}
-                    </ul>
                   )}
                 </div>
               </div>
