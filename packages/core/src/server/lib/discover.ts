@@ -88,6 +88,39 @@ export async function discoverAgents(
 
       const chainId = numeric(raw?.chainId, DEFAULT_CHAIN_ID) ?? DEFAULT_CHAIN_ID;
 
+      // Extract MCP endpoint from registration data
+      let mcpEndpoint: string | null | undefined = undefined;
+      try {
+        // First try to extract from rawJson if available
+        const rawJsonStr = stringOrNull(raw?.rawJson);
+        if (rawJsonStr) {
+          try {
+            const registration = JSON.parse(rawJsonStr);
+            if (registration?.endpoints && Array.isArray(registration.endpoints)) {
+              const mcpEndpointEntry = registration.endpoints.find(
+                (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp')
+              );
+              if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
+                mcpEndpoint = mcpEndpointEntry.endpoint;
+              }
+            }
+          } catch {
+            // Ignore JSON parse errors
+          }
+        }
+        // If not found in rawJson, try to extract from endpoints array if available
+        if (!mcpEndpoint && raw?.endpoints && Array.isArray(raw.endpoints)) {
+          const mcpEndpointEntry = raw.endpoints.find(
+            (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp')
+          );
+          if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
+            mcpEndpoint = mcpEndpointEntry.endpoint;
+          }
+        }
+      } catch {
+        // Ignore errors in MCP endpoint extraction
+      }
+
       return {
         chainId,
         agentId: stringOrNull(raw?.agentId) ?? '',
@@ -108,6 +141,7 @@ export async function discoverAgents(
         a2aEndpoint: stringOrNull(raw?.a2aEndpoint) ?? undefined,
         ensEndpoint: stringOrNull(raw?.ensEndpoint) ?? undefined,
         agentAccountEndpoint: stringOrNull(raw?.agentAccountEndpoint) ?? undefined,
+        mcpEndpoint: mcpEndpoint, // Add extracted MCP endpoint
         supportedTrust: stringOrNull(raw?.supportedTrust) ?? undefined,
         rawJson: stringOrNull(raw?.rawJson) ?? undefined,
         did: stringOrNull(raw?.did) ?? undefined,

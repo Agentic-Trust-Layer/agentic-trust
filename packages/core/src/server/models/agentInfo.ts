@@ -22,6 +22,7 @@ export interface AgentInfo {
   a2aEndpoint?: string | null;
   ensEndpoint?: string | null;
   agentAccountEndpoint?: string | null;
+  mcpEndpoint?: string | null; // MCP endpoint URL from registration
   supportedTrust?: string | null;
   rawJson?: string | null;
   did?: string | null;

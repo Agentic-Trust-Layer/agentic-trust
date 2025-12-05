@@ -119,24 +119,10 @@ export async function GET(
 
     if (a2aEndpoint) {
       try {
-        // Normalize the A2A endpoint URL
-        // If it already points to agent-card.json, use it as-is
-        // Otherwise, if it ends with /api/a2a, remove that and append /.well-known/agent-card.json
-        // Otherwise, treat it as a base URL and append /.well-known/agent-card.json
-        let cardUrl: string;
-        if (a2aEndpoint.includes('agent-card.json')) {
-          cardUrl = a2aEndpoint;
-        } else if (a2aEndpoint.endsWith('/api/a2a')) {
-          const baseUrl = a2aEndpoint.replace(/\/api\/a2a$/, '');
-          cardUrl = `${baseUrl}/.well-known/agent-card.json`;
-        } else {
-          // Treat as base URL
-          const baseUrl = a2aEndpoint.replace(/\/$/, '');
-          cardUrl = `${baseUrl}/.well-known/agent-card.json`;
-        }
-        
-        console.log('[API] Fetching agent card from:', cardUrl);
-        const agentCard = await fetchA2AAgentCard(cardUrl);
+        // fetchA2AAgentCard automatically appends .well-known/agent-card.json if needed
+        // A2A endpoint stored in registration is now just the base URL (per spec)
+        console.log('[API] Fetching agent card from A2A endpoint:', a2aEndpoint);
+        const agentCard = await fetchA2AAgentCard(a2aEndpoint);
         
         if (agentCard) {
           // Check if agent card has the validation skill

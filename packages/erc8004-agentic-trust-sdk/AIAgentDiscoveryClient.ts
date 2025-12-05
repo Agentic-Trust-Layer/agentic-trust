@@ -405,8 +405,24 @@ export class AIAgentDiscoveryClient {
       return Number.isFinite(numeric) ? numeric : null;
     };
 
+    // Parse rawJson to extract all metadata fields
+    let parsedMetadata: Record<string, unknown> = {};
+    if (record.rawJson && typeof record.rawJson === 'string') {
+      try {
+        const parsed = JSON.parse(record.rawJson);
+        if (parsed && typeof parsed === 'object') {
+          // Extract all fields from the registration JSON
+          parsedMetadata = parsed as Record<string, unknown>;
+        }
+      } catch (error) {
+        // Silently ignore JSON parse errors
+      }
+    }
+
     const normalized: AgentData = {
       ...(record as AgentData),
+      // Merge all metadata from parsed rawJson
+      ...parsedMetadata,
     };
 
     const agentAccount = toOptionalString(record.agentAccount);
@@ -1199,12 +1215,207 @@ export class AIAgentDiscoveryClient {
   }
 
   /**
-   * Get a single agent by ID
+   * Get all token metadata from The Graph indexer for an agent
+   * Uses tokenMetadata_collection query to get all metadata key-value pairs
+   * Handles pagination if an agent has more than 1000 metadata entries
+   * @param chainId - Chain ID
+   * @param agentId - Agent ID
+   * @returns Record of all metadata key-value pairs, or null if not available
+   */
+  async getTokenMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    const metadata: Record<string, string> = {};
+    const pageSize = 1000; // The Graph's default page size
+    let skip = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const query = `
+        query GetTokenMetadata($chainId: Int!, $agentId: String!, $first: Int!, $skip: Int!) {
+          tokenMetadata_collection(
+            chainId: $chainId
+            agentId: $agentId
+            first: $first
+            skip: $skip
+          ) {
+            key
+            value
+            id
+            indexedKey
+          }
+        }
+      `;
+
+      try {
+        const data = await this.client.request<{
+          tokenMetadata_collection?: Array<{
+            key: string;
+            value: string;
+            id?: string;
+            indexedKey?: string;
+          }>;
+        }>(query, {
+          chainId,
+          agentId: String(agentId),
+          first: pageSize,
+          skip: skip,
+        });
+
+        if (!data.tokenMetadata_collection || !Array.isArray(data.tokenMetadata_collection)) {
+          hasMore = false;
+          break;
+        }
+
+        // Add entries from this page
+        for (const entry of data.tokenMetadata_collection) {
+          if (entry.key && entry.value) {
+            metadata[entry.key] = entry.value;
+          }
+        }
+
+        // Check if we got a full page (might have more)
+        hasMore = data.tokenMetadata_collection.length === pageSize;
+        skip += pageSize;
+
+        // Safety check: The Graph has a max skip of 5000
+        // If we've reached that, we can't fetch more (unlikely for a single agent)
+        if (skip >= 5000) {
+          console.warn(`[AIAgentDiscoveryClient.getTokenMetadata] Reached The Graph skip limit (5000) for agent ${agentId}`);
+          hasMore = false;
+        }
+      } catch (error) {
+        console.warn('[AIAgentDiscoveryClient.getTokenMetadata] Error fetching token metadata from GraphQL:', error);
+        // If we got some metadata before the error, return what we have
+        if (Object.keys(metadata).length > 0) {
+          return metadata;
+        }
+        return null;
+      }
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : null;
+  }
+
+  /**
+   * Get a single agent by ID with metadata
    * @param chainId - Chain ID (required by schema)
    * @param agentId - Agent ID to fetch
-   * @returns Agent data or null if not found
+   * @returns Agent data with metadata or null if not found
    */
   async getAgent(chainId: number, agentId: number | string): Promise<AgentData | null> {
+    // Try searchAgentsGraph first to get metadata
+    const graphQuery = `
+      query GetAgentWithMetadata($where: AgentWhereInput, $first: Int) {
+        searchAgentsGraph(
+          where: $where
+          first: $first
+        ) {
+          agents {
+            chainId
+            agentId
+            agentAccount
+            agentOwner
+            agentName
+            didIdentity
+            didAccount
+            didName
+            tokenUri
+            createdAtBlock
+            createdAtTime
+            updatedAtTime
+            type
+            description
+            image
+            a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            did
+            mcp
+            x402support
+            active
+            supportedTrust
+            rawJson
+            metadata {
+              key
+              valueText
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const graphData = await this.client.request<{
+        searchAgentsGraph?: {
+          agents?: Array<{
+            chainId?: number;
+            agentId?: string | number;
+            agentAccount?: string;
+            agentOwner?: string;
+            agentName?: string;
+            didIdentity?: string | null;
+            didAccount?: string | null;
+            didName?: string | null;
+            tokenUri?: string;
+            createdAtBlock?: number;
+            createdAtTime?: string | number;
+            updatedAtTime?: string | number;
+            type?: string | null;
+            description?: string | null;
+            image?: string | null;
+            a2aEndpoint?: string | null;
+            ensEndpoint?: string | null;
+            agentAccountEndpoint?: string | null;
+            did?: string | null;
+            mcp?: boolean | null;
+            x402support?: boolean | null;
+            active?: boolean | null;
+            supportedTrust?: string | null;
+            rawJson?: string | null;
+            metadata?: Array<{
+              key: string;
+              valueText: string;
+            }>;
+          }>;
+        };
+      }>(graphQuery, {
+        where: {
+          chainId,
+          agentId: String(agentId),
+        },
+        first: 1,
+      });
+
+      if (graphData.searchAgentsGraph?.agents && graphData.searchAgentsGraph.agents.length > 0) {
+        const agentData = graphData.searchAgentsGraph.agents[0];
+        if (!agentData) {
+          return null;
+        }
+        
+        // Convert metadata array to record and add to agent data
+        const normalized = this.normalizeAgent(agentData);
+        if (agentData.metadata && Array.isArray(agentData.metadata)) {
+          // Add metadata as a flat object on the agent data
+          for (const meta of agentData.metadata) {
+            if (meta.key && meta.valueText) {
+              (normalized as any)[meta.key] = meta.valueText;
+            }
+          }
+          // Also store as metadata property for easy access
+          (normalized as any).metadata = agentData.metadata.reduce((acc, meta) => {
+            if (meta.key && meta.valueText) {
+              acc[meta.key] = meta.valueText;
+            }
+            return acc;
+          }, {} as Record<string, string>);
+        }
+        
+        return normalized;
+      }
+    } catch (error) {
+      console.warn('[AIAgentDiscoveryClient.getAgent] GraphQL searchAgentsGraph failed, trying fallback:', error);
+    }
+
+    // Fallback to original agent query if searchAgentsGraph doesn't work
     const query = `
       query GetAgent($chainId: Int!, $agentId: String!) {
         agent(chainId: $chainId, agentId: $agentId) {

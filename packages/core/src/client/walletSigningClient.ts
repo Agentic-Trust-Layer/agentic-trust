@@ -16,6 +16,7 @@ export {
   requestNameValidationWithWallet,
   requestAccountValidationWithWallet,
   requestAppValidationWithWallet,
+  requestAIDValidationWithWallet,
   getCounterfactualAccountClientByAgentName,
   getDeployedAccountClientByAgentName,
   getCounterfactualAAAddressByAgentName,

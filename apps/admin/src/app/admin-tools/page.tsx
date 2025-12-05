@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
 import { keccak256, toHex } from "viem";
-import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet, requestAIDValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
   getSupportedChainIds,
@@ -279,11 +279,14 @@ export default function AdminPage() {
     | 'session'
     | 'delete'
     | 'transfer'
-    | 'validation'
-    | 'accountValidation'
-    | 'appValidation'
+    | 'validators'
     | 'agentValidation'
   >((queryTab as any) || 'registration');
+  
+  // Sub-tab state for validators dropdown
+  const [activeValidatorTab, setActiveValidatorTab] = useState<
+    'validation' | 'accountValidation' | 'appValidation' | 'aidValidation'
+  >('validation');
   
   // Update URL when tab changes
   const handleTabChange = useCallback((tab: typeof activeManagementTab) => {
@@ -301,7 +304,13 @@ export default function AdminPage() {
   // Sync tab from URL
   useEffect(() => {
     if (queryTab && queryTab !== activeManagementTab) {
-      setActiveManagementTab(queryTab as any);
+      // Handle old validation tab values - redirect to validators tab
+      if (queryTab === 'validation' || queryTab === 'accountValidation' || queryTab === 'appValidation' || queryTab === 'aidValidation') {
+        setActiveManagementTab('validators');
+        setActiveValidatorTab(queryTab as typeof activeValidatorTab);
+      } else {
+        setActiveManagementTab(queryTab as any);
+      }
     }
   }, [queryTab, activeManagementTab]);
  
@@ -969,6 +978,23 @@ export default function AdminPage() {
     operatorAddress: null,
   });
 
+  // Validation request status for each validator type
+  const [validatorRequestStatus, setValidatorRequestStatus] = useState<{
+    [key: string]: {
+      loading: boolean;
+      error: string | null;
+      request: ValidationStatusWithHash | null;
+      timeAgo: string | null;
+      dateRequested: string | null;
+      daysWaiting: number | null;
+    };
+  }>({
+    validation: { loading: false, error: null, request: null, timeAgo: null, dateRequested: null, daysWaiting: null },
+    accountValidation: { loading: false, error: null, request: null, timeAgo: null, dateRequested: null, daysWaiting: null },
+    appValidation: { loading: false, error: null, request: null, timeAgo: null, dateRequested: null, daysWaiting: null },
+    aidValidation: { loading: false, error: null, request: null, timeAgo: null, dateRequested: null, daysWaiting: null },
+  });
+
   useEffect(() => {
     if (!isEditMode || !finalAgentId || !finalChainId) {
       return;
@@ -1024,6 +1050,103 @@ export default function AdminPage() {
     }
     refreshAgentValidationRequests();
   }, [isEditMode, activeManagementTab, refreshAgentValidationRequests]);
+
+  // Fetch validation request status for each validator type
+  useEffect(() => {
+    if (!isEditMode || activeManagementTab !== 'validators' || !finalAgentId || !finalChainId) {
+      return;
+    }
+
+    const validatorNames = {
+      validation: 'name-validator',
+      accountValidation: 'account-validator',
+      appValidation: 'app-validator',
+      aidValidation: 'aid-validator',
+    };
+
+    const fetchValidatorStatus = async (key: string, validatorName: string) => {
+      setValidatorRequestStatus((prev) => ({
+        ...prev,
+        [key]: { ...prev[key], loading: true, error: null },
+      }));
+
+      try {
+        const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
+        const response = await fetch(
+          `/api/agents/${encodeURIComponent(did8004)}/validations-by-validator?validatorName=${encodeURIComponent(validatorName)}`
+        );
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to fetch validation status');
+        }
+
+        const data = await response.json();
+        const request = data.request as ValidationStatusWithHash | null;
+
+        // Calculate time ago, date requested, and days waiting
+        let timeAgo: string | null = null;
+        let dateRequested: string | null = null;
+        let daysWaiting: number | null = null;
+        
+        if (request?.lastUpdate) {
+          const lastUpdate = typeof request.lastUpdate === 'bigint' 
+            ? Number(request.lastUpdate) 
+            : typeof request.lastUpdate === 'number' 
+            ? request.lastUpdate 
+            : typeof request.lastUpdate === 'string'
+            ? Number.parseInt(request.lastUpdate, 10)
+            : 0;
+          
+          if (lastUpdate > 0) {
+            const date = new Date(lastUpdate * 1000);
+            dateRequested = date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+            
+            const secondsAgo = Math.floor((Date.now() / 1000) - lastUpdate);
+            if (secondsAgo < 60) {
+              timeAgo = `${secondsAgo} second${secondsAgo !== 1 ? 's' : ''} ago`;
+            } else if (secondsAgo < 3600) {
+              const minutesAgo = Math.floor(secondsAgo / 60);
+              timeAgo = `${minutesAgo} minute${minutesAgo !== 1 ? 's' : ''} ago`;
+            } else if (secondsAgo < 86400) {
+              const hoursAgo = Math.floor(secondsAgo / 3600);
+              timeAgo = `${hoursAgo} hour${hoursAgo !== 1 ? 's' : ''} ago`;
+            } else {
+              const daysAgo = Math.floor(secondsAgo / 86400);
+              timeAgo = `${daysAgo} day${daysAgo !== 1 ? 's' : ''} ago`;
+            }
+            
+            // Calculate days waiting if pending
+            if (request.response === 0) {
+              daysWaiting = Math.floor(secondsAgo / 86400);
+            }
+          }
+        }
+
+        setValidatorRequestStatus((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: null, request, timeAgo, dateRequested, daysWaiting },
+        }));
+      } catch (error) {
+        setValidatorRequestStatus((prev) => ({
+          ...prev,
+            [key]: {
+              loading: false,
+              error: error instanceof Error ? error.message : 'Failed to fetch status',
+              request: null,
+              timeAgo: null,
+              dateRequested: null,
+              daysWaiting: null,
+            },
+        }));
+      }
+    };
+
+    // Fetch status for all validator types
+    Object.entries(validatorNames).forEach(([key, validatorName]) => {
+      fetchValidatorStatus(key, validatorName);
+    });
+  }, [isEditMode, activeManagementTab, finalAgentId, finalChainId]);
 
   // Fetch NFT operator when registration tab is active
   useEffect(() => {
@@ -1582,6 +1705,100 @@ export default function AdminPage() {
     }
   };
 
+  const handleSubmitAIDValidationRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
+      setError('Agent information is required. Please navigate to an agent first.');
+      return;
+    }
+    const agentName = displayAgentName;
+    if (!agentName || agentName === '...') {
+      setError('Agent name is required. Please ensure the agent has a name.');
+      return;
+    }
+    if (!eip1193Provider || !eoaAddress) {
+      setError('Wallet connection is required for validation requests');
+      return;
+    }
+
+    try {
+      setError(null);
+      setValidationSubmitting(true);
+      const chainId = Number.parseInt(finalChainId, 10);
+      if (!Number.isFinite(chainId)) {
+        throw new Error('Invalid chainId');
+      }
+      const chain = getChainById(chainId);
+      const bundlerUrl = getChainBundlerUrl(chainId);
+
+      if (!bundlerUrl) {
+        throw new Error(`Bundler URL not configured for chain ${chainId}`);
+      }
+
+      // Get agent account client
+      const agentAccountClient = await getDeployedAccountClientByAgentName(
+        bundlerUrl,
+        agentName,
+        eoaAddress as `0x${string}`,
+        {
+          chain: chain as any,
+          ethereumProvider: eip1193Provider as any,
+        }
+      );
+
+      // Build did8004 for the validation request
+      const did8004 = buildDid8004(chainId, finalAgentId);
+
+      const requestJson = {
+        agentId: finalAgentId,
+        agentName: agentName,
+        checks: ["Check Valid AID Entry"]
+      };
+      const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
+      
+      // Upload requestJson to IPFS
+      console.log('[AID Validation] Uploading validation request to IPFS...');
+      const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
+      const formData = new FormData();
+      formData.append('file', jsonBlob, 'validation-request.json');
+      
+      const ipfsResponse = await fetch('/api/ipfs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!ipfsResponse.ok) {
+        throw new Error('Failed to upload validation request to IPFS');
+      }
+      
+      const ipfsResult = await ipfsResponse.json();
+      const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
+
+      // Submit validation request using the new pattern
+      const result = await requestAIDValidationWithWallet({
+        requesterDid: did8004,
+        requestUri: requestUri,
+        requestHash: requestHash,
+        chain: chain as any,
+        requesterAccountClient: agentAccountClient,
+        onStatusUpdate: (msg: string) => console.log('[AID Validation Request]', msg),
+      });
+
+      setSuccess(
+        `AID validation request submitted successfully! TX: ${result.txHash}, Validator: ${result.validatorAddress}, Request Hash: ${result.requestHash}`
+      );
+      // Update displayed validator address and request hash
+      setValidatorAddress(result.validatorAddress);
+      setRequestHash(result.requestHash);
+    } catch (err) {
+      console.error('Error submitting AID validation request:', err);
+      setError(err instanceof Error ? err.message : 'Failed to submit AID validation request');
+    } finally {
+      setValidationSubmitting(false);
+    }
+  };
+
   const handleTransferAgent = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -1689,10 +1906,8 @@ export default function AdminPage() {
                       <Tab label="Agent Operator" value="session" />
                       <Tab label="Transfer Agent" value="transfer" />
                       <Tab label="Delete Agent" value="delete" />
-                      <Tab label="Agent Name Validation" value="validation" />
-                      <Tab label="Agent Account Validation" value="accountValidation" />
-                      <Tab label="Agent App Validation" value="appValidation" />
-                      <Tab label="Validate Agent Request" value="agentValidation" />
+                      <Tab label="Validators" value="validators" />
+                      <Tab label="View Requests for Validation" value="agentValidation" />
                     </Tabs>
                   </Paper>
                 </Grid>
@@ -1809,12 +2024,12 @@ export default function AdminPage() {
                             setRegistrationA2aEndpoint(val);
                             setRegistrationA2aError(validateUrlLike(val));
                           }}
-                          placeholder="https://agent.example.com/.well-known/agent-card.json"
+                          placeholder="https://agent.example.com"
                           disabled={!registrationParsed}
                           error={!!registrationA2aError}
                           helperText={
                             registrationA2aError || 
-                            'Single Agent Card (A2A) endpoint. This will be stored in the endpoints array with name A2A.'
+                            'Base URL for A2A endpoint. The `.well-known/agent-card.json` path is automatically appended when fetching (per A2A spec).'
                           }
                           variant="outlined"
                           size="small"
@@ -2173,7 +2388,7 @@ export default function AdminPage() {
                 {(!isEditMode || activeManagementTab === 'agentValidation') && (
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h5" gutterBottom>
-                      Validate Agent Request
+                      Validate Agent Requests
                     </Typography>
                     {isEditMode && displayAgentAddress && finalChainId ? (
                       <>
@@ -2339,17 +2554,89 @@ export default function AdminPage() {
                   </Paper>
                 )}
 
-                {(!isEditMode || activeManagementTab === 'validation') && (
+                {(!isEditMode || activeManagementTab === 'validators') && (
                   <Paper sx={{ p: 3 }}>
-                    <Typography variant="h5" gutterBottom>
-                      Agent Name Validation
-                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+                      <Typography variant="h5" gutterBottom>
+                        Validators
+                      </Typography>
+                      <FormControl variant="outlined" sx={{ minWidth: 250 }}>
+                        <InputLabel>Validation Type</InputLabel>
+                        <Select
+                          value={activeValidatorTab}
+                          onChange={(e) => setActiveValidatorTab(e.target.value as typeof activeValidatorTab)}
+                          label="Validation Type"
+                        >
+                          <MenuItem value="validation">Agent Name Validation</MenuItem>
+                          <MenuItem value="accountValidation">Agent Account Validation</MenuItem>
+                          <MenuItem value="appValidation">Agent App Validation</MenuItem>
+                          <MenuItem value="aidValidation">Agent AID Validation</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Box>
+
+                    {activeValidatorTab === 'validation' && (
+                      <>
+                        <Typography variant="h6" gutterBottom>
+                          Agent Name Validation
+                        </Typography>
                     {isEditMode && finalAgentId && finalChainId ? (
                       <>
                         <Typography variant="body2" color="text.secondary" paragraph>
                           Submit an Name validation request for the current agent. The agent account abstraction will be used as the requester,
                           and a validator account abstraction (name: 'name-validator') will be used as the validator.
                         </Typography>
+
+                        {(() => {
+                          const status = validatorRequestStatus.validation;
+                          return (
+                            <>
+                              {status.request && (
+                                <Alert 
+                                  severity={status.request.response === 0 ? 'info' : 'success'} 
+                                  sx={{ mb: 2 }}
+                                >
+                                  <Typography variant="body2" fontWeight={600}>
+                                    Validation Request Status
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    <strong>Status:</strong> {status.request.response === 0 ? 'Pending' : `Completed (Response: ${status.request.response})`}
+                                  </Typography>
+                                  {status.dateRequested && (
+                                    <Typography variant="body2">
+                                      <strong>Date Requested:</strong> {status.dateRequested}
+                                    </Typography>
+                                  )}
+                                  {status.request.response === 0 && status.daysWaiting !== null && (
+                                    <Typography variant="body2" color={status.daysWaiting >= 7 ? 'warning.main' : 'text.primary'}>
+                                      <strong>Days Waiting:</strong> {status.daysWaiting} day{status.daysWaiting !== 1 ? 's' : ''}
+                                    </Typography>
+                                  )}
+                                  {status.timeAgo && (
+                                    <Typography variant="body2" color="text.secondary" fontSize="0.875rem">
+                                      ({status.timeAgo})
+                                    </Typography>
+                                  )}
+                                  {status.request.requestHash && (
+                                    <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem" sx={{ mt: 0.5 }}>
+                                      Hash: {shortenHex(status.request.requestHash)}
+                                    </Typography>
+                                  )}
+                                </Alert>
+                              )}
+                              {status.loading && (
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                  <Typography variant="body2">Checking for existing validation request...</Typography>
+                                </Alert>
+                              )}
+                              {status.error && (
+                                <Alert severity="warning" sx={{ mb: 2 }}>
+                                  <Typography variant="body2">Could not check validation status: {status.error}</Typography>
+                                </Alert>
+                              )}
+                            </>
+                          );
+                        })()}
 
                         <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
                           <Typography variant="h6" gutterBottom fontSize="1.1rem">
@@ -2365,8 +2652,6 @@ export default function AdminPage() {
                             <Typography variant="body2">
                               <strong>Chain ID:</strong> {finalChainId}
                             </Typography>
-                            
-                            
                           </Box>
                         </Paper>
 
@@ -2397,20 +2682,71 @@ export default function AdminPage() {
                         Please navigate to an agent to view validation request information.
                       </Typography>
                     )}
-                  </Paper>
-                )}
+                      </>
+                    )}
 
-                {(!isEditMode || activeManagementTab === 'accountValidation') && (
-                  <Paper sx={{ p: 3 }}>
-                    <Typography variant="h5" gutterBottom>
-                      Agent Account Validation
-                    </Typography>
-                    {isEditMode && finalAgentId && finalChainId ? (
+                    {activeValidatorTab === 'accountValidation' && (
+                      <>
+                        <Typography variant="h6" gutterBottom>
+                          Agent Account Validation
+                        </Typography>
+                        {isEditMode && finalAgentId && finalChainId ? (
                       <>
                         <Typography variant="body2" color="text.secondary" paragraph>
                           Submit an agent account validation request for the current agent. The agent account abstraction will be used as the requester,
                           and a validator account abstraction will be used as the validator.
                         </Typography>
+
+                        {(() => {
+                          const status = validatorRequestStatus.accountValidation;
+                          return (
+                            <>
+                              {status.request && (
+                                <Alert 
+                                  severity={status.request.response === 0 ? 'info' : 'success'} 
+                                  sx={{ mb: 2 }}
+                                >
+                                  <Typography variant="body2" fontWeight={600}>
+                                    Validation Request Status
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    <strong>Status:</strong> {status.request.response === 0 ? 'Pending' : `Completed (Response: ${status.request.response})`}
+                                  </Typography>
+                                  {status.dateRequested && (
+                                    <Typography variant="body2">
+                                      <strong>Date Requested:</strong> {status.dateRequested}
+                                    </Typography>
+                                  )}
+                                  {status.request.response === 0 && status.daysWaiting !== null && (
+                                    <Typography variant="body2" color={status.daysWaiting >= 7 ? 'warning.main' : 'text.primary'}>
+                                      <strong>Days Waiting:</strong> {status.daysWaiting} day{status.daysWaiting !== 1 ? 's' : ''}
+                                    </Typography>
+                                  )}
+                                  {status.timeAgo && (
+                                    <Typography variant="body2" color="text.secondary" fontSize="0.875rem">
+                                      ({status.timeAgo})
+                                    </Typography>
+                                  )}
+                                  {status.request.requestHash && (
+                                    <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem" sx={{ mt: 0.5 }}>
+                                      Hash: {shortenHex(status.request.requestHash)}
+                                    </Typography>
+                                  )}
+                                </Alert>
+                              )}
+                              {status.loading && (
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                  <Typography variant="body2">Checking for existing validation request...</Typography>
+                                </Alert>
+                              )}
+                              {status.error && (
+                                <Alert severity="warning" sx={{ mb: 2 }}>
+                                  <Typography variant="body2">Could not check validation status: {status.error}</Typography>
+                                </Alert>
+                              )}
+                            </>
+                          );
+                        })()}
 
                         <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
                           <Typography variant="h6" gutterBottom fontSize="1.1rem">
@@ -2469,20 +2805,71 @@ export default function AdminPage() {
                         Please navigate to an agent to view validation request information.
                       </Typography>
                     )}
-                  </Paper>
-                )}
+                      </>
+                    )}
 
-                {(!isEditMode || activeManagementTab === 'appValidation') && (
-                  <Paper sx={{ p: 3 }}>
-                    <Typography variant="h5" gutterBottom>
-                      Agent App Validation
-                    </Typography>
-                    {isEditMode && finalAgentId && finalChainId ? (
+                    {activeValidatorTab === 'appValidation' && (
+                      <>
+                        <Typography variant="h6" gutterBottom>
+                          Agent App Validation
+                        </Typography>
+                        {isEditMode && finalAgentId && finalChainId ? (
                       <>
                         <Typography variant="body2" color="text.secondary" paragraph>
                           Submit an agent app validation request for the current agent. The agent account abstraction will be used as the requester,
                           and a validator account abstraction will be used as the validator.
                         </Typography>
+
+                        {(() => {
+                          const status = validatorRequestStatus.appValidation;
+                          return (
+                            <>
+                              {status.request && (
+                                <Alert 
+                                  severity={status.request.response === 0 ? 'info' : 'success'} 
+                                  sx={{ mb: 2 }}
+                                >
+                                  <Typography variant="body2" fontWeight={600}>
+                                    Validation Request Status
+                                  </Typography>
+                                  <Typography variant="body2">
+                                    <strong>Status:</strong> {status.request.response === 0 ? 'Pending' : `Completed (Response: ${status.request.response})`}
+                                  </Typography>
+                                  {status.dateRequested && (
+                                    <Typography variant="body2">
+                                      <strong>Date Requested:</strong> {status.dateRequested}
+                                    </Typography>
+                                  )}
+                                  {status.request.response === 0 && status.daysWaiting !== null && (
+                                    <Typography variant="body2" color={status.daysWaiting >= 7 ? 'warning.main' : 'text.primary'}>
+                                      <strong>Days Waiting:</strong> {status.daysWaiting} day{status.daysWaiting !== 1 ? 's' : ''}
+                                    </Typography>
+                                  )}
+                                  {status.timeAgo && (
+                                    <Typography variant="body2" color="text.secondary" fontSize="0.875rem">
+                                      ({status.timeAgo})
+                                    </Typography>
+                                  )}
+                                  {status.request.requestHash && (
+                                    <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem" sx={{ mt: 0.5 }}>
+                                      Hash: {shortenHex(status.request.requestHash)}
+                                    </Typography>
+                                  )}
+                                </Alert>
+                              )}
+                              {status.loading && (
+                                <Alert severity="info" sx={{ mb: 2 }}>
+                                  <Typography variant="body2">Checking for existing validation request...</Typography>
+                                </Alert>
+                              )}
+                              {status.error && (
+                                <Alert severity="warning" sx={{ mb: 2 }}>
+                                  <Typography variant="body2">Could not check validation status: {status.error}</Typography>
+                                </Alert>
+                              )}
+                            </>
+                          );
+                        })()}
 
                         <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
                           <Typography variant="h6" gutterBottom fontSize="1.1rem">
@@ -2540,6 +2927,121 @@ export default function AdminPage() {
                       <Typography color="text.secondary" fontStyle="italic">
                         Please navigate to an agent to view validation request information.
                       </Typography>
+                    )}
+                      </>
+                    )}
+
+                    {activeValidatorTab === 'aidValidation' && (
+                      <>
+                        <Typography variant="h6" gutterBottom>
+                          Agent AID Validation
+                        </Typography>
+                        {isEditMode && finalAgentId && finalChainId ? (
+                          <>
+                            <Typography variant="body2" color="text.secondary" paragraph>
+                              Submit an AID validation request for the current agent. The agent account abstraction will be used as the requester,
+                              and a validator account abstraction (name: 'aid-validator') will be used as the validator.
+                            </Typography>
+
+                            {(() => {
+                              const status = validatorRequestStatus.aidValidation;
+                              return (
+                                <>
+                                  {status.request && (
+                                    <Alert 
+                                      severity={status.request.response === 0 ? 'info' : 'success'} 
+                                      sx={{ mb: 2 }}
+                                    >
+                                      <Typography variant="body2" fontWeight={600}>
+                                        Validation Request Status
+                                      </Typography>
+                                      <Typography variant="body2">
+                                        <strong>Status:</strong> {status.request.response === 0 ? 'Pending' : `Completed (Response: ${status.request.response})`}
+                                      </Typography>
+                                      {status.timeAgo && (
+                                        <Typography variant="body2">
+                                          <strong>Requested:</strong> {status.timeAgo}
+                                        </Typography>
+                                      )}
+                                      {status.request.requestHash && (
+                                        <Typography variant="body2" fontFamily="monospace" fontSize="0.75rem">
+                                          Hash: {shortenHex(status.request.requestHash)}
+                                        </Typography>
+                                      )}
+                                    </Alert>
+                                  )}
+                                  {status.loading && (
+                                    <Alert severity="info" sx={{ mb: 2 }}>
+                                      <Typography variant="body2">Checking for existing validation request...</Typography>
+                                    </Alert>
+                                  )}
+                                  {status.error && (
+                                    <Alert severity="warning" sx={{ mb: 2 }}>
+                                      <Typography variant="body2">Could not check validation status: {status.error}</Typography>
+                                    </Alert>
+                                  )}
+                                </>
+                              );
+                            })()}
+
+                            <Paper variant="outlined" sx={{ mb: 3, p: 2, bgcolor: 'grey.50' }}>
+                              <Typography variant="h6" gutterBottom fontSize="1.1rem">
+                                Validation Request Information
+                              </Typography>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                <Typography variant="body2">
+                                  <strong>Agent ID:</strong> {finalAgentId}
+                                </Typography>
+                                <Typography variant="body2">
+                                  <strong>Agent Name:</strong> {displayAgentName}
+                                </Typography>
+                                <Typography variant="body2">
+                                  <strong>Chain ID:</strong> {finalChainId}
+                                </Typography>
+                                <Typography variant="body2">
+                                  <strong>Account:</strong>{' '}
+                                  {displayAgentAddress ? (
+                                    <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
+                                  ) : (
+                                    '(not available)'
+                                  )}
+                                </Typography>
+                              </Box>
+                            </Paper>
+
+                            <Box component="form" onSubmit={handleSubmitAIDValidationRequest}>
+                              <Button
+                                type="submit"
+                                variant="contained"
+                                fullWidth
+                                disabled={validationSubmitting || !eip1193Provider || !eoaAddress || !displayAgentAddress || !displayAgentName}
+                                sx={{ py: 1.5, fontWeight: 'bold' }}
+                              >
+                                {validationSubmitting ? 'Submitting...' : 'Check Valid AID Entry'}
+                              </Button>
+                              {(!eip1193Provider || !eoaAddress) && (
+                                <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                                  Wallet connection required to submit validation request
+                                </Typography>
+                              )}
+                              {!displayAgentAddress && (
+                                <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                                  Agent account address is required to submit validation request
+                                </Typography>
+                              )}
+                              {!displayAgentName && (
+                                <Typography variant="caption" color="error" align="center" display="block" sx={{ mt: 1 }}>
+                                  Agent name is required to submit validation request
+                                </Typography>
+                              )}
+                            </Box>
+                          </>
+                        ) : (
+                          <Typography color="text.secondary" fontStyle="italic">
+                            Please navigate to an agent to view validation request information.
+                          </Typography>
+                        )}
+                      </>
                     )}
                   </Paper>
                 )}

@@ -13,23 +13,20 @@ export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard |
     if (!url) {
       throw new Error('Agent card URL is empty');
     }
-    let urlObj: URL = new URL(url);
-
-    /*
     // Support scheme-less inputs like "agent.example.com" or "//agent.example.com"
-    if (normalizedUrl.startsWith('//')) {
-      normalizedUrl = `https:${normalizedUrl}`;
-    } else if (!normalizedUrl.startsWith('http://') && !normalizedUrl.startsWith('https://')) {
-      normalizedUrl = `https://${normalizedUrl.replace(/^\/+/, '')}`;
+    if (url.startsWith('//')) {
+      url = `https:${url}`;
+    } else if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url.replace(/^\/+/, '')}`;
     }
 
     // Parse the URL to handle it properly
     let urlObj: URL;
     try {
-      urlObj = new URL(normalizedUrl);
+      urlObj = new URL(url);
     } catch (urlError) {
       throw new Error(
-        `Invalid URL format: ${normalizedUrl}. ${
+        `Invalid URL format: ${url}. ${
           urlError instanceof Error ? urlError.message : 'Unknown error'
         }`,
       );
@@ -40,21 +37,23 @@ export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard |
       urlObj.hostname = '127.0.0.1';
     }
 
-    // If URL doesn't already point to agent-card.json, append the standard path
+    // Agent card is always at the base domain's /.well-known/agent-card.json
+    // Extract the origin (protocol + hostname + port) and use that as the base
+    // This ensures that even if the input is an A2A endpoint like /api/a2a,
+    // we construct the agent-card.json from the base domain
     if (!urlObj.pathname.includes('agent-card.json')) {
-      // Remove trailing slash from pathname and append the standard path
-      const basePath = urlObj.pathname.replace(/\/$/, '');
-      urlObj.pathname = `${basePath}/.well-known/agent-card.json`;
+      // Use the origin (base domain) and set path to /.well-known/agent-card.json
+      // This works for both base URLs and protocol endpoint URLs (e.g., /api/a2a)
+      urlObj.pathname = '/.well-known/agent-card.json';
     }
 
-    const url = urlObj.toString();
-    */
-    console.log('[fetchA2AAgentCard] Fetching from:', url);
+    const finalUrl = urlObj.toString();
+    console.log('[fetchA2AAgentCard] Fetching from:', finalUrl);
     
     // Try fetch first, fallback to native http/https if it fails
     let response: Response;
     try {
-      response = await fetch(url, {
+      response = await fetch(finalUrl, {
         method: 'GET',
         headers: {
           Accept: 'application/json',

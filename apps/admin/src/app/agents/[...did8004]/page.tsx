@@ -3,8 +3,10 @@ import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
 import {
   getAgenticTrustClient,
   getAgentValidationsSummary,
+  getRegistration,
   type AgentValidationsSummary,
 } from '@agentic-trust/core/server';
+import { getIdentityRegistryClient } from '@agentic-trust/core/server/singletons/identityClient';
 import type { AgentsPageAgent } from '@/components/AgentsPage';
 import ShadowAgentImage from '../../../../../../docs/8004ShadowAgent.png';
 import AgentDetailsPageContent from '@/components/AgentDetailsPageContent';
@@ -96,6 +98,14 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   const agentIdParam = parsed.agentId.toString();
 
   const client = await getAgenticTrustClient();
+  
+  // Use getAgentDetails to get full detail including metadata from GraphQL
+  const agentDetail = await client.getAgentDetails(agentIdParam, chainId);
+  if (!agentDetail) {
+    notFound();
+  }
+  
+  // Get the agent object for compatibility
   const agent = await client.agents.getAgent(agentIdParam, chainId);
   if (!agent) {
     notFound();
@@ -147,6 +157,31 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
                         ((agent as any).data?.tokenUri) ?? 
                         null;
 
+  // Extract MCP endpoint from registration
+  let mcpEndpoint: string | null = null;
+  if (agentTokenUri) {
+    try {
+      const registration = await getRegistration(agentTokenUri);
+      if (registration?.endpoints && Array.isArray(registration.endpoints)) {
+        const mcpEndpointEntry = registration.endpoints.find(
+          (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp')
+        );
+        if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
+          mcpEndpoint = mcpEndpointEntry.endpoint;
+        }
+      }
+    } catch (error) {
+      // Silently fail - registration might not be available
+      console.warn('[AgentDetailsPage] Failed to load registration for MCP endpoint:', error);
+    }
+  }
+
+  // Get metadata from agentDetail (already fetched from GraphQL via loadAgentDetail)
+  // This avoids on-chain RPC calls and uses the GraphQL indexer data
+  const allMetadata: Record<string, string> = agentDetail.identityMetadata?.metadata || {};
+  
+  console.log('[AgentDetailsPage] Metadata from agentDetail:', Object.keys(allMetadata).length, 'keys', allMetadata);
+
                         
   const serializedAgent: AgentsPageAgent = {
     agentId: agent.agentId?.toString?.() ?? agentIdParam,
@@ -169,7 +204,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     contractAddress: (agent as any).contractAddress ?? null,
     a2aEndpoint: (agent as any).a2aEndpoint ?? null,
     agentAccountEndpoint: (agent as any).agentAccountEndpoint ?? null,
-    mcp: (agent as any).mcp ?? null,
+    mcpEndpoint: mcpEndpoint,
     did: (agent as any).did ?? null,
     createdAtTime: (agent as any).createdAtTime ?? null,
     feedbackCount: (agent as any).feedbackCount ?? null,
@@ -257,6 +292,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
       ownerDisplay={ownerDisplay}
       validationSummaryText={validationSummaryText}
       reviewsSummaryText={reviewsSummaryText}
+      onChainMetadata={allMetadata}
     />
   );
 }

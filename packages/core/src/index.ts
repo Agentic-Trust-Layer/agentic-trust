@@ -124,6 +124,7 @@ export {
   requestNameValidationWithWallet,
   requestAccountValidationWithWallet,
   requestAppValidationWithWallet,
+  requestAIDValidationWithWallet,
 } from './client/walletSigning';
 export type {
   PreparedTransaction,

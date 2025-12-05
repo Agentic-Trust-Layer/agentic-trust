@@ -909,6 +909,23 @@ export default function AgentRegistrationPage() {
       // Use Account Abstraction (AA) creation path
         if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
+          // Build endpoints array from protocolSettings if provided, otherwise use agentUrl for auto-generation
+          const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
+          if (protocolSettings.publishA2A && protocolSettings.a2aEndpoint) {
+            endpoints.push({
+              name: 'A2A',
+              endpoint: protocolSettings.a2aEndpoint,
+              version: '0.3.0',
+            });
+          }
+          if (protocolSettings.publishMcp && protocolSettings.mcpEndpoint) {
+            endpoints.push({
+              name: 'MCP',
+              endpoint: protocolSettings.mcpEndpoint,
+              version: '2025-06-18',
+            });
+          }
+
           const directPlan = await createAgentDirect({
             mode: 'aa',
             agentName: createForm.agentName,
@@ -916,6 +933,7 @@ export default function AgentRegistrationPage() {
             description: createForm.description || undefined,
             image: createForm.image || undefined,
             agentUrl: createForm.agentUrl || undefined,
+            endpoints: endpoints.length > 0 ? endpoints : undefined,
             chainId: selectedChainId,
             ensOptions: {
               enabled: true,
@@ -937,6 +955,23 @@ export default function AgentRegistrationPage() {
           // It can be done separately via the admin-tools test tab
         } else {
           // Client path (requires connected wallet/provider)
+          // Build endpoints array from protocolSettings if provided, otherwise use agentUrl for auto-generation
+          const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
+          if (protocolSettings.publishA2A && protocolSettings.a2aEndpoint) {
+            endpoints.push({
+              name: 'A2A',
+              endpoint: protocolSettings.a2aEndpoint,
+              version: '0.3.0',
+            });
+          }
+          if (protocolSettings.publishMcp && protocolSettings.mcpEndpoint) {
+            endpoints.push({
+              name: 'MCP',
+              endpoint: protocolSettings.mcpEndpoint,
+              version: '2025-06-18',
+            });
+          }
+
         const result = await createAgentWithWallet({
           agentData: {
               agentName: createForm.agentName,
@@ -944,6 +979,7 @@ export default function AgentRegistrationPage() {
             description: createForm.description || undefined,
             image: createForm.image || undefined,
             agentUrl: createForm.agentUrl || undefined,
+            endpoints: endpoints.length > 0 ? endpoints : undefined,
           },
           account: eoaAddress as Address,
           ethereumProvider: eip1193Provider as any,
@@ -1056,8 +1092,10 @@ export default function AgentRegistrationPage() {
     const defaultUrl = buildDefaultAgentUrl(createForm.agentName);
     setCreateForm(prev => ({ ...prev, agentUrl: defaultUrl }));
   }, [createForm.agentName]);
-  const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent-card.json` : '';
-  const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/mcp` : '';
+  // Default A2A endpoint to /api/a2a and MCP to /api/mcp
+  // .well-known/agent-card.json is always at the base domain, not at the A2A endpoint path
+  const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/a2a` : '';
+  const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
 
   useEffect(() => {
@@ -1366,7 +1404,7 @@ export default function AgentRegistrationPage() {
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
               <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
-                This base URL seeds the default A2A (`/.well-known/agent-card.json`) and MCP (`/mcp`) endpoints below.
+                This base URL seeds the default A2A (`/api/a2a`) and MCP (`/api/mcp`) endpoints below. The agent card is always at the base domain's `/.well-known/agent-card.json` (per A2A spec).
               </p>
             </div>
             <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
@@ -1403,9 +1441,45 @@ export default function AgentRegistrationPage() {
                     onChange={(e) =>
                       setProtocolSettings(prev => ({ ...prev, a2aEndpoint: e.target.value }))
                     }
-                    placeholder={defaultA2AEndpoint || 'https://agent.example.com/.well-known/agent-card.json'}
+                    placeholder={defaultA2AEndpoint || 'https://agent.example.com'}
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                   />
+                  {(() => {
+                    // Calculate the agent-card.json path from the A2A endpoint or base URL
+                    let agentCardPath = '';
+                    try {
+                      const urlToUse = protocolSettings.a2aEndpoint || defaultA2AEndpoint || normalizedAgentBaseUrl;
+                      if (urlToUse) {
+                        const url = new URL(urlToUse);
+                        agentCardPath = `${url.origin}/.well-known/agent-card.json`;
+                      }
+                    } catch (e) {
+                      // Invalid URL, skip display
+                    }
+                    
+                    if (agentCardPath) {
+                      return (
+                        <div style={{ marginTop: '0.5rem', padding: '0.5rem', backgroundColor: '#f0f0f0', borderRadius: '4px', fontSize: '0.85rem' }}>
+                          <div style={{ marginBottom: '0.25rem' }}>
+                            <strong>Agent Card Path:</strong>{' '}
+                            <code style={{ 
+                              fontFamily: 'monospace', 
+                              backgroundColor: '#fff', 
+                              padding: '0.125rem 0.25rem', 
+                              borderRadius: '3px',
+                              fontSize: '0.8rem'
+                            }}>
+                              {agentCardPath}
+                            </code>
+                          </div>
+                          <div style={{ color: '#666', fontSize: '0.8rem', fontStyle: 'italic' }}>
+                            This path is calculated from your domain. You can override it by setting a <code style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>c=</code> TXT record in your DNS configuration.
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
                 </div>
               )}
             </div>
@@ -1443,7 +1517,7 @@ export default function AgentRegistrationPage() {
                     onChange={(e) =>
                       setProtocolSettings(prev => ({ ...prev, mcpEndpoint: e.target.value }))
                     }
-                    placeholder={defaultMcpEndpoint || 'https://agent.example.com/mcp'}
+                    placeholder={defaultMcpEndpoint || 'https://agent.example.com/api/mcp'}
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                   />
                 </div>

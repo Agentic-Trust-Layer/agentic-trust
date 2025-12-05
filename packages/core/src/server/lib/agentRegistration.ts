@@ -104,19 +104,21 @@ export function createRegistrationJSON(params: {
     const baseUrl = params.agentUrl.replace(/\/$/, ''); // Remove trailing slash
     
     // Add A2A endpoint if not already present
+    // Default to /api/a2a per A2A spec
     if (!endpoints.find(e => e.name === 'A2A')) {
       endpoints.push({
         name: 'A2A',
-        endpoint: `${baseUrl}/.well-known/agent-card.json`,
+        endpoint: `${baseUrl}/api/a2a`,
         version: '0.3.0',
       });
     }
     
     // Add MCP endpoint if not already present
+    // Default to /api/mcp
     if (!endpoints.find(e => e.name === 'MCP')) {
       endpoints.push({
         name: 'MCP',
-        endpoint: `${baseUrl}/`,
+        endpoint: `${baseUrl}/api/mcp`,
         version: '2025-06-18',
       });
     }

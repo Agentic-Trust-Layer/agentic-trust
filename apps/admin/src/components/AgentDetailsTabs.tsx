@@ -41,6 +41,7 @@ type AgentDetailsTabsProps = {
   feedbackItems: unknown[];
   feedbackSummary: AgentDetailsFeedbackSummary;
   validations: AgentDetailsValidationsSummary | null;
+  onChainMetadata?: Record<string, string>;
 };
 
 const TAB_DEFS = [
@@ -84,6 +85,7 @@ const AgentDetailsTabs = ({
   feedbackItems,
   feedbackSummary,
   validations,
+  onChainMetadata = {},
 }: AgentDetailsTabsProps) => {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [registrationData, setRegistrationData] = useState<string | null>(null);
@@ -214,85 +216,235 @@ const AgentDetailsTabs = ({
       {/* Tab Content */}
       <div style={{ padding: '1.5rem' }}>
         {activeTab === 'overview' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <div>
-              <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 600 }}>Identity</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.5rem' }}>
+            {/* Left Column: Identity Info and Endpoints stacked */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              {/* Identity Info Pane */}
+              <div
+                style={{
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '12px',
+                  padding: '1.25rem',
+                  backgroundColor: palette.surfaceMuted,
+                }}
+              >
+              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Identity Info</h3>
               <div
                 style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: '0.75rem',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: '1rem',
                   fontSize: '0.9rem',
                 }}
               >
                 <div>
-                  <strong style={{ color: palette.textSecondary }}>Agent ID</strong>
-                  <div style={{ fontFamily: 'monospace', marginTop: '0.25rem' }}>{agent.agentId}</div>
+                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                  <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
                 </div>
                 <div>
-                  <strong style={{ color: palette.textSecondary }}>Chain</strong>
-                  <div style={{ marginTop: '0.25rem' }}>{agent.chainId}</div>
+                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                  <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
                 </div>
                 <div>
-                  <strong style={{ color: palette.textSecondary }}>Owner</strong>
-                  <div style={{ fontFamily: 'monospace', marginTop: '0.25rem' }}>
+                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Owner</strong>
+                  <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
                     {shorten(agent.agentAccount)}
                   </div>
                 </div>
                 <div>
-                  <strong style={{ color: palette.textSecondary }}>Created</strong>
-                  <div style={{ marginTop: '0.25rem' }}>{formatRelativeTime(agent.createdAtTime)}</div>
+                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Created</strong>
+                  <div style={{ color: palette.textPrimary }}>{formatRelativeTime(agent.createdAtTime)}</div>
+                </div>
+              </div>
+              </div>
+
+              {/* Endpoints Pane */}
+              <div
+                style={{
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '12px',
+                  padding: '1.25rem',
+                  backgroundColor: palette.surfaceMuted,
+                }}
+              >
+                <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Endpoints</h3>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '1rem',
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>A2A</strong>
+                    {agent.a2aEndpoint ? (
+                      <a
+                        href={agent.a2aEndpoint}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontFamily: 'monospace',
+                          wordBreak: 'break-all',
+                          color: palette.accent,
+                          textDecoration: 'none',
+                          userSelect: 'text',
+                          display: 'block',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.textDecoration = 'underline';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.textDecoration = 'none';
+                        }}
+                      >
+                        {agent.a2aEndpoint}
+                      </a>
+                    ) : (
+                      <div style={{ fontFamily: 'monospace', color: palette.textSecondary }}>—</div>
+                    )}
+                  </div>
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>MCP</strong>
+                    {agent.mcpEndpoint ? (
+                      <a
+                        href={agent.mcpEndpoint}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontFamily: 'monospace',
+                          wordBreak: 'break-all',
+                          color: palette.accent,
+                          textDecoration: 'none',
+                          userSelect: 'text',
+                          display: 'block',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.textDecoration = 'underline';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.textDecoration = 'none';
+                        }}
+                      >
+                        {agent.mcpEndpoint}
+                      </a>
+                    ) : (
+                      <div style={{ fontFamily: 'monospace', color: palette.textSecondary }}>—</div>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div>
-              <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 600 }}>Endpoints</h3>
+            {/* Right Column: Metadata Pane */}
+            <div
+              style={{
+                border: `1px solid ${palette.border}`,
+                borderRadius: '12px',
+                padding: '1.25rem',
+                backgroundColor: palette.surfaceMuted,
+              }}
+            >
+              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Metadata</h3>
               <div
                 style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-                  gap: '0.75rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1rem',
                   fontSize: '0.9rem',
                 }}
               >
-                <div>
-                  <strong style={{ color: palette.textSecondary }}>A2A</strong>
-                  <p
-                    style={{
-                      margin: '0.25rem 0 0',
-                      fontFamily: 'monospace',
-                      wordBreak: 'break-all',
-                      color: palette.textSecondary,
-                    }}
-                  >
-                    {agent.a2aEndpoint || '—'}
-                  </p>
-                </div>
-                <div>
-                  <strong style={{ color: palette.textSecondary }}>MCP</strong>
-                  <p
-                    style={{
-                      margin: '0.25rem 0 0',
-                      fontFamily: 'monospace',
-                      wordBreak: 'break-all',
-                      color: palette.textSecondary,
-                    }}
-                  >
-                    {agent.agentAccountEndpoint || '—'}
-                  </p>
-                </div>
+                {agent.description && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Description</strong>
+                    <p style={{ margin: 0, lineHeight: 1.6, color: palette.textPrimary }}>
+                      {agent.description}
+                    </p>
+                  </div>
+                )}
+                {agent.image && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Image</strong>
+                    <a
+                      href={agent.image}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: palette.accent,
+                        textDecoration: 'none',
+                        wordBreak: 'break-all',
+                        display: 'block',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.textDecoration = 'underline';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }}
+                    >
+                      {agent.image}
+                    </a>
+                  </div>
+                )}
+                {agent.tokenUri && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
+                    <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: palette.textPrimary, fontSize: '0.85rem' }}>
+                      {agent.tokenUri}
+                    </div>
+                  </div>
+                )}
+                {agent.contractAddress && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Contract Address</strong>
+                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                      {shorten(agent.contractAddress)}
+                    </div>
+                  </div>
+                )}
+                {agent.did && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>DID</strong>
+                    <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: palette.textPrimary, fontSize: '0.85rem' }}>
+                      {agent.did}
+                    </div>
+                  </div>
+                )}
+                {agent.supportedTrust && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Supported Trust</strong>
+                    <div style={{ color: palette.textPrimary }}>
+                      {typeof agent.supportedTrust === 'string' ? agent.supportedTrust : JSON.stringify(agent.supportedTrust)}
+                    </div>
+                  </div>
+                )}
+                {/* On-Chain Metadata from AIAgentIdentityClient */}
+                {Object.keys(onChainMetadata).length > 0 && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.5rem', marginTop: '0.5rem' }}>On-Chain Metadata</strong>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.75rem',
+                        fontSize: '0.85rem',
+                      }}
+                    >
+                      {Object.entries(onChainMetadata).map(([key, value]) => (
+                        <div key={key}>
+                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                            {key}
+                          </strong>
+                          <div style={{ color: palette.textPrimary, wordBreak: 'break-word', fontFamily: key === 'agentAccount' ? 'monospace' : 'inherit' }}>
+                            {value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
-
-            {agent.description && (
-              <div>
-                <h3 style={{ margin: '0 0 0.5rem', fontSize: '1.1rem', fontWeight: 600 }}>Description</h3>
-                <p style={{ margin: 0, lineHeight: 1.6, color: palette.textPrimary }}>
-                  {agent.description}
-                </p>
-              </div>
-            )}
           </div>
         )}
 

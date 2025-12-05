@@ -30,43 +30,6 @@ importers:
         specifier: ^5.3.0
         version: 5.9.3
 
-  apps/account-validation:
-    dependencies:
-      '@agentic-trust/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@metamask/smart-accounts-kit':
-        specifier: ^0.1.0
-        version: 0.1.0(viem@2.39.0)
-      cors:
-        specifier: ^2.8.5
-        version: 2.8.5
-      dotenv:
-        specifier: ^16.4.5
-        version: 16.6.1
-      express:
-        specifier: ^4.18.2
-        version: 4.21.2
-      viem:
-        specifier: ^2.0.0
-        version: 2.39.0(typescript@5.9.3)
-    devDependencies:
-      '@types/cors':
-        specifier: ^2.8.17
-        version: 2.8.19
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.25
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.6
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
-
   apps/admin:
     dependencies:
       '@agentic-trust/core':
@@ -167,43 +130,6 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.25)(@vitest/ui@2.1.9)
 
-  apps/app-validation:
-    dependencies:
-      '@agentic-trust/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@metamask/smart-accounts-kit':
-        specifier: ^0.1.0
-        version: 0.1.0(viem@2.39.0)
-      cors:
-        specifier: ^2.8.5
-        version: 2.8.5
-      dotenv:
-        specifier: ^16.4.5
-        version: 16.6.1
-      express:
-        specifier: ^4.18.2
-        version: 4.21.2
-      viem:
-        specifier: ^2.0.0
-        version: 2.39.0(typescript@5.9.3)
-    devDependencies:
-      '@types/cors':
-        specifier: ^2.8.17
-        version: 2.8.19
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.25
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.6
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
-
   apps/explorer:
     dependencies:
       '@agentic-trust/core':
@@ -253,43 +179,6 @@ importers:
         specifier: ^5.3.0
         version: 5.9.3
 
-  apps/name-validation:
-    dependencies:
-      '@agentic-trust/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@metamask/smart-accounts-kit':
-        specifier: ^0.1.0
-        version: 0.1.0(viem@2.39.0)
-      cors:
-        specifier: ^2.8.5
-        version: 2.8.5
-      dotenv:
-        specifier: ^16.4.5
-        version: 16.6.1
-      express:
-        specifier: ^4.18.2
-        version: 4.21.2
-      viem:
-        specifier: ^2.0.0
-        version: 2.39.0(typescript@5.9.3)
-    devDependencies:
-      '@types/cors':
-        specifier: ^2.8.17
-        version: 2.8.19
-      '@types/express':
-        specifier: ^4.17.21
-        version: 4.17.25
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.25
-      tsx:
-        specifier: ^4.7.0
-        version: 4.20.6
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
-
   apps/provider:
     dependencies:
       '@agentic-trust/core':
@@ -331,6 +220,160 @@ importers:
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
+      viem:
+        specifier: ^2.0.0
+        version: 2.39.0(typescript@5.9.3)
+    devDependencies:
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.25
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
+  apps/validators/account-validation:
+    dependencies:
+      '@agentic-trust/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.18.2
+        version: 4.21.2
+      viem:
+        specifier: ^2.0.0
+        version: 2.39.0(typescript@5.9.3)
+    devDependencies:
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.25
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
+  apps/validators/aid-validation:
+    dependencies:
+      '@agentcommunity/aid':
+        specifier: ^1.1.0
+        version: 1.1.0
+      '@agentcommunity/aid-engine':
+        specifier: ^0.2.1
+        version: 0.2.1
+      '@agentic-trust/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.18.2
+        version: 4.21.2
+      viem:
+        specifier: ^2.0.0
+        version: 2.39.0(typescript@5.9.3)
+    devDependencies:
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.25
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
+  apps/validators/app-validation:
+    dependencies:
+      '@agentic-trust/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.18.2
+        version: 4.21.2
+      viem:
+        specifier: ^2.0.0
+        version: 2.39.0(typescript@5.9.3)
+    devDependencies:
+      '@types/cors':
+        specifier: ^2.8.17
+        version: 2.8.19
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@types/node':
+        specifier: ^20.0.0
+        version: 20.19.25
+      tsx:
+        specifier: ^4.7.0
+        version: 4.20.6
+      typescript:
+        specifier: ^5.3.0
+        version: 5.9.3
+
+  apps/validators/name-validation:
+    dependencies:
+      '@agentic-trust/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+      '@metamask/smart-accounts-kit':
+        specifier: ^0.1.0
+        version: 0.1.0(viem@2.39.0)
+      cors:
+        specifier: ^2.8.5
+        version: 2.8.5
+      dotenv:
+        specifier: ^16.4.5
+        version: 16.6.1
+      express:
+        specifier: ^4.18.2
+        version: 4.21.2
       viem:
         specifier: ^2.0.0
         version: 2.39.0(typescript@5.9.3)
@@ -610,6 +653,20 @@ packages:
 
   /@adraffy/ens-normalize@1.11.1:
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
+    dev: false
+
+  /@agentcommunity/aid-engine@0.2.1:
+    resolution: {integrity: sha512-/npEMc0NQOuQs5j6i6v+TCsYGPX7k5KdHpTbxnFAr6neksyiRNATTkjk2HDpfbE5pDARyaEMmryuq8UqoQvTjw==}
+    engines: {node: '>=18.17'}
+    dependencies:
+      '@agentcommunity/aid': 1.1.0
+    dev: false
+
+  /@agentcommunity/aid@1.1.0:
+    resolution: {integrity: sha512-b94b8ghjElfLElK9m0IfCL9ewVyxmA0ETPHhC85dUfKHzE71Y2H6ApM1Ir6iqtjC7teHROubFgTAo22tyQfRPQ==}
+    engines: {node: '>=18.17'}
+    dependencies:
+      dns-query: 0.11.2
     dev: false
 
   /@ampproject/remapping@2.3.0:
@@ -1776,6 +1833,29 @@ packages:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+    dev: false
+
+  /@leichtgewicht/base64-codec@1.0.0:
+    resolution: {integrity: sha512-0cgP4lRBzh3F4tlpTfs7F+PJyBN8j5yUC9KrQFWp/bREswgzZVHE8T1rNyRDWgvALwwpPtnJDQfqWUmxI33Epg==}
+    dev: false
+
+  /@leichtgewicht/dns-packet@6.0.3:
+    resolution: {integrity: sha512-qmVHhFBFiBvPsk/wJ/EdoWHb+tGkzY4haybmDPukhF6w0+8wpEbrHTIRE9LzeUu2P0bAbmrK8WOXt5V5QN6jQg==}
+    engines: {node: '>=6'}
+    dependencies:
+      '@leichtgewicht/ip-codec': 2.0.5
+      bytes.js: 0.0.2
+      utf8-bytes: 0.0.1
+      utf8-codec: 1.0.0
+      utf8-length: 0.0.1
+      utf8-string-bytes: 1.0.3
+    dev: false
+
+  /@leichtgewicht/dns-socket@5.0.0:
+    resolution: {integrity: sha512-Sbrn/OG0HTTPGSkwIDCHy8/tUI6UglIzFsMNjzZn/Na1/i5owSm6rVi9CfKNNjRcUlYEzICELYW6EoZdjwVY2A==}
+    engines: {node: '>=6'}
+    dependencies:
+      '@leichtgewicht/dns-packet': 6.0.3
     dev: false
 
   /@leichtgewicht/ip-codec@2.0.5:
@@ -4591,6 +4671,10 @@ packages:
     dependencies:
       streamsearch: 1.1.0
 
+  /bytes.js@0.0.2:
+    resolution: {integrity: sha512-KrLm4hv5Qs9w6b0U7h1bCdqxrsf+e9QMsfHeyQFzAz94x/5Aqa+FTEUSNBtt5d2VuV3Hfiea3c4ti74RZDDYkg==}
+    dev: false
+
   /bytes@3.1.2:
     resolution: {integrity: sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg==}
     engines: {node: '>= 0.8'}
@@ -5219,6 +5303,17 @@ packages:
     engines: {node: '>=6'}
     dependencies:
       '@leichtgewicht/ip-codec': 2.0.5
+    dev: false
+
+  /dns-query@0.11.2:
+    resolution: {integrity: sha512-zF8qxQpqCB467o4A63DLpQClo77H642JEKMx0Ra9GFww7Rx0234Fo8NoG0LBoSBZxamWkXfLxhzDG19bTBHvXQ==}
+    hasBin: true
+    dependencies:
+      '@leichtgewicht/base64-codec': 1.0.0
+      '@leichtgewicht/dns-packet': 6.0.3
+      '@leichtgewicht/dns-socket': 5.0.0
+      '@leichtgewicht/ip-codec': 2.0.5
+      utf8-codec: 1.0.0
     dev: false
 
   /doctrine@2.1.0:
@@ -10342,6 +10437,22 @@ packages:
     requiresBuild: true
     dependencies:
       node-gyp-build: 4.8.4
+    dev: false
+
+  /utf8-bytes@0.0.1:
+    resolution: {integrity: sha512-GifWmJAx2qAXT+lZLhbkWhBsy7pr6xWHiPWlVToDiELdWgZwt4Ogjf9tlgvKuALzTFR/d+EPQQI9ogJV3957Jg==}
+    dev: false
+
+  /utf8-codec@1.0.0:
+    resolution: {integrity: sha512-S/QSLezp3qvG4ld5PUfXiH7mCFxLKjSVZRFkB3DOjgwHuJPFDkInAXc/anf7BAbHt/D38ozDzL+QMZ6/7gsI6w==}
+    dev: false
+
+  /utf8-length@0.0.1:
+    resolution: {integrity: sha512-j/XH2ftofBiobnyApxlN/J6j/ixwT89WEjDcjT66d2i0+GIn9RZfzt8lpEXXE4jUe4NsjBSUq70kS2euQ4nnMw==}
+    dev: false
+
+  /utf8-string-bytes@1.0.3:
+    resolution: {integrity: sha512-i/I1Omf6lADjVBlwJpQifZOePV15snHny9w04+lc71+3t8PyWuLC/7clyoOSHOBNGXFe2PAGxmTiZ+Z4HWsPyw==}
     dev: false
 
   /utf8@3.0.0:

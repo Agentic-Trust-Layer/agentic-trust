@@ -19,6 +19,7 @@ import { getProviderApp } from '../userApps/providerApp';
 import { getReputationRegistryClient } from '../singletons/reputationClient';
 import { getIPFSStorage } from './ipfs';
 import { getIdentityRegistryClient } from '../singletons/identityClient';
+import { getDiscoveryClient } from '../singletons/discoveryClient';
 import { DEFAULT_CHAIN_ID, requireChainEnvVar } from './chainConfig';
 import { ethers } from 'ethers';
 import type { AgentDetail, AgentIdentifier } from '../models/agentDetail';
@@ -861,6 +862,11 @@ export class Agent {
 /**
  * Load a detailed Agent view using a provided AgenticTrustClient.
  * This is the core implementation used by admin and other services.
+ * 
+ * IMPORTANT: This function fetches on-chain NFT metadata (via getAllMetadata),
+ * which makes multiple RPC calls. It should ONLY be used for detailed agent views,
+ * NOT for list queries. List queries should use searchAgents/listAgents which
+ * only fetch data from the GraphQL discovery indexer.
  */
 export async function loadAgentDetail(
   client: AgenticTrustClient,
@@ -904,17 +910,53 @@ export async function loadAgentDetail(
 
   const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
  
-  const METADATA_KEYS = ['agentName', 'agentAccount'] as const;
-  type MetadataKeys = (typeof METADATA_KEYS)[number];
-  const metadata: Record<MetadataKeys, string> = {} as Record<MetadataKeys, string>;
-  for (const key of METADATA_KEYS) {
-    try {
-      const value = await identityClient.getMetadata(agentIdBigInt, key);
-      if (value) {
-        metadata[key] = value;
+  // Fetch metadata from GraphQL indexer (from searchAgentsGraph with metadata field)
+  // This avoids on-chain RPC calls and rate limiting issues
+  let metadata: Record<string, string> = {};
+  try {
+    const discoveryClient = await getDiscoveryClient();
+    
+    // Try to get agent with metadata from searchAgentsGraph
+    const agentWithMetadata = await discoveryClient.getAgent(resolvedChainId, agentId);
+    if (agentWithMetadata) {
+      // Check if metadata is attached as a property
+      const metadataProp = (agentWithMetadata as any).metadata;
+      if (metadataProp && typeof metadataProp === 'object' && Object.keys(metadataProp).length > 0) {
+        metadata = metadataProp as Record<string, string>;
+        console.log('[loadAgentDetail] Metadata:', metadata);
+        console.log('[loadAgentDetail] Got metadata from searchAgentsGraph:', Object.keys(metadata).length, 'keys');
+      } else {
+        // Fallback: try getTokenMetadata query
+        console.log('[loadAgentDetail] No metadata in searchAgentsGraph result, trying getTokenMetadata');
+        const graphQLMetadata = await discoveryClient.getTokenMetadata(resolvedChainId, agentId);
+        if (graphQLMetadata && Object.keys(graphQLMetadata).length > 0) {
+          metadata = graphQLMetadata;
+          console.log('[loadAgentDetail] Got metadata from getTokenMetadata:', Object.keys(metadata).length, 'keys');
+        } else {
+          // Last resort: on-chain RPC calls (only if GraphQL has no data)
+          console.warn('[loadAgentDetail] No metadata found in GraphQL, falling back to on-chain RPC calls');
+          metadata = await identityClient.getAllMetadata(agentIdBigInt);
+        }
       }
-    } catch (error) {
-      console.warn(`Failed to get metadata key ${key}:`, error);
+    } else {
+      console.warn('[loadAgentDetail] getAgent returned null, trying getTokenMetadata');
+      // Fallback: try getTokenMetadata query
+      const graphQLMetadata = await discoveryClient.getTokenMetadata(resolvedChainId, agentId);
+      if (graphQLMetadata && Object.keys(graphQLMetadata).length > 0) {
+        metadata = graphQLMetadata;
+      } else {
+        // Last resort: on-chain RPC calls
+        metadata = await identityClient.getAllMetadata(agentIdBigInt);
+      }
+    }
+  } catch (error) {
+    // If GraphQL query fails, fallback to on-chain RPC calls
+    console.warn('[loadAgentDetail] Failed to fetch metadata from GraphQL, falling back to on-chain:', error);
+    try {
+      metadata = await identityClient.getAllMetadata(agentIdBigInt);
+    } catch (rpcError) {
+      console.error('[loadAgentDetail] Both GraphQL and on-chain metadata fetch failed:', rpcError);
+      metadata = {}; // Return empty metadata if both fail
     }
   }
 
@@ -983,6 +1025,8 @@ export async function loadAgentDetail(
     typeof identityRegistration.registration === 'object'
   ) {
     const reg = identityRegistration.registration as Record<string, unknown>;
+    
+    // Extract standard fields
     if (typeof reg.name === 'string') flattened.name = reg.name;
     if (typeof reg.description === 'string') flattened.description = reg.description;
     if (typeof reg.image === 'string') flattened.image = reg.image;
@@ -991,6 +1035,30 @@ export async function loadAgentDetail(
     if (reg.supportedTrust) flattened.supportedTrust = reg.supportedTrust;
     if (typeof reg.createdAt !== 'undefined') flattened.createdAt = reg.createdAt;
     if (typeof reg.updatedAt !== 'undefined') flattened.updatedAt = reg.updatedAt;
+    
+    // Extract all other metadata fields from registration JSON
+    // This includes: tags, glbUrl, agentWallet, capabilities, role, version, rating, pricing, etc.
+    Object.keys(reg).forEach((key) => {
+      // Skip fields we've already handled explicitly
+      if (
+        key !== 'name' &&
+        key !== 'description' &&
+        key !== 'image' &&
+        key !== 'agentAccount' &&
+        key !== 'endpoints' &&
+        key !== 'supportedTrust' &&
+        key !== 'createdAt' &&
+        key !== 'updatedAt' &&
+        key !== 'type' &&
+        key !== 'agentUrl' &&
+        key !== 'metadata' &&
+        key !== 'attributes' &&
+        key !== 'external_url' &&
+        flattened[key] === undefined
+      ) {
+        flattened[key] = reg[key];
+      }
+    });
     
     // Extract a2aEndpoint from registration
     // Priority: 1) direct a2aEndpoint field, 2) from endpoints array (name: 'A2A'), 3) from agentUrl

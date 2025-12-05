@@ -32,8 +32,9 @@ export type AgentsPageAgent = {
   contractAddress?: string | null;
   a2aEndpoint?: string | null;
   agentAccountEndpoint?: string | null;
-  mcp?: boolean | null;
+  mcpEndpoint?: string | null; // MCP endpoint URL from registration
   did?: string | null;
+  supportedTrust?: string | null;
    createdAtTime?: number | null;
   feedbackCount?: number | null;
   feedbackAverageScore?: number | null;
@@ -340,7 +341,7 @@ export function AgentsPage({
     if (filters.protocol === 'a2a') {
       result = result.filter(agent => Boolean(agent.a2aEndpoint));
     } else if (filters.protocol === 'mcp') {
-      result = result.filter(agent => agent.mcp === true);
+      result = result.filter(agent => !!agent.mcpEndpoint);
     }
     const pathQuery = filters.path.trim().toLowerCase();
     if (pathQuery) {
@@ -909,6 +910,59 @@ export function AgentsPage({
             {baseInfo}
             {agent.description && (
               <p style={{ color: palette.textSecondary }}>{agent.description}</p>
+            )}
+            {(agent.a2aEndpoint || agent.mcpEndpoint) && (
+              <div style={{ marginTop: '1rem' }}>
+                <strong style={{ color: palette.textPrimary, display: 'block', marginBottom: '0.5rem' }}>Endpoints</strong>
+                {agent.a2aEndpoint && (
+                  <div style={{ marginBottom: '0.5rem' }}>
+                    <strong style={{ color: palette.textSecondary, fontSize: '0.9rem' }}>A2A:</strong>{' '}
+                    <a
+                      href={agent.a2aEndpoint}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: palette.accent,
+                        wordBreak: 'break-all',
+                        textDecoration: 'none',
+                        userSelect: 'text',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.textDecoration = 'underline';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }}
+                    >
+                      {agent.a2aEndpoint}
+                    </a>
+                  </div>
+                )}
+                {agent.mcpEndpoint && (
+                  <div>
+                    <strong style={{ color: palette.textSecondary, fontSize: '0.9rem' }}>MCP:</strong>{' '}
+                    <a
+                      href={agent.mcpEndpoint}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        color: palette.accent,
+                        wordBreak: 'break-all',
+                        textDecoration: 'none',
+                        userSelect: 'text',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.textDecoration = 'underline';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.textDecoration = 'none';
+                      }}
+                    >
+                      {agent.mcpEndpoint}
+                    </a>
+                  </div>
+                )}
+              </div>
             )}
           </>
         );
@@ -3514,7 +3568,7 @@ export function AgentsPage({
                         <span>{agent.a2aEndpoint}</span>
                       </div>
                     )}
-                    {agent.agentAccountEndpoint && (
+                    {agent.mcpEndpoint && (
                       <div
                         style={{
                           fontSize: '0.75rem',
@@ -3524,10 +3578,10 @@ export function AgentsPage({
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                         }}
-                        title={agent.agentAccountEndpoint}
+                        title={agent.mcpEndpoint}
                       >
                         <strong style={{ fontWeight: 600 }}>MCP:</strong>{' '}
-                        <span>{agent.agentAccountEndpoint}</span>
+                        <span>{agent.mcpEndpoint}</span>
                       </div>
                     )}
                     {/* Agent account address link removed per design; still available in data if needed */}

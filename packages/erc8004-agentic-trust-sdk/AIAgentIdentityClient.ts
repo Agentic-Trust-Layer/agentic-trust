@@ -170,6 +170,127 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   }
 
   /**
+   * Get all available metadata from the Agent NFT by trying a comprehensive list of common keys.
+   * Returns a record of all metadata key-value pairs that exist on-chain.
+   * 
+   * Processes requests in batches to avoid rate limiting.
+   * 
+   * IMPORTANT: This method makes many on-chain RPC calls and should ONLY be used
+   * for detailed agent views (via loadAgentDetail). It should NOT be called for
+   * list queries - use GraphQL/discovery data instead.
+   */
+  async getAllMetadata(agentId: bigint): Promise<Record<string, string>> {
+    // Comprehensive list of common metadata keys to check
+    const METADATA_KEYS = [
+      // Standard ERC-8004 fields
+      'agentName',
+      'agentAccount',
+      'description',
+      'image',
+      'external_url',
+      'version',
+      'type',
+      'name',
+      'url',
+      'website',
+      'email',
+      'twitter',
+      'github',
+      'discord',
+      'telegram',
+      'metadata',
+      'attributes',
+      'createdAt',
+      'updatedAt',
+      // Additional common fields
+      'tags',
+      'glbUrl',
+      'glbCid',
+      'glbFileName',
+      'glbSource',
+      'agentWallet',
+      'capabilities',
+      'role',
+      'rating',
+      'pricing',
+      'pka',
+      'uri',
+      'endpoints',
+      'supportedTrust',
+      'registrations',
+      'agentUrl',
+      'contractAddress',
+      'did',
+      'didIdentity',
+      'didAccount',
+      'didName',
+      'active',
+      'x402support',
+      'mcp',
+      'a2aEndpoint',
+      'mcpEndpoint',
+      'ensEndpoint',
+      'agentAccountEndpoint',
+    ];
+
+    const metadata: Record<string, string> = {};
+    
+    // Process requests in batches to avoid rate limiting
+    // Batch size: 5 requests at a time
+    // Delay between batches: 200ms
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY_MS = 200;
+    
+    for (let i = 0; i < METADATA_KEYS.length; i += BATCH_SIZE) {
+      const batch = METADATA_KEYS.slice(i, i + BATCH_SIZE);
+      
+      // Process batch in parallel
+      const batchPromises = batch.map(async (key) => {
+        try {
+          const value = await this.getMetadata(agentId, key);
+          if (value && value.trim().length > 0) {
+            return { key, value };
+          }
+          return null;
+        } catch (error) {
+          // Check if it's a rate limit error (429)
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes('429') || errorMessage.includes('Too Many Requests')) {
+            // For rate limit errors, wait longer before retrying
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            try {
+              const value = await this.getMetadata(agentId, key);
+              if (value && value.trim().length > 0) {
+                return { key, value };
+              }
+            } catch (retryError) {
+              // Silently skip on retry failure
+            }
+          }
+          // Silently skip if metadata key doesn't exist or fails
+          return null;
+        }
+      });
+
+      const batchResults = await Promise.all(batchPromises);
+      
+      // Collect successful results from this batch
+      for (const result of batchResults) {
+        if (result) {
+          metadata[result.key] = result.value;
+        }
+      }
+      
+      // Delay before next batch (except for the last batch)
+      if (i + BATCH_SIZE < METADATA_KEYS.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+      }
+    }
+
+    return metadata;
+  }
+
+  /**
    * Encode function call data using AccountProvider
    */
   async encodeFunctionData(

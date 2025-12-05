@@ -32,6 +32,7 @@ type AgentDetailsPageContentProps = {
   ownerDisplay: string;
   validationSummaryText: string;
   reviewsSummaryText: string;
+  onChainMetadata?: Record<string, string>;
 };
 
 type DialogState = {
@@ -51,6 +52,7 @@ export default function AgentDetailsPageContent({
   ownerDisplay,
   validationSummaryText,
   reviewsSummaryText,
+  onChainMetadata = {},
 }: AgentDetailsPageContentProps) {
   const {
     isConnected,
@@ -145,16 +147,23 @@ export default function AgentDetailsPageContent({
     if (dialogState.type === 'give-feedback' && agent.a2aEndpoint && !agentCard) {
       const fetchAgentCard = async (a2aEndpoint: string) => {
         try {
-          // Construct the agent-card.json URL from the A2A endpoint
+          // Extract base domain from A2A endpoint and construct agent-card.json URL
+          // Agent card is always at base domain/.well-known/agent-card.json
+          let cardUrl: string;
           if (a2aEndpoint.includes('agent-card.json')) {
-            const response = await fetch(a2aEndpoint);
-            if (response.ok) {
-                const card = await response.json();
-                setAgentCard(card);
-            }
+            cardUrl = a2aEndpoint;
+          } else {
+            // Extract origin (base domain) from the A2A endpoint URL
+            const url = new URL(a2aEndpoint);
+            cardUrl = `${url.origin}/.well-known/agent-card.json`;
+          }
+          const response = await fetch(cardUrl);
+          if (response.ok) {
+            const card = await response.json();
+            setAgentCard(card);
           }
         } catch (error) {
-            console.warn('[AgentDetails] Failed to fetch agent card:', error);
+          console.warn('[AgentDetails] Failed to fetch agent card:', error);
         }
       };
       fetchAgentCard(agent.a2aEndpoint);
@@ -290,15 +299,14 @@ export default function AgentDetailsPageContent({
           sx={{
             borderRadius: '20px',
             p: { xs: 2, md: 4 },
-            border: '1px solid rgba(15,23,42,0.08)',
-            background:
-              'linear-gradient(135deg, rgba(15,23,42,0.9) 0%, rgba(15,23,42,0.6) 55%, rgba(37,99,235,0.7) 100%)',
-            color: '#f8fafc',
+            border: '1px solid rgba(0,0,0,0.1)',
+            backgroundColor: palette.surface,
+            color: palette.textPrimary,
             display: 'flex',
             gap: { xs: '1.5rem', md: '2.5rem' },
             flexWrap: 'wrap',
             alignItems: 'stretch',
-            boxShadow: '0 18px 45px rgba(15,23,42,0.25)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
             position: 'relative',
           }}
         >
@@ -309,10 +317,10 @@ export default function AgentDetailsPageContent({
               position: 'absolute',
               top: 16,
               right: 16,
-              color: 'rgba(248,250,252,0.9)',
-              backgroundColor: 'rgba(15,23,42,0.5)',
+              color: palette.textPrimary,
+              backgroundColor: palette.surfaceMuted,
               '&:hover': {
-                backgroundColor: 'rgba(15,23,42,0.7)',
+                backgroundColor: palette.border,
               },
             }}
             aria-label="Share agent"
@@ -326,7 +334,7 @@ export default function AgentDetailsPageContent({
                 letterSpacing: '0.12em',
                 textTransform: 'uppercase',
                 fontSize: '0.8rem',
-                color: 'rgba(248,250,252,0.7)',
+                color: palette.textSecondary,
                 marginBottom: '0.35rem',
               }}
             >
@@ -335,8 +343,10 @@ export default function AgentDetailsPageContent({
             <h1
               style={{
                 margin: 0,
-                fontSize: '2.5rem',
-                lineHeight: 1.1,
+                fontSize: '1.75rem',
+                lineHeight: 1.2,
+                color: palette.textPrimary,
+                fontWeight: 600,
               }}
             >
               {agent.agentName || `Agent #${agent.agentId}`}
@@ -345,7 +355,7 @@ export default function AgentDetailsPageContent({
               style={{
                 margin: '0.5rem 0 0',
                 fontSize: '1rem',
-                color: 'rgba(248,250,252,0.8)',
+                color: palette.textSecondary,
                 fontWeight: 500,
               }}
             >
@@ -360,8 +370,6 @@ export default function AgentDetailsPageContent({
               }}
             >
               {[
-                { label: 'Chain', value: chainId.toString() },
-                { label: 'Owner', value: ownerDisplay },
                 { label: 'Validations', value: validationSummaryText },
                 { label: 'Reputation', value: reviewsSummaryText },
               ].map((chip) => (
@@ -370,9 +378,10 @@ export default function AgentDetailsPageContent({
                   style={{
                     padding: '0.5rem 0.85rem',
                     borderRadius: '999px',
-                    backgroundColor: 'rgba(15,23,42,0.5)',
-                    border: '1px solid rgba(248,250,252,0.18)',
+                    backgroundColor: palette.surfaceMuted,
+                    border: `1px solid ${palette.border}`,
                     fontSize: '0.85rem',
+                    color: palette.textPrimary,
                   }}
                 >
                   <strong style={{ fontWeight: 600 }}>{chip.label}:</strong>{' '}
@@ -392,10 +401,11 @@ export default function AgentDetailsPageContent({
                     router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
                   }}
                   sx={{
-                    bgcolor: 'rgba(15,23,42,0.6)',
-                    border: '1px solid rgba(248,250,252,0.3)',
+                    bgcolor: feedbackAuth ? palette.accent : palette.surfaceMuted,
+                    border: `1px solid ${palette.border}`,
+                    color: feedbackAuth ? palette.textPrimary : palette.textSecondary,
                     '&:hover': {
-                      bgcolor: 'rgba(15,23,42,0.8)',
+                      bgcolor: feedbackAuth ? palette.border : palette.surfaceMuted,
                     },
                     textTransform: 'none',
                     fontWeight: 600,
@@ -413,11 +423,11 @@ export default function AgentDetailsPageContent({
                   onClick={handleGiveFeedback}
                   disabled={feedbackAuthLoading}
                   sx={{
-                    bgcolor: feedbackAuth ? 'rgba(15,23,42,0.6)' : 'rgba(15,23,42,0.4)',
-                    border: '1px solid rgba(248,250,252,0.3)',
-                    color: feedbackAuth ? '#f8fafc' : 'rgba(248,250,252,0.7)',
+                    bgcolor: feedbackAuth ? palette.accent : palette.surfaceMuted,
+                    border: `1px solid ${palette.border}`,
+                    color: feedbackAuth ? palette.textPrimary : palette.textSecondary,
                     '&:hover': {
-                      bgcolor: feedbackAuth ? 'rgba(15,23,42,0.8)' : 'rgba(15,23,42,0.5)',
+                      bgcolor: feedbackAuth ? palette.border : palette.surfaceMuted,
                     },
                     textTransform: 'none',
                     fontWeight: 600,
@@ -427,51 +437,6 @@ export default function AgentDetailsPageContent({
                 </Button>
               )}
             </Stack>
-
-            <div
-              style={{
-                marginTop: '1.75rem',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '0.4rem',
-                fontSize: '0.95rem',
-              }}
-            >
-              {agent.a2aEndpoint && (
-                <div>
-                  <span style={{ color: 'rgba(248,250,252,0.6)' }}>A2A:</span>{' '}
-                  <a
-                    href={agent.a2aEndpoint}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      color: '#bfdbfe',
-                      textDecoration: 'none',
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    {agent.a2aEndpoint}
-                  </a>
-                </div>
-              )}
-              {agent.agentAccountEndpoint && (
-                <div>
-                  <span style={{ color: 'rgba(248,250,252,0.6)' }}>MCP:</span>{' '}
-                  <a
-                    href={agent.agentAccountEndpoint}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      color: '#bfdbfe',
-                      textDecoration: 'none',
-                      wordBreak: 'break-all',
-                    }}
-                  >
-                    {agent.agentAccountEndpoint}
-                  </a>
-                </div>
-              )}
-            </div>
           </Box>
           <Box
             sx={{
@@ -483,12 +448,15 @@ export default function AgentDetailsPageContent({
           >
             <div
               style={{
-                width: '260px',
-                borderRadius: '24px',
+                borderRadius: '12px',
                 overflow: 'hidden',
-                border: '1px solid rgba(248,250,252,0.2)',
-                boxShadow: '0 10px 30px rgba(15,23,42,0.35)',
-                backgroundColor: 'rgba(15,23,42,0.4)',
+                border: '1px solid #d1d5db',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+                backgroundColor: palette.surface,
+                height: '150px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
               <img
@@ -500,8 +468,9 @@ export default function AgentDetailsPageContent({
                   }
                 }}
                 style={{
-                  width: '100%',
-                  objectFit: 'cover',
+                  height: '100%',
+                  width: 'auto',
+                  objectFit: 'contain',
                   display: 'block',
                 }}
               />
@@ -514,6 +483,7 @@ export default function AgentDetailsPageContent({
           feedbackItems={feedbackItems}
           feedbackSummary={feedbackSummary}
           validations={validations}
+          onChainMetadata={onChainMetadata}
         />
       </Container>
 
