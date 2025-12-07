@@ -297,7 +297,7 @@ export default function AgentRegistrationPage() {
         Agent Registration
       </p>
       <h2 style={{ margin: 0, fontSize: '2.25rem', color: '#4a4a4a' }}>
-        Connect a wallet or admin key to register agents.
+        Connect a wallet to register agents.  Use social login for convenience. It's free and easy.
       </h2>
       <p style={{ marginTop: '1rem', color: '#4a4a4a', fontSize: '1.05rem' }}>
         Register new ERC-8004 agents once authenticated.
