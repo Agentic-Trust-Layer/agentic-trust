@@ -5,6 +5,20 @@
 
 A modern, extensible monorepo for building trustworthy autonomous agent systems.This project provides the infrastructure and primitives needed to create, manage, and trust AI agents.
 
+## Agent Trust Graph Principles
+- **On-chain, verifiable reputation**: Agents, validators, and reviewers are connected through the ERC-8004 Validation Registry; every validation and feedback event is a signed, on-chain artifact.
+- **Trust Graph = Validator ↔ Agent ↔ Reviewer**: Reputation propagates along these edges; no opaque scores—everything is queryable and composable.
+- **Economic enforcement**: Stake-secured validations, slashing, and leaderboards keep signals honest; vertical pools align incentives for specialized validators (DeFi, healthcare, legal, security, supply-chain).
+- **Relational verifiable credentials**: Capabilities and attestations travel with agents; selective disclosure and delegation flows support enterprise-grade handshakes.
+- **Delegation + smart accounts**: MetaMask/AA-compatible delegation lets organizations grant and revoke authority with auditability.
+- **Data network effects**: The richest validation graph becomes the moat—more validated interactions create higher-fidelity trust scores that are hard to replicate.
+
+## Why now: Agent Trust Graphs live on ERC-8004
+The first public “Agent Trust Graphs” for ERC-8004 agents are live, letting anyone visualize validator ↔ agent ↔ reviewer relationships with real on-chain reputation scores, as reported by AI News (Dec 7, 2025) [\[article\]](https://blockchain.news/ainews/agent-trust-graphs-for-erc-8004-ai-agents-visualizing-on-chain-validator-networks-and-real-reputation-scores). We extend that model with:
+- **Gamified validator pools**: vertical-specific staking, slashing, and leaderboards that reward high-signal validators and surface trust quickly.
+- **Relational VCs + delegation**: validators and reviewers issue verifiable credentials that flow with the agent; enterprises can delegate authority via smart accounts with revocation and audit trails.
+- **Explorer-first UX**: every edge in the graph is inspectable—request/response URIs, tags, validators, blocks, and timestamps are visible to builders and reviewers.
+
 
 ### Agentic Trust Capabilities
 ![Agentic Flow](./docs/AgentSolution.png)

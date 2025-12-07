@@ -258,6 +258,13 @@ export default function AgentRegistrationPage() {
     (chainId: number): string => CHAIN_METADATA[chainId]?.chainIdHex ?? getChainIdHexUtil(chainId),
     [CHAIN_METADATA],
   );
+
+  const resolveAgentBaseUrl = useCallback((): string => {
+    const explicit = (createForm.agentUrl || '').trim();
+    if (explicit) return explicit;
+    const auto = buildDefaultAgentUrl(createForm.agentName);
+    return auto;
+  }, [createForm.agentName, createForm.agentUrl]);
   const getBundlerUrlForChain = React.useCallback(
     (chainId: number): string | undefined => {
       // Shared client-side helper reading NEXT_PUBLIC_* at build time
@@ -714,16 +721,17 @@ export default function AgentRegistrationPage() {
         return { valid: true };
       }
       case 2: {
-        if (!createForm.agentUrl.trim()) {
-          return { valid: false, message: 'Agent URL is required.' };
+        const baseUrl = resolveAgentBaseUrl();
+        if (!baseUrl) {
+          return { valid: false, message: 'Agent URL is required (or set an agent name to auto-generate).' };
         }
         if (!protocolSettings.publishA2A && !protocolSettings.publishMcp) {
           return { valid: false, message: 'Enable at least one protocol (A2A or MCP).' };
         }
-        if (protocolSettings.publishA2A && !protocolSettings.a2aEndpoint.trim()) {
+        if (protocolSettings.publishA2A && !((protocolSettings.a2aEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an A2A protocol endpoint URL.' };
         }
-        if (protocolSettings.publishMcp && !protocolSettings.mcpEndpoint.trim()) {
+        if (protocolSettings.publishMcp && !((protocolSettings.mcpEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an MCP protocol endpoint URL.' };
         }
         if (!ensOrgName.trim()) {
@@ -803,6 +811,14 @@ export default function AgentRegistrationPage() {
       setError(null);
       setSuccess(null);
       startRegistrationProgress();
+
+      const baseUrl = resolveAgentBaseUrl();
+      const resolvedA2A =
+        protocolSettings.publishA2A &&
+        (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/api/a2a` : ''));
+      const resolvedMcp =
+        protocolSettings.publishMcp &&
+        (protocolSettings.mcpEndpoint.trim() || (baseUrl ? `${baseUrl}/api/mcp` : ''));
 
       if (!privateKeyMode) {
         const ready = await synchronizeProvidersWithChain(selectedChainId);
@@ -909,19 +925,19 @@ export default function AgentRegistrationPage() {
       // Use Account Abstraction (AA) creation path
         if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
-          // Build endpoints array from protocolSettings if provided, otherwise use agentUrl for auto-generation
+          // Build endpoints array using provided values or auto-generated defaults
           const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
-          if (protocolSettings.publishA2A && protocolSettings.a2aEndpoint) {
+          if (protocolSettings.publishA2A && resolvedA2A) {
             endpoints.push({
               name: 'A2A',
-              endpoint: protocolSettings.a2aEndpoint,
+              endpoint: resolvedA2A,
               version: '0.3.0',
             });
           }
-          if (protocolSettings.publishMcp && protocolSettings.mcpEndpoint) {
+          if (protocolSettings.publishMcp && resolvedMcp) {
             endpoints.push({
               name: 'MCP',
-              endpoint: protocolSettings.mcpEndpoint,
+              endpoint: resolvedMcp,
               version: '2025-06-18',
             });
           }
@@ -932,7 +948,7 @@ export default function AgentRegistrationPage() {
             agentAccount: agentAccountToUse,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
-            agentUrl: createForm.agentUrl || undefined,
+            agentUrl: baseUrl || undefined,
             endpoints: endpoints.length > 0 ? endpoints : undefined,
             chainId: selectedChainId,
             ensOptions: {
@@ -955,19 +971,19 @@ export default function AgentRegistrationPage() {
           // It can be done separately via the admin-tools test tab
         } else {
           // Client path (requires connected wallet/provider)
-          // Build endpoints array from protocolSettings if provided, otherwise use agentUrl for auto-generation
+          // Build endpoints array using provided values or auto-generated defaults
           const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
-          if (protocolSettings.publishA2A && protocolSettings.a2aEndpoint) {
+          if (protocolSettings.publishA2A && resolvedA2A) {
             endpoints.push({
               name: 'A2A',
-              endpoint: protocolSettings.a2aEndpoint,
+              endpoint: resolvedA2A,
               version: '0.3.0',
             });
           }
-          if (protocolSettings.publishMcp && protocolSettings.mcpEndpoint) {
+          if (protocolSettings.publishMcp && resolvedMcp) {
             endpoints.push({
               name: 'MCP',
-              endpoint: protocolSettings.mcpEndpoint,
+              endpoint: resolvedMcp,
               version: '2025-06-18',
             });
           }
@@ -978,7 +994,7 @@ export default function AgentRegistrationPage() {
             agentAccount: agentAccountToUse,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
-            agentUrl: createForm.agentUrl || undefined,
+            agentUrl: baseUrl || undefined,
             endpoints: endpoints.length > 0 ? endpoints : undefined,
           },
           account: eoaAddress as Address,

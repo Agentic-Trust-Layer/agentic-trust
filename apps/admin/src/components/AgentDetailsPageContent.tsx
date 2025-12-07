@@ -1,5 +1,6 @@
 'use client';
 
+import React from 'react';
 import { Box, Container, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button, Typography, Stack, TextField, Alert, Rating } from '@mui/material';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -19,6 +20,9 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import ShareIcon from '@mui/icons-material/Share';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CloseIcon from '@mui/icons-material/Close';
+import AutoGraphIcon from '@mui/icons-material/AutoGraph';
+import VerifiedIcon from '@mui/icons-material/Verified';
+import TimelineIcon from '@mui/icons-material/Timeline';
 
 type AgentDetailsPageContentProps = {
   agent: AgentsPageAgent;
@@ -86,6 +90,14 @@ export default function AgentDetailsPageContent({
   const [agentCard, setAgentCard] = useState<any>(null);
 
   const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
+
+  const completedValidationCount = validations?.completed?.length ?? 0;
+  const pendingValidationCount = validations?.pending?.length ?? 0;
+  const feedbackCount =
+    typeof feedbackSummary?.count === 'string'
+      ? parseInt(feedbackSummary.count, 10)
+      : feedbackSummary?.count ?? 0;
+  const feedbackAverage = feedbackSummary?.averageScore ?? null;
 
   // Check if wallet owns the agent account using the isOwner API
   const checkOwnership = useCallback(async () => {
@@ -361,35 +373,6 @@ export default function AgentDetailsPageContent({
             >
               Agent: #{agent.agentId}
             </p>
-            <div
-              style={{
-                marginTop: '1.25rem',
-                display: 'flex',
-                flexWrap: 'wrap',
-                gap: '0.85rem',
-              }}
-            >
-              {[
-                { label: 'Validations', value: validationSummaryText },
-                { label: 'Reputation', value: reviewsSummaryText },
-              ].map((chip) => (
-                <div
-                  key={chip.label}
-                  style={{
-                    padding: '0.5rem 0.85rem',
-                    borderRadius: '999px',
-                    backgroundColor: palette.surfaceMuted,
-                    border: `1px solid ${palette.border}`,
-                    fontSize: '0.85rem',
-                    color: palette.textPrimary,
-                  }}
-                >
-                  <strong style={{ fontWeight: 600 }}>{chip.label}:</strong>{' '}
-                  <span style={{ fontWeight: 500 }}>{chip.value}</span>
-                </div>
-              ))}
-            </div>
-            
             {/* Action Buttons */}
             <Stack direction="row" spacing={1.5} sx={{ mt: 3.5 }}>
               {showManageButton && (
@@ -401,14 +384,16 @@ export default function AgentDetailsPageContent({
                     router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
                   }}
                   sx={{
-                    bgcolor: feedbackAuth ? palette.accent : palette.surfaceMuted,
-                    border: `1px solid ${palette.border}`,
-                    color: feedbackAuth ? palette.textPrimary : palette.textSecondary,
+                    backgroundColor: palette.accent,
+                    color: palette.surface,
+                    border: `1px solid ${palette.accent}`,
                     '&:hover': {
-                      bgcolor: feedbackAuth ? palette.border : palette.surfaceMuted,
+                      backgroundColor: palette.border,
+                      color: palette.textPrimary,
+                      borderColor: palette.border,
                     },
                     textTransform: 'none',
-                    fontWeight: 600,
+                    fontWeight: 700,
                   }}
                 >
                   Manage Agent
@@ -423,14 +408,16 @@ export default function AgentDetailsPageContent({
                   onClick={handleGiveFeedback}
                   disabled={feedbackAuthLoading}
                   sx={{
-                    bgcolor: feedbackAuth ? palette.accent : palette.surfaceMuted,
-                    border: `1px solid ${palette.border}`,
-                    color: feedbackAuth ? palette.textPrimary : palette.textSecondary,
+                    backgroundColor: palette.accent,
+                    color: palette.surface,
+                    border: `1px solid ${palette.accent}`,
                     '&:hover': {
-                      bgcolor: feedbackAuth ? palette.border : palette.surfaceMuted,
+                      backgroundColor: palette.border,
+                      color: palette.textPrimary,
+                      borderColor: palette.border,
                     },
                     textTransform: 'none',
-                    fontWeight: 600,
+                    fontWeight: 700,
                   }}
                 >
                   {feedbackAuthLoading ? 'Checking authorization...' : 'Give Feedback'}
@@ -476,6 +463,55 @@ export default function AgentDetailsPageContent({
               />
             </div>
           </Box>
+        </Box>
+
+        {/* Trust Graph snapshot */}
+        <Box
+          sx={{
+            borderRadius: '16px',
+            border: `1px solid ${palette.border}`,
+            backgroundColor: palette.surfaceMuted,
+            p: { xs: 2, md: 3 },
+            boxShadow: '0 8px 20px rgba(15,23,42,0.08)',
+          }}
+        >
+          <Stack
+            direction={{ xs: 'column', md: 'row' }}
+            spacing={2}
+            alignItems="stretch"
+            justifyContent="space-between"
+          >
+            <Stack direction="row" spacing={2} flexWrap="wrap">
+              <StatPill
+                icon={<AutoGraphIcon fontSize="small" />}
+                label="Validations"
+                value={`${completedValidationCount} completed · ${pendingValidationCount} pending`}
+              />
+              <StatPill
+                icon={<VerifiedIcon fontSize="small" />}
+                label="Reputation"
+                value={
+                  feedbackAverage !== null
+                    ? `${feedbackCount} reviews · ${feedbackAverage}`
+                    : `${feedbackCount} reviews`
+                }
+              />
+              <StatPill
+                icon={<TimelineIcon fontSize="small" />}
+                label="Trust Graph"
+                value={validationSummaryText}
+              />
+            </Stack>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => router.push('/agents')}
+              startIcon={<AutoGraphIcon />}
+              sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, textTransform: 'none', fontWeight: 600 }}
+            >
+              Open Trust Graph Explorer
+            </Button>
+          </Stack>
         </Box>
 
         <AgentDetailsTabs
@@ -814,6 +850,40 @@ export default function AgentDetailsPageContent({
           </Button>
         </DialogActions>
       </Dialog>
+    </Box>
+  );
+}
+
+type StatPillProps = {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+};
+
+function StatPill({ icon, label, value }: StatPillProps) {
+  return (
+    <Box
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1,
+        px: 1.5,
+        py: 1,
+        borderRadius: '12px',
+        border: `1px solid ${palette.border}`,
+        backgroundColor: palette.surface,
+        boxShadow: '0 2px 6px rgba(15,23,42,0.06)',
+      }}
+    >
+      <Box sx={{ color: palette.accent, display: 'flex', alignItems: 'center' }}>{icon}</Box>
+      <Box>
+        <Typography variant="caption" sx={{ color: palette.textSecondary, fontWeight: 600, display: 'block' }}>
+          {label}
+        </Typography>
+        <Typography variant="body2" sx={{ color: palette.textPrimary, fontWeight: 600 }}>
+          {value}
+        </Typography>
+      </Box>
     </Box>
   );
 }

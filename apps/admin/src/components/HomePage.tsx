@@ -561,16 +561,11 @@ export function HomePage({
                   Come build the trust layer with us.
                 </Typography>
                 <Stack direction="row" spacing={4} justifyContent="center" sx={{ mt: 3 }}>
-                  <MuiLink href="https://twitter.com/agentictrust" target="_blank" color="inherit">
+                  <MuiLink href="https://x.com/8004agent" target="_blank" color="inherit">
                     <Twitter fontSize="large" />
                   </MuiLink>
-                  <MuiLink href="https://t.me/agentictrust" target="_blank" color="inherit">
-                    <Telegram fontSize="large" />
-                  </MuiLink>
-                  <MuiLink href="https://discord.gg/agentictrust" target="_blank" color="inherit">
-                    <Forum fontSize="large" />
-                  </MuiLink>
-                  <MuiLink href="https://github.com/agentictrust" target="_blank" color="inherit">
+                  
+                  <MuiLink href="https://github.com/Agentic-Trust-Layer/agentic-trust" target="_blank" color="inherit">
                     <GitHub fontSize="large" />
                   </MuiLink>
                   {onOpenAdminTools && (
