@@ -1,6 +1,36 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Container,
+  Divider,
+  Grid,
+  Link as MuiLink,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Stack,
+  Typography,
+} from '@mui/material';
+import {
+  ArrowOutward,
+  AutoGraph,
+  Explore as ExploreIcon,
+  GitHub,
+  Group,
+  ShieldOutlined,
+  Telegram,
+  Timeline,
+  Twitter,
+  Verified,
+  Forum,
+} from '@mui/icons-material';
 import { useWeb3Auth } from './Web3AuthProvider';
 import { useWallet } from './WalletProvider';
 import { grayscalePalette as palette } from '@/styles/palette';
@@ -38,7 +68,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
       setConnecting(true);
       setError(null);
       await connect('social', provider);
-      // Provider will clear connecting when it finishes routing.
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : 'Failed to connect';
@@ -199,7 +228,6 @@ export function LoginModal({ onClose }: LoginModalProps) {
               : 'Connect Direct Wallet'}
           </button>
         </div>
-
       </div>
     </div>
   );
@@ -211,154 +239,356 @@ type HomePageProps = {
   isConnected?: boolean;
 };
 
-export function HomePage({ onNavigateAgents, onOpenAdminTools, isConnected }: HomePageProps) {
+const articleUrl =
+  'https://blockchain.news/ainews/agent-trust-graphs-for-erc-8004-ai-agents-visualizing-on-chain-validator-networks-and-real-reputation-scores';
+
+export function HomePage({
+  onNavigateAgents,
+  onOpenAdminTools,
+  isConnected,
+}: HomePageProps) {
+  const primaryCta = 'Explore the Agent Community';
+
   return (
-    <section
-      style={{
-        padding: '3rem',
-        background: 'linear-gradient(135deg, #f6f6f6, #e7e7e7)',
-        borderRadius: '24px',
+    <Box
+      component="main"
+      sx={{
+        bgcolor: 'background.default',
+        color: 'text.primary',
+        borderRadius: 4,
         border: `1px solid ${palette.border}`,
         boxShadow: '0 24px 60px rgba(15,23,42,0.12)',
+        overflow: 'hidden',
       }}
     >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-          gap: '2rem',
-          alignItems: 'center',
+      <Box
+        sx={{
+          px: { xs: 3, md: 5 },
+          py: { xs: 6, md: 8 },
+          bgcolor: 'background.default',
         }}
       >
-        <div>
-          <p
-            style={{
-              letterSpacing: '0.15em',
-              textTransform: 'uppercase',
-              color: palette.textMuted,
-              fontWeight: 700,
-              marginBottom: '0.75rem',
-            }}
-          >
-            Agentic Trust
-          </p>
-          <h2
-            style={{
-              fontSize: '2.75rem',
-              margin: 0,
-              color: palette.textPrimary,
-              lineHeight: 1.2,
-            }}
-          >
-            On-chain identity tooling for ERC-8004 agents.
-          </h2>
-          <p style={{ marginTop: '1rem', fontSize: '1.1rem', color: palette.textSecondary }}>
-            Register, discover, and manage AI agents with verifiable ownership,
-            ENS integration, and cross-chain support. 
-          </p>
-          <div
-            style={{
-              marginTop: '1.5rem',
-              display: 'flex',
-              gap: '1rem',
-              flexWrap: 'wrap',
-            }}
-          >
-        <button
-              onClick={onNavigateAgents}
-              style={{
-                padding: '0.9rem 2rem',
-                borderRadius: '999px',
-                border: 'none',
-                backgroundColor: palette.accent,
-                color: palette.surface,
-                fontSize: '1rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-              }}
-            >
-          Get Started Exploring
-            </button>
-            {isConnected && onOpenAdminTools && (
-              <button
-                onClick={onOpenAdminTools}
-                style={{
-                  padding: '0.9rem 2rem',
-                  borderRadius: '999px',
-                  border: `1px solid ${palette.borderStrong}`,
-                  backgroundColor: palette.surface,
-                  color: palette.textPrimary,
-                  fontSize: '1rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
+        <Container maxWidth="lg">
+          <Stack spacing={{ xs: 8, md: 10 }}>
+            {/* Hero */}
+            <Box textAlign="center">
+              <Typography
+                variant="overline"
+                sx={{ letterSpacing: '0.2em', color: 'text.secondary', fontWeight: 700 }}
+              >
+                Agentic Trust Community
+              </Typography>
+              <Typography
+                variant="h2"
+                sx={{
+                  mt: 2,
+                  fontWeight: 800,
+                  fontSize: { xs: '2.4rem', md: '3.4rem' },
+                  lineHeight: 1.1,
                 }}
               >
-                Create Agent
-              </button>
-            )}
-          </div>
-        </div>
+                Explore Trust Graphs for ERC-8004 Agents
+              </Typography>
+              <Typography
+                variant="h6"
+                sx={{ mt: 2, color: 'text.secondary', maxWidth: 840, mx: 'auto' }}
+              >
+                Visualize · Build · Validate · Discover. A community-first front door to the
+                ERC-8004 identity, validation, and reputation registries — built for devs who want
+                signal, not hype.
+              </Typography>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                justifyContent="center"
+                sx={{ mt: 4 }}
+              >
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={<ExploreIcon />}
+                  onClick={onNavigateAgents}
+                >
+                  {primaryCta}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="large"
+                  endIcon={<ArrowOutward />}
+                  href="/agent-registration"
+                >
+                  Register an Agent (2 min)
+                </Button>
+                <Button
+                  variant="text"
+                  size="large"
+                  endIcon={<ArrowOutward />}
+                  href={articleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Read the Article
+                </Button>
+              </Stack>
+            </Box>
 
-        <div
-          style={{
-            backgroundColor: palette.surface,
-            borderRadius: '20px',
-            padding: '1.5rem',
-            border: `1px solid ${palette.border}`,
-            boxShadow: '0 16px 40px rgba(15,23,42,0.08)',
-          }}
-        >
-          <h3
-            style={{
-              marginTop: 0,
-              marginBottom: '1rem',
-              color: palette.textPrimary,
-              fontSize: '1.25rem',
-            }}
-          >
-            What you can do here
-          </h3>
-          <ul
-            style={{
-              listStyle: 'none',
-              padding: 0,
-              margin: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.75rem',
-              color: palette.textSecondary,
-            }}
-          >
-            <li>• Mint ERC-8004 agents with deterministic AA or EOA accounts.</li>
-            <li>• Assign ENS subdomains and manage discovery metadata.</li>
-            <li>• Query the discovery indexer with structured filters.</li>
-            <li>• Transfer, refresh, and audit agent data across chains.</li>
-          </ul>
-          <div
-            style={{
-              marginTop: '1.25rem',
-              display: 'flex',
-              gap: '0.5rem',
-              flexWrap: 'wrap',
-              color: palette.textSecondary,
-              fontSize: '0.95rem',
-            }}
-          >
-            <span>Need full admin access?</span>
-            <a
-              href="/admin-tools?mode=create"
-              style={{
-                color: palette.accent,
-                fontWeight: 600,
-                textDecoration: 'none',
+            {/* Why now cards */}
+            <Grid container spacing={3}>
+              {[
+                {
+                  title: 'Trust Graphs are live',
+                  body:
+                    'Validator ↔ Agent ↔ Reviewer relationships are on-chain today via the ERC-8004 Validation Registry.',
+                  icon: <AutoGraph fontSize="large" color="primary" />,
+                },
+                {
+                  title: 'First-mover window',
+                  body:
+                    'Registries are young (<2k agents). Building now sets the canonical UX and data moat for the next wave.',
+                  icon: <Timeline fontSize="large" color="primary" />,
+                },
+                {
+                  title: 'Delegation + VCs',
+                  body:
+                    'Relational verifiable credentials with MetaMask smart accounts enable real enterprise handshakes.',
+                  icon: <ShieldOutlined fontSize="large" color="primary" />,
+                },
+              ].map((card) => (
+                <Grid item xs={12} md={4} key={card.title}>
+                  <Card
+                    variant="outlined"
+                    sx={{
+                      height: '100%',
+                      borderRadius: 3,
+                      borderColor: palette.border,
+                      backgroundColor: 'background.paper',
+                    }}
+                  >
+                    <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {card.icon}
+                        <Typography variant="h6" fontWeight={700}>
+                          {card.title}
+                        </Typography>
+                      </Box>
+                      <Typography variant="body1" color="text.secondary">
+                        {card.body}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+            </Grid>
+
+            {/* Mental model */}
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 4,
+                borderColor: palette.border,
+                backgroundColor: 'background.paper',
               }}
             >
-              Open the Admin Tools console →
-            </a>
-          </div>
-        </div>
-      </div>
-    </section>
+              <CardContent>
+                <Typography variant="h4" fontWeight={700} gutterBottom>
+                  The Mental Model Everyone Just Adopted
+                </Typography>
+                <Typography variant="body1" color="text.secondary" gutterBottom>
+                  Trust Graphs are now the default way to read ERC-8004 reputation:
+                </Typography>
+                <List>
+                  {[
+                    'Validators (stake-secured, TEE, zkML, re-execution) ↔ Agents ↔ Reviewers with relational VCs.',
+                    'All data lives on Mainnet + major L2s via the Identity, Validation, and Reputation registries.',
+                    'No silos or “vibes” — only composable, economic, on-chain trust.',
+                  ].map((item) => (
+                    <ListItem key={item} disableGutters>
+                      <ListItemIcon>
+                        <Verified color="primary" />
+                      </ListItemIcon>
+                      <ListItemText primary={item} />
+                    </ListItem>
+                  ))}
+                </List>
+              </CardContent>
+            </Card>
+
+            {/* No-code steps */}
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 4,
+                borderColor: palette.border,
+                backgroundColor: 'background.paper',
+              }}
+            >
+              <CardContent>
+                <Typography variant="h4" fontWeight={700} gutterBottom textAlign="center">
+                  Start Exploring — No Code Required
+                </Typography>
+                <Typography
+                  variant="body1"
+                  color="text.secondary"
+                  textAlign="center"
+                  sx={{ mb: 4 }}
+                >
+                  Compress idea → validation from 60 days to 60 minutes.
+                </Typography>
+                <List>
+                  {[
+                    'Name your agent and give it a one-line mission.',
+                    'Pick an icon and short brand description (agents have branding).',
+                    'Publish to the ERC-8004 Identity Registry via MetaMask smart accounts.',
+                    'Run your first gamified validation mission (DeFi, research, legal, healthcare verticals).',
+                    'Watch your node appear in the live Trust Graph as validators stake on you.',
+                  ].map((item, idx) => (
+                    <ListItem key={item} disableGutters>
+                      <ListItemIcon>
+                        <Chip label={idx + 1} color="primary" size="small" />
+                      </ListItemIcon>
+                      <ListItemText primary={item} />
+                    </ListItem>
+                  ))}
+                </List>
+                <Typography
+                  variant="body2"
+                  color="text.secondary"
+                  textAlign="center"
+                  sx={{ mt: 2, fontStyle: 'italic' }}
+                >
+                  Most agent concepts die before real validation. Here the loop is 60 minutes, not 60
+                  days.
+                </Typography>
+                <Stack direction="row" justifyContent="center" sx={{ mt: 3 }}>
+                  <Button variant="contained" size="large" onClick={onNavigateAgents}>
+                    Start Your Agent Journey
+                  </Button>
+                </Stack>
+              </CardContent>
+            </Card>
+
+            {/* Trust graph + validator pools */}
+            <Grid container spacing={3}>
+              <Grid item xs={12} md={6}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: '100%',
+                    borderRadius: 4,
+                    borderColor: palette.border,
+                    backgroundColor: 'background.paper',
+                  }}
+                >
+                  <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <AutoGraph color="primary" />
+                      <Typography variant="h5" fontWeight={700}>
+                        Live Trust Graph Viewer
+                      </Typography>
+                    </Box>
+                    <Typography variant="body1" color="text.secondary">
+                      Real-time graph of agents, validation relationships, reviewer credentials, and
+                      reputation score propagation. Filter by vertical, zoom into clusters, click a
+                      node for on-chain proofs.
+                    </Typography>
+                    <Button variant="contained" onClick={onNavigateAgents} startIcon={<ExploreIcon />}>
+                      Open the Trust Graph
+                    </Button>
+                  </CardContent>
+                </Card>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Card
+                  variant="outlined"
+                  sx={{
+                    height: '100%',
+                    borderRadius: 4,
+                    borderColor: palette.border,
+                    backgroundColor: 'background.paper',
+                  }}
+                >
+                  <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Group color="primary" />
+                      <Typography variant="h5" fontWeight={700}>
+                        Gamified Vertical Validator Pools
+                      </Typography>
+                    </Box>
+                    <Typography variant="body1" color="text.secondary">
+                      DeFi risk, healthcare compliance, legal research, supply-chain, security, and
+                      more. Stake → validate → earn reputation and rewards → climb leaderboards.
+                    </Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      {[
+                        'DeFi Risk',
+                        'Healthcare',
+                        'Legal Research',
+                        'Supply Chain',
+                        'Security',
+                        'Research',
+                      ].map((pool) => (
+                        <Chip key={pool} label={pool} variant="outlined" />
+                      ))}
+                    </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      <Button variant="outlined" href="/pools">
+                        Browse Pools
+                      </Button>
+                      <Button variant="contained" href="/validator">
+                        Become a Validator
+                      </Button>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Grid>
+            </Grid>
+
+            {/* Community */}
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 4,
+                borderColor: palette.border,
+                backgroundColor: 'background.paper',
+              }}
+            >
+              <CardContent sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" fontWeight={700} gutterBottom>
+                  Built in Public — Join the Community
+                </Typography>
+                <Typography variant="body1" color="text.secondary" gutterBottom>
+                  The first useful layer on top of ERC-8004 while the registries are still young.
+                  Come build the trust layer with us.
+                </Typography>
+                <Stack direction="row" spacing={4} justifyContent="center" sx={{ mt: 3 }}>
+                  <MuiLink href="https://twitter.com/agentictrust" target="_blank" color="inherit">
+                    <Twitter fontSize="large" />
+                  </MuiLink>
+                  <MuiLink href="https://t.me/agentictrust" target="_blank" color="inherit">
+                    <Telegram fontSize="large" />
+                  </MuiLink>
+                  <MuiLink href="https://discord.gg/agentictrust" target="_blank" color="inherit">
+                    <Forum fontSize="large" />
+                  </MuiLink>
+                  <MuiLink href="https://github.com/agentictrust" target="_blank" color="inherit">
+                    <GitHub fontSize="large" />
+                  </MuiLink>
+                  {onOpenAdminTools && (
+                    <MuiLink onClick={onOpenAdminTools} sx={{ cursor: 'pointer' }} color="inherit">
+                      <ShieldOutlined fontSize="large" />
+                    </MuiLink>
+                  )}
+                </Stack>
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
+                  agentictrust.io — December 2025 · First-mover coordination layer for ERC-8004 trust
+                  graphs.
+                </Typography>
+              </CardContent>
+            </Card>
+          </Stack>
+        </Container>
+      </Box>
+      <Divider />
+    </Box>
   );
 }
-

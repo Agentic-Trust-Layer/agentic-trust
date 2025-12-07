@@ -183,30 +183,33 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   console.log('[AgentDetailsPage] Metadata from agentDetail:', Object.keys(allMetadata).length, 'keys', allMetadata);
 
                         
+  // Use agentDetail for more complete data, especially createdAtTime
   const serializedAgent: AgentsPageAgent = {
     agentId: agent.agentId?.toString?.() ?? agentIdParam,
     chainId,
-    agentName: agent.agentName ?? null,
+    agentName: agent.agentName ?? agentDetail.agentName ?? null,
     agentAccount: (agent as any).agentAccount ?? 
                   (agent as any).account ?? 
                   (agent as any).owner ?? 
                   (agent as any).data?.agentAccount ?? 
                   (agent as any).data?.account ?? 
                   (agent as any).data?.owner ??
+                  agentDetail.agentAccount ??
                   null,
     ownerAddress: ownerAddress ??
                   (agent as any).ownerAddress ??
                   (agent as any).data?.ownerAddress ??
+                  agentDetail.agentOwner ??
                   null,
-    tokenUri: agentTokenUri,
-    description: (agent as any).description ?? null,
-    image: agentImage,
-    contractAddress: (agent as any).contractAddress ?? null,
-    a2aEndpoint: (agent as any).a2aEndpoint ?? null,
-    agentAccountEndpoint: (agent as any).agentAccountEndpoint ?? null,
+    tokenUri: agentTokenUri ?? agentDetail.tokenUri ?? null,
+    description: (agent as any).description ?? agentDetail.description ?? null,
+    image: agentImage ?? agentDetail.image ?? null,
+    contractAddress: (agent as any).contractAddress ?? agentDetail.contractAddress ?? null,
+    a2aEndpoint: (agent as any).a2aEndpoint ?? agentDetail.a2aEndpoint ?? null,
+    agentAccountEndpoint: (agent as any).agentAccountEndpoint ?? agentDetail.agentAccountEndpoint ?? null,
     mcpEndpoint: mcpEndpoint,
-    did: (agent as any).did ?? null,
-    createdAtTime: (agent as any).createdAtTime ?? null,
+    did: (agent as any).did ?? agentDetail.did ?? null,
+    createdAtTime: agentDetail.createdAtTime ?? (agent as any).createdAtTime ?? null,
     feedbackCount: (agent as any).feedbackCount ?? null,
     feedbackAverageScore: (agent as any).feedbackAverageScore ?? null,
     validationPendingCount: (agent as any).validationPendingCount ?? null,
