@@ -859,6 +859,20 @@ export default function AdminPage() {
         const did8004 = buildDid8004(parsedChainId, finalAgentId);
         const agentNameForAA = displayAgentName === '...' ? '' : displayAgentName;
 
+        // Ensure wallet is on the correct chain before continuing (Metamask)
+        if (eip1193Provider && typeof eip1193Provider.request === 'function') {
+          const targetHex = `0x${parsedChainId.toString(16)}`;
+          try {
+            await eip1193Provider.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: targetHex }],
+            });
+          } catch (switchErr) {
+            console.warn('Failed to switch chain in wallet for registration update', switchErr);
+            throw new Error(`Please switch your wallet to chain ${parsedChainId} and retry.`);
+          }
+        }
+
         const accountClient = await getDeployedAccountClientByAgentName(
           bundlerEnv,
           agentNameForAA,
@@ -1451,6 +1465,20 @@ export default function AdminPage() {
 
       if (!bundlerUrl) {
         throw new Error(`Bundler URL not configured for chain ${chainId}`);
+      }
+
+      // Ensure the wallet is on the correct chain (Metamask)
+      if (eip1193Provider && typeof eip1193Provider.request === 'function') {
+        const targetHex = `0x${chainId.toString(16)}`;
+        try {
+          await eip1193Provider.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: targetHex }],
+          });
+        } catch (switchErr) {
+          console.warn('Failed to switch chain in wallet', switchErr);
+          throw new Error(`Please switch your wallet to chain ${chainId} and retry.`);
+        }
       }
 
       // Get agent account client
