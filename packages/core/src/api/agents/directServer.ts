@@ -45,6 +45,7 @@ export async function createAgentDirectCore(
       executionMode: 'server',
       agentName: input.agentName,
       agentAccount: input.agentAccount as `0x${string}`,
+      agentCategory: input.agentCategory,
       description: input.description,
       image: input.image,
       agentUrl: input.agentUrl,

@@ -357,8 +357,13 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     return await this.encodeRegisterWithMetadata(tokenUri, [{ key: 'agentName', value: name }, { key: 'agentAccount', value: agentAccount }]);
   }
 
-  async prepareRegisterCalls(name: string, agentAccount: `0x${string}`, tokenUri: string): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
-    const data = await this.encodeRegisterWithMetadata(tokenUri, [{ key: 'agentName', value: name }, { key: 'agentAccount', value: agentAccount }]);
+  async prepareRegisterCalls(name: string, agentAccount: `0x${string}`, tokenUri: string, additionalMetadata?: MetadataEntry[]): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
+    const metadata: MetadataEntry[] = [
+      { key: 'agentName', value: name },
+      { key: 'agentAccount', value: agentAccount },
+      ...(additionalMetadata || []),
+    ];
+    const data = await this.encodeRegisterWithMetadata(tokenUri, metadata);
     const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
     calls.push({ 
         to: this.identityRegistryAddress, 
@@ -603,6 +608,24 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       }
       return null;
     } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get agentCategory from on-chain metadata (string value)
+   * Returns one of the standard agent category types from the OAS ecosystem.
+   */
+  async getAgentCategory(agentId: bigint): Promise<string | null> {
+    try {
+      const category = await this.getMetadata(agentId, 'agentCategory');
+      if (typeof category === 'string') {
+        const trimmed = category.trim();
+        return trimmed.length > 0 ? trimmed : null;
+      }
+      return category ? String(category) : null;
+    } catch (error: any) {
+      console.info("++++++++++++++++++++++++ getAgentCategory: error", error);
       return null;
     }
   }

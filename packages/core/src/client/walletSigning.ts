@@ -472,6 +472,7 @@ export interface CreateAgentWithWalletOptions {
   agentData: {
     agentName: string;
     agentAccount: `0x${string}`;
+    agentCategory?: string;
     description?: string;
     image?: string;
     agentUrl?: string;
@@ -556,6 +557,7 @@ async function createAgentWithWalletEOA(
     mode: 'eoa',
     agentName: agentData.agentName,
     agentAccount: agentData.agentAccount,
+    agentCategory: agentData.agentCategory,
     description: agentData.description,
     image: agentData.image,
     agentUrl: agentData.agentUrl,
@@ -1039,6 +1041,7 @@ async function createAgentWithWalletAA(
       account: computedAddress,
       agentName: agentData.agentName,
       agentAccount: agentData.agentAccount,
+      agentCategory: agentData.agentCategory,
       description: agentData.description,
       image: agentData.image,
       agentUrl: agentData.agentUrl,

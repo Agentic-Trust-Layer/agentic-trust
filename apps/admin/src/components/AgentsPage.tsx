@@ -25,6 +25,7 @@ export type AgentsPageAgent = {
   chainId: number;
   agentName?: string | null;
   agentAccount?: string | null;
+  agentCategory?: string | null;
   ownerAddress?: string | null;
   tokenUri?: string | null;
   description?: string | null;
@@ -3477,6 +3478,18 @@ export function AgentsPage({
                             agent.agentName || 'Unnamed Agent'
                           )}
                         </h4>
+                        {agent.agentCategory && (
+                          <div
+                            style={{
+                              fontSize: '0.85rem',
+                              color: palette.textSecondary,
+                              marginTop: '0.25rem',
+                              fontWeight: 500,
+                            }}
+                          >
+                            {agent.agentCategory}
+                          </div>
+                        )}
                         {ensLink && !isEnsName && (
                           <a
                             data-agent-card-link

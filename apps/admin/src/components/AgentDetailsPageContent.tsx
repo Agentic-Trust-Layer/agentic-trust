@@ -11,6 +11,7 @@ import AgentDetailsTabs, {
 } from '@/components/AgentDetailsTabs';
 import type { AgentsPageAgent } from '@/components/AgentsPage';
 import BackToAgentsButton from '@/components/BackToAgentsButton';
+import TrustGraphModal from '@/components/TrustGraphModal';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { buildDid8004 } from '@agentic-trust/core';
@@ -88,6 +89,9 @@ export default function AgentDetailsPageContent({
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [agentCard, setAgentCard] = useState<any>(null);
+  const [trustGraphModalOpen, setTrustGraphModalOpen] = useState(false);
+  const [reviewsModalOpen, setReviewsModalOpen] = useState(false);
+  const [validationsModalOpen, setValidationsModalOpen] = useState(false);
 
   const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
 
@@ -140,6 +144,26 @@ export default function AgentDetailsPageContent({
   useEffect(() => {
     checkOwnership();
   }, [checkOwnership]);
+
+  // Resolve ENS name for validator addresses
+  const resolveEnsName = useCallback(async (addr?: string | null) => {
+    if (!addr || !addr.startsWith('0x')) return null;
+    try {
+      const { getAgenticTrustClient } = await import('@agentic-trust/core/server');
+      const client = await getAgenticTrustClient();
+      if (typeof (client as any).resolveEnsName === 'function') {
+        const res = await (client as any).resolveEnsName(addr);
+        if (res) return res;
+      }
+      if ((client as any).ensClient?.getName) {
+        const res = await (client as any).ensClient.getName(addr);
+        if (res?.name) return res.name;
+      }
+    } catch (err) {
+      console.warn('[AgentDetails] ENS resolve failed:', err);
+    }
+    return null;
+  }, []);
 
   useEffect(() => {
     console.log('[AgentDetails] Ownership debug:', {
@@ -505,7 +529,7 @@ export default function AgentDetailsPageContent({
             <Button
               variant="contained"
               color="primary"
-              onClick={() => router.push('/agents')}
+              onClick={() => setTrustGraphModalOpen(true)}
               startIcon={<AutoGraphIcon />}
               sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, textTransform: 'none', fontWeight: 600 }}
             >
@@ -850,6 +874,26 @@ export default function AgentDetailsPageContent({
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Trust Graph Modal */}
+      <TrustGraphModal
+        open={trustGraphModalOpen}
+        onClose={() => setTrustGraphModalOpen(false)}
+        agent={agent}
+        feedbackSummary={feedbackSummary}
+        validations={validations}
+        onOpenReviews={() => {
+          setTrustGraphModalOpen(false);
+          // Could scroll to feedback tab or show feedback dialog
+          // For now, just close the modal - user can navigate to Feedback tab
+        }}
+        onOpenValidations={() => {
+          setTrustGraphModalOpen(false);
+          // Could scroll to validation tab or show validation dialog
+          // For now, just close the modal - user can navigate to Validation tab
+        }}
+        resolveEnsName={resolveEnsName}
+      />
     </Box>
   );
 }

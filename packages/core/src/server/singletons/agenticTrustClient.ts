@@ -37,6 +37,7 @@ type ExecutionMode = 'auto' | 'server' | 'client';
 type CreateAgentBaseParams = {
   agentName: string;
   agentAccount: `0x${string}`;
+  agentCategory?: string;
   description?: string;
   image?: string;
   agentUrl?: string;

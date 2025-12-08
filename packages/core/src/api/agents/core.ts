@@ -165,6 +165,7 @@ export async function createAgentCore(
     const result = await client.agents.createAgentForAA({
       agentName: input.agentName,
       agentAccount: input.agentAccount as `0x${string}`,
+      agentCategory: input.agentCategory,
       description: input.description,
       image: input.image,
       agentUrl: input.agentUrl,
@@ -190,6 +191,7 @@ export async function createAgentCore(
     executionMode: 'client',
     agentName: input.agentName,
     agentAccount: input.agentAccount as `0x${string}`,
+    agentCategory: input.agentCategory,
     description: input.description,
     image: input.image,
     agentUrl: input.agentUrl,

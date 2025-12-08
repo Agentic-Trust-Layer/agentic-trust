@@ -7,6 +7,7 @@ export interface AgentInfo {
   agentName: string;
   chainId: number;
   agentAccount: string;
+  agentCategory?: string | null;
   agentOwner: string;
   contractAddress?: string | null;
   didIdentity?: string | null;

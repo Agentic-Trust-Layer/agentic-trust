@@ -121,6 +121,21 @@ export async function discoverAgents(
         // Ignore errors in MCP endpoint extraction
       }
 
+      // Extract agentCategory from metadata if available
+      let agentCategory: string | null | undefined = undefined;
+      try {
+        // Check if metadata is available as an object
+        if (raw?.metadata && typeof raw.metadata === 'object' && !Array.isArray(raw.metadata)) {
+          agentCategory = stringOrNull((raw.metadata as Record<string, unknown>)?.agentCategory);
+        }
+        // Also check if agentCategory is directly on raw (from GraphQL normalization)
+        if (!agentCategory) {
+          agentCategory = stringOrNull(raw?.agentCategory);
+        }
+      } catch {
+        // Ignore errors in agentCategory extraction
+      }
+
       return {
         chainId,
         agentId: stringOrNull(raw?.agentId) ?? '',
@@ -129,6 +144,7 @@ export async function discoverAgents(
         agentOwner: String(raw?.agentOwner ?? ''),
         contractAddress: stringOrNull(raw?.contractAddress) ?? undefined,
         agentName: String(raw?.agentName ?? ''),
+        agentCategory: agentCategory, // Add extracted agentCategory
         didIdentity: stringOrNull(raw?.didIdentity) ?? undefined,
         didAccount: stringOrNull(raw?.didAccount) ?? undefined,
         didName: stringOrNull(raw?.didName) ?? undefined,

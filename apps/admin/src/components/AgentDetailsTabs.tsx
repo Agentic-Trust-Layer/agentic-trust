@@ -256,7 +256,7 @@ const AgentDetailsTabs = ({
                   <div style={{ color: palette.textPrimary }}>{formatRelativeTime(agent.createdAtTime)}</div>
                 </div>
               </div>
-              </div>
+            </div>
 
               {/* Endpoints Pane */}
               <div
@@ -274,18 +274,18 @@ const AgentDetailsTabs = ({
                     flexDirection: 'column',
                     gap: '1rem',
                     fontSize: '0.9rem',
-                  }}
-                >
-                  <div>
+                }}
+              >
+                <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>A2A</strong>
                     {agent.a2aEndpoint ? (
                       <a
                         href={agent.a2aEndpoint}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{
-                          fontFamily: 'monospace',
-                          wordBreak: 'break-all',
+                    style={{
+                      fontFamily: 'monospace',
+                      wordBreak: 'break-all',
                           color: palette.accent,
                           textDecoration: 'none',
                           userSelect: 'text',
@@ -303,17 +303,17 @@ const AgentDetailsTabs = ({
                     ) : (
                       <div style={{ fontFamily: 'monospace', color: palette.textSecondary }}>—</div>
                     )}
-                  </div>
-                  <div>
+                </div>
+                <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>MCP</strong>
                     {agent.mcpEndpoint ? (
                       <a
                         href={agent.mcpEndpoint}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{
-                          fontFamily: 'monospace',
-                          wordBreak: 'break-all',
+                    style={{
+                      fontFamily: 'monospace',
+                      wordBreak: 'break-all',
                           color: palette.accent,
                           textDecoration: 'none',
                           userSelect: 'text',
@@ -354,14 +354,22 @@ const AgentDetailsTabs = ({
                   fontSize: '0.9rem',
                 }}
               >
-                {agent.description && (
+                {(onChainMetadata.agentCategory || agent.agentCategory) && (
                   <div>
-                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Description</strong>
-                    <p style={{ margin: 0, lineHeight: 1.6, color: palette.textPrimary }}>
-                      {agent.description}
-                    </p>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Category</strong>
+                    <div style={{ color: palette.textPrimary, fontWeight: 500 }}>
+                      {onChainMetadata.agentCategory || agent.agentCategory}
+                    </div>
                   </div>
                 )}
+            {agent.description && (
+              <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Description</strong>
+                <p style={{ margin: 0, lineHeight: 1.6, color: palette.textPrimary }}>
+                  {agent.description}
+                </p>
+              </div>
+            )}
                 {agent.image && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Image</strong>
@@ -566,23 +574,23 @@ const AgentDetailsTabs = ({
                             display: 'flex',
                             flexDirection: 'column',
                             gap: '0.5rem',
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            flexWrap: 'wrap',
+                            fontSize: '0.9rem',
+                            fontWeight: 600,
                           }}
                         >
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              flexWrap: 'wrap',
-                              fontSize: '0.9rem',
-                              fontWeight: 600,
-                            }}
-                          >
-                            <span>Score: {record.score ?? 'N/A'}</span>
-                            {record.isRevoked && (
-                              <span style={{ color: palette.dangerText }}>Revoked</span>
-                            )}
-                          </div>
-                          {record.clientAddress && (
+                          <span>Score: {record.score ?? 'N/A'}</span>
+                          {record.isRevoked && (
+                            <span style={{ color: palette.dangerText }}>Revoked</span>
+                          )}
+                        </div>
+                        {record.clientAddress && (
                             <div>
                               <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Client:</strong>{' '}
                               <code style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{shorten(record.clientAddress)}</code>
@@ -622,22 +630,22 @@ const AgentDetailsTabs = ({
                             <div>
                               <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Responses:</strong>{' '}
                               <span style={{ fontSize: '0.85rem' }}>{record.responseCount}</span>
-                            </div>
-                          )}
-                          {record.feedbackUri && (
+                          </div>
+                        )}
+                        {record.feedbackUri && (
                             <div>
                               <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback URI:</strong>{' '}
-                              <a
-                                href={record.feedbackUri}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                style={{
+                          <a
+                            href={record.feedbackUri}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
                                   fontSize: '0.85rem',
-                                  color: palette.accent,
-                                  textDecoration: 'none',
-                                  wordBreak: 'break-all',
-                                }}
-                              >
+                              color: palette.accent,
+                              textDecoration: 'none',
+                              wordBreak: 'break-all',
+                            }}
+                          >
                                 {record.feedbackUri}
                               </a>
                             </div>
@@ -709,13 +717,13 @@ const AgentDetailsTabs = ({
                       {completedValidations.map((item: any, index) => (
                         <div
                           key={index}
-                          style={{
-                            border: `1px solid ${palette.border}`,
+                  style={{
+                    border: `1px solid ${palette.border}`,
                             borderRadius: '8px',
                             padding: '0.75rem',
-                            backgroundColor: palette.surfaceMuted,
-                          }}
-                        >
+                    backgroundColor: palette.surfaceMuted,
+                  }}
+                >
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             {item.requestHash && (
                               <div>
@@ -839,13 +847,13 @@ const AgentDetailsTabs = ({
                       {pendingValidations.map((item: any, index) => (
                         <div
                           key={index}
-                          style={{
-                            border: `1px solid ${palette.border}`,
+                  style={{
+                    border: `1px solid ${palette.border}`,
                             borderRadius: '8px',
                             padding: '0.75rem',
-                            backgroundColor: palette.surfaceMuted,
-                          }}
-                        >
+                    backgroundColor: palette.surfaceMuted,
+                  }}
+                >
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                             {item.requestHash && (
                               <div>

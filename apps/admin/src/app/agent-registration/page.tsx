@@ -85,6 +85,7 @@ export default function AgentRegistrationPage() {
   const [createForm, setCreateForm] = useState({
     agentName: '',
     agentAccount: '',
+    agentCategory: '',
     description: '',
     image: getDefaultImageUrl(),
     agentUrl: '',
@@ -946,6 +947,7 @@ export default function AgentRegistrationPage() {
             mode: 'aa',
             agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
+            agentCategory: createForm.agentCategory || undefined,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
             agentUrl: baseUrl || undefined,
@@ -992,6 +994,7 @@ export default function AgentRegistrationPage() {
           agentData: {
               agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
+            agentCategory: createForm.agentCategory || undefined,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
             agentUrl: baseUrl || undefined,
@@ -1022,7 +1025,7 @@ export default function AgentRegistrationPage() {
 
       
       
-      setCreateForm({ agentName: '', agentAccount: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
+      setCreateForm({ agentName: '', agentAccount: '', agentCategory: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
       setAgentUrlAutofillDisabled(false);
       setAaAddress(null);
       setCreateStep(0);
@@ -1192,6 +1195,25 @@ export default function AgentRegistrationPage() {
                 required
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Agent Category
+              </label>
+              <select
+                value={createForm.agentCategory}
+                onChange={(e) => setCreateForm({ ...createForm, agentCategory: e.target.value })}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
+              >
+                <option value="">Select a category (optional)</option>
+                <option value="Service Agents">Service Agents (Function/Task Agents)</option>
+                <option value="Conversational / Interface Agents">Conversational / Interface Agents</option>
+                <option value="Orchestrator / Coordinator Agents">Orchestrator / Coordinator Agents</option>
+                <option value="Knowledge / Retrieval Agents">Knowledge / Retrieval Agents</option>
+                <option value="Autonomous / Goal-Seeking Agents">Autonomous / Goal-Seeking Agents</option>
+                <option value="Governance / Validation Agents">Governance / Validation Agents</option>
+                <option value="Domain-Specific / Vertical Agents">Domain-Specific / Vertical Agents</option>
+              </select>
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.9rem', color: 'green', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>

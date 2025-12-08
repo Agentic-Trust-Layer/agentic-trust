@@ -39,6 +39,7 @@ export interface DirectCreateAgentPayload {
   mode: AgentOperationMode;
   agentName: string;
   agentAccount: string;
+  agentCategory?: string;
   description?: string;
   image?: string;
   agentUrl?: string;
@@ -57,6 +58,7 @@ export interface CreateAgentPayload {
   mode: AgentOperationMode;
   agentName: string;
   agentAccount: string;
+  agentCategory?: string;
   account?: string;
   description?: string;
   image?: string;

@@ -316,6 +316,7 @@ export class AgentsAPI {
   async createAgentForEOA(params: {
     agentName: string;
     agentAccount: `0x${string}`;
+    agentCategory?: string;
     description?: string;
     image?: string;
     agentUrl?: string;
@@ -395,6 +396,7 @@ export class AgentsAPI {
       const metadata = [
         { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
         { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+        ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
       ].filter(m => m.value !== '');
 
       
@@ -472,6 +474,7 @@ export class AgentsAPI {
     const metadata = [
       { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
       { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+      ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
     ].filter(m => m.value !== ''); // Remove empty values
 
 
@@ -498,6 +501,7 @@ export class AgentsAPI {
   async createAgentForEOAPK(params: {
     agentName: string;
     agentAccount: `0x${string}`;
+    agentCategory?: string;
     description?: string;
     image?: string;
     agentUrl?: string;
@@ -552,6 +556,7 @@ export class AgentsAPI {
     const metadata = [
       { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
       { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+      ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
     ].filter(m => m.value !== '');
 
     // Execute registration
@@ -570,6 +575,7 @@ export class AgentsAPI {
   async createAgentForAA(params: {
     agentName: string;
     agentAccount: `0x${string}`;
+    agentCategory?: string;
     description?: string;
     image?: string;
     agentUrl?: string;
@@ -652,10 +658,12 @@ export class AgentsAPI {
       identityRegistryAddress: identityRegistryHex as `0x${string}`,
     });
 
+    const additionalMetadata = params.agentCategory ? [{ key: 'agentCategory', value: params.agentCategory }] : [];
     const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
       params.agentName,
       params.agentAccount,
-      tokenUri
+      tokenUri,
+      additionalMetadata
     );
 
     const bundlerUrl = getChainBundlerUrl(params.chainId || DEFAULT_CHAIN_ID);
@@ -676,6 +684,7 @@ export class AgentsAPI {
   async createAgentForAAPK(params: {
     agentName: string;
     agentAccount: `0x${string}`;
+    agentCategory?: string;
     description?: string;
     image?: string;
     agentUrl?: string;
@@ -1567,6 +1576,7 @@ export class AgentsAPI {
     prepareCreateAgentTransaction: async (params: {
       agentName: string;
       agentAccount: `0x${string}`;
+      agentCategory?: string;
       description?: string;
       image?: string;
       agentUrl?: string;
@@ -1622,6 +1632,7 @@ export class AgentsAPI {
       const metadata = [
         { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
         { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
+        ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
       ].filter(m => m.value !== '');
 
       // Create registration JSON and upload to IPFS
