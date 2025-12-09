@@ -76,6 +76,7 @@ type SemanticMatch = {
     validationPendingCount?: number | null;
     validationCompletedCount?: number | null;
     validationRequestedCount?: number | null;
+    metadata?: Array<{ key?: string | null; valueText?: string | null }> | null;
   } | null;
 };
 
@@ -121,7 +122,19 @@ export default function AgentDiscoveryRoute() {
     if (!allAgents.length) return [];
     const start = (currentPage - 1) * PAGE_SIZE;
     const end = start + PAGE_SIZE;
-    return allAgents.slice(start, end);
+    const sliced = allAgents.slice(start, end);
+    console.log('[AgentDiscovery] pageAgents computed:', {
+      allAgentsCount: allAgents.length,
+      currentPage,
+      start,
+      end,
+      slicedCount: sliced.length,
+      slicedAgentNames: sliced.map((a) => ({
+        agentId: a.agentId,
+        agentName: a.agentName,
+      })),
+    });
+    return sliced;
   }, [allAgents, currentPage]);
 
   const searchAgents = useCallback(
@@ -158,11 +171,38 @@ export default function AgentDiscoveryRoute() {
         const data = (await response.json()) as SemanticSearchResponse;
         const matches = Array.isArray(data.matches) ? data.matches : [];
 
+        console.log('[AgentDiscovery] Raw API response:', {
+          total: data.total,
+          matchesCount: matches.length,
+          firstMatchSample: matches[0]
+            ? {
+                score: matches[0].score,
+                agentId: matches[0].agent?.agentId,
+                agentName: matches[0].agent?.agentName,
+                agentNameType: typeof matches[0].agent?.agentName,
+                metadata: matches[0].agent?.metadata,
+              }
+            : null,
+        });
+
         const nextAgents: Agent[] = [];
 
-        for (const match of matches) {
-          if (!match || !match.agent) continue;
+        for (let i = 0; i < matches.length; i++) {
+          const match = matches[i];
+          if (!match || !match.agent) {
+            console.log(`[AgentDiscovery] Match ${i}: Skipping - no match or agent`);
+            continue;
+          }
           const agent = match.agent;
+
+          console.log(`[AgentDiscovery] Processing match ${i}:`, {
+            agentId: agent.agentId,
+            rawAgentName: agent.agentName,
+            rawAgentNameType: typeof agent.agentName,
+            rawAgentNameValue: JSON.stringify(agent.agentName),
+            metadata: agent.metadata,
+            metadataLength: Array.isArray(agent.metadata) ? agent.metadata.length : 0,
+          });
 
           const chainId =
             typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
@@ -184,10 +224,70 @@ export default function AgentDiscoveryRoute() {
                 ? Number(agent.createdAtTime)
                 : null;
 
+          // Extract agentName: prefer direct field, then metadata, then fallback
+          let agentName: string = 'Unnamed Agent';
+          
+          // Handle direct agentName field - must be non-empty after trim
+          const rawAgentName = agent.agentName;
+          const directName =
+            typeof rawAgentName === 'string' && rawAgentName.trim().length > 0
+              ? rawAgentName.trim()
+              : null;
+          
+          console.log(`[AgentDiscovery] Match ${i} agentName extraction:`, {
+            rawAgentName,
+            rawAgentNameType: typeof rawAgentName,
+            rawAgentNameValue: JSON.stringify(rawAgentName),
+            directName,
+            directNameLength: directName ? directName.length : 0,
+            hasMetadata: Array.isArray(agent.metadata),
+            metadataLength: Array.isArray(agent.metadata) ? agent.metadata.length : 0,
+          });
+
+          if (directName) {
+            agentName = directName;
+            console.log(`[AgentDiscovery] Match ${i}: Using directName: "${agentName}"`);
+          } else {
+            // Try metadata if direct field is empty/null/undefined
+            if (Array.isArray(agent.metadata) && agent.metadata.length > 0) {
+              const nameEntry = agent.metadata.find(
+                (entry) =>
+                  entry &&
+                  typeof entry.key === 'string' &&
+                  entry.key === 'agentName' &&
+                  typeof entry.valueText === 'string' &&
+                  entry.valueText.trim().length > 0,
+              );
+              if (nameEntry && typeof nameEntry.valueText === 'string') {
+                const trimmed = nameEntry.valueText.trim();
+                if (trimmed) {
+                  agentName = trimmed;
+                  console.log(`[AgentDiscovery] Match ${i}: Using metadata agentName: "${agentName}"`);
+                } else {
+                  console.log(`[AgentDiscovery] Match ${i}: Metadata agentName found but empty after trim`);
+                }
+              } else {
+                console.log(`[AgentDiscovery] Match ${i}: No valid agentName in metadata`, {
+                  nameEntry,
+                  metadataKeys: agent.metadata.map((e) => e?.key).filter(Boolean),
+                  metadataEntries: agent.metadata,
+                });
+              }
+            } else {
+              console.log(`[AgentDiscovery] Match ${i}: No directName and no metadata array, using fallback "Unnamed Agent"`);
+            }
+          }
+          
+          // Final safety check - ensure we never have an empty string
+          if (!agentName || agentName.trim().length === 0) {
+            agentName = 'Unnamed Agent';
+            console.log(`[AgentDiscovery] Match ${i}: Final safety check - agentName was empty, using fallback`);
+          }
+
           const normalized: Agent = {
             agentId,
             chainId,
-            agentName: agent.agentName ?? 'Unnamed Agent',
+            agentName,
             agentAccount: agent.agentAccount ?? null,
             agentCategory: null,
             ownerAddress: agent.agentOwner ?? null,
@@ -209,10 +309,36 @@ export default function AgentDiscoveryRoute() {
             validationRequestedCount: agent.validationRequestedCount ?? null,
           };
 
+          console.log(`[AgentDiscovery] Match ${i} normalized agent:`, {
+            agentId: normalized.agentId,
+            agentName: normalized.agentName ?? 'Unnamed Agent',
+            agentNameLength:
+              typeof normalized.agentName === 'string' && normalized.agentName
+                ? normalized.agentName.length
+                : 0,
+          });
+
           nextAgents.push(normalized);
         }
 
+        console.log('[AgentDiscovery] Final agents array:', {
+          count: nextAgents.length,
+          agentNames: nextAgents.map((a) => ({
+            agentId: a.agentId,
+            agentName: a.agentName,
+          })),
+        });
+
         setAllAgents(nextAgents);
+        console.log('[AgentDiscovery] setAllAgents called with:', {
+          count: nextAgents.length,
+          firstAgent: nextAgents[0]
+            ? {
+                agentId: nextAgents[0].agentId,
+                agentName: nextAgents[0].agentName,
+              }
+            : null,
+        });
 
         const totalCount = nextAgents.length;
         setTotal(totalCount);
@@ -405,6 +531,19 @@ export default function AgentDiscoveryRoute() {
             {error}
           </Alert>
         )}
+
+        {(() => {
+          console.log('[AgentDiscovery] Rendering AgentsPage with pageAgents:', {
+            count: pageAgents.length,
+            agentNames: pageAgents.map((a) => ({
+              agentId: a.agentId,
+              agentName: a.agentName,
+              agentNameType: typeof a.agentName,
+              agentNameLength: typeof a.agentName === 'string' ? a.agentName.length : 0,
+            })),
+          });
+          return null;
+        })()}
 
         <AgentsPage
           agents={pageAgents}

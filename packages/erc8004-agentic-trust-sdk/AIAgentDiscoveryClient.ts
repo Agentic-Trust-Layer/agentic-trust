@@ -521,6 +521,66 @@ export class AIAgentDiscoveryClient {
       normalized.did = did;
     }
 
+    // Handle agentName: prefer non-empty values from multiple sources
+    // Priority: 1) direct agentName field, 2) name from parsedMetadata, 3) agentName from parsedMetadata
+    let agentName: string | undefined = undefined;
+    
+    // Check direct agentName field (must be non-empty after trim)
+    const rawAgentName = record.agentName;
+    const directAgentName = typeof rawAgentName === 'string' && rawAgentName.trim().length > 0
+      ? rawAgentName.trim()
+      : undefined;
+    
+    console.log('[AIAgentDiscoveryClient.normalizeAgent] Processing agentName:', {
+      agentId: normalized.agentId,
+      rawAgentName,
+      rawAgentNameType: typeof rawAgentName,
+      rawAgentNameValue: JSON.stringify(rawAgentName),
+      directAgentName,
+      hasParsedMetadata: Object.keys(parsedMetadata).length > 0,
+      parsedMetadataKeys: Object.keys(parsedMetadata),
+      parsedMetadataName: parsedMetadata.name,
+      parsedMetadataAgentName: parsedMetadata.agentName,
+    });
+    
+    if (directAgentName) {
+      agentName = directAgentName;
+      console.log('[AIAgentDiscoveryClient.normalizeAgent] Using directAgentName:', agentName);
+    } else {
+      // Check parsedMetadata for name or agentName
+      const metadataName = typeof parsedMetadata.name === 'string' && parsedMetadata.name.trim().length > 0
+        ? parsedMetadata.name.trim()
+        : undefined;
+      const metadataAgentName = typeof parsedMetadata.agentName === 'string' && parsedMetadata.agentName.trim().length > 0
+        ? parsedMetadata.agentName.trim()
+        : undefined;
+      
+      agentName = metadataAgentName || metadataName;
+      if (agentName) {
+        console.log('[AIAgentDiscoveryClient.normalizeAgent] Using metadata name:', {
+          fromMetadataAgentName: !!metadataAgentName,
+          fromMetadataName: !!metadataName,
+          agentName,
+        });
+      } else {
+        console.log('[AIAgentDiscoveryClient.normalizeAgent] No valid agentName found in direct field or metadata');
+      }
+    }
+    
+    // Set agentName: use found value, or undefined if original was empty and no replacement found
+    // This ensures empty strings are converted to undefined
+    if (agentName && agentName.length > 0) {
+      normalized.agentName = agentName;
+      console.log('[AIAgentDiscoveryClient.normalizeAgent] Set normalized.agentName to:', agentName);
+    } else if (typeof rawAgentName === 'string' && rawAgentName.trim().length === 0) {
+      // Original was empty string, and we didn't find a replacement - set to undefined
+      normalized.agentName = undefined;
+      console.log('[AIAgentDiscoveryClient.normalizeAgent] Original was empty string, set to undefined');
+    } else {
+      console.log('[AIAgentDiscoveryClient.normalizeAgent] Leaving agentName as-is:', normalized.agentName);
+    }
+    // If rawAgentName was undefined/null, leave it as-is (don't overwrite)
+
     return normalized;
   }
 
@@ -572,10 +632,27 @@ export class AIAgentDiscoveryClient {
         limit: effectiveLimit,
         offset: effectiveOffset,
       });
-      const pageAgents = (data.agents || []).map((agent) =>
-        this.normalizeAgent(agent),
-      );
+      const pageAgents = (data.agents || []).map((agent) => {
+        const normalized = this.normalizeAgent(agent);
+        console.log('[AIAgentDiscoveryClient.listAgents] Normalized agent:', {
+          agentId: normalized.agentId,
+          rawAgentName: agent.agentName,
+          normalizedAgentName: normalized.agentName,
+          agentNameType: typeof normalized.agentName,
+          hasRawJson: !!normalized.rawJson,
+        });
+        return normalized;
+      });
       allAgents = allAgents.concat(pageAgents);
+      
+      console.log('[AIAgentDiscoveryClient.listAgents] Returning agents:', {
+        count: allAgents.length,
+        agentNames: allAgents.map(a => ({
+          agentId: a.agentId,
+          agentName: a.agentName,
+          agentNameType: typeof a.agentName,
+        })),
+      });
 
       // Apply client-side ordering to ensure deterministic results,
       // since the base agents query may not support orderBy/orderDirection
@@ -827,7 +904,27 @@ export class AIAgentDiscoveryClient {
           if (Array.isArray(list)) {
             const normalizedList = list
               .filter(Boolean)
-              .map((item) => this.normalizeAgent(item as AgentData));
+              .map((item) => {
+                const rawAgent = item as AgentData;
+                const normalized = this.normalizeAgent(rawAgent);
+                console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Normalized agent (fallback):', {
+                  agentId: normalized.agentId,
+                  rawAgentName: rawAgent.agentName,
+                  normalizedAgentName: normalized.agentName,
+                  agentNameType: typeof normalized.agentName,
+                  hasRawJson: !!normalized.rawJson,
+                });
+                return normalized;
+              });
+
+            console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Returning normalized agents (fallback):', {
+              count: normalizedList.length,
+              agentNames: normalizedList.map(a => ({
+                agentId: a.agentId,
+                agentName: a.agentName,
+                agentNameType: typeof a.agentName,
+              })),
+            });
 
             // Ensure fallback respects the requested ordering, even if the
             // underlying searchAgents resolver uses its own default order.
@@ -1087,8 +1184,33 @@ export class AIAgentDiscoveryClient {
         const data = await this.client.request<Record<string, any>>(queryText, variables);
         const list = data?.[strategy.fieldName];
         if (!Array.isArray(list)) return null;
+        
+        const agents = list
+          .filter(Boolean)
+          .map((item) => {
+            const rawAgent = item as AgentData;
+            const normalized = this.normalizeAgent(rawAgent);
+            console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Normalized agent (strategy):', {
+              agentId: normalized.agentId,
+              rawAgentName: rawAgent.agentName,
+              normalizedAgentName: normalized.agentName,
+              agentNameType: typeof normalized.agentName,
+              hasRawJson: !!normalized.rawJson,
+            });
+            return normalized;
+          });
+        
+        console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Returning normalized agents (strategy):', {
+          count: agents.length,
+          agentNames: agents.map(a => ({
+            agentId: a.agentId,
+            agentName: a.agentName,
+            agentNameType: typeof a.agentName,
+          })),
+        });
+        
         return {
-          agents: list.filter(Boolean) as AgentData[],
+          agents,
           total: undefined,
         };
       } catch (error) {
@@ -1188,7 +1310,27 @@ export class AIAgentDiscoveryClient {
     }>(query, variables);
 
     const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
-    const agents = (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+    const agents = (result.agents ?? []).map((agent) => {
+      const rawAgent = agent as AgentData;
+      const normalized = this.normalizeAgent(rawAgent);
+      console.log('[AIAgentDiscoveryClient.searchAgentsGraph] Normalized agent:', {
+        agentId: normalized.agentId,
+        rawAgentName: rawAgent.agentName,
+        normalizedAgentName: normalized.agentName,
+        agentNameType: typeof normalized.agentName,
+        hasRawJson: !!normalized.rawJson,
+      });
+      return normalized;
+    });
+
+    console.log('[AIAgentDiscoveryClient.searchAgentsGraph] Returning agents:', {
+      count: agents.length,
+      agentNames: agents.map(a => ({
+        agentId: a.agentId,
+        agentName: a.agentName,
+        agentNameType: typeof a.agentName,
+      })),
+    });
 
     return {
       agents,

@@ -868,6 +868,24 @@ export class Agent {
  * NOT for list queries. List queries should use searchAgents/listAgents which
  * only fetch data from the GraphQL discovery indexer.
  */
+function firstNonEmptyString(...values: Array<unknown>): string | undefined {
+  for (const value of values) {
+    if (value === undefined || value === null) continue;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+      continue;
+    }
+    const asString = String(value).trim();
+    if (asString.length > 0) {
+      return asString;
+    }
+  }
+  return undefined;
+}
+
 export async function loadAgentDetail(
   client: AgenticTrustClient,
   agentIdentifier: AgentIdentifier,
@@ -1125,12 +1143,19 @@ export async function loadAgentDetail(
     });
   }
 
-  // Prioritize: flattened (from tokenUri/IPFS/metadata) > discoveryRecord
+  // Prioritize: flattened (from tokenUri/IPFS/metadata) > discoveryRecord, but treat
+  // empty/whitespace strings as "missing" so we can safely fall back to discovery.
   const agentNameValue =
-    (flattened.agentName as string | undefined) ??
-    (flattened.name as string | undefined) ??
-    (discoveryRecord.agentName as string | undefined) ??
-    '';
+    firstNonEmptyString(
+      flattened.agentName as string | undefined,
+      flattened.name as string | undefined,
+      discoveryRecord.agentName as string | undefined,
+    ) ?? '';
+
+  // Prevent later spread of `flattened` from overwriting the resolved agentName
+  // with an empty string or less-preferred source.
+  delete (flattened as Record<string, unknown>).agentName;
+  delete (flattened as Record<string, unknown>).name;
 
   const agentAccountValue =
     (flattened.agentAccount as string | undefined) ??

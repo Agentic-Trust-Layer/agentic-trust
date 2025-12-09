@@ -259,7 +259,7 @@ export function AgentDiscoveryPage() {
             Discovery
           </Typography>
           <Typography variant="h4" fontWeight={700}>
-            Agent Discovery
+            Semantic Agent Search
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Search the discovery indexer using a single free-text query. Results are

@@ -160,6 +160,18 @@ export function AgentsPage({
   onClear,
   onPageChange,
 }: AgentsPageProps) {
+  // Debug logging for agent names
+  console.log('[AgentsPage] Received agents:', {
+    count: agents.length,
+    agentNames: agents.map((a) => ({
+      agentId: a.agentId,
+      agentName: a.agentName,
+      agentNameType: typeof a.agentName,
+      agentNameValue: JSON.stringify(a.agentName),
+      agentNameLength: typeof a.agentName === 'string' ? a.agentName.length : 0,
+    })),
+  });
+
   // Ensure filters is never undefined
   const filters = filtersProp || DEFAULT_FILTERS;
 
@@ -3460,6 +3472,21 @@ export function AgentsPage({
                       typeof agent.agentName === 'string' &&
                       agent.agentName.toLowerCase().endsWith('.eth');
 
+                    // Get display name: handle empty strings explicitly
+                    const displayName = 
+                      typeof agent.agentName === 'string' && agent.agentName.trim().length > 0
+                        ? agent.agentName.trim()
+                        : 'Unnamed Agent';
+
+                    console.log(`[AgentsPage] Rendering agent card for agentId ${agent.agentId}:`, {
+                      agentName: agent.agentName,
+                      agentNameType: typeof agent.agentName,
+                      agentNameValue: JSON.stringify(agent.agentName),
+                      agentNameLength: typeof agent.agentName === 'string' ? agent.agentName.length : 0,
+                      isEnsName,
+                      displayName,
+                    });
+
                     return (
                       <>
                         <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
@@ -3475,10 +3502,10 @@ export function AgentsPage({
                                 textDecoration: 'none',
                               }}
                             >
-                              {agent.agentName}
+                              {displayName}
                             </a>
                           ) : (
-                            agent.agentName || 'Unnamed Agent'
+                            displayName
                           )}
                         </h4>
                         {agent.agentCategory && (
