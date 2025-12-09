@@ -167,6 +167,7 @@ export {
 export {
   searchAgentsGetRouteHandler,
   searchAgentsPostRouteHandler,
+  semanticAgentSearchPostRouteHandler,
 } from '../api/search/next';
 export type { AgentInfo } from './models/agentInfo';
 export type {

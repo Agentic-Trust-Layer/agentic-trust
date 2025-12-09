@@ -1,0 +1,442 @@
+'use client';
+
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Box, Container, TextField, Button, Typography } from '@mui/material';
+import { createPublicClient, http, type PublicClient, type Address } from 'viem';
+import {
+  getSupportedChainIds,
+  getChainDisplayMetadata,
+  getChainRpcUrl,
+  buildDid8004,
+} from '@agentic-trust/core';
+
+import { Header } from '@/components/Header';
+import {
+  AgentsPage,
+  type AgentsPageAgent,
+} from '@/components/AgentsPage';
+import { useAuth } from '@/components/AuthProvider';
+import { useWallet } from '@/components/WalletProvider';
+
+type Agent = AgentsPageAgent;
+
+const PAGE_SIZE = 18;
+
+const OWNER_ABI = [
+  {
+    name: 'owner',
+    type: 'function',
+    stateMutability: 'view' as const,
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+] as const;
+
+const GET_OWNER_ABI = [
+  {
+    name: 'getOwner',
+    type: 'function',
+    stateMutability: 'view' as const,
+    inputs: [],
+    outputs: [{ type: 'address' }],
+  },
+] as const;
+
+const OWNERS_ABI = [
+  {
+    name: 'owners',
+    type: 'function',
+    stateMutability: 'view' as const,
+    inputs: [],
+    outputs: [{ type: 'address[]' }],
+  },
+] as const;
+
+type SemanticMatch = {
+  score?: number | null;
+  matchReasons?: unknown[] | null;
+  agent?: {
+    chainId?: number | null;
+    agentId?: string | number | null;
+    agentName?: string | null;
+    agentAccount?: string | null;
+    agentOwner?: string | null;
+    tokenUri?: string | null;
+    description?: string | null;
+    image?: string | null;
+    contractAddress?: string | null;
+    a2aEndpoint?: string | null;
+    agentAccountEndpoint?: string | null;
+    mcpEndpoint?: string | null;
+    did?: string | null;
+    supportedTrust?: string | null;
+    createdAtTime?: number | string | null;
+    feedbackCount?: number | null;
+    feedbackAverageScore?: number | null;
+    validationPendingCount?: number | null;
+    validationCompletedCount?: number | null;
+    validationRequestedCount?: number | null;
+  } | null;
+};
+
+type SemanticSearchResponse = {
+  success?: boolean;
+  total?: number;
+  matches?: SemanticMatch[];
+};
+
+export default function AgentDiscoveryRoute() {
+  const {
+    isConnected,
+    privateKeyMode,
+    loading,
+    walletAddress,
+    openLoginModal,
+    handleDisconnect,
+  } = useAuth();
+  const { eip1193Provider } = useWallet();
+
+  const [query, setQuery] = useState('');
+  const [allAgents, setAllAgents] = useState<Agent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ownedMap, setOwnedMap] = useState<Record<string, boolean>>({});
+  const clientCache = useRef<Record<number, PublicClient>>({});
+
+  const supportedChainIds = getSupportedChainIds();
+  const chainOptions = useMemo(
+    () =>
+      supportedChainIds.map((chainId: number) => {
+        const metadata = getChainDisplayMetadata(chainId);
+        const label = metadata?.displayName || metadata?.chainName || `Chain ${chainId}`;
+        return { id: chainId, label };
+      }),
+    [supportedChainIds],
+  );
+
+  const pageAgents = useMemo(() => {
+    if (!allAgents.length) return [];
+    const start = (currentPage - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    return allAgents.slice(start, end);
+  }, [allAgents, currentPage]);
+
+  const searchAgents = useCallback(
+    async (overrideText?: string) => {
+      try {
+        setLoadingAgents(true);
+        setError(null);
+
+        const effectiveText =
+          typeof overrideText === 'string' ? overrideText : query;
+        const text = (effectiveText ?? '').trim();
+
+        if (!text) {
+          setAllAgents([]);
+          setTotal(0);
+          setTotalPages(0);
+          setCurrentPage(1);
+          return;
+        }
+
+        const response = await fetch('/api/agents/semantic-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(
+            errorData.message || errorData.error || 'Failed to run semantic search',
+          );
+        }
+
+        const data = (await response.json()) as SemanticSearchResponse;
+        const matches = Array.isArray(data.matches) ? data.matches : [];
+
+        const nextAgents: Agent[] = [];
+
+        for (const match of matches) {
+          if (!match || !match.agent) continue;
+          const agent = match.agent;
+
+          const chainId =
+            typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
+              ? agent.chainId
+              : 0;
+
+          const rawAgentId = agent.agentId;
+          const agentId =
+            typeof rawAgentId === 'string'
+              ? rawAgentId.trim()
+              : rawAgentId !== undefined && rawAgentId !== null
+                ? String(rawAgentId)
+                : '';
+
+          const createdAt =
+            typeof agent.createdAtTime === 'number'
+              ? agent.createdAtTime
+              : typeof agent.createdAtTime === 'string'
+                ? Number(agent.createdAtTime)
+                : null;
+
+          const normalized: Agent = {
+            agentId,
+            chainId,
+            agentName: agent.agentName ?? 'Unnamed Agent',
+            agentAccount: agent.agentAccount ?? null,
+            agentCategory: null,
+            ownerAddress: agent.agentOwner ?? null,
+            tokenUri: agent.tokenUri ?? null,
+            description: agent.description ?? null,
+            image: agent.image ?? null,
+            contractAddress: agent.contractAddress ?? null,
+            a2aEndpoint: agent.a2aEndpoint ?? null,
+            agentAccountEndpoint: agent.agentAccountEndpoint ?? null,
+            mcpEndpoint: agent.mcpEndpoint ?? null,
+            did: agent.did ?? null,
+            supportedTrust: agent.supportedTrust ?? null,
+            createdAtTime:
+              createdAt !== null && Number.isFinite(createdAt) ? createdAt : null,
+            feedbackCount: agent.feedbackCount ?? null,
+            feedbackAverageScore: agent.feedbackAverageScore ?? null,
+            validationPendingCount: agent.validationPendingCount ?? null,
+            validationCompletedCount: agent.validationCompletedCount ?? null,
+            validationRequestedCount: agent.validationRequestedCount ?? null,
+          };
+
+          nextAgents.push(normalized);
+        }
+
+        setAllAgents(nextAgents);
+
+        const totalCount = nextAgents.length;
+        setTotal(totalCount);
+        const totalPageCount =
+          totalCount > 0 ? Math.max(1, Math.ceil(totalCount / PAGE_SIZE)) : 0;
+        setTotalPages(totalPageCount);
+        setCurrentPage(1);
+      } catch (err) {
+        console.error('Failed to run semantic agent search:', err);
+        setError(
+          err instanceof Error ? err.message : 'Failed to run semantic agent search',
+        );
+      } finally {
+        setLoadingAgents(false);
+      }
+    },
+    [query],
+  );
+
+  const handleSubmit = useCallback(
+    (event: React.FormEvent) => {
+      event.preventDefault();
+      void searchAgents(query);
+    },
+    [query, searchAgents],
+  );
+
+  const handlePageChange = useCallback((newPage: number) => {
+    setCurrentPage(newPage);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function getClient(chainId: number): Promise<PublicClient> {
+      if (!clientCache.current[chainId]) {
+        const rpcUrl = getChainRpcUrl(chainId);
+        if (!rpcUrl) {
+          throw new Error(`Missing RPC URL for chain ${chainId}`);
+        }
+        clientCache.current[chainId] = createPublicClient({
+          transport: http(rpcUrl),
+        });
+      }
+      return clientCache.current[chainId];
+    }
+
+    async function computeOwnership() {
+      if (!isConnected || !walletAddress || pageAgents.length === 0 || !eip1193Provider) {
+        if (!cancelled) {
+          setOwnedMap({});
+        }
+        return;
+      }
+
+      const lowerWallet = walletAddress.toLowerCase();
+      const entries: Record<string, boolean> = {};
+
+      for (const agent of pageAgents) {
+        const ownershipKey = `${agent.chainId}:${agent.agentId}`;
+        const account =
+          typeof agent.agentAccount === 'string' ? agent.agentAccount : null;
+        if (!account || !account.startsWith('0x')) {
+          entries[ownershipKey] = false;
+          continue;
+        }
+
+        try {
+          const client = await getClient(agent.chainId);
+          const code = await client.getBytecode({ address: account as Address });
+
+          if (!code || code === '0x') {
+            entries[ownershipKey] = account.toLowerCase() === lowerWallet;
+            continue;
+          }
+
+          let controller: string | null = null;
+
+          try {
+            controller = (await client.readContract({
+              address: account as Address,
+              abi: OWNER_ABI,
+              functionName: 'owner',
+            })) as `0x${string}`;
+          } catch {
+            // ignore
+          }
+
+          if (!controller) {
+            try {
+              controller = (await client.readContract({
+                address: account as Address,
+                abi: GET_OWNER_ABI,
+                functionName: 'getOwner',
+              })) as `0x${string}`;
+            } catch {
+              // ignore
+            }
+          }
+
+          if (!controller) {
+            try {
+              const owners = (await client.readContract({
+                address: account as Address,
+                abi: OWNERS_ABI,
+                functionName: 'owners',
+              })) as `0x${string}`[];
+              controller = owners?.[0] ?? null;
+            } catch {
+              // ignore
+            }
+          }
+
+          entries[ownershipKey] = Boolean(controller && controller.toLowerCase() === lowerWallet);
+        } catch (ownershipError) {
+          console.debug('Ownership detection failed', ownershipError);
+          entries[ownershipKey] = false;
+        }
+      }
+
+      if (!cancelled) {
+        setOwnedMap(entries);
+      }
+    }
+
+    computeOwnership();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pageAgents, isConnected, walletAddress, eip1193Provider]);
+
+  return (
+    <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
+      <Header
+        displayAddress={walletAddress ?? null}
+        privateKeyMode={privateKeyMode}
+        isConnected={isConnected}
+        onConnect={openLoginModal}
+        onDisconnect={handleDisconnect}
+        disableConnect={loading}
+      />
+      <Container
+        maxWidth="lg"
+        sx={{
+          py: { xs: 4, md: 6 },
+        }}
+      >
+        <Box
+          component="form"
+          onSubmit={handleSubmit}
+          sx={{
+            mb: 3,
+            display: 'flex',
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 1.5,
+            alignItems: { xs: 'stretch', sm: 'center' },
+          }}
+        >
+          <TextField
+            label="Search agents"
+            placeholder="Describe the agents you're looking for..."
+            size="small"
+            fullWidth
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+          />
+          <Button
+            type="submit"
+            variant="contained"
+            disabled={loadingAgents}
+            sx={{
+              minWidth: { xs: '100%', sm: 140 },
+              textTransform: 'none',
+              fontWeight: 600,
+            }}
+          >
+            {loadingAgents ? 'Searching…' : 'Search'}
+          </Button>
+        </Box>
+
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="body2" color="text.secondary">
+            This is a semantic search that uses advanced natural language processing to vectorize your query and the agent data, then finds the closest matches.
+          </Typography>
+        </Box>
+
+        {error && (
+          <Alert severity="error" sx={{ mb: 4 }}>
+            {error}
+          </Alert>
+        )}
+
+        <AgentsPage
+          agents={pageAgents}
+          loading={loadingAgents}
+          hideFilters
+          filters={{
+            chainId: 'all',
+            address: '',
+            name: '',
+            agentId: '',
+            mineOnly: false,
+            only8004Agents: false,
+            protocol: 'all',
+            path: '',
+            minReviews: '',
+            minValidations: '',
+            minAvgRating: '',
+            createdWithinDays: '',
+          }}
+          onSearch={() => {}}
+          // Filters are hidden on this page; no-ops keep the API surface satisfied.
+          onFilterChange={() => {}}
+          onClear={() => {}}
+          chainOptions={chainOptions}
+          ownedMap={ownedMap}
+          total={total}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+        />
+      </Container>
+    </Box>
+  );
+}
+

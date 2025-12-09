@@ -1,5 +1,6 @@
 import { discoverAgents, type DiscoverRequest, type DiscoverResponse } from '../../server/lib/discover';
 import { getAgenticTrustClient } from '../../server/lib/agenticTrust';
+import { getDiscoveryClient } from '../../server/singletons/discoveryClient';
 
 const hasNativeResponse =
   typeof globalThis !== 'undefined' &&
@@ -171,6 +172,49 @@ export function searchAgentsPostRouteHandler() {
       });
 
       return jsonResponse(mapAgentsResponse(response));
+    } catch (error) {
+      return handleError(error);
+    }
+  };
+}
+
+export function semanticAgentSearchPostRouteHandler() {
+  return async (req: Request) => {
+    try {
+      const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+
+      const rawText =
+        typeof body.text === 'string'
+          ? (body.text as string)
+          : typeof body.query === 'string'
+            ? (body.query as string)
+            : '';
+
+      const text = rawText.trim();
+
+      if (!text) {
+        return jsonResponse({
+          success: true,
+          total: 0,
+          matches: [],
+        });
+      }
+
+      const discoveryClient = await getDiscoveryClient();
+      const result = await (discoveryClient as any).semanticAgentSearch({ text });
+
+      const total =
+        result && typeof result.total === 'number' && Number.isFinite(result.total)
+          ? result.total
+          : 0;
+
+      const matches = Array.isArray(result?.matches) ? result.matches : [];
+
+      return jsonResponse({
+        success: true,
+        total,
+        matches,
+      });
     } catch (error) {
       return handleError(error);
     }

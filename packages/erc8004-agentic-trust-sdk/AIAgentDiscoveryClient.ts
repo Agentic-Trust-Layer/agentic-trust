@@ -43,6 +43,22 @@ export interface AgentData {
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
+export interface SemanticAgentMetadataEntry {
+  key: string;
+  valueText?: string | null;
+}
+
+export interface SemanticAgentMatch {
+  score?: number | null;
+  matchReasons?: string[] | null;
+  agent: AgentData & { metadata?: SemanticAgentMetadataEntry[] | null };
+}
+
+export interface SemanticAgentSearchResult {
+  total: number;
+  matches: SemanticAgentMatch[];
+}
+
 type GraphQLTypeRef = {
   kind: string;
   name?: string | null;
@@ -577,6 +593,160 @@ export class AIAgentDiscoveryClient {
     }
 
     return allAgents;
+  }
+
+  /**
+   * Run a semantic search over agents using the discovery indexer's
+   * `semanticAgentSearch` GraphQL field.
+   *
+   * NOTE: This API is best-effort. If the backend does not expose
+   * `semanticAgentSearch`, this will return an empty result instead of
+   * throwing, so callers can fall back gracefully.
+   */
+  async semanticAgentSearch(params: { text: string }): Promise<SemanticAgentSearchResult> {
+    const rawText = typeof params?.text === 'string' ? params.text : '';
+    const text = rawText.trim();
+
+    if (!text) {
+      return { total: 0, matches: [] };
+    }
+
+    // Use JSON.stringify to safely escape the text for inclusion in the
+    // GraphQL query as a string literal.
+    const textLiteral = JSON.stringify(text);
+
+    const query = `
+      query SemanticAgentSearch {
+        semanticAgentSearch(
+          input: {
+            text: ${textLiteral}
+          }
+        ) {
+          total
+          matches {
+            score
+            matchReasons
+            agent {
+              chainId
+              agentId
+              agentAccount
+              agentOwner
+              agentName
+              didIdentity
+              didAccount
+              didName
+              tokenUri
+              createdAtBlock
+              createdAtTime
+              updatedAtTime
+              type
+              description
+              image
+              a2aEndpoint
+              ensEndpoint
+              agentAccountEndpoint
+              supportedTrust
+              rawJson
+              did
+              mcp
+              x402support
+              active
+              feedbackCount
+              feedbackAverageScore
+              validationPendingCount
+              validationCompletedCount
+              validationRequestedCount
+              metadata {
+                key
+                valueText
+              }
+            }
+          }
+        }
+      }
+    `;
+
+    try {
+      const data = await this.client.request<{
+        semanticAgentSearch?: {
+          total?: number | null;
+          matches?: Array<{
+            score?: number | null;
+            matchReasons?: string[] | null;
+            agent?: Record<string, unknown> | null;
+          }> | null;
+        };
+      }>(query);
+
+      const root = data.semanticAgentSearch;
+      if (!root) {
+        return { total: 0, matches: [] };
+      }
+
+      const total =
+        typeof root.total === 'number' && Number.isFinite(root.total) && root.total >= 0
+          ? root.total
+          : 0;
+
+      const matches: SemanticAgentMatch[] = [];
+      const rawMatches = Array.isArray(root.matches) ? root.matches : [];
+
+      for (const item of rawMatches) {
+        if (!item || !item.agent) {
+          continue;
+        }
+
+        const normalizedAgent = this.normalizeAgent(item.agent as AgentData);
+
+        // Extract metadata entries (if present) into a strongly-typed array.
+        const metadataRaw = (item.agent as any).metadata;
+        let metadata: SemanticAgentMetadataEntry[] | null = null;
+        if (Array.isArray(metadataRaw)) {
+          const entries: SemanticAgentMetadataEntry[] = [];
+          for (const entry of metadataRaw) {
+            if (!entry || typeof entry.key !== 'string') continue;
+            entries.push({
+              key: entry.key,
+              valueText:
+                entry.valueText === null || entry.valueText === undefined
+                  ? null
+                  : String(entry.valueText),
+            });
+          }
+          if (entries.length > 0) {
+            metadata = entries;
+          }
+        }
+
+        if (metadata) {
+          (normalizedAgent as any).metadata = metadata;
+        }
+
+        matches.push({
+          score:
+            typeof item.score === 'number' && Number.isFinite(item.score)
+              ? item.score
+              : null,
+          matchReasons: Array.isArray(item.matchReasons)
+            ? item.matchReasons.map((reason) => String(reason))
+            : null,
+          agent: normalizedAgent as AgentData & {
+            metadata?: SemanticAgentMetadataEntry[] | null;
+          },
+        });
+      }
+
+      return {
+        total,
+        matches,
+      };
+    } catch (error) {
+      console.warn(
+        '[AIAgentDiscoveryClient.semanticAgentSearch] Error performing semantic search:',
+        error,
+      );
+      return { total: 0, matches: [] };
+    }
   }
 
   async searchAgentsAdvanced(

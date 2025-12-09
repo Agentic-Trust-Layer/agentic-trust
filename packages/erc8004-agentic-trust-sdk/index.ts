@@ -23,6 +23,9 @@ export {
   type SearchAgentsResponse,
   type SearchAgentsAdvancedOptions,
   type RefreshAgentResponse,
+   type SemanticAgentMetadataEntry,
+   type SemanticAgentMatch,
+   type SemanticAgentSearchResult,
 } from './AIAgentDiscoveryClient';
 
 // Re-export AccountProvider types from @agentic-trust/8004-sdk for convenience

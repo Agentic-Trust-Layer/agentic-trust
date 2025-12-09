@@ -71,6 +71,7 @@ type AgentsPageProps = {
   filters: AgentsPageFilters;
   chainOptions: ChainOption[];
   loading: boolean;
+  hideFilters?: boolean;
   ownedMap?: Record<string, boolean>;
   isConnected?: boolean;
   provider?: any;
@@ -146,6 +147,7 @@ export function AgentsPage({
   filters: filtersProp,
   chainOptions,
   loading,
+  hideFilters = false,
   ownedMap = {},
   isConnected = false,
   provider,
@@ -2503,17 +2505,17 @@ export function AgentsPage({
       `}</style>
       <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
-
-      <div
-        style={{
-          backgroundColor: palette.surface,
-          padding: '1.5rem',
-          borderRadius: '12px',
-          border: `1px solid ${palette.border}`,
-          boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
-        }}
-      >
-        {isMobile ? (
+      {!hideFilters && (
+        <div
+          style={{
+            backgroundColor: palette.surface,
+            padding: '1.5rem',
+            borderRadius: '12px',
+            border: `1px solid ${palette.border}`,
+            boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
+          }}
+        >
+          {isMobile ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', width: '100%' }}>
             <div
               style={{
@@ -3218,6 +3220,7 @@ export function AgentsPage({
           )}
         </div>
       </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
 

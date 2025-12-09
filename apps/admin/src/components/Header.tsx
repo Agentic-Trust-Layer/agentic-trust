@@ -8,6 +8,7 @@ import { grayscalePalette as palette } from '@/styles/palette';
 
 const NAV_ITEMS = [
   { href: '/agents', label: 'Agents' },
+  { href: '/agent-discovery', label: 'Agent Discovery' },
   { href: '/stats', label: 'Stats' },
 ];
 
