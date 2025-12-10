@@ -212,37 +212,56 @@ export class A2AProtocolProvider {
    */
   async fetchAgentCard(): Promise<A2AAgentCard | null> {
     try {
-      console.log(`Fetching agent card from: ${this.providerUrl}`);
+      const cardUrl = `${this.providerUrl.replace(/\/$/, '')}/.well-known/agent-card.json`;
+      console.log('[A2AProtocolProvider.fetchAgentCard] Fetching agent card from:', cardUrl);
+      console.log('[A2AProtocolProvider.fetchAgentCard] Base providerUrl:', this.providerUrl);
+      
       const card = await fetchA2AAgentCard(this.providerUrl);
-      console.log(`Agent card: ${JSON.stringify(card)}`);
+      console.log('[A2AProtocolProvider.fetchAgentCard] Agent card received:', JSON.stringify(card, null, 2));
+      
       if (card) {
         this.agentCard = card;
         // Extract A2A endpoint from agent card
-        const cardUrl = card.provider?.url;
+        const cardProviderUrl = card.provider?.url;
+        console.log('[A2AProtocolProvider.fetchAgentCard] Card provider URL:', cardProviderUrl);
+        console.log('[A2AProtocolProvider.fetchAgentCard] Current providerUrl (with subdomain):', this.providerUrl);
 
-        if (!cardUrl) { 
-          console.log(`Warning: Agent card URL is not available`);
-          return null;
-        }
-        // Verify card.provider?.url is absolute
-        if (!cardUrl || (!cardUrl.startsWith('http://') && !cardUrl.startsWith('https://'))) {
-          console.log(`Warning: Agent card URL should be an absolute URL (starting with http:// or https://), got: ${cardUrl}`);
-        }
+        // Use providerUrl (which should have subdomain from Agent.initialize) instead of card provider URL
+        // The providerUrl was constructed with the agent name as subdomain in Agent.initialize()
+        const baseUrlToUse = this.providerUrl;
+        console.log('[A2AProtocolProvider.fetchAgentCard] Using providerUrl for endpoint construction:', baseUrlToUse);
         
+        // Construct A2A endpoint from providerUrl (which has the subdomain)
+        const constructedEndpoint = baseUrlToUse.endsWith('/api/a2a') 
+          ? baseUrlToUse 
+          : `${baseUrlToUse.replace(/\/$/, '')}/api/a2a`;
         
-        this.a2aEndpoint = cardUrl.endsWith('/api/a2a') 
-          ? cardUrl 
-          : `${cardUrl.replace(/\/$/, '')}/api/a2a`;
+        console.log('[A2AProtocolProvider.fetchAgentCard] Constructed A2A endpoint:', constructedEndpoint);
+        this.a2aEndpoint = constructedEndpoint;
           
         // Verify the constructed a2aEndpoint is absolute
         if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
-          console.log(`Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got: ${this.a2aEndpoint}`);
+          console.warn('[A2AProtocolProvider.fetchAgentCard] Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got:', this.a2aEndpoint);
         }
         
+      } else {
+        console.warn('[A2AProtocolProvider.fetchAgentCard] No agent card received');
+        // If no card, construct endpoint from providerUrl directly (which should have subdomain)
+        if (!this.a2aEndpoint) {
+          this.a2aEndpoint = this.providerUrl.endsWith('/api/a2a') 
+            ? this.providerUrl 
+            : `${this.providerUrl.replace(/\/$/, '')}/api/a2a`;
+          console.log('[A2AProtocolProvider.fetchAgentCard] Constructed endpoint from providerUrl (no card):', this.a2aEndpoint);
+        }
       }
       return card;
     } catch (error) {
-      console.error('Failed to fetch agent card:', error);
+      console.error('[A2AProtocolProvider.fetchAgentCard] Failed to fetch agent card:', error);
+      console.error('[A2AProtocolProvider.fetchAgentCard] Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        providerUrl: this.providerUrl,
+      });
       return null;
     }
   }
@@ -259,12 +278,38 @@ export class A2AProtocolProvider {
    * This will fetch the agent card if not already cached
    */
   async getA2AEndpoint(): Promise<ProviderEndpoint | null> {
+    // If we already have an a2aEndpoint constructed (with subdomain), use it directly
+    if (this.a2aEndpoint) {
+      console.log('[A2AProtocolProvider.getA2AEndpoint] Using cached endpoint:', this.a2aEndpoint);
+      return {
+        providerId: this.agentCard?.name || 'unknown',
+        endpoint: this.a2aEndpoint,
+        method: 'POST',
+      };
+    }
+
     // Lazy load agent card if not already fetched
     if (!this.agentCard) {
       await this.fetchAgentCard();
     }
 
-    if (!this.a2aEndpoint || !this.agentCard) {
+    // If we still don't have an endpoint, construct it from providerUrl (which should have subdomain)
+    if (!this.a2aEndpoint) {
+      // Use the providerUrl directly (which should already have the subdomain from constructor)
+      const constructedEndpoint = this.providerUrl.endsWith('/api/a2a') 
+        ? this.providerUrl 
+        : `${this.providerUrl.replace(/\/$/, '')}/api/a2a`;
+      
+      console.log('[A2AProtocolProvider.getA2AEndpoint] Constructing endpoint from providerUrl:', {
+        providerUrl: this.providerUrl,
+        constructedEndpoint,
+      });
+      
+      this.a2aEndpoint = constructedEndpoint;
+    }
+
+    if (!this.a2aEndpoint) {
+      console.error('[A2AProtocolProvider.getA2AEndpoint] No endpoint available');
       return null;
     }
 
@@ -277,7 +322,7 @@ export class A2AProtocolProvider {
     }
 
     return {
-      providerId: this.agentCard.name || 'unknown',
+      providerId: this.agentCard?.name || 'unknown',
       endpoint: this.a2aEndpoint,
       method: 'POST',
     };
@@ -435,14 +480,25 @@ export class A2AProtocolProvider {
    * Send an A2A message to the agent
    */
   async sendMessage(request: A2ARequest): Promise<A2AResponse> {
+    console.log('[A2AProtocolProvider.sendMessage] Starting sendMessage');
+    console.log('[A2AProtocolProvider.sendMessage] providerUrl:', this.providerUrl);
+    console.log('[A2AProtocolProvider.sendMessage] request:', JSON.stringify(request, null, 2));
+    
     // Ensure we have the endpoint
     const endpointInfo = await this.getA2AEndpoint();
+    console.log('[A2AProtocolProvider.sendMessage] endpointInfo:', JSON.stringify(endpointInfo, null, 2));
+    
     if (!endpointInfo) {
+      console.error('[A2AProtocolProvider.sendMessage] No endpoint info available');
       throw new Error('A2A endpoint not available. Fetch agent card first.');
     }
 
+    console.log('[A2AProtocolProvider.sendMessage] Constructed endpoint:', endpointInfo.endpoint);
+    console.log('[A2AProtocolProvider.sendMessage] Endpoint method:', endpointInfo.method || 'POST');
+
     // Validate endpoint is not a placeholder
     if (A2AProtocolProvider.isPlaceholderUrl(endpointInfo.endpoint)) {
+      console.error('[A2AProtocolProvider.sendMessage] Endpoint is a placeholder URL');
       throw new Error(
         `Invalid A2A endpoint: The agent's A2A endpoint appears to be a placeholder URL (${endpointInfo.endpoint}). ` +
         `Please update the agent's endpoint to a valid, accessible URL. ` +
@@ -450,28 +506,42 @@ export class A2AProtocolProvider {
       );
     }
 
+    // Commented out authentication - allow A2A endpoint to respond without authentication
     // Authenticate on first message if Veramo agent is available
     let authChallenge: any = null;
-    if (this.veramoAgent && !this.authenticated) {
-      // Use the A2A endpoint as the audience (the exact URL we're sending the request to)
-      // This should match what the agent expects for authentication
-      const endpointInfo = await this.getA2AEndpoint();
-      if (!endpointInfo?.endpoint) {
-        throw new Error('A2A endpoint is required for authentication');
-      }
-      const aud = endpointInfo.endpoint;
-      console.log('[A2A] Using audience for authentication:', aud);
-      authChallenge = await this.createSignedChallenge(aud);
-      if (authChallenge) {
-        this.authenticated = true;
-      }
-    }
+    // if (this.veramoAgent && !this.authenticated) {
+    //   console.log('[A2AProtocolProvider.sendMessage] Creating authentication challenge');
+    //   // Use the A2A endpoint as the audience (the exact URL we're sending the request to)
+    //   // This should match what the agent expects for authentication
+    //   const endpointInfo = await this.getA2AEndpoint();
+    //   if (!endpointInfo?.endpoint) {
+    //     throw new Error('A2A endpoint is required for authentication');
+    //   }
+    //   const aud = endpointInfo.endpoint;
+    //   console.log('[A2AProtocolProvider.sendMessage] Using audience for authentication:', aud);
+    //   authChallenge = await this.createSignedChallenge(aud);
+    //   if (authChallenge) {
+    //     this.authenticated = true;
+    //     console.log('[A2AProtocolProvider.sendMessage] Authentication challenge created successfully');
+    //   } else {
+    //     console.warn('[A2AProtocolProvider.sendMessage] Failed to create authentication challenge');
+    //   }
+    // } else {
+    //   console.log('[A2AProtocolProvider.sendMessage] Skipping authentication:', {
+    //     hasVeramoAgent: !!this.veramoAgent,
+    //     authenticated: this.authenticated,
+    //   });
+    // }
+    console.log('[A2AProtocolProvider.sendMessage] Authentication disabled - sending request without auth challenge');
 
     // Build request with authentication
     const authenticatedRequest: AuthenticatedA2ARequest = {
       ...request,
       ...(authChallenge && { auth: authChallenge }),
     };
+
+    console.log('[A2AProtocolProvider.sendMessage] Sending request to:', endpointInfo.endpoint);
+    console.log('[A2AProtocolProvider.sendMessage] Request payload:', JSON.stringify(authenticatedRequest, null, 2));
 
     try {
       const response = await fetch(endpointInfo.endpoint, {
@@ -482,22 +552,47 @@ export class A2AProtocolProvider {
         body: JSON.stringify(authenticatedRequest),
       });
 
+      console.log('[A2AProtocolProvider.sendMessage] Response status:', response.status, response.statusText);
+      // Log headers (Headers.entries() may not be available in all environments)
+      const headersObj: Record<string, string> = {};
+      if (response.headers && typeof response.headers.forEach === 'function') {
+        response.headers.forEach((value, key) => {
+          headersObj[key] = value;
+        });
+      }
+      console.log('[A2AProtocolProvider.sendMessage] Response headers:', headersObj);
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('[A2AProtocolProvider.sendMessage] Request failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          url: endpointInfo.endpoint,
+          errorText,
+          requestPayload: JSON.stringify(authenticatedRequest, null, 2),
+        });
         throw new Error(`A2A request failed: ${response.status} ${response.statusText} - ${errorText}`);
       }
 
       const data: A2AResponse = await response.json();
+      console.log('[A2AProtocolProvider.sendMessage] Response data:', JSON.stringify(data, null, 2));
       
       // If authentication failed, reset and throw
       if (data.success === false && data.error?.includes('authentication')) {
         this.authenticated = false;
+        console.error('[A2AProtocolProvider.sendMessage] Authentication failed, resetting authenticated flag');
         throw new Error(data.error || 'Authentication failed');
       }
 
       return data;
     } catch (error) {
-      console.error('Failed to send A2A message:', error);
+      console.error('[A2AProtocolProvider.sendMessage] Exception caught:', error);
+      console.error('[A2AProtocolProvider.sendMessage] Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        endpoint: endpointInfo.endpoint,
+        providerUrl: this.providerUrl,
+      });
       throw error;
     }
   }

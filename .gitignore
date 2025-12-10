@@ -18,6 +18,7 @@ apps/*/out/
 .env.*.local
 
 *.secret
+*.wrangler.toml
 
 # IDE
 .vscode/

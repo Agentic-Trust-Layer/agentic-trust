@@ -381,6 +381,40 @@ export default function AdminPage() {
 
         setSessionPackageText(JSON.stringify(pkg, null, 2));
 
+        // Sync agent and session package to ATP agent
+        try {
+          const { syncAgentToATP } = await import('@/lib/a2a-client');
+          const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
+          // Only add .8004-agent.eth suffix if it's not already present
+          const ensName = displayAgentName.endsWith('.8004-agent.eth')
+            ? displayAgentName
+            : `${displayAgentName}.8004-agent.eth`;
+          
+          const syncResult = await syncAgentToATP(
+            displayAgentName,
+            displayAgentAddress as string,
+            pkg,
+            {
+              ensName,
+              chainId: parsedChainId,
+            }
+          );
+
+          if (syncResult.success) {
+            console.log(`[Session Package] Agent ${syncResult.action} in ATP:`, {
+              agentName: displayAgentName,
+              agentAccount: displayAgentAddress,
+              agentId: syncResult.agentId,
+            });
+          } else {
+            console.warn(`[Session Package] Failed to sync agent to ATP:`, syncResult.error);
+            // Don't fail the session package generation if ATP sync fails
+          }
+        } catch (syncError) {
+          console.error('[Session Package] Error syncing agent to ATP:', syncError);
+          // Don't fail the session package generation if ATP sync fails
+        }
+
         try {
           await fetch(
             `/api/agents/${encodeURIComponent(buildDid8004(parsedChainId, agentIdNumeric))}/refresh`,

@@ -2,6 +2,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { privateKeyToAccount } from 'viem/accounts';
+import { syncAccountToATP } from '@/lib/a2a-client';
 
 /**
  * Store admin private key in session
@@ -10,7 +12,15 @@ import { cookies } from 'next/headers';
  * DELETE /api/auth/session - Clear session
  */
 export async function POST(request: NextRequest) {
-  let body: { privateKey?: string };
+  let body: { 
+    privateKey?: string;
+    email?: string;
+    name?: string;
+    firstName?: string;
+    lastName?: string;
+    socialAccountId?: string;
+    socialAccountType?: string;
+  };
   try {
     body = await request.json();
   } catch (error) {
@@ -22,7 +32,15 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const { privateKey } = body;
+    const { 
+      privateKey,
+      email,
+      name,
+      firstName,
+      lastName,
+      socialAccountId,
+      socialAccountType,
+    } = body;
 
     if (!privateKey || typeof privateKey !== 'string') {
       return NextResponse.json(
@@ -53,6 +71,56 @@ export async function POST(request: NextRequest) {
       sameSite: 'lax',
       maxAge: 60 * 60 * 24, // 24 hours
     });
+
+    // Derive address from private key and sync to ATP agent via A2A message
+    try {
+      const account = privateKeyToAccount(normalizedKey as `0x${string}`);
+      const address = account.address;
+      
+      // Extract first/last name from name if provided
+      let first_name = firstName;
+      let last_name = lastName;
+      if (!first_name && !last_name && name) {
+        const nameParts = name.trim().split(/\s+/);
+        first_name = nameParts[0] || null;
+        last_name = nameParts.slice(1).join(' ') || null;
+      }
+
+      console.log('[Session API] Syncing account to ATP with user info:', {
+        address,
+        email,
+        first_name,
+        last_name,
+        socialAccountId,
+        socialAccountType,
+      });
+
+      const syncResult = await syncAccountToATP(address, {
+        email: email || undefined,
+        first_name: first_name || undefined,
+        last_name: last_name || undefined,
+        social_account_id: socialAccountId || undefined,
+        social_account_type: socialAccountType || undefined,
+        metadata: {
+          connectedAt: new Date().toISOString(),
+          source: 'admin-app-web3auth',
+          authMethod: 'web3auth',
+        },
+      });
+      
+      if (syncResult.success) {
+        console.log(`[Session API] Account ${syncResult.action} in ATP:`, {
+          address,
+          accountId: syncResult.accountId,
+        });
+      } else {
+        console.warn(`[Session API] Failed to sync account to ATP:`, syncResult.error);
+        // Don't fail the request if ATP sync fails
+      }
+    } catch (syncError) {
+      console.error('[Session API] Error syncing to ATP:', syncError);
+      // Don't fail the request if ATP sync fails
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

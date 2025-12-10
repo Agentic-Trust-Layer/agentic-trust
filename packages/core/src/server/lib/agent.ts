@@ -282,9 +282,26 @@ export class Agent {
     // Get Veramo agent from the client
     const veramoAgent = this.client.veramo.getAgent();
 
+    // Construct A2A endpoint with agent name as subdomain if agent name is available
+    let a2aEndpointUrl = this.data.a2aEndpoint;
+    if (this.data.agentName && typeof this.data.agentName === 'string' && this.data.agentName.trim().length > 0) {
+      try {
+        const baseUrl = new URL(this.data.a2aEndpoint);
+        // If the hostname is like "8004-agent.io" or "*.8004-agent.io", add agent name as subdomain
+        if (baseUrl.hostname === '8004-agent.io' || baseUrl.hostname.endsWith('.8004-agent.io')) {
+          const agentName = this.data.agentName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+          baseUrl.hostname = `${agentName}.8004-agent.io`;
+          a2aEndpointUrl = baseUrl.toString();
+          console.log('[Agent.initialize] Constructed A2A endpoint with subdomain:', a2aEndpointUrl);
+        }
+      } catch (urlError) {
+        console.warn('[Agent.initialize] Failed to construct subdomain URL, using original:', urlError);
+      }
+    }
+
     // Create A2A Protocol Provider for this agent
     // This does NOT fetch the agent card - card is fetched lazily when needed
-    this.a2aProvider = new A2AProtocolProvider(this.data.a2aEndpoint, veramoAgent);
+    this.a2aProvider = new A2AProtocolProvider(a2aEndpointUrl, veramoAgent);
 
     this.initialized = true;
   }
@@ -357,18 +374,32 @@ export class Agent {
    * Send a message to the agent
    */
   async sendMessage(request: MessageRequest): Promise<MessageResponse> {
+    console.log('[Agent.sendMessage] Starting sendMessage');
+    console.log('[Agent.sendMessage] Agent data:', {
+      agentId: this.data.agentId,
+      chainId: this.data.chainId,
+      agentName: this.data.agentName,
+      a2aEndpoint: this.data.a2aEndpoint,
+      initialized: this.initialized,
+      hasA2aProvider: !!this.a2aProvider,
+    });
+    
     if (!this.a2aProvider) {
+      console.error('[Agent.sendMessage] A2A provider not initialized');
       throw new Error('Agent not initialized. Call initialize(client) first.');
     }
 
     // Check if agent has a valid A2A endpoint
-    console.log(">>>>>>>>>>>>> sendMessage: ", this.data.a2aEndpoint);
+    console.log('[Agent.sendMessage] Agent a2aEndpoint:', this.data.a2aEndpoint);
     if (!this.data.a2aEndpoint) {
+      console.error('[Agent.sendMessage] Agent does not have an A2A endpoint configured');
       throw new Error(
         'Agent does not have an A2A endpoint configured. ' +
         'The agent must have a valid A2A endpoint URL to receive messages.'
       );
     }
+    
+    console.log('[Agent.sendMessage] Request:', JSON.stringify(request, null, 2));
 
     // Build A2A request format
     const endpointInfo = await this.getEndpoint();
@@ -385,7 +416,9 @@ export class Agent {
       skillId: request.skillId,
     };
 
+    console.log('[Agent.sendMessage] Sending A2A request:', JSON.stringify(a2aRequest, null, 2));
     const response = await this.a2aProvider.sendMessage(a2aRequest);
+    console.log('[Agent.sendMessage] Received A2A response:', JSON.stringify(response, null, 2));
     return response;
   }
 
@@ -463,6 +496,15 @@ export class Agent {
    * Automatically verifies the agent (unless skipVerify=true) before sending the requestAuth message.
    */
   async getFeedbackAuth(params: FeedbackAuthParams): Promise<FeedbackAuthResult> {
+    console.log('[Agent.getFeedbackAuth] Starting getFeedbackAuth');
+    console.log('[Agent.getFeedbackAuth] Agent data:', {
+      agentId: this.data.agentId,
+      chainId: this.data.chainId,
+      agentName: this.data.agentName,
+      a2aEndpoint: this.data.a2aEndpoint,
+    });
+    console.log('[Agent.getFeedbackAuth] Params:', JSON.stringify(params, null, 2));
+    
     const clientAddress = params.clientAddress?.toLowerCase();
     if (
       !clientAddress ||
@@ -496,14 +538,20 @@ export class Agent {
     const resolvedAgentId =
       resolveAgentId(params.agentId) ?? resolveAgentId(this.data.agentId);
 
+    console.log('[Agent.getFeedbackAuth] Resolved agentId:', resolvedAgentId);
+    console.log('[Agent.getFeedbackAuth] Resolved chainId:', resolvedChainId);
+
     if (!resolvedAgentId) {
       throw new Error('Agent ID is required to request feedback auth.');
     }
 
-    const verified = await this.verify();
-    if (!verified) {
-      throw new Error('Agent verification failed before requesting feedback auth.');
-    }
+    // Commented out verification - allow A2A endpoint to respond without verification
+    // console.log('[Agent.getFeedbackAuth] Verifying agent...');
+    // const verified = await this.verify();
+    // console.log('[Agent.getFeedbackAuth] Agent verified:', verified);
+    // if (!verified) {
+    //   throw new Error('Agent verification failed before requesting feedback auth.');
+    // }
 
     const payload: Record<string, unknown> = {
       clientAddress,

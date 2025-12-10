@@ -110,11 +110,21 @@ export function Web3AuthProvider({ children }: { children: ReactNode }) {
             }
           }
           
-          // Store in session via API
+          // Store in session via API with user info
+          // Use 'info' directly (not state 'userInfo') since state updates are async
+          const userInfoData = info || {};
           const response = await fetch('/api/auth/session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ privateKey: normalizedKey }),
+            body: JSON.stringify({ 
+              privateKey: normalizedKey,
+              email: userInfoData.email,
+              name: userInfoData.name,
+              firstName: userInfoData.firstName || userInfoData.given_name,
+              lastName: userInfoData.lastName || userInfoData.family_name,
+              socialAccountId: userInfoData.verifierId,
+              socialAccountType: userInfoData.typeOfLogin,
+            }),
           });
           
           if (!response.ok) {

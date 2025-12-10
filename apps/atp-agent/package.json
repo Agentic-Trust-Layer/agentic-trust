@@ -1,0 +1,43 @@
+{
+  "name": "@agentic-trust/atp-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "dev:worker": "wrangler dev",
+    "build": "tsc",
+    "build:worker": "wrangler deploy --dry-run",
+    "start": "node dist/server.js",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentic-trust/core": "workspace:*",
+    "@agentic-trust/veramo-agent-extension": "workspace:*",
+    "@metamask/smart-accounts-kit": "^0.1.0",
+    "@veramo/core": "^6.0.0",
+    "@veramo/key-manager": "^6.0.0",
+    "@veramo/did-manager": "^6.0.0",
+    "@veramo/did-resolver": "^6.0.0",
+    "cors": "^2.8.5",
+    "did-resolver": "^4.1.0",
+    "dotenv": "^16.4.5",
+    "ethr-did-resolver": "^9.0.0",
+    "express": "^4.18.2",
+    "hono": "^4.0.0",
+    "node-fetch": "^3.3.2",
+    "viem": "^2.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "wrangler": "^3.0.0"
+  }
+}
+

@@ -52,6 +52,10 @@ Open [http://localhost:3002](http://localhost:3002) to access the admin dashboar
    # Discovery API (Chain-agnostic - works for all chains)
    AGENTIC_TRUST_DISCOVERY_URL=https://api.agentictrust.io
    AGENTIC_TRUST_DISCOVERY_API_KEY=your-api-key-here
+   
+   # ATP Agent Endpoint (Optional - defaults to atp.8004-agent.io)
+   # Used for syncing user accounts to ATP database via A2A messages
+   ATP_AGENT_ENDPOINT=https://atp.8004-agent.io/api/a2a
    ```
 
 ### Why Some Variables Have Chain Info and Others Don't

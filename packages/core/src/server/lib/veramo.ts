@@ -34,50 +34,143 @@ export interface ChallengeVerificationResult {
 }
 
 /**
+ * Check if we're running in Cloudflare Workers
+ * This check must happen at runtime, not module load time
+ */
+function isCloudflareWorkers(): boolean {
+  // Check for Workers-specific globals that exist at runtime
+  if (typeof globalThis !== 'undefined') {
+    // Workers have these globals
+    if (typeof (globalThis as any).caches !== 'undefined') {
+      return true;
+    }
+    // Workers environment binding
+    if (typeof (globalThis as any).env !== 'undefined') {
+      return true;
+    }
+  }
+  // Workers don't have Node.js process
+  if (typeof process === 'undefined') {
+    return true;
+  }
+  // If we have process but no node version, might be Workers
+  if (typeof process !== 'undefined' && !process.versions?.node) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Nonce store for replay protection (singleton)
+ * 
+ * In Cloudflare Workers, we don't use setInterval because:
+ * 1. It's not allowed at module load time
+ * 2. Workers have request isolation, so nonces won't persist across requests anyway
  */
 class NonceStore {
-  private nonces: Set<string> = new Set();
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private nonces: Set<string> | null = null;
+  private cleanupInterval: any = null; // Use 'any' to avoid NodeJS.Timeout type issues in Workers
+  private cleanupInitialized: boolean = false;
+  private readonly isWorkers: boolean;
 
   constructor() {
-    // Clean up old nonces every 10 minutes
-    this.cleanupInterval = setInterval(() => {
-      // In production, implement TTL-based cleanup
-      // For now, we'll keep nonces for the session
-      if (this.nonces.size > 10000) {
-        this.nonces.clear();
+    // Check if we're in Workers at construction time (but don't do anything with it yet)
+    // This check is safe because it's just reading globals, not calling disallowed functions
+    this.isWorkers = isCloudflareWorkers();
+  }
+
+  /**
+   * Get or create the nonces Set (lazy initialization)
+   */
+  private getNonces(): Set<string> {
+    if (!this.nonces) {
+      this.nonces = new Set();
+    }
+    return this.nonces;
+  }
+
+  /**
+   * Initialize cleanup interval (only in Node.js, never in Workers)
+   * Called lazily when first needed, not in constructor
+   */
+  private initializeCleanup(): void {
+    if (this.cleanupInitialized) return;
+    this.cleanupInitialized = true;
+
+    // In Workers, never initialize cleanup - just return
+    if (this.isWorkers) {
+      return;
+    }
+
+    // Only in Node.js: try to set up cleanup interval
+    // Use dynamic access to setInterval to avoid Workers detecting it
+    try {
+      const setIntervalFn = (globalThis as any).setInterval || (global as any).setInterval;
+      if (typeof setIntervalFn === 'function') {
+        // Clean up old nonces every 10 minutes (only in Node.js)
+        this.cleanupInterval = setIntervalFn(() => {
+          const nonces = this.getNonces();
+          if (nonces.size > 10000) {
+            nonces.clear();
+          }
+        }, 10 * 60 * 1000);
       }
-    }, 10 * 60 * 1000);
+    } catch (error) {
+      // If setInterval fails, continue without cleanup
+      // This is safe because Workers have request isolation
+    }
   }
 
   /**
    * Check if nonce exists (replay attack)
    */
   has(nonce: string): boolean {
-    return this.nonces.has(nonce);
+    // In Workers, nonces don't persist anyway, so we can skip initialization
+    if (this.isWorkers) {
+      return this.getNonces().has(nonce);
+    }
+    this.initializeCleanup(); // Lazy initialization (Node.js only)
+    return this.getNonces().has(nonce);
   }
 
   /**
    * Add nonce to store
    */
   add(nonce: string): void {
-    this.nonces.add(nonce);
+    // In Workers, nonces don't persist anyway, but we still track them per request
+    if (this.isWorkers) {
+      this.getNonces().add(nonce);
+      return;
+    }
+    this.initializeCleanup(); // Lazy initialization (Node.js only)
+    this.getNonces().add(nonce);
   }
 
   /**
    * Clean up
    */
   destroy(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
+    if (!this.isWorkers && this.cleanupInterval) {
+      const clearIntervalFn = (globalThis as any).clearInterval || (global as any).clearInterval;
+      if (typeof clearIntervalFn === 'function') {
+        clearIntervalFn(this.cleanupInterval);
+      }
     }
-    this.nonces.clear();
+    if (this.nonces) {
+      this.nonces.clear();
+    }
   }
 }
 
-// Singleton nonce store
-const nonceStore = new NonceStore();
+// Lazy singleton nonce store - only create when first accessed
+// This prevents setInterval from running at module load time in Cloudflare Workers
+let nonceStoreInstance: NonceStore | null = null;
+function getNonceStore(): NonceStore {
+  if (!nonceStoreInstance) {
+    nonceStoreInstance = new NonceStore();
+  }
+  return nonceStoreInstance;
+}
 
 /**
  * Veramo integration API
@@ -141,7 +234,7 @@ export class VeramoAPI {
       const nonce = nonceLine?.split('=')[1];
 
       // Check for replay attacks
-      if (nonce && nonceStore.has(nonce)) {
+      if (nonce && getNonceStore().has(nonce)) {
         return { valid: false, error: 'Replay attack detected: nonce already used' };
       }
 
@@ -299,7 +392,7 @@ export class VeramoAPI {
 
       // If valid, add nonce to store and extract client address
       if (valid && nonce) {
-        nonceStore.add(nonce);
+        getNonceStore().add(nonce);
       }
 
       // Extract client address from auth
