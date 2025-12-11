@@ -1,5 +1,5 @@
 /**
- * A2A Agent Card (agent-card.json) types
+ * A2A Agent descriptor (agent.json) types
  */
 
 export interface AgentSkill {

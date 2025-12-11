@@ -2091,7 +2091,7 @@ export default function AdminPage() {
                           error={!!registrationA2aError}
                           helperText={
                             registrationA2aError || 
-                            'Base URL for A2A endpoint. The `.well-known/agent-card.json` path is automatically appended when fetching (per A2A spec).'
+                            'Base URL for A2A endpoint. The `.well-known/agent.json` path is automatically appended when fetching.'
                           }
                           variant="outlined"
                           size="small"

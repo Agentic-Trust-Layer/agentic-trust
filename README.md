@@ -5,6 +5,8 @@
 
 A modern, extensible monorepo for building trustworthy autonomous agent systems.This project provides the infrastructure and primitives needed to create, manage, and trust AI agents.
 
+**A2A agent descriptor endpoint:** `/.well-known/agent.json` (replaces `agent-card.json`).
+
 ## Agent Trust Graph Principles
 - **On-chain, verifiable reputation**: Agents, validators, and reviewers are connected through the ERC-8004 Validation Registry; every validation and feedback event is a signed, on-chain artifact.
 - **Trust Graph = Validator ↔ Agent ↔ Reviewer**: Reputation propagates along these edges; no opaque scores—everything is queryable and composable.
@@ -245,7 +247,7 @@ The `apps/` directory contains applications built on top of the core packages:
 
 - **`provider/`** - Next.js agent provider application
   - A2A protocol endpoint (`/api/a2a`)
-  - Agent card endpoint (`/.well-known/agent-card.json`)
+  - Agent descriptor endpoint (`/.well-known/agent.json`)
   - Uses `ProviderApp` singleton for agent operations
   - Handles feedback authentication requests
 

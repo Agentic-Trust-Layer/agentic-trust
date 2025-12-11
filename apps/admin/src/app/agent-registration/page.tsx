@@ -1120,7 +1120,7 @@ export default function AgentRegistrationPage() {
     setCreateForm(prev => ({ ...prev, agentUrl: defaultUrl }));
   }, [createForm.agentName]);
   // Default A2A endpoint to /api/a2a and MCP to /api/mcp
-  // .well-known/agent-card.json is always at the base domain, not at the A2A endpoint path
+  // .well-known/agent.json is always at the base domain, not at the A2A endpoint path
   const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/a2a` : '';
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
@@ -1528,7 +1528,7 @@ export default function AgentRegistrationPage() {
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
               <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
-                This base URL seeds the default A2A (`/api/a2a`) and MCP (`/api/mcp`) endpoints below. The agent card is always at the base domain's `/.well-known/agent-card.json` (per A2A spec).
+                This base URL seeds the default A2A (`/api/a2a`) and MCP (`/api/mcp`) endpoints below. The agent descriptor is always at the base domain's `/.well-known/agent.json`.
               </p>
             </div>
             <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
@@ -1569,13 +1569,13 @@ export default function AgentRegistrationPage() {
                     style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                   />
                   {(() => {
-                    // Calculate the agent-card.json path from the A2A endpoint or base URL
+                    // Calculate the agent.json path from the A2A endpoint or base URL
                     let agentCardPath = '';
                     try {
                       const urlToUse = protocolSettings.a2aEndpoint || defaultA2AEndpoint || normalizedAgentBaseUrl;
                       if (urlToUse) {
                         const url = new URL(urlToUse);
-                        agentCardPath = `${url.origin}/.well-known/agent-card.json`;
+                        agentCardPath = `${url.origin}/.well-known/agent.json`;
                       }
                     } catch (e) {
                       // Invalid URL, skip display

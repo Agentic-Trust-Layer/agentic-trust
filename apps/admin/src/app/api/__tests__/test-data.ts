@@ -10,7 +10,7 @@ export const TEST_CHAIN_ID = 11155111;
 export const TEST_AGENT_NAME = 'movieagent.8004-agent.eth';
 export const TEST_AGENT_ACCOUNT = '0xDc7f44AfA28A8cC4e4fAAb24810C660ac97A9939';
 export const TEST_TOKEN_URI = 'https://bafkreib3wycpaaazqxoiarvqcuvua5mkimg7yraozckf4ni6c64hahahjm.ipfs.w3s.link';
-export const TEST_A2A_ENDPOINT = 'https://b3b17ea0.movie-agent.pages.dev/.well-known/agent-card.json';
+export const TEST_A2A_ENDPOINT = 'https://b3b17ea0.movie-agent.pages.dev/.well-known/agent.json';
 
 /**
  * Test metadata as returned from contract

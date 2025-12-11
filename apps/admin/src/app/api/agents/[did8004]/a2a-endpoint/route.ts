@@ -96,12 +96,12 @@ export async function GET(
       console.log('[API] Constructed A2A endpoint from provider.url:', a2aEndpoint);
     }
     
-    // Ensure we're returning the actual A2A endpoint, not the agent-card.json URL
-    // If somehow we got the agent-card.json URL, extract the base URL and construct /api/a2a
+    // Ensure we're returning the actual A2A endpoint, not the agent.json URL
+    // If somehow we got the agent.json URL, extract the base URL and construct /api/a2a
     /*
-    if (a2aEndpoint && a2aEndpoint.includes('agent-card.json')) {
-      console.warn('[API] A2A endpoint appears to be agent-card.json URL, correcting...');
-      const baseUrl = a2aEndpoint.replace(/\/\.well-known\/agent-card\.json$/, '').replace(/\/api\/a2a$/, '');
+    if (a2aEndpoint && a2aEndpoint.includes('agent.json')) {
+      console.warn('[API] A2A endpoint appears to be agent.json URL, correcting...');
+      const baseUrl = a2aEndpoint.replace(/\/\.well-known\/agent\.json$/, '').replace(/\/api\/a2a$/, '');
       a2aEndpoint = `${baseUrl.replace(/\/$/, '')}/api/a2a`;
       console.log('[API] Corrected A2A endpoint to:', a2aEndpoint);
     }
@@ -109,7 +109,7 @@ export async function GET(
     
     console.log('[API] Final A2A endpoint being returned:', a2aEndpoint);
 
-    // Validate A2A endpoint by fetching agent-card.json
+    // Validate A2A endpoint by fetching agent.json
     let validationResult: {
       verified: boolean;
       hasSkill: boolean;
@@ -119,7 +119,7 @@ export async function GET(
 
     if (a2aEndpoint) {
       try {
-        // fetchA2AAgentCard automatically appends .well-known/agent-card.json if needed
+        // fetchA2AAgentCard automatically appends .well-known/agent.json if needed
         // A2A endpoint stored in registration is now just the base URL (per spec)
         console.log('[API] Fetching agent card from A2A endpoint:', a2aEndpoint);
         const agentCard = await fetchA2AAgentCard(a2aEndpoint);

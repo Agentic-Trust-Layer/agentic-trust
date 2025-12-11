@@ -3478,14 +3478,6 @@ export function AgentsPage({
                         ? agent.agentName.trim()
                         : 'Unnamed Agent';
 
-                    console.log(`[AgentsPage] Rendering agent card for agentId ${agent.agentId}:`, {
-                      agentName: agent.agentName,
-                      agentNameType: typeof agent.agentName,
-                      agentNameValue: JSON.stringify(agent.agentName),
-                      agentNameLength: typeof agent.agentName === 'string' ? agent.agentName.length : 0,
-                      isEnsName,
-                      displayName,
-                    });
 
                     return (
                       <>

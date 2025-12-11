@@ -27,7 +27,7 @@ export interface AgentData {
   type?: string | null;
   description?: string | null;
   image?: string | null;
-  a2aEndpoint?: string | null; // URL to agent-card.json
+  a2aEndpoint?: string | null; // URL to agent.json
   ensEndpoint?: string | null;
   agentAccountEndpoint?: string | null;
   did?: string | null;
@@ -1540,6 +1540,25 @@ export class AIAgentDiscoveryClient {
    * @returns Record of all metadata key-value pairs, or null if not available
    */
   async getTokenMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    // Newer indexer schemas may not expose tokenMetadata_collection anymore.
+    // Avoid spamming logs / failing requests by introspecting once and bailing out if unsupported.
+    try {
+      const queryFields = await this.getTypeFields('Query');
+      const hasTokenMetadataCollection = Boolean(
+        queryFields?.some((f) => f?.name === 'tokenMetadata_collection'),
+      );
+      if (!hasTokenMetadataCollection) {
+        // tokenMetadataById may exist, but it doesn't help us enumerate all metadata pairs.
+        // We only use this method as a best-effort fallback, so return null when unsupported.
+        console.warn(
+          '[AIAgentDiscoveryClient.getTokenMetadata] tokenMetadata_collection not available in GraphQL schema; skipping token metadata lookup.',
+        );
+        return null;
+      }
+    } catch (e) {
+      // If introspection fails, keep existing behavior (attempt the query; it will be caught below).
+    }
+
     const metadata: Record<string, string> = {};
     const pageSize = 1000; // The Graph's default page size
     let skip = 0;

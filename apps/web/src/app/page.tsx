@@ -88,7 +88,7 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load agent-card.json when opening the feedback dialog so we can
+  // Load agent.json when opening the feedback dialog so we can
   // populate skill dropdowns from the agent's declared skills.
   useEffect(() => {
     const loadCard = async () => {
@@ -139,7 +139,7 @@ export default function Home() {
    * @param contextId - Optional context ID
    * @param tag1 - Optional feedback tag1
    * @param tag2 - Optional feedback tag2
-   * @param skill - Optional skill identifier from agent-card.json
+   * @param skill - Optional skill identifier from agent.json
    * @param context - Optional feedback context
    * @param capability - Optional capability label
    */

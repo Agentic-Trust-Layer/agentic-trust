@@ -5,7 +5,7 @@ An A2A (Agent-to-Agent) application built with Express.js and the Agentic Trust 
 ## Features
 
 - **A2A Protocol**: Handles agent-to-agent communication via `/api/a2a` endpoint
-- **Agent Card**: Provides agent metadata via `/.well-known/agent-card.json`
+- **Agent Descriptor**: Provides agent metadata via `/.well-known/agent.json`
 - **ERC-8004 Feedback**: Supports feedback authentication via `agent.feedback.requestAuth` skill
 - **Cloudflare D1**: Stores A2A messages and agent data in Cloudflare D1 database
 - **ENS Integration**: Resolves agent accounts via ENS names
@@ -236,7 +236,7 @@ pnpm deploy:staging
 
 Returns server status and routing information.
 
-### GET /.well-known/agent-card.json
+### GET /.well-known/agent.json
 
 Returns the A2A standard agent card with agent metadata, capabilities, and skills.
 

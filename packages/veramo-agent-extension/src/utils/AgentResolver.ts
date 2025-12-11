@@ -88,7 +88,7 @@ function buildAgentDidDoc(
       {
         id: '#agent-card',
         type: 'AgentCard',
-        serviceEndpoint: `${httpsOrigin}/.well-known/agent-card.json`,
+        serviceEndpoint: `${httpsOrigin}/.well-known/agent.json`,
       },
       {
         id: '#agent-interface',

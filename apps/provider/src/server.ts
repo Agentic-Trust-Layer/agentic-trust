@@ -215,7 +215,7 @@ app.get('/', (req: Request, res: Response) => {
     message: 'Agent Provider is running',
     host: req.hostname,
     subdomain: subdomain || null,
-    note: 'Try /.well-known/agent-card.json or /api/a2a for agent endpoints.',
+    note: 'Try /.well-known/agent.json or /api/a2a for agent endpoints.',
   });
 });
 
@@ -234,10 +234,10 @@ async function waitForClientInit(req: Request, res: Response, next: NextFunction
 }
 
 /**
- * Agent Card endpoint (/.well-known/agent-card.json)
+ * Agent endpoint (/.well-known/agent.json)
  * A2A standard endpoint for agent discovery
  */
-app.get('/.well-known/agent-card.json', (req: Request, res: Response) => {
+app.get('/.well-known/agent.json', (req: Request, res: Response) => {
   const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'A sample agent provider for A2A communication';
@@ -323,7 +323,7 @@ app.get('/.well-known/agent-card.json', (req: Request, res: Response) => {
 /**
  * Handle OPTIONS preflight for agent-card
  */
-app.options('/.well-known/agent-card.json', (req: Request, res: Response) => {
+app.options('/.well-known/agent.json', (req: Request, res: Response) => {
   res.set(getCorsHeaders());
   res.status(204).send();
 });
@@ -673,6 +673,6 @@ app.get('/health', (req: Request, res: Response) => {
 app.listen(PORT, () => {
   console.log(`[Provider Server] Server running on port ${PORT}`);
   console.log(`[Provider Server] A2A endpoint: http://localhost:${PORT}/api/a2a`);
-  console.log(`[Provider Server] Agent card: http://localhost:${PORT}/.well-known/agent-card.json`);
+  console.log(`[Provider Server] Agent: http://localhost:${PORT}/.well-known/agent.json`);
 });
 

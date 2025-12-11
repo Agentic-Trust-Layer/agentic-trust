@@ -195,12 +195,12 @@ app.get('/', (c: HonoContext) => {
     message: 'ATP Agent is running',
     host: new URL(c.req.url).hostname,
     subdomain: subdomain || null,
-    note: 'Try /.well-known/agent-card.json or /api/a2a for agent endpoints.',
+    note: 'Try /.well-known/agent.json or /api/a2a for agent endpoints.',
   });
 });
 
-// Agent Card endpoint
-app.get('/.well-known/agent-card.json', (c: HonoContext) => {
+// Agent endpoint (A2A discovery)
+app.get('/.well-known/agent.json', (c: HonoContext) => {
   const subdomain = c.get('providerSubdomain');
   const env = c.env || {};
   const agentName = env.AGENT_NAME || 'ATP Agent';
@@ -372,8 +372,8 @@ app.get('/.well-known/agent-card.json', (c: HonoContext) => {
   return c.json(agentCard);
 });
 
-// OPTIONS preflight for agent-card
-app.options('/.well-known/agent-card.json', (c: HonoContext) => {
+// OPTIONS preflight for agent.json
+app.options('/.well-known/agent.json', (c: HonoContext) => {
   return new Response(null, {
     status: 204,
     headers: getCorsHeaders(),

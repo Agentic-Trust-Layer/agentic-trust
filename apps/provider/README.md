@@ -21,7 +21,7 @@ pnpm dev
 The server will start on port 3001 (or the port specified in the `PORT` environment variable).
 
 Available endpoints:
-- `GET /.well-known/agent-card.json` - Agent card for discovery
+- `GET /.well-known/agent.json` - Agent descriptor for discovery
 - `POST /api/a2a` - A2A message endpoint
 - `GET /health` - Health check endpoint
 
@@ -36,7 +36,7 @@ PROVIDER_ID=my-agent-provider
 # Required: Agent name
 AGENT_NAME=My Agent Provider
 
-# Required: Base URL for the provider (used in agent-card.json)
+# Required: Base URL for the provider (used in agent.json)
 PROVIDER_BASE_URL=http://localhost:3001
 
 # Optional: Port for the provider server (defaults to 3001)
@@ -99,9 +99,9 @@ Receives A2A messages from other agents.
 
 Returns provider endpoint information.
 
-### GET /.well-known/agent-card.json
+### GET /.well-known/agent.json
 
-Returns the A2A standard agent card (agent-card.json) with full agent metadata including:
+Returns the A2A standard agent descriptor (agent.json) with full agent metadata including:
 - Agent name, description, and version
 - Capabilities (streaming, pushNotifications, etc.)
 - Skills with examples
