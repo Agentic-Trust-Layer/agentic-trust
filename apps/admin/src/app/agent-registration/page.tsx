@@ -430,15 +430,30 @@ export default function AgentRegistrationPage() {
   const [aaAddress, setAaAddress] = useState<string | null>(null);
   const [aaComputing, setAaComputing] = useState(false);
   const [existingAgentInfo, setExistingAgentInfo] = useState<{ account: string; method?: string } | null>(null);
+  // Avoid showing a user-facing "switch manually" error on initial page load/refresh.
+  // Only show it when the user changes the selected chain after the page has mounted.
+  const initialAutoSyncChainRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!eip1193Provider && !eoaConnected) {
+    if (!eip1193Provider || !eoaConnected) {
       console.info('[chain] skip auto-sync (no connected provider)');
       return;
+    }
+    if (initialAutoSyncChainRef.current == null) {
+      initialAutoSyncChainRef.current = selectedChainId;
     }
     (async () => {
       const ready = await synchronizeProvidersWithChain(selectedChainId);
       if (!ready) {
+        const isInitialLoad = initialAutoSyncChainRef.current === selectedChainId;
+        if (isInitialLoad) {
+          console.warn(
+            '[chain] Auto-switch failed on initial load; not surfacing user error. ' +
+              'Will require manual chain selection only if the user proceeds.',
+          );
+          return;
+        }
+
         setError('Unable to switch wallet provider to the selected chain. Please switch manually in your wallet.');
         const chainMeta = CHAIN_METADATA[selectedChainId];
         const chainLabel = chainMeta?.displayName || chainMeta?.chainName || `chain ${selectedChainId}`;
