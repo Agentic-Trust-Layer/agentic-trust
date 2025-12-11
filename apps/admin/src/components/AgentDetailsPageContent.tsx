@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Box, Container, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button, Typography, Stack, TextField, Alert, Rating } from '@mui/material';
+import { Box, Container, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button, Typography, Stack, TextField, Alert, Rating, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
@@ -41,7 +41,7 @@ type AgentDetailsPageContentProps = {
 };
 
 type DialogState = {
-  type: 'give-feedback' | null;
+  type: 'give-feedback' | 'feedback-request' | null;
   loading?: boolean;
 };
 
@@ -92,6 +92,13 @@ export default function AgentDetailsPageContent({
   const [trustGraphModalOpen, setTrustGraphModalOpen] = useState(false);
   const [reviewsModalOpen, setReviewsModalOpen] = useState(false);
   const [validationsModalOpen, setValidationsModalOpen] = useState(false);
+  const [feedbackRequestReason, setFeedbackRequestReason] = useState('');
+  const [sendingFeedbackRequest, setSendingFeedbackRequest] = useState(false);
+  const [feedbackRequestSuccess, setFeedbackRequestSuccess] = useState(false);
+  const [feedbackRequestError, setFeedbackRequestError] = useState<string | null>(null);
+  const [ownedAgents, setOwnedAgents] = useState<AgentsPageAgent[]>([]);
+  const [loadingOwnedAgents, setLoadingOwnedAgents] = useState(false);
+  const [selectedFromAgentId, setSelectedFromAgentId] = useState<string>('');
 
   const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
 
@@ -177,6 +184,80 @@ export default function AgentDetailsPageContent({
       agentId: agent.agentId
     });
   }, [isConnected, walletAddress, agent.ownerAddress, agent.agentAccount, showManageButton, ownershipVerified, ownershipChecking, agent.agentId]);
+
+  // Fetch owned agents when feedback request dialog opens
+  useEffect(() => {
+    if (dialogState.type === 'feedback-request' && isConnected && walletAddress) {
+      const fetchOwnedAgents = async () => {
+        setLoadingOwnedAgents(true);
+        try {
+          // Use the new getOwnedAgents API endpoint
+          const response = await fetch(`/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}&limit=100`);
+
+          if (response.ok) {
+            const data = await response.json();
+            console.log('[AgentDetails] Owned agents API response:', {
+              success: data.success,
+              agentsCount: Array.isArray(data.agents) ? data.agents.length : 0,
+              agents: data.agents,
+              firstAgent: Array.isArray(data.agents) && data.agents.length > 0 ? data.agents[0] : null,
+            });
+            const agents = Array.isArray(data.agents) ? data.agents : [];
+            // Map to AgentsPageAgent format
+            const mappedAgents: AgentsPageAgent[] = agents.map((agent: any) => {
+              const mapped = {
+                agentId: String(agent.agentId || ''),
+                chainId: typeof agent.chainId === 'number' ? agent.chainId : 0,
+                agentName: agent.agentName || null,
+                agentAccount: agent.agentAccount || null,
+                agentOwner: agent.agentOwner || null,
+                eoaOwner: agent.eoaOwner || null,
+                description: agent.description || null,
+                image: agent.image || null,
+                a2aEndpoint: agent.a2aEndpoint || null,
+                mcpEndpoint: agent.mcpEndpoint || null,
+                feedbackCount: agent.feedbackCount || null,
+                feedbackAverageScore: agent.feedbackAverageScore || null,
+                createdAtTime: typeof agent.createdAtTime === 'number' ? agent.createdAtTime : null,
+              };
+              console.log('[AgentDetails] Mapped agent:', {
+                original: agent,
+                mapped,
+              });
+              return mapped;
+            });
+            console.log('[AgentDetails] Final mapped agents:', {
+              count: mappedAgents.length,
+              agents: mappedAgents,
+            });
+            setOwnedAgents(mappedAgents);
+            
+            // Auto-select first agent if available
+            if (mappedAgents.length > 0 && !selectedFromAgentId) {
+              const firstAgent = mappedAgents[0];
+              setSelectedFromAgentId(`${firstAgent.chainId}:${firstAgent.agentId}`);
+            }
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('[AgentDetails] Failed to fetch owned agents:', {
+              status: response.status,
+              statusText: response.statusText,
+              error: errorData,
+            });
+          }
+        } catch (error) {
+          console.error('[AgentDetails] Failed to fetch owned agents:', error);
+        } finally {
+          setLoadingOwnedAgents(false);
+        }
+      };
+      fetchOwnedAgents();
+    } else if (dialogState.type !== 'feedback-request') {
+      // Clear owned agents when dialog closes
+      setOwnedAgents([]);
+      setSelectedFromAgentId('');
+    }
+  }, [dialogState.type, isConnected, walletAddress, selectedFromAgentId]);
 
   // Fetch agent card when feedback dialog opens
   useEffect(() => {
@@ -284,13 +365,114 @@ export default function AgentDetailsPageContent({
 
   const handleGiveFeedback = useCallback(() => {
     if (!feedbackAuth) {
-      // Request feedback auth with review period
-      // This would trigger a request to the agent
-      alert('Requesting feedback authorization from agent...');
+      // Show feedback request dialog instead
+      setDialogState({ type: 'feedback-request' });
       return;
     }
     openDialog('give-feedback');
   }, [feedbackAuth, openDialog]);
+
+  const handleSendFeedbackRequest = useCallback(async () => {
+    if (!feedbackRequestReason.trim()) {
+      setFeedbackRequestError('Please provide a reason for requesting feedback');
+      return;
+    }
+
+    if (!selectedFromAgentId) {
+      setFeedbackRequestError('Please select an agent to send the request from');
+      return;
+    }
+
+    if (!agent.a2aEndpoint) {
+      setFeedbackRequestError('Agent does not have an A2A endpoint configured');
+      return;
+    }
+
+    if (!walletAddress) {
+      setFeedbackRequestError('Wallet address not available. Please connect your wallet.');
+      return;
+    }
+
+    setSendingFeedbackRequest(true);
+    setFeedbackRequestError(null);
+    setFeedbackRequestSuccess(false);
+
+    try {
+      // Parse selected agent ID (format: "chainId:agentId")
+      const [fromChainId, fromAgentId] = selectedFromAgentId.split(':');
+      if (!fromChainId || !fromAgentId) {
+        throw new Error('Invalid selected agent ID');
+      }
+
+      // Find the selected agent from ownedAgents to get its DID and name
+      const fromAgent = ownedAgents.find(
+        (a) => a.chainId === parseInt(fromChainId, 10) && a.agentId === fromAgentId
+      );
+      if (!fromAgent) {
+        throw new Error('Selected agent not found in owned agents');
+      }
+
+      // Build DID8004 for both agents
+      const parsedFromChainId = parseInt(fromChainId, 10);
+      const fromAgentDid = buildDid8004(parsedFromChainId, Number(fromAgentId));
+      const toAgentDid = did8004;
+
+      const messageRequest = {
+        message: `Feedback Request: ${feedbackRequestReason}`,
+        payload: {
+          type: 'feedback_request',
+          comment: feedbackRequestReason,
+          clientAddress: walletAddress,
+          fromAgentId: fromAgentId,
+          fromAgentChainId: parsedFromChainId,
+          fromAgentDid: fromAgentDid,
+          fromAgentName: fromAgent.agentName || `Agent #${fromAgentId}`,
+          toAgentId: agent.agentId,
+          toAgentChainId: chainId,
+          toAgentDid: toAgentDid,
+          toAgentName: agent.agentName || `Agent #${agent.agentId}`,
+        },
+        metadata: {
+          requestType: 'feedback_request',
+          timestamp: new Date().toISOString(),
+          fromAgentId: fromAgentId,
+          fromAgentChainId: parsedFromChainId,
+          toAgentId: agent.agentId,
+          toAgentChainId: chainId,
+        },
+        skillId: 'agent.feedback.request',
+      };
+
+      // Use agents-atp specific route for feedback/inbox messages
+      const response = await fetch('/api/agents-atp/send', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messageRequest),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'Failed to send feedback request');
+      }
+
+      const data = await response.json();
+      setFeedbackRequestSuccess(true);
+      setFeedbackRequestReason('');
+      
+      // Close dialog after a short delay
+      setTimeout(() => {
+        setDialogState({ type: null });
+        setFeedbackRequestSuccess(false);
+      }, 2000);
+    } catch (error: any) {
+      console.error('[AgentDetails] Failed to send feedback request:', error);
+      setFeedbackRequestError(error?.message || 'Failed to send feedback request');
+    } finally {
+      setSendingFeedbackRequest(false);
+    }
+  }, [feedbackRequestReason, agent.a2aEndpoint, agent.agentId, chainId, walletAddress, did8004]);
 
   const handleShare = useCallback(() => {
     setShareOpen(true);
@@ -425,27 +607,67 @@ export default function AgentDetailsPageContent({
               )}
 
               {agent.a2aEndpoint && isConnected && (
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={feedbackAuthLoading ? null : <ChatBubbleOutlineIcon />}
-                  onClick={handleGiveFeedback}
-                  disabled={feedbackAuthLoading}
-                  sx={{
-                    backgroundColor: palette.accent,
-                    color: palette.surface,
-                    border: `1px solid ${palette.accent}`,
-                    '&:hover': {
-                      backgroundColor: palette.border,
-                      color: palette.textPrimary,
-                      borderColor: palette.border,
-                    },
-                    textTransform: 'none',
-                    fontWeight: 700,
-                  }}
-                >
-                  {feedbackAuthLoading ? 'Checking authorization...' : 'Give Feedback'}
-                </Button>
+                <>
+                  {!feedbackAuth && !feedbackAuthLoading && (
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<ChatBubbleOutlineIcon />}
+                      onClick={() => setDialogState({ type: 'feedback-request' })}
+                      sx={{
+                        borderColor: palette.accent,
+                        color: palette.accent,
+                        '&:hover': {
+                          backgroundColor: palette.accent,
+                          color: palette.surface,
+                          borderColor: palette.accent,
+                        },
+                        textTransform: 'none',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Send Feedback Request
+                    </Button>
+                  )}
+                  {feedbackAuth && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      startIcon={<ChatBubbleOutlineIcon />}
+                      onClick={handleGiveFeedback}
+                      sx={{
+                        backgroundColor: palette.accent,
+                        color: palette.surface,
+                        border: `1px solid ${palette.accent}`,
+                        '&:hover': {
+                          backgroundColor: palette.border,
+                          color: palette.textPrimary,
+                          borderColor: palette.border,
+                        },
+                        textTransform: 'none',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Give Feedback
+                    </Button>
+                  )}
+                  {feedbackAuthLoading && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      disabled
+                      sx={{
+                        backgroundColor: palette.accent,
+                        color: palette.surface,
+                        border: `1px solid ${palette.accent}`,
+                        textTransform: 'none',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Checking authorization...
+                    </Button>
+                  )}
+                </>
               )}
             </Stack>
           </Box>
@@ -871,6 +1093,140 @@ export default function AgentDetailsPageContent({
             variant="contained"
           >
             {submittingFeedback ? 'Submitting...' : 'Submit'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Feedback Request Dialog */}
+      <Dialog
+        open={dialogState.type === 'feedback-request'}
+        onClose={() => {
+          setDialogState({ type: null });
+          setFeedbackRequestReason('');
+          setFeedbackRequestError(null);
+          setFeedbackRequestSuccess(false);
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          Request Feedback Authorization
+          <IconButton
+            onClick={() => {
+              setDialogState({ type: null });
+              setFeedbackRequestReason('');
+              setFeedbackRequestError(null);
+              setFeedbackRequestSuccess(false);
+            }}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        <DialogContent>
+          {agent.agentName && (
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Agent: {agent.agentName}
+            </Typography>
+          )}
+
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Send Request From Agent</InputLabel>
+            <Select
+              value={selectedFromAgentId}
+              onChange={(e) => setSelectedFromAgentId(e.target.value)}
+              label="Send Request From Agent"
+              disabled={sendingFeedbackRequest || feedbackRequestSuccess || loadingOwnedAgents}
+            >
+              {(() => {
+                console.log('[AgentDetails] Select render state:', {
+                  loadingOwnedAgents,
+                  ownedAgentsLength: ownedAgents.length,
+                  ownedAgents,
+                  selectedFromAgentId,
+                });
+                if (loadingOwnedAgents) {
+                  return (
+                    <MenuItem disabled>
+                      <CircularProgress size={20} sx={{ mr: 1 }} />
+                      Loading your agents...
+                    </MenuItem>
+                  );
+                }
+                if (ownedAgents.length === 0) {
+                  return <MenuItem disabled>No owned agents found</MenuItem>;
+                }
+                return ownedAgents.map((ownedAgent) => {
+                  const agentKey = `${ownedAgent.chainId}:${ownedAgent.agentId}`;
+                  const displayName = ownedAgent.agentName || `Agent #${ownedAgent.agentId}`;
+                  console.log('[AgentDetails] Rendering MenuItem for agent:', {
+                    agentKey,
+                    displayName,
+                    ownedAgent,
+                  });
+                  return (
+                    <MenuItem key={agentKey} value={agentKey}>
+                      {displayName} (Chain {ownedAgent.chainId}, ID {ownedAgent.agentId})
+                    </MenuItem>
+                  );
+                });
+              })()}
+            </Select>
+          </FormControl>
+
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Why do you want to give feedback to this agent?
+          </Typography>
+
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            value={feedbackRequestReason}
+            onChange={(e) => setFeedbackRequestReason(e.target.value)}
+            placeholder="e.g., I used this agent to help me find information and want to share my experience..."
+            disabled={sendingFeedbackRequest || feedbackRequestSuccess}
+            sx={{ mb: 2 }}
+          />
+
+          {feedbackRequestSuccess && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Feedback request sent successfully! The agent will review your request.
+            </Alert>
+          )}
+
+          {feedbackRequestError && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {feedbackRequestError}
+            </Alert>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setDialogState({ type: null });
+              setFeedbackRequestReason('');
+              setFeedbackRequestError(null);
+              setFeedbackRequestSuccess(false);
+            }}
+            disabled={sendingFeedbackRequest}
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSendFeedbackRequest}
+            variant="contained"
+            disabled={sendingFeedbackRequest || feedbackRequestSuccess || !feedbackRequestReason.trim() || !selectedFromAgentId || loadingOwnedAgents}
+            sx={{
+              backgroundColor: palette.accent,
+              '&:hover': {
+                backgroundColor: palette.border,
+              },
+            }}
+          >
+            {sendingFeedbackRequest ? 'Sending...' : 'Send Request'}
           </Button>
         </DialogActions>
       </Dialog>

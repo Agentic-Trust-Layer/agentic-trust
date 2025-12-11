@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
       let last_name = lastName;
       if (!first_name && !last_name && name) {
         const nameParts = name.trim().split(/\s+/);
-        first_name = nameParts[0] || null;
-        last_name = nameParts.slice(1).join(' ') || null;
+        first_name = nameParts[0] || undefined;
+        last_name = nameParts.slice(1).join(' ') || undefined;
       }
 
       console.log('[Session API] Syncing account to ATP with user info:', {

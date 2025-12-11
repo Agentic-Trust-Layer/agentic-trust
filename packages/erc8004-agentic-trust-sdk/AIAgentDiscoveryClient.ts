@@ -16,6 +16,7 @@ export interface AgentData {
   chainId?: number;
   agentAccount?: string;
   agentOwner?: string;
+  eoaOwner?: string | null;
   didIdentity?: string | null;
   didAccount?: string | null;
   didName?: string | null;
@@ -451,6 +452,11 @@ export class AIAgentDiscoveryClient {
       normalized.agentOwner = agentOwner;
     }
 
+    const eoaOwner = toOptionalStringOrNull(record.eoaOwner);
+    if (eoaOwner !== undefined) {
+      normalized.eoaOwner = eoaOwner;
+    }
+
     const didIdentity = toOptionalStringOrNull(record.didIdentity);
     if (didIdentity !== undefined) {
       normalized.didIdentity = didIdentity;
@@ -571,7 +577,6 @@ export class AIAgentDiscoveryClient {
     // This ensures empty strings are converted to undefined
     if (agentName && agentName.length > 0) {
       normalized.agentName = agentName;
-      console.log('[AIAgentDiscoveryClient.normalizeAgent] Set normalized.agentName to:', agentName);
     } else if (typeof rawAgentName === 'string' && rawAgentName.trim().length === 0) {
       // Original was empty string, and we didn't find a replacement - set to undefined
       normalized.agentName = undefined;
@@ -1232,7 +1237,7 @@ export class AIAgentDiscoveryClient {
     where?: Record<string, unknown>;
     first?: number;
     skip?: number;
-    orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner';
+    orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner';
     orderDirection?: 'ASC' | 'DESC';
   }): Promise<{ agents: AgentData[]; total: number; hasMore: boolean }> {
     const query = `
@@ -2089,6 +2094,123 @@ export class AIAgentDiscoveryClient {
    */
   getClient(): GraphQLClient {
     return this.client;
+  }
+
+  /**
+   * Get agents owned by a specific EOA address
+   * @param eoaAddress - The EOA (Externally Owned Account) address to search for
+   * @param options - Optional search options (limit, offset, orderBy, orderDirection)
+   * @returns List of agents owned by the EOA address
+   */
+  async getOwnedAgents(
+    eoaAddress: string,
+    options?: {
+      limit?: number;
+      offset?: number;
+      orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner';
+      orderDirection?: 'ASC' | 'DESC';
+    }
+  ): Promise<AgentData[]> {
+    if (!eoaAddress || typeof eoaAddress !== 'string' || !eoaAddress.startsWith('0x')) {
+      throw new Error('Invalid EOA address. Must be a valid Ethereum address starting with 0x');
+    }
+
+    // Use the address as-is (don't normalize to lowercase) since the database may store it with mixed case
+    const normalizedAddress = eoaAddress;
+    const limit = options?.limit ?? 100;
+    const offset = options?.offset ?? 0;
+    const orderBy = options?.orderBy ?? 'agentId';
+    const orderDirection = options?.orderDirection ?? 'DESC';
+
+    const query = `
+      query GetOwnedAgents(
+        $where: AgentWhereInput
+        $first: Int
+        $skip: Int
+        $orderBy: AgentOrderBy
+        $orderDirection: OrderDirection
+      ) {
+        searchAgentsGraph(
+          where: $where
+          first: $first
+          skip: $skip
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          agents {
+            chainId
+            agentId
+            agentAccount
+            agentOwner
+            agentName
+            didIdentity
+            didAccount
+            didName
+            tokenUri
+            createdAtBlock
+            createdAtTime
+            updatedAtTime
+            type
+            description
+            image
+            a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            supportedTrust
+            rawJson
+            did
+            mcp
+            x402support
+            active
+            feedbackCount
+            feedbackAverageScore
+            validationPendingCount
+            validationCompletedCount
+            validationRequestedCount
+          }
+          total
+          hasMore
+        }
+      }
+    `;
+
+    const variables: Record<string, unknown> = {
+      where: {
+        eoaOwner: normalizedAddress,
+      },
+      first: limit,
+      skip: offset,
+      orderBy: orderBy,
+      orderDirection: orderDirection,
+    };
+
+    console.log('[AIAgentDiscoveryClient.getOwnedAgents] Query variables:', {
+      eoaAddress,
+      normalizedAddress,
+      where: { eoaOwner: normalizedAddress },
+      limit,
+      offset,
+      orderBy,
+      orderDirection,
+    });
+
+    try {
+      const data = await this.client.request<{
+        searchAgentsGraph?: {
+          agents?: AgentData[];
+          total?: number;
+          hasMore?: boolean;
+        };
+      }>(query, variables);
+
+      const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
+      const agents = (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+
+      return agents;
+    } catch (error) {
+      console.error('[AIAgentDiscoveryClient.getOwnedAgents] Error fetching owned agents:', error);
+      throw error;
+    }
   }
 }
 

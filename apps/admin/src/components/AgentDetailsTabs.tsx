@@ -135,6 +135,52 @@ const AgentDetailsTabs = ({
         setRegistrationLoading(false);
         return;
       }
+      // Handle data URIs directly without fetch
+      if (normalizedUri.startsWith('data:')) {
+        try {
+          const commaIndex = normalizedUri.indexOf(',');
+          if (commaIndex === -1) throw new Error('Invalid data URI');
+          
+          const isBase64 = normalizedUri.includes(';base64');
+          const data = normalizedUri.slice(commaIndex + 1);
+          
+          let decoded: string;
+          if (isBase64) {
+            // Check if it looks like plain JSON despite saying base64
+            const trimmedData = data.trim();
+            if (trimmedData.startsWith('{') || trimmedData.startsWith('[')) {
+              decoded = data; // Treat as plain text
+            } else {
+              try {
+                decoded = atob(data);
+              } catch (e) {
+                // If base64 decode fails, try as plain text or URL decoded
+                try {
+                  decoded = decodeURIComponent(data);
+                } catch {
+                  decoded = data;
+                }
+              }
+            }
+          } else {
+            decoded = decodeURIComponent(data);
+          }
+
+          // Verify it's valid JSON if possible (for pretty printing)
+          try {
+            const json = JSON.parse(decoded);
+            setRegistrationData(JSON.stringify(json, null, 2));
+          } catch {
+            setRegistrationData(decoded);
+          }
+          setRegistrationLoading(false);
+          return;
+        } catch (error) {
+          console.warn('Failed to parse data URI:', error);
+          // Fall through to fetch if manual parse fails (unlikely for data URIs)
+        }
+      }
+
       fetch(normalizedUri)
         .then((response) => {
           if (!response.ok) {

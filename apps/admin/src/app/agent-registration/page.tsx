@@ -22,7 +22,7 @@ import { ensureWeb3AuthChain } from '@/lib/web3auth';
 import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
 import { keccak256, toHex } from "viem";
 
-const CREATE_STEPS = ['Name', 'Information', 'Protocols', 'Review & Register'] as const;
+const CREATE_STEPS = ['Name', 'Information', 'Taxonomy', 'Protocols', 'Review & Register'] as const;
 const REGISTRATION_PROGRESS_DURATION_MS = 60_000;
 const REGISTRATION_UPDATE_INTERVAL_MS = 200;
 
@@ -90,6 +90,7 @@ export default function AgentRegistrationPage() {
     image: getDefaultImageUrl(),
     agentUrl: '',
   });
+  const [supportedTrust, setSupportedTrust] = useState<string[]>([]);
   const [agentUrlAutofillDisabled, setAgentUrlAutofillDisabled] = useState(false);
   const [imagePreviewError, setImagePreviewError] = useState(false);
   const [imageUploadError, setImageUploadError] = useState<string | null>(null);
@@ -124,6 +125,7 @@ export default function AgentRegistrationPage() {
     (label: (typeof CREATE_STEPS)[number]) => {
       if (!isMobile) return label;
       if (label === 'Information') return 'Info';
+      if (label === 'Taxonomy') return 'Taxon.';
       if (label === 'Protocols') return "Prot's";
       if (label === 'Review & Register') return 'Review';
       return label;
@@ -722,6 +724,9 @@ export default function AgentRegistrationPage() {
         return { valid: true };
       }
       case 2: {
+        return { valid: true };
+      }
+      case 3: {
         const baseUrl = resolveAgentBaseUrl();
         if (!baseUrl) {
           return { valid: false, message: 'Agent URL is required (or set an agent name to auto-generate).' };
@@ -740,7 +745,7 @@ export default function AgentRegistrationPage() {
         }
         return { valid: true };
       }
-      case 3:
+      case 4:
       default:
         return { valid: true };
     }
@@ -948,6 +953,7 @@ export default function AgentRegistrationPage() {
             agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
             agentCategory: createForm.agentCategory || undefined,
+            supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
             agentUrl: baseUrl || undefined,
@@ -995,6 +1001,7 @@ export default function AgentRegistrationPage() {
               agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
             agentCategory: createForm.agentCategory || undefined,
+            supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
             agentUrl: baseUrl || undefined,
@@ -1026,6 +1033,7 @@ export default function AgentRegistrationPage() {
       
       
       setCreateForm({ agentName: '', agentAccount: '', agentCategory: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
+      setSupportedTrust([]);
       setAgentUrlAutofillDisabled(false);
       setAaAddress(null);
       setCreateStep(0);
@@ -1195,25 +1203,6 @@ export default function AgentRegistrationPage() {
                 required
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
-            </div>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Agent Category
-              </label>
-              <select
-                value={createForm.agentCategory}
-                onChange={(e) => setCreateForm({ ...createForm, agentCategory: e.target.value })}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
-              >
-                <option value="">Select a category (optional)</option>
-                <option value="Service Agents">Service Agents (Function/Task Agents)</option>
-                <option value="Conversational / Interface Agents">Conversational / Interface Agents</option>
-                <option value="Orchestrator / Coordinator Agents">Orchestrator / Coordinator Agents</option>
-                <option value="Knowledge / Retrieval Agents">Knowledge / Retrieval Agents</option>
-                <option value="Autonomous / Goal-Seeking Agents">Autonomous / Goal-Seeking Agents</option>
-                <option value="Governance / Validation Agents">Governance / Validation Agents</option>
-                <option value="Domain-Specific / Vertical Agents">Domain-Specific / Vertical Agents</option>
-              </select>
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ fontSize: '0.9rem', color: 'green', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -1409,6 +1398,103 @@ export default function AgentRegistrationPage() {
       case 2:
         return (
           <>
+            <div>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Agent Category
+              </label>
+              <select
+                value={createForm.agentCategory}
+                onChange={(e) => setCreateForm({ ...createForm, agentCategory: e.target.value })}
+                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', marginBottom: '1rem' }}
+              >
+                <option value="">Select a category (optional)</option>
+                <option value="Service Agents">Service Agents (Function/Task Agents)</option>
+                <option value="Conversational / Interface Agents">Conversational / Interface Agents</option>
+                <option value="Orchestrator / Coordinator Agents">Orchestrator / Coordinator Agents</option>
+                <option value="Knowledge / Retrieval Agents">Knowledge / Retrieval Agents</option>
+                <option value="Autonomous / Goal-Seeking Agents">Autonomous / Goal-Seeking Agents</option>
+                <option value="Governance / Validation Agents">Governance / Validation Agents</option>
+                <option value="Domain-Specific / Vertical Agents">Domain-Specific / Vertical Agents</option>
+              </select>
+            </div>
+            
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
+                Supported Trust Mechanisms (optional)
+              </label>
+              <p style={{ marginTop: 0, marginBottom: '0.75rem', fontSize: '0.85rem', color: '#666' }}>
+                Select the trust mechanisms your agent supports for validation and reputation
+              </p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', padding: '0.75rem', border: '1px solid #eee', borderRadius: '6px', backgroundColor: '#fafafa' }}>
+                  <input
+                    type="checkbox"
+                    checked={supportedTrust.includes('reputation')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSupportedTrust([...supportedTrust, 'reputation']);
+                      } else {
+                        setSupportedTrust(supportedTrust.filter(t => t !== 'reputation'));
+                      }
+                    }}
+                    style={{ marginTop: '0.25rem' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Reputation-based Trust</div>
+                    <div style={{ fontSize: '0.85rem', color: '#555' }}>
+                    Participants give subjective feedback on agent performance and behavior (e.g., thumbs up/down, star ratings, text reviews).
+                    </div>
+                  </div>
+                </label>
+                
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', padding: '0.75rem', border: '1px solid #eee', borderRadius: '6px', backgroundColor: '#fafafa' }}>
+                  <input
+                    type="checkbox"
+                    checked={supportedTrust.includes('crypto-economic')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSupportedTrust([...supportedTrust, 'crypto-economic']);
+                      } else {
+                        setSupportedTrust(supportedTrust.filter(t => t !== 'crypto-economic'));
+                      }
+                    }}
+                    style={{ marginTop: '0.25rem' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600 }}>Crypto-economic Trust</div>
+                    <div style={{ fontSize: '0.85rem', color: '#555' }}>
+                    Tokens are locked as a guarantee of good agent behavior; they are forfeited if the agent acts maliciously.
+                    </div>
+                  </div>
+                </label>
+                
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem', cursor: 'pointer', padding: '0.75rem', border: '1px solid #eee', borderRadius: '6px', backgroundColor: '#fafafa' }}>
+                  <input
+                    type="checkbox"
+                    checked={supportedTrust.includes('tee-attestation')}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSupportedTrust([...supportedTrust, 'tee-attestation']);
+                      } else {
+                        setSupportedTrust(supportedTrust.filter(t => t !== 'tee-attestation'));
+                      }
+                    }}
+                    style={{ marginTop: '0.25rem' }}
+                  />
+                  <div>
+                    <div style={{ fontWeight: 600 }}>TEE Attestation Trust</div>
+                    <div style={{ fontSize: '0.85rem', color: '#555' }}>
+                    A Trusted Execution Environment provides cryptographic proof of the agent’s code integrity and correct execution.</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </>
+        );
+      case 3:
+        return (
+          <>
             <div style={{ marginBottom: '1rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
@@ -1563,7 +1649,7 @@ export default function AgentRegistrationPage() {
             </div>
           </>
         );
-      case 3: {
+      case 4: {
         return (
           <>
             <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>

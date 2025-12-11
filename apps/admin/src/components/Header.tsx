@@ -371,6 +371,26 @@ export function Header({
                     type="button"
                     onClick={() => {
                       setShowAccountMenu(false);
+                      router.push('/messages');
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.85rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      color: palette.textPrimary,
+                      borderBottom: `1px solid ${palette.border}`,
+                    }}
+                  >
+                    Messaging
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountMenu(false);
                       void onDisconnect();
                     }}
                     style={{

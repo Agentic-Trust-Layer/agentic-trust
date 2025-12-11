@@ -116,11 +116,18 @@ CREATE TABLE IF NOT EXISTS account_agents (
 CREATE TABLE IF NOT EXISTS agent_feedback_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   client_address TEXT NOT NULL,
-  target_agent_id TEXT NOT NULL,
+  from_agent_id TEXT NULL, -- Agent ID that initiated the request (format: "chainId:agentId")
+  from_agent_chain_id INTEGER NULL,
+  to_agent_id TEXT NOT NULL,
+  to_agent_chain_id INTEGER NULL,
   comment TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
   feedback_auth TEXT NULL, -- Signed feedback auth payload (JSON string)
   feedback_tx_hash TEXT NULL, -- Transaction hash of the feedback submitted on-chain
+  from_agent_did TEXT NULL, -- DID:8004 of the requesting agent
+  from_agent_name TEXT NULL, -- Name of the requesting agent
+  to_agent_did TEXT NULL, -- DID:8004 of the target agent
+  to_agent_name TEXT NULL, -- Name of the target agent
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 );

@@ -360,20 +360,39 @@ export interface IPFSConfig {
         try {
           // Handle inline data URIs (data:application/json,...)
           if (tokenUri.startsWith('data:application/json')) {
+            console.log('[IPFS] Processing data URI:', tokenUri.substring(0, 100) + '...');
             try {
               const commaIndex = tokenUri.indexOf(',');
               if (commaIndex === -1) {
-                console.warn('Invalid data URI format');
+                console.warn('[IPFS] Invalid data URI format (no comma)');
                 return null;
               }
               
               const jsonData = tokenUri.substring(commaIndex + 1);
+              console.log('[IPFS] Extracted data substring (first 50 chars):', jsonData.substring(0, 50) + '...');
               let parsed;
               
               // Check if it's marked as base64 encoded
               if (tokenUri.startsWith('data:application/json;base64,')) {
+                console.log('[IPFS] URI marked as base64');
+                // If it looks like JSON (starts with { or [), try parsing directly first
+                // This handles cases where the URI says base64 but content is plain text
+                const trimmedData = jsonData.trim();
+                if (trimmedData.startsWith('{') || trimmedData.startsWith('[')) {
+                  console.log('[IPFS] Content looks like plain JSON, trying direct parse first');
+                  try {
+                    parsed = JSON.parse(jsonData);
+                    console.log('[IPFS] Direct parse successful');
+                    return parsed;
+                  } catch (e) {
+                    console.log('[IPFS] Direct parse failed, proceeding to base64 decode');
+                    // If direct parse fails, proceed to base64 decoding
+                  }
+                }
+
                 try {
                   // Try base64 decode first
+                  console.log('[IPFS] Attempting base64 decode');
                   let jsonString: string;
                   if (typeof atob !== 'undefined') {
                     jsonString = atob(jsonData);
@@ -382,14 +401,34 @@ export interface IPFSConfig {
                     const buffer = Buffer.from(jsonData, 'base64');
                     jsonString = buffer.toString('utf-8');
                   }
+                  console.log('[IPFS] Base64 decoded string (first 50 chars):', jsonString.substring(0, 50) + '...');
                   parsed = JSON.parse(jsonString);
+                  console.log('[IPFS] Base64 parse successful');
                 } catch (e) {
-                  // If base64 fails, try parsing as plain JSON
+                  console.warn('[IPFS] Base64 decode/parse failed:', e);
+                  // If base64 fails, try parsing as plain JSON (fallback)
                   try {
+                    console.log('[IPFS] Trying plain JSON parse as fallback');
                     parsed = JSON.parse(jsonData);
+                    console.log('[IPFS] Fallback plain JSON parse successful');
                   } catch (e2) {
-                    const decodedJson = decodeURIComponent(jsonData);
-                    parsed = JSON.parse(decodedJson);
+                    try {
+                      console.log('[IPFS] Trying URL decoding as fallback');
+                      const decodedJson = decodeURIComponent(jsonData);
+                      parsed = JSON.parse(decodedJson);
+                      console.log('[IPFS] URL decoded parse successful');
+                    } catch (e3) {
+                      try {
+                        console.log('[IPFS] Trying URI decode + base64 as final fallback');
+                        // Final attempt: sometimes base64 strings have URI encoded chars
+                        const buffer = Buffer.from(decodeURIComponent(jsonData), 'base64');
+                        parsed = JSON.parse(buffer.toString('utf-8'));
+                        console.log('[IPFS] URI decode + base64 successful');
+                      } catch (e4) {
+                        console.error('[IPFS] All parse attempts failed');
+                        throw e; // Throw original or last error
+                      }
+                    }
                   }
                 }
               } else {

@@ -473,6 +473,7 @@ export interface CreateAgentWithWalletOptions {
     agentName: string;
     agentAccount: `0x${string}`;
     agentCategory?: string;
+    supportedTrust?: string[];
     description?: string;
     image?: string;
     agentUrl?: string;
@@ -558,6 +559,7 @@ async function createAgentWithWalletEOA(
     agentName: agentData.agentName,
     agentAccount: agentData.agentAccount,
     agentCategory: agentData.agentCategory,
+    supportedTrust: agentData.supportedTrust,
     description: agentData.description,
     image: agentData.image,
     agentUrl: agentData.agentUrl,
@@ -1042,6 +1044,7 @@ async function createAgentWithWalletAA(
       agentName: agentData.agentName,
       agentAccount: agentData.agentAccount,
       agentCategory: agentData.agentCategory,
+      supportedTrust: agentData.supportedTrust,
       description: agentData.description,
       image: agentData.image,
       agentUrl: agentData.agentUrl,

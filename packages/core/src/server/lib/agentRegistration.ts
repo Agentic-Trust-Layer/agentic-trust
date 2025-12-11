@@ -29,8 +29,13 @@ export async function uploadRegistration(
     updatedAt: registration.updatedAt || new Date().toISOString(),
   };
   
+  console.log('[uploadRegistration] registration.supportedTrust:', registration.supportedTrust);
+  console.log('[uploadRegistration] registrationWithType.supportedTrust:', registrationWithType.supportedTrust);
+  
   // Convert to JSON string
   const jsonString = JSON.stringify(registrationWithType, null, 2);
+  
+  console.log('[uploadRegistration] JSON string includes supportedTrust:', jsonString.includes('supportedTrust'));
   
   // Upload to IPFS
   const result = await ipfsStorage.upload(jsonString, 'registration.json');
@@ -139,14 +144,13 @@ export function createRegistrationJSON(params: {
     });
   }
   
-  return {
+  const registration: AgentRegistrationInfo = {
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: params.name,
     description: params.description,
     image: params.image,
     endpoints: endpoints.length > 0 ? endpoints : undefined,
     registrations: registrations.length > 0 ? registrations : undefined,
-    supportedTrust: params.supportedTrust,
     agentAccount: params.agentAccount,
     // Legacy fields
     metadata: params.metadata,
@@ -155,5 +159,16 @@ export function createRegistrationJSON(params: {
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
+
+  // Explicitly include supportedTrust if it's an array (even if empty)
+  // JSON.stringify will omit undefined properties, but will include arrays
+  if (Array.isArray(params.supportedTrust)) {
+    registration.supportedTrust = params.supportedTrust;
+  }
+
+  console.log('[createRegistrationJSON] supportedTrust:', params.supportedTrust);
+  console.log('[createRegistrationJSON] registration.supportedTrust:', registration.supportedTrust);
+
+  return registration;
 }
 

@@ -2518,16 +2518,16 @@ export function AgentsPage({
       <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
       {!hideFilters && (
-        <div
-          style={{
-            backgroundColor: palette.surface,
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: `1px solid ${palette.border}`,
-            boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
-          }}
-        >
-          {isMobile ? (
+      <div
+        style={{
+          backgroundColor: palette.surface,
+          padding: '1.5rem',
+          borderRadius: '12px',
+          border: `1px solid ${palette.border}`,
+          boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
+        }}
+      >
+        {isMobile ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', width: '100%' }}>
             <div
               style={{

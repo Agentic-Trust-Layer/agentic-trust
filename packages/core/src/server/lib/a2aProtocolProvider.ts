@@ -563,15 +563,33 @@ export class A2AProtocolProvider {
       console.log('[A2AProtocolProvider.sendMessage] Response headers:', headersObj);
 
       if (!response.ok) {
-        const errorText = await response.text();
+        let errorText = await response.text();
+        let errorMessage = `A2A request failed: ${response.status} ${response.statusText}`;
+        
+        // Try to parse JSON error response for better error messages
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.response?.error) {
+            errorMessage = errorJson.response.error;
+          } else if (errorJson.error) {
+            errorMessage = errorJson.error;
+          } else {
+            errorMessage = `${errorMessage} - ${errorText}`;
+          }
+        } catch {
+          // If not JSON, use the raw error text
+          errorMessage = `${errorMessage} - ${errorText}`;
+        }
+        
         console.error('[A2AProtocolProvider.sendMessage] Request failed:', {
           status: response.status,
           statusText: response.statusText,
           url: endpointInfo.endpoint,
           errorText,
+          errorMessage,
           requestPayload: JSON.stringify(authenticatedRequest, null, 2),
         });
-        throw new Error(`A2A request failed: ${response.status} ${response.statusText} - ${errorText}`);
+        throw new Error(errorMessage);
       }
 
       const data: A2AResponse = await response.json();

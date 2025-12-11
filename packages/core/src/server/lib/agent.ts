@@ -407,8 +407,17 @@ export class Agent {
       throw new Error('Agent endpoint not available 1');
     }
 
+    // Extract fromAgentId from metadata/payload if provided, otherwise fallback to payload.agentId, finally 'client'
+    const payloadFromAgentId = (request.payload as any)?.fromAgentId;
+    const fallbackAgentId = (request.payload as any)?.agentId;
+    const fromAgentId =
+      (request.metadata as any)?.fromAgentId ||
+      payloadFromAgentId ||
+      fallbackAgentId ||
+      'client';
+    
     const a2aRequest = {
-      fromAgentId: 'client',
+      fromAgentId: fromAgentId,
       toAgentId: endpointInfo.providerId,
       message: request.message,
       payload: request.payload,

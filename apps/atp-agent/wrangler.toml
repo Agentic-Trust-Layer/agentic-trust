@@ -131,6 +131,8 @@ CLOUDFLARE_ACCOUNT_ID = "5da2feaa56593839672948e16c6e809d"
 
 CLOUDFLARE_D1_DATABASE_ID = "172fc638-86ad-4054-b14c-45c4f89a52ed"
 
+CLOUDFLARE_INDEXER_D1_DATABASE_ID = "2b924f66-77c1-4faa-9b14-c0b1c6d208e9"
+
 CLOUDFLARE_API_TOKEN = "CJDaFfC5vHt3CAtGvWnOhonhbPcai4rLBhpkRb_Z"
 
 USE_REMOTE_D1 = "true"
@@ -145,4 +147,9 @@ MC4CAQAwBQYDK2VwBCIEIEl0qM7VTXGbhrdsNt7bdZxiBASVB5vQna+ARTNNmyYK
 binding = "DB"
 database_name = "atp"
 database_id = "172fc638-86ad-4054-b14c-45c4f89a52ed"
+
+[[d1_databases]]
+binding = "INDEXER_DB"
+database_name = "erc8004-indexer"
+database_id = "2b924f66-77c1-4faa-9b14-c0b1c6d208e9"
 
