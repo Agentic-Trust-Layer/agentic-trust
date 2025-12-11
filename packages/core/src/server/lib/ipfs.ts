@@ -167,6 +167,28 @@ export interface IPFSConfig {
     
     return {
       async upload(data: string | Blob | File | ArrayBuffer, filename?: string): Promise<UploadResult> {
+        const safeTruncate = (value: string, max = 2000) =>
+          value.length > max ? `${value.slice(0, max)}…(truncated)` : value;
+
+        const safeParseJson = (text: string): unknown => {
+          try {
+            return JSON.parse(text);
+          } catch {
+            return null;
+          }
+        };
+
+        const formatUnknown = (value: unknown): string => {
+          if (value == null) return '';
+          if (typeof value === 'string') return value;
+          if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+          try {
+            return JSON.stringify(value);
+          } catch {
+            return String(value);
+          }
+        };
+
         // Prefer Pinata if available
         if (pinataJwt || (pinataApiKey && pinataApiSecret)) {
           try {
@@ -213,8 +235,12 @@ export interface IPFSConfig {
             });
             
             if (!response.ok) {
-              const errorData = await response.json().catch(() => ({ error: response.statusText }));
-              throw new Error(`Pinata upload failed: ${errorData.error || response.statusText}`);
+              const rawBody = await response.text().catch(() => '');
+              const parsed = rawBody ? safeParseJson(rawBody) : null;
+              const details = parsed ?? rawBody ?? response.statusText;
+              throw new Error(
+                `Pinata upload failed (${response.status} ${response.statusText}): ${safeTruncate(formatUnknown(details) || response.statusText)}`,
+              );
             }
             
             const result = await response.json();

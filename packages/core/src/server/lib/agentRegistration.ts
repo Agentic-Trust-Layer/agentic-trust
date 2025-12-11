@@ -108,22 +108,47 @@ export function createRegistrationJSON(params: {
   if (params.agentUrl) {
     const baseUrl = params.agentUrl.replace(/\/$/, ''); // Remove trailing slash
     
-    // Add A2A endpoint if not already present
-    // Default to /api/a2a per A2A spec
-    if (!endpoints.find(e => e.name === 'A2A')) {
+    // Upsert A2A endpoint (always align to agentUrl so provider base URLs or other defaults
+    // don't accidentally become the registered A2A endpoint).
+    // Default to /api/a2a per A2A spec.
+    const a2aEndpoint = `${baseUrl}/api/a2a`;
+    const existingA2A = endpoints.find(e => e.name === 'A2A');
+    if (existingA2A) {
+      if (existingA2A.endpoint !== a2aEndpoint) {
+        console.warn('[createRegistrationJSON] Overriding A2A endpoint to match agentUrl:', {
+          agentUrl: baseUrl,
+          previous: existingA2A.endpoint,
+          next: a2aEndpoint,
+        });
+      }
+      existingA2A.endpoint = a2aEndpoint;
+      existingA2A.version = existingA2A.version || '0.3.0';
+    } else {
       endpoints.push({
         name: 'A2A',
-        endpoint: `${baseUrl}/api/a2a`,
+        endpoint: a2aEndpoint,
         version: '0.3.0',
       });
     }
     
-    // Add MCP endpoint if not already present
-    // Default to /api/mcp
-    if (!endpoints.find(e => e.name === 'MCP')) {
+    // Upsert MCP endpoint (always align to agentUrl).
+    // Default to /api/mcp.
+    const mcpEndpoint = `${baseUrl}/api/mcp`;
+    const existingMCP = endpoints.find(e => e.name === 'MCP');
+    if (existingMCP) {
+      if (existingMCP.endpoint !== mcpEndpoint) {
+        console.warn('[createRegistrationJSON] Overriding MCP endpoint to match agentUrl:', {
+          agentUrl: baseUrl,
+          previous: existingMCP.endpoint,
+          next: mcpEndpoint,
+        });
+      }
+      existingMCP.endpoint = mcpEndpoint;
+      existingMCP.version = existingMCP.version || '2025-06-18';
+    } else {
       endpoints.push({
         name: 'MCP',
-        endpoint: `${baseUrl}/api/mcp`,
+        endpoint: mcpEndpoint,
         version: '2025-06-18',
       });
     }
