@@ -14,6 +14,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Autocomplete,
   FormControl,
   FormHelperText,
   IconButton,
@@ -61,6 +62,39 @@ type Message = {
   readAt: number | null;
 };
 
+type AgentSearchOption = {
+  key: string; // `${chainId}:${agentId}`
+  chainId: number;
+  agentId: string;
+  agentName: string | null;
+  image: string | null;
+  did: string;
+};
+
+function normalizeDid(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  let out = raw;
+  // Handle 0..2 rounds of percent-decoding to cover did%3A... and did%253A...
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(out);
+      if (decoded === out) break;
+      out = decoded;
+    } catch {
+      break;
+    }
+  }
+  // Fallback for partially-encoded values
+  out = out.replace(/%3A/gi, ':');
+  return out;
+}
+
+function displayDid(value: unknown): string {
+  const did = normalizeDid(value);
+  return did || '—';
+}
+
 export default function MessagesPage() {
   const {
     isConnected,
@@ -85,9 +119,23 @@ export default function MessagesPage() {
   const [mailboxMode, setMailboxMode] = useState<'inbox' | 'sent'>('inbox');
 
   const [composeOpen, setComposeOpen] = useState(false);
-  const [composeTo, setComposeTo] = useState('');
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [composeToAgent, setComposeToAgent] = useState<AgentSearchOption | null>(null);
+  const [composeToAgentInput, setComposeToAgentInput] = useState('');
+  const [composeToAgentOptions, setComposeToAgentOptions] = useState<AgentSearchOption[]>([]);
+  const [composeToAgentLoading, setComposeToAgentLoading] = useState(false);
+
+  const [feedbackRequestComment, setFeedbackRequestComment] = useState('');
+  const [validationRequestKind, setValidationRequestKind] = useState<'name' | 'account' | 'app' | 'aid'>('name');
+  const [validationRequestDetails, setValidationRequestDetails] = useState('');
+
+  const [approveOpen, setApproveOpen] = useState(false);
+  const [approveExpiryDays, setApproveExpiryDays] = useState<number>(30);
+  const [approving, setApproving] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
+  // Approval flow does not issue on-chain feedbackAuth; it only marks the request approved in ATP DB.
 
   const fetchMessages = useCallback(async (agentKeyOverride?: string) => {
     const key = agentKeyOverride ?? selectedAgentKey;
@@ -154,9 +202,11 @@ export default function MessagesPage() {
   const isInboxMessage = useCallback(
     (m: Message) => {
       if (!selectedFromAgentDid) return false;
+      const selectedDid = normalizeDid(selectedFromAgentDid);
+      const toDid = normalizeDid(m.toAgentDid);
       return (
-        m.toAgentDid === selectedFromAgentDid ||
-        (!m.toAgentDid && Boolean(selectedFolderAgent?.agentName) && m.toAgentName === selectedFolderAgent?.agentName)
+        (toDid && toDid === selectedDid) ||
+        (!toDid && Boolean(selectedFolderAgent?.agentName) && (m.toAgentName || '') === selectedFolderAgent?.agentName)
       );
     },
     [selectedFromAgentDid, selectedFolderAgent?.agentName],
@@ -165,9 +215,11 @@ export default function MessagesPage() {
   const isSentMessage = useCallback(
     (m: Message) => {
       if (!selectedFromAgentDid) return false;
+      const selectedDid = normalizeDid(selectedFromAgentDid);
+      const fromDid = normalizeDid(m.fromAgentDid);
       return (
-        m.fromAgentDid === selectedFromAgentDid ||
-        (!m.fromAgentDid && Boolean(selectedFolderAgent?.agentName) && m.fromAgentName === selectedFolderAgent?.agentName)
+        (fromDid && fromDid === selectedDid) ||
+        (!fromDid && Boolean(selectedFolderAgent?.agentName) && (m.fromAgentName || '') === selectedFolderAgent?.agentName)
       );
     },
     [selectedFromAgentDid, selectedFolderAgent?.agentName],
@@ -213,7 +265,8 @@ export default function MessagesPage() {
       return;
     }
     setError(null);
-    setComposeTo('');
+    setComposeToAgent(null);
+    setComposeToAgentInput('');
     setComposeSubject(
       selectedMessageType === 'feedback_request'
         ? 'Feedback Request'
@@ -222,8 +275,68 @@ export default function MessagesPage() {
           : '',
     );
     setComposeBody('');
+    setFeedbackRequestComment('');
+    setValidationRequestKind('name');
+    setValidationRequestDetails('');
     setComposeOpen(true);
   }, [selectedFolderAgent, selectedMessageType]);
+
+  // Async agent search for "To Agent" autocomplete
+  useEffect(() => {
+    let cancelled = false;
+    const q = composeToAgentInput.trim();
+
+    if (!composeOpen) return;
+    if (!q) {
+      setComposeToAgentOptions([]);
+      setComposeToAgentLoading(false);
+      return;
+    }
+
+    setComposeToAgentLoading(true);
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/agents/search?query=${encodeURIComponent(q)}&pageSize=10&orderBy=createdAtTime&orderDirection=DESC`,
+          { cache: 'no-store' },
+        );
+        if (!response.ok) {
+          throw new Error(`Failed to search agents (${response.status})`);
+        }
+        const data = await response.json();
+        const agents = Array.isArray(data?.agents) ? data.agents : [];
+        const mapped: AgentSearchOption[] = agents
+          .map((a: any) => {
+            const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
+            const agentId = a?.agentId != null ? String(a.agentId) : '';
+            if (!chainId || !agentId) return null;
+            const did = buildDid8004(chainId, Number(agentId));
+            return {
+              key: `${chainId}:${agentId}`,
+              chainId,
+              agentId,
+              agentName: a?.agentName ?? null,
+              image: a?.image ?? null,
+              did,
+            } as AgentSearchOption;
+          })
+          .filter(Boolean) as AgentSearchOption[];
+
+        if (cancelled) return;
+        setComposeToAgentOptions(mapped);
+      } catch (e) {
+        if (!cancelled) {
+          setComposeToAgentOptions([]);
+        }
+      } finally {
+        if (!cancelled) setComposeToAgentLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [composeOpen, composeToAgentInput]);
 
   const handleSendMessage = useCallback(async () => {
     if (!selectedFolderAgent || !selectedFromAgentDid) {
@@ -231,53 +344,88 @@ export default function MessagesPage() {
       return;
     }
 
-    const toRaw = composeTo.trim();
-    if (!toRaw) {
-      setError('Recipient is required (Agent DID or agent name).');
-      return;
-    }
-
-    const content = composeBody.trim();
-    if (!content) {
-      setError('Message body is required.');
+    if (!composeToAgent) {
+      setError('Recipient is required. Select an agent.');
       return;
     }
 
     setSending(true);
     setError(null);
 
-    const toAgentDid = toRaw.startsWith('did:8004:') ? toRaw : undefined;
-    const toAgentName = !toAgentDid ? toRaw : undefined;
-
     try {
-      const response = await fetch('/api/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: selectedMessageType,
-          subject:
-            composeSubject.trim() ||
-            (selectedMessageType === 'feedback_request'
-              ? 'Feedback Request'
-              : selectedMessageType === 'validation_request'
-                ? 'Validation Request'
-                : 'Message'),
-          content,
-          fromClientAddress: walletAddress ?? undefined,
-          fromAgentDid: selectedFromAgentDid,
-          fromAgentName: selectedFolderAgent.agentName || undefined,
-          toAgentDid,
-          toAgentName,
-          metadata: {
-            source: 'admin-app',
-            timestamp: new Date().toISOString(),
-          },
-        }),
-      });
+      if (selectedMessageType === 'feedback_request') {
+        const comment = feedbackRequestComment.trim();
+        if (!comment) {
+          throw new Error('Reason is required for a feedback request.');
+        }
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || 'Failed to send message');
+        const response = await fetch('/api/agents-atp/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skillId: 'atp.feedback.request',
+            message: `Feedback Request: ${comment}`,
+            payload: {
+              clientAddress: walletAddress,
+              comment,
+              fromAgentId: String(selectedFolderAgent.agentId),
+              fromAgentChainId: selectedFolderAgent.chainId,
+              fromAgentDid: selectedFromAgentDid,
+              fromAgentName: selectedFolderAgent.agentName || null,
+              toAgentId: String(composeToAgent.agentId),
+              toAgentChainId: composeToAgent.chainId,
+              toAgentDid: composeToAgent.did,
+              toAgentName: composeToAgent.agentName,
+            },
+            metadata: {
+              source: 'admin-app',
+              timestamp: new Date().toISOString(),
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || 'Failed to send feedback request');
+        }
+      } else {
+        const content = composeBody.trim();
+        if (!content) {
+          throw new Error('Message body is required.');
+        }
+
+        const subject =
+          composeSubject.trim() ||
+          (selectedMessageType === 'validation_request'
+            ? `Validation Request: ${validationRequestKind}`
+            : 'Message');
+
+        const response = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: selectedMessageType,
+            subject,
+            content,
+            fromClientAddress: walletAddress ?? undefined,
+            fromAgentDid: selectedFromAgentDid,
+            fromAgentName: selectedFolderAgent.agentName || undefined,
+            toAgentDid: composeToAgent.did,
+            toAgentName: composeToAgent.agentName || undefined,
+            metadata: {
+              source: 'admin-app',
+              timestamp: new Date().toISOString(),
+              ...(selectedMessageType === 'validation_request'
+                ? { validationKind: validationRequestKind, validationDetails: validationRequestDetails || undefined }
+                : {}),
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.message || errorData.error || 'Failed to send message');
+        }
       }
 
       setComposeOpen(false);
@@ -291,10 +439,14 @@ export default function MessagesPage() {
   }, [
     selectedFolderAgent,
     selectedFromAgentDid,
-    composeTo,
     composeSubject,
     composeBody,
+    composeToAgent,
+    composeToAgentInput,
+    feedbackRequestComment,
     selectedMessageType,
+    validationRequestKind,
+    validationRequestDetails,
     walletAddress,
     fetchMessages,
   ]);
@@ -313,6 +465,8 @@ export default function MessagesPage() {
         return 'Feedback Request';
       case 'validation_request':
         return 'Validation Request';
+      case 'feedback_request_approved':
+        return 'Feedback Request Approved';
       default:
         return 'General';
     }
@@ -324,6 +478,8 @@ export default function MessagesPage() {
         return 'primary';
       case 'validation_request':
         return 'warning';
+      case 'feedback_request_approved':
+        return 'success';
       default:
         return 'default';
     }
@@ -392,6 +548,31 @@ export default function MessagesPage() {
               boxShadow: '0 10px 24px rgba(15,23,42,0.10)',
             }}
           >
+            {!ownedAgentsLoading && cachedOwnedAgents.length === 0 ? (
+              <Box sx={{ p: { xs: 3, md: 4 } }}>
+                <Stack spacing={1}>
+                  <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                    No agent folders yet
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    You need to register at least one agent to collaborate with other agents and use the inbox.
+                  </Typography>
+                  <Box>
+                    <Button
+                      variant="contained"
+                      href="/agent-registration"
+                      sx={{
+                        mt: 1,
+                        backgroundColor: palette.accent,
+                        '&:hover': { backgroundColor: palette.border },
+                      }}
+                    >
+                      Register an Agent
+                    </Button>
+                  </Box>
+                </Stack>
+              </Box>
+            ) : (
             <Box sx={{ display: 'flex', minHeight: { xs: 520, md: 640 } }}>
               {/* Folder list */}
               <Box
@@ -496,7 +677,7 @@ export default function MessagesPage() {
                             (selectedFolderAgent ? `Agent #${selectedFolderAgent.agentId}` : 'Select a folder')}
                         </Typography>
                         <Typography variant="caption" color="text.secondary" noWrap>
-                          {selectedFromAgentDid || '—'}
+                          {displayDid(selectedFromAgentDid)}
                         </Typography>
                       </Box>
                     </Stack>
@@ -576,8 +757,16 @@ export default function MessagesPage() {
                             {visibleMessages.map((m) => {
                               const selected = m.id === selectedMessageId;
                               const unread = mailboxMode === 'inbox' && !m.readAt;
-                              const from = m.fromAgentName || m.fromAgentDid || m.fromClientAddress || 'Unknown';
-                              const to = m.toAgentName || m.toAgentDid || m.toClientAddress || 'Unknown';
+                              const from =
+                                m.fromAgentName ||
+                                (m.fromAgentDid ? displayDid(m.fromAgentDid) : null) ||
+                                m.fromClientAddress ||
+                                'Unknown';
+                              const to =
+                                m.toAgentName ||
+                                (m.toAgentDid ? displayDid(m.toAgentDid) : null) ||
+                                m.toClientAddress ||
+                                'Unknown';
                               const subj = m.subject || getMessageTypeLabel(m.contextType);
                               const preview = (m.body || '').slice(0, 120);
                               return (
@@ -598,6 +787,7 @@ export default function MessagesPage() {
                                       </Badge>
                                     </ListItemAvatar>
                                     <ListItemText
+                                      disableTypography
                                       primary={
                                         <Stack direction="row" justifyContent="space-between" spacing={2} sx={{ width: '100%' }}>
                                           <Typography variant="subtitle2" sx={{ fontWeight: unread ? 800 : 600 }} noWrap>
@@ -677,6 +867,28 @@ export default function MessagesPage() {
                           </Box>
                         </Stack>
 
+                        {mailboxMode === 'inbox' &&
+                          selectedMessage.contextType === 'feedback_request' &&
+                          selectedMessage.contextId && (
+                            <Box>
+                              <Button
+                                variant="contained"
+                                onClick={() => {
+                                  setApproveError(null);
+                                  setApproveSuccess(null);
+                                  setApproveExpiryDays(30);
+                                  setApproveOpen(true);
+                                }}
+                                sx={{
+                                  backgroundColor: palette.accent,
+                                  '&:hover': { backgroundColor: palette.border },
+                                }}
+                              >
+                                Approve feedback request
+                              </Button>
+                            </Box>
+                          )}
+
                         <Divider />
 
                         <Stack spacing={0.5}>
@@ -707,6 +919,7 @@ export default function MessagesPage() {
                 </Box>
               </Box>
             </Box>
+            )}
           </Paper>
         </Stack>
       </Container>
@@ -755,31 +968,124 @@ export default function MessagesPage() {
               </FormHelperText>
             </FormControl>
 
-            <TextField
-              label="To (agent DID or agent name)"
-              placeholder="did:8004:...  or  xyzalliance-arn.8004-agent.eth"
-              value={composeTo}
-              onChange={(e) => setComposeTo(e.target.value)}
-              fullWidth
-              size="small"
+            <Autocomplete
+              options={composeToAgentOptions}
+              value={composeToAgent}
+              onChange={(_, value) => setComposeToAgent(value)}
+              inputValue={composeToAgentInput}
+              onInputChange={(_, value) => setComposeToAgentInput(value)}
+              loading={composeToAgentLoading}
+              filterOptions={(x) => x}
+              getOptionLabel={(opt) =>
+                `${opt.agentName || `Agent #${opt.agentId}`} (Chain ${opt.chainId}, ID ${opt.agentId})`
+              }
+              renderOption={(props, opt) => {
+                const name = opt.agentName || `Agent #${opt.agentId}`;
+                const img = (opt.image || '').trim();
+                return (
+                  <li {...props} key={opt.key}>
+                    <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%' }}>
+                      <Avatar src={img || undefined} sx={{ width: 22, height: 22, fontSize: 11 }}>
+                        {name.slice(0, 1).toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" noWrap>
+                          {name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" noWrap>
+                          {opt.did}
+                        </Typography>
+                      </Box>
+                    </Stack>
+                  </li>
+                );
+              }}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="To Agent"
+                  placeholder="Search agents…"
+                  size="small"
+                  InputProps={{
+                    ...params.InputProps,
+                    endAdornment: (
+                      <>
+                        {composeToAgentLoading ? <CircularProgress size={16} /> : null}
+                        {params.InputProps.endAdornment}
+                      </>
+                    ),
+                  }}
+                />
+              )}
             />
 
-            <TextField
-              label="Subject"
-              value={composeSubject}
-              onChange={(e) => setComposeSubject(e.target.value)}
-              fullWidth
-              size="small"
-            />
+            {selectedMessageType !== 'feedback_request' && (
+              <TextField
+                label="Subject"
+                value={composeSubject}
+                onChange={(e) => setComposeSubject(e.target.value)}
+                fullWidth
+                size="small"
+              />
+            )}
 
-            <TextField
-              label="Message"
-              value={composeBody}
-              onChange={(e) => setComposeBody(e.target.value)}
-              fullWidth
-              multiline
-              minRows={6}
-            />
+            {selectedMessageType === 'feedback_request' ? (
+              <TextField
+                label="Why do you want to give feedback?"
+                value={feedbackRequestComment}
+                onChange={(e) => setFeedbackRequestComment(e.target.value)}
+                fullWidth
+                multiline
+                minRows={5}
+                placeholder="e.g., I used this agent and want to share my experience…"
+              />
+            ) : selectedMessageType === 'validation_request' ? (
+              <Stack spacing={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel id="validation-request-kind-label">Validation Type</InputLabel>
+                  <Select
+                    id="validation-request-kind"
+                    labelId="validation-request-kind-label"
+                    value={validationRequestKind}
+                    label="Validation Type"
+                    onChange={(e) => setValidationRequestKind(e.target.value as any)}
+                  >
+                    <MenuItem value="name">Name</MenuItem>
+                    <MenuItem value="account">Account</MenuItem>
+                    <MenuItem value="app">App</MenuItem>
+                    <MenuItem value="aid">AID</MenuItem>
+                  </Select>
+                  <FormHelperText>Structured request for validators / automation.</FormHelperText>
+                </FormControl>
+                <TextField
+                  label="Details"
+                  value={validationRequestDetails}
+                  onChange={(e) => setValidationRequestDetails(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={5}
+                  placeholder="What should be validated, and why?"
+                />
+                <TextField
+                  label="Message"
+                  value={composeBody}
+                  onChange={(e) => setComposeBody(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  placeholder="Optional additional context…"
+                />
+              </Stack>
+            ) : (
+              <TextField
+                label="Message"
+                value={composeBody}
+                onChange={(e) => setComposeBody(e.target.value)}
+                fullWidth
+                multiline
+                minRows={6}
+              />
+            )}
           </Stack>
         </DialogContent>
         <DialogActions>
@@ -794,6 +1100,86 @@ export default function MessagesPage() {
             sx={{ backgroundColor: palette.accent, '&:hover': { backgroundColor: palette.border } }}
           >
             {sending ? 'Sending…' : 'Send'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={approveOpen} onClose={() => setApproveOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Approve Feedback Request</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              This marks the feedback request as approved in the ATP database and sends an inbox message back to the requester.
+            </Typography>
+
+            <TextField
+              label="Approved for (days)"
+              type="number"
+              value={approveExpiryDays}
+              onChange={(e) => setApproveExpiryDays(Number(e.target.value))}
+              inputProps={{ min: 1, max: 365 }}
+              size="small"
+              fullWidth
+            />
+
+            {approveSuccess && <Alert severity="success">{approveSuccess}</Alert>}
+            {approveError && <Alert severity="error">{approveError}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApproveOpen(false)} disabled={approving}>
+            Close
+          </Button>
+          <Button
+            variant="contained"
+            disabled={approving || !selectedMessage?.contextId}
+            startIcon={approving ? <CircularProgress size={16} /> : undefined}
+            onClick={async () => {
+              try {
+                setApproving(true);
+                setApproveError(null);
+                setApproveSuccess(null);
+
+                const feedbackRequestId = Number(selectedMessage?.contextId);
+                if (!Number.isFinite(feedbackRequestId) || feedbackRequestId <= 0) {
+                  throw new Error('Missing feedback request id on message.');
+                }
+
+                if (!selectedMessage?.fromAgentDid || !selectedMessage?.toAgentDid) {
+                  throw new Error('Missing from/to agent DID on message.');
+                }
+
+                const res = await fetch('/api/agents-atp/send', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    skillId: 'atp.feedback.requestapproved',
+                    payload: {
+                      feedbackRequestId,
+                      fromAgentDid: selectedMessage.fromAgentDid,
+                      toAgentDid: selectedMessage.toAgentDid,
+                      approvedForDays: approveExpiryDays,
+                    },
+                    metadata: { source: 'admin-app', timestamp: new Date().toISOString() },
+                  }),
+                });
+
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || data?.success === false) {
+                  throw new Error(data?.error || data?.response?.error || 'Failed to approve feedback request');
+                }
+
+                setApproveSuccess('Request approved and requester notified.');
+                await fetchMessages();
+              } catch (e) {
+                setApproveError(e instanceof Error ? e.message : 'Failed to approve feedback request');
+              } finally {
+                setApproving(false);
+              }
+            }}
+            sx={{ backgroundColor: palette.accent, '&:hover': { backgroundColor: palette.border } }}
+          >
+            {approving ? 'Approving…' : 'Approve'}
           </Button>
         </DialogActions>
       </Dialog>

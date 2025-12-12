@@ -5,7 +5,7 @@ import type { MessageRequest } from '@agentic-trust/core/server';
 
 /**
  * GET /api/messages - List messages for a specific agent DID
- * Uses agent.inbox.listAgentMessages skill via agents-atp
+ * Uses atp.inbox.listAgentMessages skill via agents-atp
  */
 export async function GET(req: NextRequest) {
   try {
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        skillId: 'agent.inbox.listAgentMessages',
+        skillId: 'atp.inbox.listAgentMessages',
         payload: {
           agentDid,
         },
@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/messages - Send a message
- * Uses agent.inbox.sendMessage skill via agents-atp
+ * Uses atp.inbox.sendMessage skill via agents-atp
  */
 export async function POST(req: NextRequest) {
   try {
@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        skillId: 'agent.inbox.sendMessage',
+        skillId: 'atp.inbox.sendMessage',
         payload: {
           fromClientAddress,
           fromAgentDid,

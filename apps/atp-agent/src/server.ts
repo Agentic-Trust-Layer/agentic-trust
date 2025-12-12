@@ -55,6 +55,27 @@ function serializeBigInt(obj: any): any {
   return obj;
 }
 
+/**
+ * Normalize DID strings that may arrive URL-encoded (e.g. "did%3A8004%3A...").
+ * We accept both encoded and decoded forms, but standardize to decoded.
+ */
+function normalizeDid(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  let out = raw;
+  // Handle 0..2 rounds of percent-decoding to cover did%3A... and did%253A...
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(out);
+      if (decoded === out) break;
+      out = decoded;
+    } catch {
+      break;
+    }
+  }
+  return out.replace(/%3A/gi, ':');
+}
+
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3003;
 
@@ -260,15 +281,6 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
           description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
         },
         {
-          id: 'atp.feedback.request',
-          name: 'atp.feedback.request',
-          tags: ['atp', 'feedback', 'database', 'a2a'],
-          examples: ['Client requests to give feedback'],
-          inputModes: ['text'],
-          outputModes: ['text'],
-          description: 'Record a feedback request in the database',
-        },
-        {
           id: 'atp.account.addOrUpdate',
           name: 'atp.account.addOrUpdate',
           tags: ['atp', 'account', 'database', 'a2a'],
@@ -284,8 +296,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
         return [
           ...baseSkills,
           {
-            id: 'agent.feedback.request',
-            name: 'agent.feedback.request',
+            id: 'atp.feedback.request',
+            name: 'atp.feedback.request',
             tags: ['erc8004', 'feedback', 'request', 'a2a', 'admin'],
             examples: ['Request to give feedback to an agent', 'Submit a feedback request for an agent'],
             inputModes: ['text', 'json'],
@@ -293,8 +305,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'Request to give feedback to an agent. Requires clientAddress (EOA), targetAgentId (agent ID to give feedback to), and comment (reason for feedback) in payload.',
           },
           {
-            id: 'agent.feedback.getRequests',
-            name: 'agent.feedback.getRequests',
+            id: 'atp.feedback.getRequests',
+            name: 'atp.feedback.getRequests',
             tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
             examples: ['Get all feedback requests for a wallet address', 'Query feedback requests by client address'],
             inputModes: ['text', 'json'],
@@ -302,8 +314,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'Get all feedback requests associated with a wallet address. Requires clientAddress (EOA) in payload.',
           },
           {
-            id: 'agent.feedback.getRequestsByAgent',
-            name: 'agent.feedback.getRequestsByAgent',
+            id: 'atp.feedback.getRequestsByAgent',
+            name: 'atp.feedback.getRequestsByAgent',
             tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
             examples: ['Get all feedback requests for a specific agent', 'Query feedback requests by target agent ID'],
             inputModes: ['text', 'json'],
@@ -311,8 +323,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'Get all feedback requests for a specific agent. Requires targetAgentId (agent ID) in payload.',
           },
           {
-            id: 'agent.feedback.markGiven',
-            name: 'agent.feedback.markGiven',
+            id: 'atp.feedback.markGiven',
+            name: 'atp.feedback.markGiven',
             tags: ['erc8004', 'feedback', 'update', 'a2a', 'admin'],
             examples: ['Mark a feedback request as having feedback given'],
             inputModes: ['text', 'json'],
@@ -320,8 +332,18 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'Mark a feedback request as having feedback given, storing the tx hash. Requires feedbackRequestId and txHash in payload.',
           },
           {
-            id: 'agent.inbox.sendMessage',
-            name: 'agent.inbox.sendMessage',
+            id: 'atp.feedback.requestapproved',
+            name: 'atp.feedback.requestapproved',
+            tags: ['atp', 'feedback', 'approval', 'database', 'a2a', 'admin'],
+            examples: ['Approve a feedback request and notify requester'],
+            inputModes: ['text', 'json'],
+            outputModes: ['text', 'json'],
+            description:
+              'Approve a feedback request (no on-chain auth). Requires feedbackRequestId, fromAgentDid, toAgentDid, approvedForDays.',
+          },
+          {
+            id: 'atp.inbox.sendMessage',
+            name: 'atp.inbox.sendMessage',
             tags: ['erc8004', 'inbox', 'message', 'a2a'],
             examples: ['Send a message via the inbox system'],
             inputModes: ['text', 'json'],
@@ -329,8 +351,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'Send a message via the inbox system. Requires body, and at least one destination (toClientAddress, toAgentDid, or toAgentName).',
           },
           {
-            id: 'agent.inbox.listClientMessages',
-            name: 'agent.inbox.listClientMessages',
+            id: 'atp.inbox.listClientMessages',
+            name: 'atp.inbox.listClientMessages',
             tags: ['erc8004', 'inbox', 'query', 'a2a'],
             examples: ['List messages for a client address', 'Get all messages for a wallet'],
             inputModes: ['text', 'json'],
@@ -338,8 +360,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'List messages for a client address (both sent and received). Requires clientAddress (EOA) in payload.',
           },
           {
-            id: 'agent.inbox.listAgentMessages',
-            name: 'agent.inbox.listAgentMessages',
+            id: 'atp.inbox.listAgentMessages',
+            name: 'atp.inbox.listAgentMessages',
             tags: ['erc8004', 'inbox', 'query', 'a2a'],
             examples: ['List messages for an agent DID', 'Get all messages for an agent'],
             inputModes: ['text', 'json'],
@@ -347,8 +369,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
             description: 'List messages for an agent DID (both sent and received). Requires agentDid in payload.',
           },
           {
-            id: 'agent.inbox.markRead',
-            name: 'agent.inbox.markRead',
+            id: 'atp.inbox.markRead',
+            name: 'atp.inbox.markRead',
             tags: ['erc8004', 'inbox', 'update', 'a2a'],
             examples: ['Mark a message as read'],
             inputModes: ['text', 'json'],
@@ -475,8 +497,52 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         const atClient = await getAgenticTrustClient();
-        const clientAddress = payload.clientAddress;
-        const { agentId: agentIdParam, expirySeconds } = payload || {};
+        let clientAddress = payload.clientAddress;
+        let { agentId: agentIdParam, expirySeconds } = payload || {};
+        const feedbackRequestIdRaw = (payload as any)?.feedbackRequestId ?? (payload as any)?.requestId;
+        const feedbackRequestId =
+          typeof feedbackRequestIdRaw === 'string' || typeof feedbackRequestIdRaw === 'number'
+            ? Number(feedbackRequestIdRaw)
+            : undefined;
+
+        // If feedbackRequestId is provided, derive required fields from the stored request record
+        let requestRecord:
+          | {
+              id: number;
+              client_address: string;
+              from_agent_did: string | null;
+              from_agent_name: string | null;
+              to_agent_did: string | null;
+              to_agent_name: string | null;
+              to_agent_id: string;
+              to_agent_chain_id: number;
+            }
+          | null = null;
+
+        if (feedbackRequestId && Number.isFinite(feedbackRequestId)) {
+          const db = getD1Database();
+          requestRecord = await db
+            .prepare(
+              'SELECT id, client_address, from_agent_did, from_agent_name, to_agent_did, to_agent_name, to_agent_id, to_agent_chain_id FROM agent_feedback_requests WHERE id = ?',
+            )
+            .bind(feedbackRequestId)
+            .first<any>();
+
+          if (!requestRecord) {
+            responseContent.error = 'Feedback request not found';
+            responseContent.skill = skillId;
+            res.set(getCorsHeaders());
+            return res.status(404).json({
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            });
+          }
+
+          clientAddress = requestRecord.client_address;
+          agentIdParam = requestRecord.to_agent_id;
+          (payload as any).chainId = requestRecord.to_agent_chain_id;
+        }
 
         if (!clientAddress) {
           responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
@@ -675,124 +741,163 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.agentId = feedbackAuthResponse.agentId;
         responseContent.clientAddress = feedbackAuthResponse.clientAddress;
         responseContent.skill = feedbackAuthResponse.skill;
+
+        // If this auth is in response to a stored feedback request, persist it and notify requester
+        if (requestRecord && feedbackRequestId && Number.isFinite(feedbackRequestId)) {
+          try {
+            const db = getD1Database();
+            const nowSec = Math.floor(Date.now() / 1000);
+            await db
+              .prepare(
+                'UPDATE agent_feedback_requests SET feedback_auth = ?, status = ?, updated_at = ? WHERE id = ?',
+              )
+              .bind(
+                JSON.stringify(feedbackAuthResponse.feedbackAuth),
+                'authorized',
+                nowSec,
+                feedbackRequestId,
+              )
+              .run();
+
+            const nowMs = Date.now();
+            const replyBody =
+              `Your feedback request has been approved.\n\n` +
+              `feedbackRequestId: ${feedbackRequestId}\n` +
+              `feedbackAuth:\n${feedbackAuthResponse.feedbackAuth}\n`;
+
+            await db
+              .prepare(
+                'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              )
+              .bind(
+                null,
+                requestRecord.to_agent_did,
+                requestRecord.to_agent_name,
+                requestRecord.client_address?.toLowerCase?.() || null,
+                requestRecord.from_agent_did,
+                requestRecord.from_agent_name,
+                'Feedback authorization granted',
+                replyBody,
+                'feedback_auth',
+                String(feedbackRequestId),
+                nowMs,
+                null,
+              )
+              .run();
+          } catch (dbErr) {
+            console.warn('[ATP Agent] Failed to persist feedbackAuth / notify requester:', dbErr);
+          }
+        }
       } catch (error: any) {
         console.error('Error creating feedback auth:', error);
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'atp.feedback.request') {
-      // Feedback request skill - just record in database
+    } else if (skillId === 'atp.feedback.requestapproved') {
+      // Approve a feedback request (no on-chain auth), update record and notify requester
+      if (subdomain !== 'agents-atp') {
+        responseContent.error = 'atp.feedback.requestapproved skill is only available on the agents-atp subdomain';
+        responseContent.skill = skillId;
+        res.set(getCorsHeaders());
+        return res.status(403).json({
+          success: false,
+          messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          response: responseContent,
+        });
+      }
+
       try {
-        const clientAddress = payload.clientAddress;
-        
-        if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for atp.feedback.request skill';
-          responseContent.skill = skillId;
-          return res.status(400).json({
-            success: false,
-            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-            response: responseContent,
-          });
+        const feedbackRequestIdRaw = (payload as any)?.feedbackRequestId ?? (payload as any)?.id;
+        const feedbackRequestId = Number(feedbackRequestIdRaw);
+
+        const fromAgentDid = normalizeDid((payload as any)?.fromAgentDid);
+        const toAgentDid = normalizeDid((payload as any)?.toAgentDid);
+
+        const approvedForDaysRaw = (payload as any)?.approvedForDays;
+        const approvedForDays = Number(approvedForDaysRaw);
+
+        if (!Number.isFinite(feedbackRequestId) || feedbackRequestId <= 0) {
+          throw new Error('feedbackRequestId is required in payload for atp.feedback.requestapproved');
+        }
+        if (!fromAgentDid || !fromAgentDid.startsWith('did:8004:')) {
+          throw new Error('fromAgentDid is required in payload for atp.feedback.requestapproved');
+        }
+        if (!toAgentDid || !toAgentDid.startsWith('did:8004:')) {
+          throw new Error('toAgentDid is required in payload for atp.feedback.requestapproved');
+        }
+        if (!Number.isFinite(approvedForDays) || approvedForDays <= 0) {
+          throw new Error('approvedForDays is required in payload for atp.feedback.requestapproved');
         }
 
-        // Create feedback request record in database
-        try {
-          const db = getD1Database(); // Local DB
-          const comment = (payload as any)?.comment || (payload as any)?.reason || '';
-          const toAgentId = (payload as any)?.toAgentId?.toString() || (payload as any)?.agentId?.toString() || '';
-          const toAgentChainId = (payload as any)?.toAgentChainId || (payload as any)?.chainId || DEFAULT_CHAIN_ID;
-          const toAgentDid = (payload as any)?.toAgentDid || null;
-          const toAgentName = (payload as any)?.toAgentName || null;
-          
-          // Extract fromAgentId and fromChainId from metadata/payload
-          const payloadFromAgentId = (payload as any)?.fromAgentId;
-          const payloadFromAgentChainId = (payload as any)?.fromAgentChainId;
-          const fromAgentId = payloadFromAgentId || (metadata as any)?.fromAgentId || null;
-          const fromAgentChainId = payloadFromAgentChainId || (metadata as any)?.fromAgentChainId || (metadata as any)?.fromChainId || DEFAULT_CHAIN_ID;
-          const fromAgentDid = (payload as any)?.fromAgentDid || null;
-          const fromAgentName = (payload as any)?.fromAgentName || null;
-          
-          if (clientAddress && toAgentId) {
-            console.log('[ATP Agent] Creating agent_feedback_requests record:', { clientAddress, toAgentId, comment });
-            
-            const result = await db.prepare(
-              'INSERT INTO agent_feedback_requests (client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id'
-            )
-              .bind(
-                clientAddress,
-                fromAgentId,
-                fromAgentChainId,
-                toAgentId,
-                toAgentChainId,
-                comment,
-                'pending',
-                fromAgentDid,
-                fromAgentName,
-                toAgentDid,
-                toAgentName,
-                Math.floor(Date.now() / 1000),
-                Math.floor(Date.now() / 1000)
-              )
-              .first<{ id: number }>();
-              
-            if (result) {
-              console.log('[ATP Agent] Created agent_feedback_requests record with ID:', result.id);
-              (responseContent as any).requestId = result.id;
-              responseContent.message = 'Feedback request recorded successfully';
-              responseContent.status = 'pending';
-              
-              // Send A2A message to target agent if fromAgentId is available
-              if (fromAgentId && toAgentId) {
-                try {
-                  const atClient = await getAgenticTrustClient();
-                  const targetAgent = await atClient.agents.getAgent(toAgentId, toAgentChainId);
-                  
-                  if (targetAgent && targetAgent.a2aEndpoint) {
-                    const messageText = `Feedback Request: ${comment || 'A user has requested to provide feedback on your agent.'}`;
-                    
-                    await targetAgent.sendMessage({
-                      message: messageText,
-                      payload: {
-                        type: 'feedback_request_notification',
-                        requestId: result.id,
-                        reason: comment,
-                        fromAgentId: fromAgentId?.toString(),
-                        fromAgentChainId: fromAgentChainId,
-                        clientAddress: clientAddress,
-                        toAgentId: toAgentId,
-                        toAgentChainId: toAgentChainId,
-                      },
-                      metadata: {
-                        fromAgentId: fromAgentId?.toString(),
-                        fromAgentChainId: fromAgentChainId,
-                        toAgentId: toAgentId,
-                        toAgentChainId: toAgentChainId,
-                        source: 'atp-agent',
-                        timestamp: new Date().toISOString(),
-                      },
-                    });
-                    
-                    console.log('[ATP Agent] Sent A2A message to target agent:', { toAgentId, fromAgentId });
-                  } else {
-                    console.warn('[ATP Agent] Target agent not found or has no A2A endpoint:', { toAgentId, toAgentChainId });
-                  }
-                } catch (messageError: any) {
-                  // Log error but don't fail the feedback request creation
-                  console.error('[ATP Agent] Failed to send A2A message to target agent:', messageError);
-                }
-              } else {
-                console.log('[ATP Agent] Skipping A2A message - fromAgentId not available in metadata');
-              }
-            }
-          }
-        } catch (dbError: any) {
-          console.error('[ATP Agent] Failed to create agent_feedback_requests record:', dbError);
-          responseContent.error = dbError?.message || 'Failed to record feedback request';
+        const db = getD1Database();
+        const req = await db
+          .prepare(
+            'SELECT id, client_address, from_agent_did, from_agent_name, to_agent_did, to_agent_name FROM agent_feedback_requests WHERE id = ?',
+          )
+          .bind(feedbackRequestId)
+          .first<any>();
+
+        if (!req) {
+          throw new Error('Feedback request not found');
         }
-      } catch (error: any) {
-        console.error('Error processing feedback request:', error);
-        responseContent.error = error?.message || 'Failed to process feedback request';
+
+        // Safety: ensure provided dids match stored request when present
+        const storedFromDid = normalizeDid(req.from_agent_did);
+        const storedToDid = normalizeDid(req.to_agent_did);
+        if (storedFromDid && storedFromDid !== fromAgentDid) {
+          throw new Error('fromAgentDid does not match stored request');
+        }
+        if (storedToDid && storedToDid !== toAgentDid) {
+          throw new Error('toAgentDid does not match stored request');
+        }
+
+        const nowSec = Math.floor(Date.now() / 1000);
+        await db
+          .prepare(
+            'UPDATE agent_feedback_requests SET approved = ?, approved_on_date = ?, approved_for_days = ?, status = ?, updated_at = ? WHERE id = ?',
+          )
+          .bind(1, nowSec, approvedForDays, 'approved', nowSec, feedbackRequestId)
+          .run();
+
+        // Notify requester (to the FROM agent)
+        const nowMs = Date.now();
+        const subject = 'Feedback request approved';
+        const body =
+          `Your feedback request has been approved.\n\n` +
+          `feedbackRequestId: ${feedbackRequestId}\n` +
+          `approvedForDays: ${approvedForDays}\n`;
+
+        await db
+          .prepare(
+            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            null,
+            toAgentDid,
+            req.to_agent_name || null,
+            null,
+            fromAgentDid,
+            req.from_agent_name || null,
+            subject,
+            body,
+            'feedback_request_approved',
+            String(feedbackRequestId),
+            nowMs,
+            null,
+          )
+          .run();
+
+        responseContent.success = true;
         responseContent.skill = skillId;
+        (responseContent as any).feedbackRequestId = feedbackRequestId;
+        (responseContent as any).approved = true;
+        (responseContent as any).approvedOnDate = nowSec;
+        (responseContent as any).approvedForDays = approvedForDays;
+      } catch (error: any) {
+        console.error('[ATP Agent] Error approving feedback request:', error);
+        responseContent.error = error instanceof Error ? error.message : 'Failed to approve feedback request';
+        responseContent.skill = skillId;
+        responseContent.success = false;
       }
     } else if (skillId === 'atp.account.addOrUpdate') {
       // Account management skill - add or update account in D1 database
@@ -1041,10 +1146,10 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to add/update agent';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'agent.feedback.request') {
+    } else if (skillId === 'atp.feedback.request') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.request skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.request skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         res.set(getCorsHeaders());
         return res.status(403).json({
@@ -1067,7 +1172,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const comment = payload?.comment || '';
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress (EOA address) is required in payload for agent.feedback.request skill';
+          responseContent.error = 'clientAddress (EOA address) is required in payload for atp.feedback.request skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1078,7 +1183,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         if (!toAgentId) {
-          responseContent.error = 'toAgentId (agent ID to give feedback to) is required in payload for agent.feedback.request skill';
+          responseContent.error = 'toAgentId (agent ID to give feedback to) is required in payload for atp.feedback.request skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1089,7 +1194,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         if (!comment || comment.trim().length === 0) {
-          responseContent.error = 'comment (reason for feedback) is required in payload for agent.feedback.request skill';
+          responseContent.error = 'comment (reason for feedback) is required in payload for atp.feedback.request skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1198,10 +1303,10 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.feedback.getRequests') {
+    } else if (skillId === 'atp.feedback.getRequests') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.getRequests skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.getRequests skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         res.set(getCorsHeaders());
         return res.status(403).json({
@@ -1215,7 +1320,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const clientAddress = payload?.clientAddress || payload?.client_address;
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress (EOA address) is required in payload for agent.feedback.getRequests skill';
+          responseContent.error = 'clientAddress (EOA address) is required in payload for atp.feedback.getRequests skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1245,7 +1350,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
         const requests = await db
           .prepare(
-            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE client_address = ? ORDER BY created_at DESC'
+            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, approved, approved_on_date, approved_for_days, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE client_address = ? ORDER BY created_at DESC'
           )
           .bind(clientAddress.toLowerCase())
           .all<any>();
@@ -1265,6 +1370,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           status: req.status,
           feedbackAuth: req.feedback_auth ? JSON.parse(req.feedback_auth) : null,
           feedbackTxHash: req.feedback_tx_hash || null,
+          approved: Boolean(req.approved),
+          approvedOnDate: req.approved_on_date ?? null,
+          approvedForDays: req.approved_for_days ?? null,
           createdAt: req.created_at,
           updatedAt: req.updated_at,
         }));
@@ -1282,10 +1390,10 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.feedback.getRequestsByAgent') {
+    } else if (skillId === 'atp.feedback.getRequestsByAgent') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.getRequestsByAgent skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.getRequestsByAgent skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         res.set(getCorsHeaders());
         return res.status(403).json({
@@ -1299,7 +1407,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const targetAgentId = payload?.toAgentId || payload?.targetAgentId || payload?.target_agent_id || payload?.agentId;
 
         if (!targetAgentId) {
-          responseContent.error = 'targetAgentId (agent ID) is required in payload for agent.feedback.getRequestsByAgent skill';
+          responseContent.error = 'targetAgentId (agent ID) is required in payload for atp.feedback.getRequestsByAgent skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1318,7 +1426,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
         const requests = await db
           .prepare(
-            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE to_agent_id = ? ORDER BY created_at DESC'
+            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, approved, approved_on_date, approved_for_days, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE to_agent_id = ? ORDER BY created_at DESC'
           )
           .bind(String(targetAgentId))
           .all<any>();
@@ -1338,6 +1446,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           status: req.status,
           feedbackAuth: req.feedback_auth ? JSON.parse(req.feedback_auth) : null,
           feedbackTxHash: req.feedback_tx_hash || null,
+          approved: Boolean(req.approved),
+          approvedOnDate: req.approved_on_date ?? null,
+          approvedForDays: req.approved_for_days ?? null,
           createdAt: req.created_at,
           updatedAt: req.updated_at,
         }));
@@ -1355,7 +1466,13 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.feedback.markGiven' || skillId === 'agent.inbox.sendMessage' || skillId === 'agent.inbox.listClientMessages' || skillId === 'agent.inbox.listAgentMessages' || skillId === 'agent.inbox.markRead') {
+    } else if (
+      skillId === 'atp.feedback.markGiven' ||
+      skillId === 'atp.inbox.sendMessage' ||
+      skillId === 'atp.inbox.listClientMessages' ||
+      skillId === 'atp.inbox.listAgentMessages' ||
+      skillId === 'atp.inbox.markRead'
+    ) {
       // All other admin/inbox skills are only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
         responseContent.error = `${skillId} skill is only available on the agents-atp subdomain`;

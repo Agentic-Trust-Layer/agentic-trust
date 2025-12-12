@@ -25,12 +25,35 @@ interface ENSInitArg {
   userApps?: DomainUserApps;
 }
 
+function hydrateAgenticTrustEnv() {
+  // Some environments (Workers/bundlers) polyfill `process` but not `process.env`.
+  if (typeof process !== 'undefined') {
+    (process as any).env = (process as any).env || {};
+  }
+
+  // Allow host apps (like Cloudflare Workers) to stash env vars on globalThis,
+  // then hydrate into process.env on-demand before ENS client operations.
+  const globalEnv = (globalThis as any).__agenticTrustEnv as Record<string, unknown> | undefined;
+  if (!globalEnv || typeof globalEnv !== 'object') return;
+
+  if (typeof process === 'undefined' || !(process as any).env) return;
+
+  for (const [key, value] of Object.entries(globalEnv)) {
+    if (!key.startsWith('AGENTIC_TRUST_')) continue;
+    if (typeof value !== 'string') continue;
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
 class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
   constructor() {
     super('ens');
   }
 
   protected async buildClient(targetChainId: number, initArg?: unknown): Promise<AIAgentENSClient> {
+    hydrateAgenticTrustEnv();
     // Get RPC URL from environment
     const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId);
 
@@ -98,6 +121,7 @@ const ensDomainClient = new ENSDomainClient();
 export async function getENSClient(
   chainId?: number,
 ): Promise<AIAgentENSClient> {
+  hydrateAgenticTrustEnv();
   // Default to Sepolia if no chainId provided
   const targetChainId = chainId || 11155111;
   return ensDomainClient.get(targetChainId);

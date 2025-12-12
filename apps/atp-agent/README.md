@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS agent_feedback_requests (
   status TEXT NOT NULL DEFAULT 'pending',
   feedback_auth TEXT NULL, -- Signed feedback auth payload (JSON string)
   feedback_tx_hash TEXT NULL, -- Transaction hash of the feedback submitted on-chain
+  approved INTEGER NOT NULL DEFAULT 0,
+  approved_on_date INTEGER NULL, -- unix seconds
+  approved_for_days INTEGER NULL,
   from_agent_did TEXT NULL, -- DID:8004 of the requesting agent
   from_agent_name TEXT NULL, -- Name of the requesting agent
   to_agent_did TEXT NULL, -- DID:8004 of the target agent

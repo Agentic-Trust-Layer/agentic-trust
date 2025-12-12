@@ -385,7 +385,7 @@ export default function AgentDetailsPageContent({
           toAgentId: agent.agentId,
           toAgentChainId: chainId,
         },
-        skillId: 'agent.feedback.request',
+        skillId: 'atp.feedback.request',
       };
 
       // Use agents-atp specific route for feedback/inbox messages

@@ -292,8 +292,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
         description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
       },
       {
-        id: 'agent.validation.respond',
-        name: 'agent.validation.respond',
+        id: 'atp.validation.respond',
+        name: 'atp.validation.respond',
         tags: ['erc8004', 'validation', 'ens', 'a2a'],
         examples: ['Process ENS validation requests for agents'],
         inputModes: ['text'],
@@ -539,7 +539,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'agent.validation.respond') {
+    } else if (skillId === 'atp.validation.respond') {
       responseContent.skill = skillId;
       const agentIdParam =
         payload?.agentId ??
@@ -548,7 +548,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         metadata?.agentID ??
         null;
       if (!agentIdParam) {
-        responseContent.error = 'agentId is required in payload for agent.validation.respond skill';
+        responseContent.error = 'agentId is required in payload for atp.validation.respond skill';
       } else {
         const agentId = String(agentIdParam);
         const chainId =

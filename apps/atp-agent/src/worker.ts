@@ -44,6 +44,28 @@ function serializeBigInt(obj: any): any {
 }
 
 /**
+ * Normalize DID strings that may arrive URL-encoded (e.g. "did%3A8004%3A...").
+ * We accept both encoded and decoded forms, but standardize to decoded.
+ */
+function normalizeDid(value: unknown): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  let out = raw;
+  // Handle 0..2 rounds of percent-decoding to cover did%3A... and did%253A...
+  for (let i = 0; i < 2; i++) {
+    try {
+      const decoded = decodeURIComponent(out);
+      if (decoded === out) break;
+      out = decoded;
+    } catch {
+      break;
+    }
+  }
+  // Fallback for partially-encoded values
+  return out.replace(/%3A/gi, ':');
+}
+
+/**
  * Extract subdomain (e.g. "abc" from "abc.8004-agent.io")
  */
 function extractSubdomain(hostname: string | undefined, baseDomain: string): string | null {
@@ -100,6 +122,11 @@ app.use('*', cors());
 // Middleware to extract subdomain and resolve ENS
 app.use('*', async (c: HonoContext, next: Next) => {
   try {
+    // Ensure core helpers (ENS client, etc.) can read required env vars.
+    if (c.env) {
+      syncEnvVars(c.env);
+    }
+
     const url = new URL(c.req.url);
     const hostname = url.hostname;
     const baseDomain = c.env?.PROVIDER_BASE_DOMAIN || '8004-agent.io';
@@ -158,10 +185,20 @@ function syncEnvVars(env: Env) {
   // Copy all environment variables from Worker env to process.env
   // This is needed because getAgenticTrustClient() reads from process.env
   if (typeof process !== 'undefined') {
+    // Some bundlers polyfill `process` but not `process.env`
+    (process as any).env = (process as any).env || {};
     for (const [key, value] of Object.entries(env)) {
       if (typeof value === 'string' && key.startsWith('AGENTIC_TRUST_')) {
         process.env[key] = value;
       }
+    }
+  }
+
+  // Also stash on globalThis so core singletons (e.g. ensClient) can hydrate on-demand.
+  (globalThis as any).__agenticTrustEnv = (globalThis as any).__agenticTrustEnv || {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === 'string' && key.startsWith('AGENTIC_TRUST_')) {
+      (globalThis as any).__agenticTrustEnv[key] = value;
     }
   }
 }
@@ -238,25 +275,7 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
           inputModes: ['text'],
           outputModes: ['text'],
           description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
-        },
-        {
-          id: 'atp.feedback.request',
-          name: 'atp.feedback.request',
-          tags: ['atp', 'feedback', 'database', 'a2a'],
-          examples: ['Client requests to give feedback'],
-          inputModes: ['text'],
-          outputModes: ['text'],
-          description: 'Record a feedback request in the database',
-        },
-        {
-          id: 'atp.account.addOrUpdate',
-          name: 'atp.account.addOrUpdate',
-          tags: ['atp', 'account', 'database', 'a2a'],
-          examples: ['Add or update user account in ATP database'],
-          inputModes: ['text'],
-          outputModes: ['text'],
-          description: 'Add or update an account in the ATP accounts table',
-        },
+        }
       ];
 
       // Only add admin/inbox skills for agents-atp subdomain
@@ -264,8 +283,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
         return [
           ...baseSkills,
           {
-            id: 'agent.feedback.request',
-            name: 'agent.feedback.request',
+            id: 'atp.feedback.request',
+            name: 'atp.feedback.request',
             tags: ['erc8004', 'feedback', 'request', 'a2a', 'admin'],
             examples: ['Request to give feedback to an agent', 'Submit a feedback request for an agent'],
             inputModes: ['text', 'json'],
@@ -273,8 +292,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'Request to give feedback to an agent. Requires clientAddress (EOA), targetAgentId (agent ID to give feedback to), and comment (reason for feedback) in payload.',
           },
           {
-            id: 'agent.feedback.getRequests',
-            name: 'agent.feedback.getRequests',
+            id: 'atp.feedback.getRequests',
+            name: 'atp.feedback.getRequests',
             tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
             examples: ['Get all feedback requests for a wallet address', 'Query feedback requests by client address'],
             inputModes: ['text', 'json'],
@@ -282,8 +301,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'Get all feedback requests associated with a wallet address. Requires clientAddress (EOA) in payload.',
           },
           {
-            id: 'agent.feedback.getRequestsByAgent',
-            name: 'agent.feedback.getRequestsByAgent',
+            id: 'atp.feedback.getRequestsByAgent',
+            name: 'atp.feedback.getRequestsByAgent',
             tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
             examples: ['Get all feedback requests for a specific agent', 'Query feedback requests by target agent ID'],
             inputModes: ['text', 'json'],
@@ -291,8 +310,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'Get all feedback requests for a specific agent. Requires targetAgentId (agent ID) in payload.',
           },
           {
-            id: 'agent.feedback.markGiven',
-            name: 'agent.feedback.markGiven',
+            id: 'atp.feedback.markGiven',
+            name: 'atp.feedback.markGiven',
             tags: ['erc8004', 'feedback', 'update', 'a2a', 'admin'],
             examples: ['Mark a feedback request as having feedback given'],
             inputModes: ['text', 'json'],
@@ -300,8 +319,18 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'Mark a feedback request as having feedback given, storing the tx hash. Requires feedbackRequestId and txHash in payload.',
           },
           {
-            id: 'agent.inbox.sendMessage',
-            name: 'agent.inbox.sendMessage',
+            id: 'atp.feedback.requestapproved',
+            name: 'atp.feedback.requestapproved',
+            tags: ['atp', 'feedback', 'approval', 'database', 'a2a', 'admin'],
+            examples: ['Approve a feedback request and notify requester'],
+            inputModes: ['text', 'json'],
+            outputModes: ['text', 'json'],
+            description:
+              'Approve a feedback request (no on-chain auth). Requires feedbackRequestId, fromAgentDid, toAgentDid, approvedForDays.',
+          },
+          {
+            id: 'atp.inbox.sendMessage',
+            name: 'atp.inbox.sendMessage',
             tags: ['erc8004', 'inbox', 'message', 'a2a'],
             examples: ['Send a message via the inbox system'],
             inputModes: ['text', 'json'],
@@ -309,8 +338,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'Send a message via the inbox system. Requires body, and at least one destination (toClientAddress, toAgentDid, or toAgentName).',
           },
           {
-            id: 'agent.inbox.listClientMessages',
-            name: 'agent.inbox.listClientMessages',
+            id: 'atp.inbox.listClientMessages',
+            name: 'atp.inbox.listClientMessages',
             tags: ['erc8004', 'inbox', 'query', 'a2a'],
             examples: ['List messages for a client address', 'Get all messages for a wallet'],
             inputModes: ['text', 'json'],
@@ -318,8 +347,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'List messages for a client address (both sent and received). Requires clientAddress (EOA) in payload.',
           },
           {
-            id: 'agent.inbox.listAgentMessages',
-            name: 'agent.inbox.listAgentMessages',
+            id: 'atp.inbox.listAgentMessages',
+            name: 'atp.inbox.listAgentMessages',
             tags: ['erc8004', 'inbox', 'query', 'a2a'],
             examples: ['List messages for an agent DID', 'Get all messages for an agent'],
             inputModes: ['text', 'json'],
@@ -327,8 +356,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'List messages for an agent DID (both sent and received). Requires agentDid in payload.',
           },
           {
-            id: 'agent.stats.trends',
-            name: 'agent.stats.trends',
+            id: 'atp.stats.trends',
+            name: 'atp.stats.trends',
             tags: ['erc8004', 'stats', 'trends', 'a2a'],
             examples: ['Get daily members, daily agents, daily events'],
             inputModes: ['text', 'json'],
@@ -336,8 +365,8 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'Daily trends: members, agents, events. agents-atp subdomain only.',
           },
           {
-            id: 'agent.stats.sdkApps',
-            name: 'agent.stats.sdkApps',
+            id: 'atp.stats.sdkApps',
+            name: 'atp.stats.sdkApps',
             tags: ['erc8004', 'stats', 'sdk', 'apps', 'infra', 'a2a'],
             examples: ['Get SDKs/apps/infra first-seen list and daily counts'],
             inputModes: ['text', 'json'],
@@ -345,13 +374,22 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
             description: 'SDKs/Apps/Infra: list items and daily counts. agents-atp subdomain only.',
           },
           {
-            id: 'agent.inbox.markRead',
-            name: 'agent.inbox.markRead',
+            id: 'atp.inbox.markRead',
+            name: 'atp.inbox.markRead',
             tags: ['erc8004', 'inbox', 'update', 'a2a'],
             examples: ['Mark a message as read'],
             inputModes: ['text', 'json'],
             outputModes: ['text', 'json'],
             description: 'Mark a message as read. Requires messageId in payload.',
+          },
+          {
+            id: 'atp.account.addOrUpdate',
+            name: 'atp.account.addOrUpdate',
+            tags: ['atp', 'account', 'database', 'a2a'],
+            examples: ['Add or update user account in ATP database'],
+            inputModes: ['text'],
+            outputModes: ['text'],
+            description: 'Add or update an account in the ATP accounts table',
           },
         ];
       }
@@ -465,8 +503,68 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         }
 
         const atClient = await getAgenticTrustClient();
-        const clientAddress = payload.clientAddress;
-        const { agentId: agentIdParam, expirySeconds } = payload || {};
+        let clientAddress = payload.clientAddress;
+        let { agentId: agentIdParam, expirySeconds } = payload || {};
+        const feedbackRequestIdRaw = (payload as any)?.feedbackRequestId ?? (payload as any)?.requestId;
+        const feedbackRequestId =
+          typeof feedbackRequestIdRaw === 'string' || typeof feedbackRequestIdRaw === 'number'
+            ? Number(feedbackRequestIdRaw)
+            : undefined;
+
+        // If feedbackRequestId is provided, derive required fields from the stored request record
+        let requestRecord:
+          | {
+              id: number;
+              client_address: string;
+              from_agent_did: string | null;
+              from_agent_name: string | null;
+              to_agent_did: string | null;
+              to_agent_name: string | null;
+              to_agent_id: string;
+              to_agent_chain_id: number;
+            }
+          | null = null;
+
+        if (feedbackRequestId && Number.isFinite(feedbackRequestId)) {
+          const db = c.env?.DB || getD1Database(c.env);
+          if (!db) {
+            responseContent.error = 'D1 database is not available. Cannot load feedback request.';
+            responseContent.skill = skillId;
+            return c.json(
+              {
+                success: false,
+                messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                response: responseContent,
+              },
+              500,
+            );
+          }
+
+          requestRecord = await db
+            .prepare(
+              'SELECT id, client_address, from_agent_did, from_agent_name, to_agent_did, to_agent_name, to_agent_id, to_agent_chain_id FROM agent_feedback_requests WHERE id = ?',
+            )
+            .bind(feedbackRequestId)
+            .first<any>();
+
+          if (!requestRecord) {
+            responseContent.error = 'Feedback request not found';
+            responseContent.skill = skillId;
+            return c.json(
+              {
+                success: false,
+                messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                response: responseContent,
+              },
+              404,
+            );
+          }
+
+          clientAddress = requestRecord.client_address;
+          agentIdParam = requestRecord.to_agent_id;
+          // Ensure chainId is available for any agent record auto-create logic
+          (payload as any).chainId = requestRecord.to_agent_chain_id;
+        }
 
         if (!clientAddress) {
           responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
@@ -673,13 +771,63 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.agentId = feedbackAuthResponse.agentId;
         responseContent.clientAddress = feedbackAuthResponse.clientAddress;
         responseContent.skill = feedbackAuthResponse.skill;
+
+        // If this auth is in response to a stored feedback request, persist it and notify requester
+        if (requestRecord && feedbackRequestId && Number.isFinite(feedbackRequestId)) {
+          try {
+            const db = c.env?.DB || getD1Database(c.env);
+            if (db) {
+              const nowSec = Math.floor(Date.now() / 1000);
+              await db
+                .prepare(
+                  'UPDATE agent_feedback_requests SET feedback_auth = ?, status = ?, updated_at = ? WHERE id = ?',
+                )
+                .bind(
+                  JSON.stringify(feedbackAuthResponse.feedbackAuth),
+                  'authorized',
+                  nowSec,
+                  feedbackRequestId,
+                )
+                .run();
+
+              // Create an inbox message back to the requester
+              const nowMs = Date.now();
+              const replyBody =
+                `Your feedback request has been approved.\n\n` +
+                `feedbackRequestId: ${feedbackRequestId}\n` +
+                `feedbackAuth:\n${feedbackAuthResponse.feedbackAuth}\n`;
+
+              await db
+                .prepare(
+                  'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                )
+                .bind(
+                  null,
+                  requestRecord.to_agent_did,
+                  requestRecord.to_agent_name,
+                  requestRecord.client_address?.toLowerCase?.() || null,
+                  requestRecord.from_agent_did,
+                  requestRecord.from_agent_name,
+                  'Feedback authorization granted',
+                  replyBody,
+                  'feedback_auth',
+                  String(feedbackRequestId),
+                  nowMs,
+                  null,
+                )
+                .run();
+            }
+          } catch (dbErr) {
+            console.warn('[ATP Agent] Failed to persist feedbackAuth / notify requester:', dbErr);
+          }
+        }
       } catch (error: any) {
         console.error('Error creating feedback auth:', error);
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'atp.feedback.request') {
-      // Feedback request skill - just record in database
+    } else if (skillId === 'atp.feedback.requestLegacy') {
+      // Feedback request skill - just record in database (legacy)
       try {
         const clientAddress = payload.clientAddress;
         const fromAgentId =
@@ -705,7 +853,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const toAgentName = payload.toAgentName || payload.targetAgentName || payload.agentName || null;
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for atp.feedback.request skill';
+          responseContent.error = 'clientAddress is required in payload for atp.feedback.requestLegacy skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1051,10 +1199,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.error = error?.message || 'Failed to add/update agent';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'agent.feedback.request') {
+    } else if (skillId === 'atp.feedback.request') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.request skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.request skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1076,7 +1224,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const comment = payload?.comment || '';
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress (EOA address) is required in payload for agent.feedback.request skill';
+          responseContent.error = 'clientAddress (EOA address) is required in payload for atp.feedback.request skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1086,7 +1234,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         }
 
         if (!toAgentId) {
-          responseContent.error = 'toAgentId (agent ID to give feedback to) is required in payload for agent.feedback.request skill';
+          responseContent.error = 'toAgentId (agent ID to give feedback to) is required in payload for atp.feedback.request skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1096,7 +1244,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         }
 
         if (!comment || comment.trim().length === 0) {
-          responseContent.error = 'comment (reason for feedback) is required in payload for agent.feedback.request skill';
+          responseContent.error = 'comment (reason for feedback) is required in payload for atp.feedback.request skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1206,10 +1354,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.feedback.getRequests') {
+    } else if (skillId === 'atp.feedback.getRequests') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.getRequests skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.getRequests skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1222,7 +1370,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const clientAddress = payload?.clientAddress || payload?.client_address;
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress (EOA address) is required in payload for agent.feedback.getRequests skill';
+          responseContent.error = 'clientAddress (EOA address) is required in payload for atp.feedback.getRequests skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1250,7 +1398,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
 
         const requests = await db
           .prepare(
-            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE client_address = ? ORDER BY created_at DESC'
+            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, approved, approved_on_date, approved_for_days, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE client_address = ? ORDER BY created_at DESC'
           )
           .bind(clientAddress.toLowerCase())
           .all<any>();
@@ -1270,6 +1418,9 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           status: req.status,
           feedbackAuth: req.feedback_auth ? JSON.parse(req.feedback_auth) : null,
           feedbackTxHash: req.feedback_tx_hash || null,
+          approved: Boolean(req.approved),
+          approvedOnDate: req.approved_on_date ?? null,
+          approvedForDays: req.approved_for_days ?? null,
           createdAt: req.created_at,
           updatedAt: req.updated_at,
         }));
@@ -1287,10 +1438,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.feedback.getRequestsByAgent') {
+    } else if (skillId === 'atp.feedback.getRequestsByAgent') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.getRequestsByAgent skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.getRequestsByAgent skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1303,7 +1454,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const targetAgentId = payload?.toAgentId || payload?.targetAgentId || payload?.target_agent_id || payload?.agentId;
 
         if (!targetAgentId) {
-          responseContent.error = 'targetAgentId (agent ID) is required in payload for agent.feedback.getRequestsByAgent skill';
+          responseContent.error = 'targetAgentId (agent ID) is required in payload for atp.feedback.getRequestsByAgent skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1321,7 +1472,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
 
         const requests = await db
           .prepare(
-            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE to_agent_id = ? ORDER BY created_at DESC'
+            'SELECT id, client_address, from_agent_id, from_agent_chain_id, to_agent_id, to_agent_chain_id, comment, status, feedback_auth, feedback_tx_hash, approved, approved_on_date, approved_for_days, from_agent_did, from_agent_name, to_agent_did, to_agent_name, created_at, updated_at FROM agent_feedback_requests WHERE to_agent_id = ? ORDER BY created_at DESC'
           )
           .bind(String(targetAgentId))
           .all<any>();
@@ -1341,6 +1492,9 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           status: req.status,
           feedbackAuth: req.feedback_auth ? JSON.parse(req.feedback_auth) : null,
           feedbackTxHash: req.feedback_tx_hash || null,
+          approved: Boolean(req.approved),
+          approvedOnDate: req.approved_on_date ?? null,
+          approvedForDays: req.approved_for_days ?? null,
           createdAt: req.created_at,
           updatedAt: req.updated_at,
         }));
@@ -1358,10 +1512,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.feedback.markGiven') {
+    } else if (skillId === 'atp.feedback.markGiven') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.feedback.markGiven skill is only available on the agents-atp subdomain';
+          responseContent.error = 'atp.feedback.markGiven skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1377,7 +1531,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         };
 
         if (!feedbackRequestId || !txHash) {
-          responseContent.error = 'feedbackRequestId and txHash are required in payload for agent.feedback.markGiven skill';
+          responseContent.error = 'feedbackRequestId and txHash are required in payload for atp.feedback.markGiven skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1414,10 +1568,122 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.inbox.sendMessage') {
+    } else if (skillId === 'atp.feedback.requestapproved') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.inbox.sendMessage skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.feedback.requestapproved skill is only available on the agents-atp subdomain';
+        responseContent.skill = skillId;
+        return c.json(
+          {
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          },
+          403,
+        );
+      }
+
+      try {
+        const feedbackRequestIdRaw = (payload as any)?.feedbackRequestId ?? (payload as any)?.id;
+        const feedbackRequestId = Number(feedbackRequestIdRaw);
+
+        const fromAgentDid = normalizeDid((payload as any)?.fromAgentDid);
+        const toAgentDid = normalizeDid((payload as any)?.toAgentDid);
+
+        const approvedForDaysRaw = (payload as any)?.approvedForDays;
+        const approvedForDays = Number(approvedForDaysRaw);
+
+        if (!Number.isFinite(feedbackRequestId) || feedbackRequestId <= 0) {
+          throw new Error('feedbackRequestId is required in payload for atp.feedback.requestapproved');
+        }
+        if (!fromAgentDid || !fromAgentDid.startsWith('did:8004:')) {
+          throw new Error('fromAgentDid is required in payload for atp.feedback.requestapproved');
+        }
+        if (!toAgentDid || !toAgentDid.startsWith('did:8004:')) {
+          throw new Error('toAgentDid is required in payload for atp.feedback.requestapproved');
+        }
+        if (!Number.isFinite(approvedForDays) || approvedForDays <= 0) {
+          throw new Error('approvedForDays is required in payload for atp.feedback.requestapproved');
+        }
+
+        const db = c.env?.DB || getD1Database(c.env);
+        if (!db) {
+          throw new Error('D1 database is not available. Cannot update feedback request.');
+        }
+
+        const req = await db
+          .prepare(
+            'SELECT id, client_address, from_agent_did, from_agent_name, to_agent_did, to_agent_name FROM agent_feedback_requests WHERE id = ?',
+          )
+          .bind(feedbackRequestId)
+          .first<any>();
+
+        if (!req) {
+          throw new Error('Feedback request not found');
+        }
+
+        // Safety: ensure provided dids match stored request when present
+        const storedFromDid = normalizeDid(req.from_agent_did);
+        const storedToDid = normalizeDid(req.to_agent_did);
+        if (storedFromDid && storedFromDid !== fromAgentDid) {
+          throw new Error('fromAgentDid does not match stored request');
+        }
+        if (storedToDid && storedToDid !== toAgentDid) {
+          throw new Error('toAgentDid does not match stored request');
+        }
+
+        const nowSec = Math.floor(Date.now() / 1000);
+        await db
+          .prepare(
+            'UPDATE agent_feedback_requests SET approved = ?, approved_on_date = ?, approved_for_days = ?, status = ?, updated_at = ? WHERE id = ?',
+          )
+          .bind(1, nowSec, approvedForDays, 'approved', nowSec, feedbackRequestId)
+          .run();
+
+        // Create inbox message back to the requester (to the FROM agent)
+        const nowMs = Date.now();
+        const subject = 'Feedback request approved';
+        const body =
+          `Your feedback request has been approved.\n\n` +
+          `feedbackRequestId: ${feedbackRequestId}\n` +
+          `approvedForDays: ${approvedForDays}\n`;
+
+        await db
+          .prepare(
+            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          )
+          .bind(
+            null,
+            toAgentDid,
+            req.to_agent_name || null,
+            null,
+            fromAgentDid,
+            req.from_agent_name || null,
+            subject,
+            body,
+            'feedback_request_approved',
+            String(feedbackRequestId),
+            nowMs,
+            null,
+          )
+          .run();
+
+        responseContent.success = true;
+        responseContent.skill = skillId;
+        (responseContent as any).feedbackRequestId = feedbackRequestId;
+        (responseContent as any).approved = true;
+        (responseContent as any).approvedOnDate = nowSec;
+        (responseContent as any).approvedForDays = approvedForDays;
+      } catch (error: any) {
+        console.error('[ATP Agent] Error approving feedback request:', error);
+        responseContent.error = error instanceof Error ? error.message : 'Failed to approve feedback request';
+        responseContent.skill = skillId;
+        responseContent.success = false;
+      }
+    } else if (skillId === 'atp.inbox.sendMessage') {
+      // This skill is only accessible on the agents-atp subdomain
+      if (subdomain !== 'agents-atp') {
+        responseContent.error = 'atp.inbox.sendMessage skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1452,7 +1718,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         };
 
         if (!body || body.trim().length === 0) {
-          responseContent.error = 'body is required in payload for agent.inbox.sendMessage';
+          responseContent.error = 'body is required in payload for atp.inbox.sendMessage';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1562,7 +1828,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         }
 
         if (!toClientAddress && !toAgentDid && !toAgentName) {
-          responseContent.error = 'Either toClientAddress, toAgentDid, or toAgentName is required in payload for agent.inbox.sendMessage';
+          responseContent.error = 'Either toClientAddress, toAgentDid, or toAgentName is required in payload for atp.inbox.sendMessage';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1572,7 +1838,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         }
 
         if (!fromClientAddress && !fromAgentDid && !fromAgentName) {
-          responseContent.error = 'Either fromClientAddress, fromAgentDid, or fromAgentName is required in payload for agent.inbox.sendMessage';
+          responseContent.error = 'Either fromClientAddress, fromAgentDid, or fromAgentName is required in payload for atp.inbox.sendMessage';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1618,10 +1884,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.inbox.listClientMessages') {
+    } else if (skillId === 'atp.inbox.listClientMessages') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.inbox.listClientMessages skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.inbox.listClientMessages skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1634,7 +1900,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const clientAddress = payload?.clientAddress || payload?.client_address;
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress (EOA address) is required in payload for agent.inbox.listClientMessages';
+          responseContent.error = 'clientAddress (EOA address) is required in payload for atp.inbox.listClientMessages';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1682,10 +1948,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.inbox.listAgentMessages') {
+    } else if (skillId === 'atp.inbox.listAgentMessages') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.inbox.listAgentMessages skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.inbox.listAgentMessages skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1698,7 +1964,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         let agentDid = payload?.agentDid || payload?.agent_did;
 
         if (!agentDid) {
-          responseContent.error = 'agentDid is required in payload for agent.inbox.listAgentMessages';
+          responseContent.error = 'agentDid is required in payload for atp.inbox.listAgentMessages';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1707,7 +1973,9 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           }, 400);
         }
 
-        agentDid = String(agentDid).trim();
+        const rawAgentDid = String(agentDid).trim();
+        const normalizedAgentDid = normalizeDid(rawAgentDid);
+        agentDid = normalizedAgentDid || rawAgentDid;
 
         const db = c.env?.DB || getD1Database(c.env);
         if (!db) {
@@ -1716,9 +1984,9 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
 
         const rows = await db
           .prepare(
-            'SELECT id, from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at FROM messages WHERE to_agent_did = ? OR from_agent_did = ? ORDER BY created_at DESC',
+            'SELECT id, from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at FROM messages WHERE to_agent_did = ? OR to_agent_did = ? OR from_agent_did = ? OR from_agent_did = ? ORDER BY created_at DESC',
           )
-          .bind(agentDid, agentDid)
+          .bind(agentDid, rawAgentDid, agentDid, rawAgentDid)
           .all<any>();
 
         const messages = (rows.results || []).map((row: any) => ({
@@ -1747,12 +2015,12 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
-    } else if (skillId === 'agent.stats.trends') {
-      console.log('[ATP Agent] agent.stats.trends skill handler called, subdomain:', subdomain);
+    } else if (skillId === 'atp.stats.trends') {
+      console.log('[ATP Agent] atp.stats.trends skill handler called, subdomain:', subdomain);
       // Only agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        console.warn('[ATP Agent] agent.stats.trends called on wrong subdomain:', subdomain);
-        responseContent.error = 'agent.stats.trends skill is only available on the agents-atp subdomain';
+        console.warn('[ATP Agent] atp.stats.trends called on wrong subdomain:', subdomain);
+        responseContent.error = 'atp.stats.trends skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -1760,7 +2028,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           response: responseContent,
         }, 403);
       }
-      console.log('[ATP Agent] Processing agent.stats.trends request');
+      console.log('[ATP Agent] Processing atp.stats.trends request');
       try {
         const db = c.env?.DB || getD1Database(c.env);
         if (!db) {
@@ -1954,11 +2222,11 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           response: responseContent,
         }, 500);
       }
-    } else if (skillId === 'agent.stats.sdkApps') {
-      console.log('[ATP Agent] agent.stats.sdkApps skill handler called, subdomain:', subdomain);
+    } else if (skillId === 'atp.stats.sdkApps') {
+      console.log('[ATP Agent] atp.stats.sdkApps skill handler called, subdomain:', subdomain);
       // Only agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.stats.sdkApps skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.stats.sdkApps skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json(
           {
@@ -2031,10 +2299,10 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           500,
         );
       }
-    } else if (skillId === 'agent.inbox.markRead') {
+    } else if (skillId === 'atp.inbox.markRead') {
       // This skill is only accessible on the agents-atp subdomain
       if (subdomain !== 'agents-atp') {
-        responseContent.error = 'agent.inbox.markRead skill is only available on the agents-atp subdomain';
+        responseContent.error = 'atp.inbox.markRead skill is only available on the agents-atp subdomain';
         responseContent.skill = skillId;
         return c.json({
           success: false,
@@ -2047,7 +2315,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const { messageId } = (payload || {}) as { messageId?: number | string };
 
         if (!messageId) {
-          responseContent.error = 'messageId is required in payload for agent.inbox.markRead';
+          responseContent.error = 'messageId is required in payload for atp.inbox.markRead';
           responseContent.skill = skillId;
           return c.json({
             success: false,

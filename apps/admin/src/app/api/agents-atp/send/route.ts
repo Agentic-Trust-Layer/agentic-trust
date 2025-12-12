@@ -6,7 +6,7 @@ import type { MessageRequest } from '@agentic-trust/core/server';
 /**
  * API route for sending A2A messages to agents-atp.8004-agent.io
  * 
- * This route is specifically for agent.feedback.* and agent.inbox.* skills
+ * This route is specifically for atp.feedback.* and atp.inbox.* skills
  * which are always handled by the centralized agents-atp service.
  */
 export async function POST(req: Request) {

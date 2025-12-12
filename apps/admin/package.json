@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p ${PORT:-3002}",
+    "prebuild": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true })\"",
     "build": "next build",
     "start": "next start -p ${PORT:-3002}",
     "lint": "next lint",

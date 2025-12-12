@@ -127,13 +127,13 @@ export async function GET(
         if (agentCard) {
           // Check if agent card has the validation skill
           const hasValidationSkill = agentCard.skills?.some(
-            (skill: any) => skill.id === 'agent.validation.respond'
+            (skill: any) => skill.id === 'atp.validation.respond'
           ) || false;
 
           validationResult = {
             verified: true,
             hasSkill: hasValidationSkill,
-            skillName: hasValidationSkill ? 'agent.validation.respond' : undefined,
+            skillName: hasValidationSkill ? 'atp.validation.respond' : undefined,
           };
         } else {
           validationResult = {

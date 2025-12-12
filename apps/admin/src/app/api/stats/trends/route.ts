@@ -5,7 +5,7 @@ import type { MessageRequest } from '@agentic-trust/core/server';
 
 /**
  * GET /api/stats/trends - Fetch daily trends (members, agents, events)
- * Uses agent.stats.trends skill via agents-atp
+ * Uses atp.stats.trends skill via agents-atp
  */
 let cachedTrends: any | null = null;
 let cachedTrendsAt: number | null = null;
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[Stats Trends API] Cache miss or expired, fetching trends from agents-atp.8004-agent.io/api/a2a');
     const requestPayload = {
-      skillId: 'agent.stats.trends',
+      skillId: 'atp.stats.trends',
       payload: {
         _timestamp: Date.now(), // Add timestamp to prevent caching
         ...(refresh ? { refresh: true } : {}),

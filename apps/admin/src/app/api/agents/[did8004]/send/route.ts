@@ -38,7 +38,7 @@ export async function POST(
     }
 
     // This route is for sending messages to a specific agent (from did8004 parameter)
-    // For agent.feedback.* and agent.inbox.* skills, use /api/agents-atp/send instead
+    // For atp.feedback.* and atp.inbox.* skills, use /api/agents-atp/send instead
     const client = await getAgenticTrustClient();
     const agent = await client.agents.getAgent(parsed.agentId.toString());
     

@@ -1351,7 +1351,7 @@ export default function AdminPage() {
         },
             body: JSON.stringify({
           a2aEndpoint: agentA2aEndpoint,
-          skillId: 'agent.validation.respond',
+          skillId: 'atp.validation.respond',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
