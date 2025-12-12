@@ -38,9 +38,16 @@ export interface AgentRegistrationInfo {
    * Agent registrations across chains
    */
   registrations?: Array<{
-    agentId: string | number;
+    agentId: string | number | null;
     agentRegistry: string;
+    registeredAt?: string;
   }>;
+
+  /**
+   * Whether this agent is currently active.
+   * Not in ERC-8004 spec but used by our discovery layer.
+   */
+  active?: boolean;
 
   /**
    * Supported trust models

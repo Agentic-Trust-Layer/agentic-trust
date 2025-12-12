@@ -5,6 +5,7 @@ import { ThemeRegistry } from '@/lib/ThemeRegistry';
 
 import { AuthProvider } from '@/components/AuthProvider';
 import { AgentsProvider } from '@/context/AgentsContext';
+import { OwnedAgentsProvider } from '@/context/OwnedAgentsContext';
 
 // Dynamically import providers to prevent SSR execution
 const Web3AuthProvider = dynamic(
@@ -37,7 +38,9 @@ export default function RootLayout({
           <Web3AuthProvider>
             <WalletProvider>
               <AuthProvider>
-                <AgentsProvider>{children}</AgentsProvider>
+                <OwnedAgentsProvider>
+                  <AgentsProvider>{children}</AgentsProvider>
+                </OwnedAgentsProvider>
               </AuthProvider>
             </WalletProvider>
           </Web3AuthProvider>

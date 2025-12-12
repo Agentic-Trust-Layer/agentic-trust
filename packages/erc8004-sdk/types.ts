@@ -28,10 +28,12 @@ export interface AgentRegistrationFile {
     capabilities?: any; // OPTIONAL, as per MCP spec
   }>; // OPTIONAL
   registrations?: Array<{
-    agentId: number;
+    agentId: number | null;
     agentRegistry: string;
+    registeredAt?: string;
   }>; // SHOULD have at least one
   supportedTrust?: Array<'reputation' | 'crypto-economic' | 'tee-attestation' | string>; // OPTIONAL
+  active?: boolean; // OPTIONAL (non-spec extension used by discovery)
 }
 
 /**

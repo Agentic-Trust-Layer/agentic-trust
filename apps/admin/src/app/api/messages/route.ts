@@ -77,7 +77,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { type, content, metadata, fromClientAddress, toClientAddress, toAgentDid, toAgentName, subject } = body;
+    const {
+      type,
+      content,
+      metadata,
+      fromClientAddress,
+      fromAgentDid,
+      fromAgentName,
+      toClientAddress,
+      toAgentDid,
+      toAgentName,
+      subject,
+    } = body;
 
     if (!content || typeof content !== 'string' || !content.trim()) {
       return NextResponse.json(
@@ -96,6 +107,8 @@ export async function POST(req: NextRequest) {
         skillId: 'agent.inbox.sendMessage',
         payload: {
           fromClientAddress,
+          fromAgentDid,
+          fromAgentName,
           toClientAddress,
           toAgentDid,
           toAgentName,

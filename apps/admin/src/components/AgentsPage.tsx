@@ -3978,22 +3978,33 @@ async function loadRegistrationContent(uri: string): Promise<string> {
     const header = trimmed.slice(0, commaIndex);
     const payload = trimmed.slice(commaIndex + 1);
     const isBase64 = /;base64/i.test(header);
+    const payloadTrimmed = payload.trim();
+
+    // Some tokenUris are incorrectly marked as base64 but contain plain JSON.
+    if (payloadTrimmed.startsWith('{') || payloadTrimmed.startsWith('[')) {
+      return formatJsonIfPossible(payloadTrimmed);
+    }
 
     if (isBase64) {
       try {
-        const decoded = typeof window !== 'undefined' && typeof window.atob === 'function'
-          ? window.atob(payload)
-          : payload;
+        // Support base64url and missing padding
+        let normalized = payloadTrimmed.replace(/-/g, '+').replace(/_/g, '/');
+        while (normalized.length % 4 !== 0) normalized += '=';
+
+        const decoded =
+          typeof window !== 'undefined' && typeof window.atob === 'function'
+            ? window.atob(normalized)
+            : payloadTrimmed;
         return formatJsonIfPossible(decoded);
       } catch (error) {
-        throw new Error('Unable to decode base64 data URI.');
+        // Fall through to percent-decoding / raw parsing before giving up.
       }
     }
     try {
-      const decoded = decodeURIComponent(payload);
+      const decoded = decodeURIComponent(payloadTrimmed);
       return formatJsonIfPossible(decoded);
     } catch {
-      return formatJsonIfPossible(payload);
+      return formatJsonIfPossible(payloadTrimmed);
     }
   }
 

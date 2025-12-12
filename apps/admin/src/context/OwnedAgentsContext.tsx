@@ -1,0 +1,101 @@
+'use client';
+
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import type { AgentsPageAgent } from '@/components/AgentsPage';
+import { useAuth } from '@/components/AuthProvider';
+
+type OwnedAgentsContextValue = {
+  ownedAgents: AgentsPageAgent[];
+  loading: boolean;
+  error: string | null;
+  lastFetchedAt: number | null;
+  refreshOwnedAgents: () => Promise<void>;
+};
+
+const OwnedAgentsContext = createContext<OwnedAgentsContextValue | null>(null);
+
+function mapOwnedAgentToAgentsPageAgent(agent: any): AgentsPageAgent {
+  return {
+    agentId: String(agent?.agentId ?? ''),
+    chainId: typeof agent?.chainId === 'number' ? agent.chainId : 0,
+    agentName: agent?.agentName ?? null,
+    agentAccount: agent?.agentAccount ?? null,
+    ownerAddress: agent?.agentOwner ?? agent?.ownerAddress ?? agent?.eoaOwner ?? null,
+    tokenUri: agent?.tokenUri ?? null,
+    description: agent?.description ?? null,
+    image: agent?.image ?? null,
+    contractAddress: agent?.contractAddress ?? null,
+    a2aEndpoint: agent?.a2aEndpoint ?? null,
+    mcpEndpoint: agent?.mcpEndpoint ?? null,
+    did: agent?.did ?? null,
+    supportedTrust: agent?.supportedTrust ?? null,
+    createdAtTime: typeof agent?.createdAtTime === 'number' ? agent.createdAtTime : null,
+    feedbackCount: agent?.feedbackCount ?? null,
+    feedbackAverageScore: agent?.feedbackAverageScore ?? null,
+    validationPendingCount: agent?.validationPendingCount ?? null,
+    validationCompletedCount: agent?.validationCompletedCount ?? null,
+    validationRequestedCount: agent?.validationRequestedCount ?? null,
+  };
+}
+
+export function OwnedAgentsProvider({ children }: { children: ReactNode }) {
+  const { isConnected, walletAddress } = useAuth();
+  const [ownedAgents, setOwnedAgents] = useState<AgentsPageAgent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
+
+  const refreshOwnedAgents = useCallback(async () => {
+    if (!isConnected || !walletAddress) {
+      setOwnedAgents([]);
+      setLastFetchedAt(null);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}&limit=1000&orderBy=createdAtTime&orderDirection=DESC`,
+        { cache: 'no-store' },
+      );
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err?.error || `Failed to fetch owned agents (${response.status})`);
+      }
+      const data = await response.json();
+      const agents = Array.isArray(data.agents) ? data.agents : [];
+      setOwnedAgents(agents.map(mapOwnedAgentToAgentsPageAgent));
+      setLastFetchedAt(Date.now());
+    } catch (e) {
+      setOwnedAgents([]);
+      setLastFetchedAt(null);
+      setError(e instanceof Error ? e.message : 'Failed to fetch owned agents');
+    } finally {
+      setLoading(false);
+    }
+  }, [isConnected, walletAddress]);
+
+  // Build cache on connect (and whenever walletAddress changes)
+  useEffect(() => {
+    void refreshOwnedAgents();
+  }, [refreshOwnedAgents]);
+
+  const value = useMemo<OwnedAgentsContextValue>(
+    () => ({ ownedAgents, loading, error, lastFetchedAt, refreshOwnedAgents }),
+    [ownedAgents, loading, error, lastFetchedAt, refreshOwnedAgents],
+  );
+
+  return <OwnedAgentsContext.Provider value={value}>{children}</OwnedAgentsContext.Provider>;
+}
+
+export function useOwnedAgents() {
+  const ctx = useContext(OwnedAgentsContext);
+  if (!ctx) {
+    throw new Error('useOwnedAgents must be used within an OwnedAgentsProvider');
+  }
+  return ctx;
+}
+
+

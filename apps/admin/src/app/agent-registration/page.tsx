@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
@@ -77,6 +78,7 @@ export default function AgentRegistrationPage() {
   } = useAuth();
 
   const router = useRouter();
+  const { refreshOwnedAgents } = useOwnedAgents();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -1053,6 +1055,9 @@ export default function AgentRegistrationPage() {
       setAaAddress(null);
       setCreateStep(0);
       setProtocolSettings({ publishA2A: true, publishMcp: true, a2aEndpoint: '', mcpEndpoint: '' });
+
+      // Refresh owned agents cache so new agents appear in dropdowns immediately
+      await refreshOwnedAgents();
 
       setRegisterProgress(100);
       if (registerTimerRef.current) {

@@ -7,6 +7,7 @@
 
 import { getIPFSStorage, type IPFSStorage } from './ipfs';
 import type { AgentRegistrationInfo } from '../models/agentRegistrationInfo';
+import { getChainContractAddress } from './chainConfig';
 
 /**
  * Upload agent registration JSON to IPFS
@@ -80,6 +81,7 @@ export function createRegistrationJSON(params: {
   name: string;
   agentAccount: `0x${string}`;
   agentId?: string | number;
+  active?: boolean;
   description?: string;
   image?: string;
   agentUrl?: string;
@@ -154,18 +156,23 @@ export function createRegistrationJSON(params: {
     }
   }
   
-  // Build registrations array if chainId and identityRegistry are provided
+  // Build registrations array (agentId is intentionally null in registration JSON;
+  // callers may not know the agentId at publish time, but registry+timestamp are still valuable).
   const registrations: Array<{
-    agentId: string | number;
+    agentId: null;
     agentRegistry: string;
+    registeredAt: string;
   }> = [];
-  
-  if (params.chainId && params.identityRegistry && params.agentId) {
-    // Ensure identityRegistry is a string
-    const identityRegistryStr = String(params.identityRegistry);
+
+  const registryAddress =
+    params.identityRegistry ??
+    (params.chainId ? getChainContractAddress('AGENTIC_TRUST_IDENTITY_REGISTRY', params.chainId) : undefined);
+
+  if (params.chainId && registryAddress) {
     registrations.push({
-      agentId: params.agentId,
-      agentRegistry: `eip155:${params.chainId}:${identityRegistryStr}`,
+      agentId: null,
+      agentRegistry: `eip155:${params.chainId}:${String(registryAddress)}`,
+      registeredAt: new Date().toISOString(),
     });
   }
   
@@ -174,6 +181,7 @@ export function createRegistrationJSON(params: {
     name: params.name,
     description: params.description,
     image: params.image,
+    active: typeof params.active === 'boolean' ? params.active : true,
     endpoints: endpoints.length > 0 ? endpoints : undefined,
     registrations: registrations.length > 0 ? registrations : undefined,
     agentAccount: params.agentAccount,

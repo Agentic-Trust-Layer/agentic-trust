@@ -1,9 +1,11 @@
 'use client';
 
 import React from 'react';
-import { Box, Container, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button, Typography, Stack, TextField, Alert, Rating, Select, MenuItem, FormControl, InputLabel, CircularProgress } from '@mui/material';
+import { Box, Container, Dialog, DialogTitle, DialogContent, DialogActions, IconButton, Button, Typography, Stack, TextField, Alert, Rating, Select, MenuItem, FormControl, InputLabel, CircularProgress, Avatar, FormHelperText } from '@mui/material';
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from '@mui/material/styles';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import { Header } from '@/components/Header';
 import AgentDetailsTabs, {
   type AgentDetailsFeedbackSummary,
@@ -14,6 +16,7 @@ import BackToAgentsButton from '@/components/BackToAgentsButton';
 import TrustGraphModal from '@/components/TrustGraphModal';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
+import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004 } from '@agentic-trust/core';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -59,6 +62,9 @@ export default function AgentDetailsPageContent({
   reviewsSummaryText,
   onChainMetadata = {},
 }: AgentDetailsPageContentProps) {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+
   const {
     isConnected,
     privateKeyMode,
@@ -69,6 +75,7 @@ export default function AgentDetailsPageContent({
   } = useAuth();
   const { eip1193Provider } = useWallet();
   const router = useRouter();
+  const { ownedAgents: cachedOwnedAgents, loading: ownedAgentsLoading, refreshOwnedAgents } = useOwnedAgents();
 
   const [dialogState, setDialogState] = useState<DialogState>({ type: null });
   const [feedbackAuth, setFeedbackAuth] = useState<string | null>(null);
@@ -96,8 +103,6 @@ export default function AgentDetailsPageContent({
   const [sendingFeedbackRequest, setSendingFeedbackRequest] = useState(false);
   const [feedbackRequestSuccess, setFeedbackRequestSuccess] = useState(false);
   const [feedbackRequestError, setFeedbackRequestError] = useState<string | null>(null);
-  const [ownedAgents, setOwnedAgents] = useState<AgentsPageAgent[]>([]);
-  const [loadingOwnedAgents, setLoadingOwnedAgents] = useState(false);
   const [selectedFromAgentId, setSelectedFromAgentId] = useState<string>('');
 
   const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
@@ -185,79 +190,19 @@ export default function AgentDetailsPageContent({
     });
   }, [isConnected, walletAddress, agent.ownerAddress, agent.agentAccount, showManageButton, ownershipVerified, ownershipChecking, agent.agentId]);
 
-  // Fetch owned agents when feedback request dialog opens
+  // Use cached owned agents for feedback-request dialog (refresh only if empty)
   useEffect(() => {
-    if (dialogState.type === 'feedback-request' && isConnected && walletAddress) {
-      const fetchOwnedAgents = async () => {
-        setLoadingOwnedAgents(true);
-        try {
-          // Use the new getOwnedAgents API endpoint
-          const response = await fetch(`/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}&limit=100`);
-
-          if (response.ok) {
-            const data = await response.json();
-            console.log('[AgentDetails] Owned agents API response:', {
-              success: data.success,
-              agentsCount: Array.isArray(data.agents) ? data.agents.length : 0,
-              agents: data.agents,
-              firstAgent: Array.isArray(data.agents) && data.agents.length > 0 ? data.agents[0] : null,
-            });
-            const agents = Array.isArray(data.agents) ? data.agents : [];
-            // Map to AgentsPageAgent format
-            const mappedAgents: AgentsPageAgent[] = agents.map((agent: any) => {
-              const mapped = {
-                agentId: String(agent.agentId || ''),
-                chainId: typeof agent.chainId === 'number' ? agent.chainId : 0,
-                agentName: agent.agentName || null,
-                agentAccount: agent.agentAccount || null,
-                agentOwner: agent.agentOwner || null,
-                eoaOwner: agent.eoaOwner || null,
-                description: agent.description || null,
-                image: agent.image || null,
-                a2aEndpoint: agent.a2aEndpoint || null,
-                mcpEndpoint: agent.mcpEndpoint || null,
-                feedbackCount: agent.feedbackCount || null,
-                feedbackAverageScore: agent.feedbackAverageScore || null,
-                createdAtTime: typeof agent.createdAtTime === 'number' ? agent.createdAtTime : null,
-              };
-              console.log('[AgentDetails] Mapped agent:', {
-                original: agent,
-                mapped,
-              });
-              return mapped;
-            });
-            console.log('[AgentDetails] Final mapped agents:', {
-              count: mappedAgents.length,
-              agents: mappedAgents,
-            });
-            setOwnedAgents(mappedAgents);
-            
-            // Auto-select first agent if available
-            if (mappedAgents.length > 0 && !selectedFromAgentId) {
-              const firstAgent = mappedAgents[0];
-              setSelectedFromAgentId(`${firstAgent.chainId}:${firstAgent.agentId}`);
-            }
-          } else {
-            const errorData = await response.json().catch(() => ({}));
-            console.error('[AgentDetails] Failed to fetch owned agents:', {
-              status: response.status,
-              statusText: response.statusText,
-              error: errorData,
-            });
-          }
-        } catch (error) {
-          console.error('[AgentDetails] Failed to fetch owned agents:', error);
-        } finally {
-          setLoadingOwnedAgents(false);
-        }
-      };
-      fetchOwnedAgents();
-    } else if (dialogState.type !== 'feedback-request') {
-      // Clear owned agents when dialog closes
-      setOwnedAgents([]);
-      setSelectedFromAgentId('');
+    if (dialogState.type !== 'feedback-request') {
+      return;
     }
-  }, [dialogState.type, isConnected, walletAddress, selectedFromAgentId]);
+    if (cachedOwnedAgents.length === 0 && isConnected && walletAddress) {
+      void refreshOwnedAgents();
+    }
+    if (cachedOwnedAgents.length > 0 && !selectedFromAgentId) {
+      const firstAgent = cachedOwnedAgents[0];
+      setSelectedFromAgentId(`${firstAgent.chainId}:${firstAgent.agentId}`);
+    }
+  }, [dialogState.type, cachedOwnedAgents, selectedFromAgentId, isConnected, walletAddress, refreshOwnedAgents]);
 
   // Fetch agent card when feedback dialog opens
   useEffect(() => {
@@ -404,8 +349,8 @@ export default function AgentDetailsPageContent({
         throw new Error('Invalid selected agent ID');
       }
 
-      // Find the selected agent from ownedAgents to get its DID and name
-      const fromAgent = ownedAgents.find(
+      // Find the selected agent from cachedOwnedAgents to get its DID and name
+      const fromAgent = cachedOwnedAgents.find(
         (a) => a.chainId === parseInt(fromChainId, 10) && a.agentId === fromAgentId
       );
       if (!fromAgent) {
@@ -728,25 +673,24 @@ export default function AgentDetailsPageContent({
             justifyContent="space-between"
           >
             <Stack direction="row" spacing={2} flexWrap="wrap">
-              <StatPill
-                icon={<AutoGraphIcon fontSize="small" />}
-                label="Validations"
-                value={`${completedValidationCount} completed · ${pendingValidationCount} pending`}
-              />
-              <StatPill
-                icon={<VerifiedIcon fontSize="small" />}
-                label="Reputation"
-                value={
-                  feedbackAverage !== null
-                    ? `${feedbackCount} reviews · ${feedbackAverage}`
-                    : `${feedbackCount} reviews`
-                }
-              />
-              <StatPill
-                icon={<TimelineIcon fontSize="small" />}
-                label="Trust Graph"
-                value={validationSummaryText}
-              />
+              {!isMobile && (
+                <StatPill
+                  icon={<AutoGraphIcon fontSize="small" />}
+                  label="Validations"
+                  value={`${completedValidationCount} completed · ${pendingValidationCount} pending`}
+                />
+              )}
+              {!isMobile && (
+                <StatPill
+                  icon={<VerifiedIcon fontSize="small" />}
+                  label="Reputation"
+                  value={
+                    feedbackAverage !== null
+                      ? `${feedbackCount} reviews · ${feedbackAverage}`
+                      : `${feedbackCount} reviews`
+                  }
+                />
+              )}
             </Stack>
             <Button
               variant="contained"
@@ -1132,47 +1076,87 @@ export default function AgentDetailsPageContent({
           )}
 
           <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Send Request From Agent</InputLabel>
+            <InputLabel id="send-feedback-request-from-agent-label">
+              Send Request From Agent
+            </InputLabel>
             <Select
+              id="send-feedback-request-from-agent"
+              labelId="send-feedback-request-from-agent-label"
               value={selectedFromAgentId}
               onChange={(e) => setSelectedFromAgentId(e.target.value)}
               label="Send Request From Agent"
-              disabled={sendingFeedbackRequest || feedbackRequestSuccess || loadingOwnedAgents}
+              disabled={sendingFeedbackRequest || feedbackRequestSuccess || ownedAgentsLoading}
+              renderValue={(selected) => {
+                const selectedAgent = cachedOwnedAgents.find(
+                  (a) => `${a.chainId}:${a.agentId}` === selected,
+                );
+                const displayName = selectedAgent?.agentName || (selectedAgent ? `Agent #${selectedAgent.agentId}` : '');
+                const img = (selectedAgent?.image || '').trim();
+                return (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Avatar
+                      src={img || undefined}
+                      alt={displayName}
+                      sx={{ width: 22, height: 22, fontSize: 12 }}
+                    >
+                      {(displayName || 'A').slice(0, 1).toUpperCase()}
+                    </Avatar>
+                    <Typography variant="body2" sx={{ lineHeight: 1.2 }}>
+                      {displayName}
+                    </Typography>
+                  </Box>
+                );
+              }}
             >
               {(() => {
                 console.log('[AgentDetails] Select render state:', {
-                  loadingOwnedAgents,
-                  ownedAgentsLength: ownedAgents.length,
-                  ownedAgents,
+                  ownedAgentsLoading,
+                  ownedAgentsLength: cachedOwnedAgents.length,
+                  ownedAgents: cachedOwnedAgents,
                   selectedFromAgentId,
                 });
-                if (loadingOwnedAgents) {
+                if (cachedOwnedAgents.length === 0) {
                   return (
                     <MenuItem disabled>
-                      <CircularProgress size={20} sx={{ mr: 1 }} />
-                      Loading your agents...
+                      {ownedAgentsLoading ? 'Loading…' : 'No owned agents found'}
                     </MenuItem>
                   );
                 }
-                if (ownedAgents.length === 0) {
-                  return <MenuItem disabled>No owned agents found</MenuItem>;
-                }
-                return ownedAgents.map((ownedAgent) => {
+                return cachedOwnedAgents.map((ownedAgent) => {
                   const agentKey = `${ownedAgent.chainId}:${ownedAgent.agentId}`;
                   const displayName = ownedAgent.agentName || `Agent #${ownedAgent.agentId}`;
-                  console.log('[AgentDetails] Rendering MenuItem for agent:', {
-                    agentKey,
-                    displayName,
-                    ownedAgent,
-                  });
+                  const img = (ownedAgent.image || '').trim();
+
                   return (
                     <MenuItem key={agentKey} value={agentKey}>
-                      {displayName} (Chain {ownedAgent.chainId}, ID {ownedAgent.agentId})
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
+                        <Avatar
+                          src={img || undefined}
+                          alt={displayName}
+                          sx={{ width: 22, height: 22, fontSize: 12 }}
+                        >
+                          {(displayName || 'A').slice(0, 1).toUpperCase()}
+                        </Avatar>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          <Typography variant="body2" sx={{ lineHeight: 1.2 }} noWrap>
+                            {displayName}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1.2 }} noWrap>
+                            Chain {ownedAgent.chainId}, ID {ownedAgent.agentId}
+                          </Typography>
+                        </Box>
+                      </Box>
                     </MenuItem>
                   );
                 });
               })()}
             </Select>
+            {ownedAgentsLoading && (
+              <FormHelperText sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={14} />
+                Loading your agents…
+              </FormHelperText>
+            )}
           </FormControl>
 
           <Typography variant="body2" sx={{ mb: 2 }}>
@@ -1218,7 +1202,7 @@ export default function AgentDetailsPageContent({
           <Button
             onClick={handleSendFeedbackRequest}
             variant="contained"
-            disabled={sendingFeedbackRequest || feedbackRequestSuccess || !feedbackRequestReason.trim() || !selectedFromAgentId || loadingOwnedAgents}
+            disabled={sendingFeedbackRequest || feedbackRequestSuccess || !feedbackRequestReason.trim() || !selectedFromAgentId || ownedAgentsLoading}
             sx={{
               backgroundColor: palette.accent,
               '&:hover': {
