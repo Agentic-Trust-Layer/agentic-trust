@@ -10,12 +10,16 @@
   ],
   "scripts": {
     "build": "turbo run build",
+    "build:admin": "turbo run build --filter=@agentic-trust/admin",
+    "create-agent": "pnpm -C packages/create-agentic-trust-agent dev",
     "dev": "turbo run dev",
+    "dev:admin": "turbo run dev --filter=@agentic-trust/admin",
     "test": "turbo run test",
     "lint": "turbo run lint",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
-    "type-check": "turbo run type-check"
+    "type-check": "turbo run type-check",
+    "type-check:admin": "turbo run type-check --filter=@agentic-trust/admin"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

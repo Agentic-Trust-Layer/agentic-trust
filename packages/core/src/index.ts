@@ -117,6 +117,7 @@ export {
   getWalletAddress,
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
+  getCounterfactualSmartAccountAddressByAgentName,
   getCounterfactualAAAddressByAgentName,
   createAgentWithWallet,
   updateAgentRegistrationWithWallet,

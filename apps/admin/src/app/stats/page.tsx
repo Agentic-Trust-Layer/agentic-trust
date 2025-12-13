@@ -1,5 +1,8 @@
 'use client';
 
+// Avoid static prerendering for this route to speed up `next build` page-data collection.
+export const dynamic = 'force-dynamic';
+
 import React from 'react';
 
 import { Header } from '@/components/Header';

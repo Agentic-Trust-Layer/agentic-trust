@@ -1,0 +1,17 @@
+import { SessionPackage } from '../shared/sessionPackage';
+type GenerateSessionPackageParams = {
+    agentId: number;
+    chainId: number;
+    agentAccount: `0x${string}`;
+    provider: any;
+    ownerAddress: `0x${string}`;
+    reputationRegistry?: `0x${string}`;
+    identityRegistry?: `0x${string}`;
+    validationRegistry?: `0x${string}`;
+    bundlerUrl?: string;
+    rpcUrl?: string;
+    selector?: `0x${string}`;
+};
+export declare function generateSessionPackage(params: GenerateSessionPackageParams): Promise<SessionPackage>;
+export {};
+//# sourceMappingURL=sessionPackageBuilder.d.ts.map

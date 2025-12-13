@@ -1,8 +1,11 @@
 'use client';
 
+// Avoid static prerendering for this route to speed up `next build` page-data collection.
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
@@ -381,6 +384,34 @@ export default function AdminPage() {
 
         setSessionPackageText(JSON.stringify(pkg, null, 2));
 
+        // Final step: ensure registration JSON marks agent as active=true (skip if already true)
+        try {
+          // Refresh NFT operator first so the "Agent Active" warning clears immediately.
+          try {
+            const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
+            const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
+            if (operatorResponse.ok) {
+              const operatorData = await operatorResponse.json().catch(() => ({}));
+              const operatorAddress = operatorData?.operatorAddress || null;
+              setNftOperator({
+                loading: false,
+                error: null,
+                operatorAddress,
+              });
+              // Now activate; operator is present so this should pass gating.
+              await handleSetAgentActive(true, operatorAddress);
+            } else {
+              // If we can't refresh operator, still attempt activation (may be gated).
+              await handleSetAgentActive(true);
+            }
+          } catch {
+            await handleSetAgentActive(true);
+          }
+        } catch (e) {
+          // Non-fatal: session package creation succeeded
+          console.warn('[AdminTools] Unable to auto-set registration active flag:', e);
+        }
+
         // Sync agent and session package to ATP agent
         try {
           const { syncAgentToATP } = await import('@/lib/a2a-client');
@@ -432,7 +463,14 @@ export default function AdminPage() {
         setSessionPackageLoading(false);
       }
     },
-    [isEditMode, finalAgentId, finalChainId, displayAgentAddress, eip1193Provider, headerAddress],
+    [
+      isEditMode,
+      finalAgentId,
+      finalChainId,
+      displayAgentAddress,
+      eip1193Provider,
+      headerAddress,
+    ],
   );
 
   const refreshAgentValidationRequests = useCallback(async () => {
@@ -568,6 +606,7 @@ export default function AdminPage() {
   const [registrationImage, setRegistrationImage] = useState<string>('');
   const [registrationA2aEndpoint, setRegistrationA2aEndpoint] = useState<string>('');
   const [registrationMcpEndpoint, setRegistrationMcpEndpoint] = useState<string>('');
+  const [registrationCapability, setRegistrationCapability] = useState<string>('');
   const [registrationImageError, setRegistrationImageError] = useState<string | null>(null);
   const [registrationA2aError, setRegistrationA2aError] = useState<string | null>(null);
   const [registrationMcpError, setRegistrationMcpError] = useState<string | null>(null);
@@ -578,6 +617,9 @@ export default function AdminPage() {
   const [sessionPackageProgress, setSessionPackageProgress] = useState(0);
   const sessionPackageProgressTimerRef = useRef<number | null>(null);
   const [sessionPackageConfirmOpen, setSessionPackageConfirmOpen] = useState(false);
+
+  const [activeToggleSaving, setActiveToggleSaving] = useState(false);
+  const [activeToggleError, setActiveToggleError] = useState<string | null>(null);
 
   const validateUrlLike = useCallback((value: string): string | null => {
     const trimmed = value.trim();
@@ -590,7 +632,12 @@ export default function AdminPage() {
 
   // Load registration JSON when viewing the Registration tab in edit mode
   useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'registration' || !finalAgentId || !finalChainId) {
+    if (
+      !isEditMode ||
+      (activeManagementTab !== 'registration' && activeManagementTab !== 'session') ||
+      !finalAgentId ||
+      !finalChainId
+    ) {
       return;
     }
 
@@ -608,6 +655,7 @@ export default function AdminPage() {
         setRegistrationImage('');
         setRegistrationA2aEndpoint('');
         setRegistrationMcpEndpoint('');
+        setRegistrationCapability('');
         setRegistrationImageError(null);
         setRegistrationA2aError(null);
         setRegistrationMcpError(null);
@@ -658,6 +706,7 @@ export default function AdminPage() {
           }
 
           const image = typeof parsed.image === 'string' ? parsed.image : '';
+          const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
           const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
           const a2a = endpoints.find(
             (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
@@ -674,6 +723,7 @@ export default function AdminPage() {
           setRegistrationMcpEndpoint(
             mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
           );
+          setRegistrationCapability(capability);
           setRegistrationImageError(validateUrlLike(image) ?? null);
           setRegistrationA2aError(
             a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
@@ -728,6 +778,15 @@ export default function AdminPage() {
     } else {
       if ('image' in next) {
         delete next.image;
+      }
+    }
+
+    const cap = registrationCapability.trim();
+    if (cap) {
+      next.capability = cap;
+    } else {
+      if ('capability' in next) {
+        delete next.capability;
       }
     }
 
@@ -786,6 +845,7 @@ export default function AdminPage() {
     registrationImage,
     registrationA2aEndpoint,
     registrationMcpEndpoint,
+    registrationCapability,
   ]);
 
   // Session package progress bar (60s max)
@@ -951,6 +1011,122 @@ export default function AdminPage() {
       registrationMcpError,
     ],
   );
+
+  const updateRegistrationJsonRaw = useCallback(
+    async (raw: string) => {
+      if (!isEditMode || !finalAgentId || !finalChainId) {
+        throw new Error('Missing agent context');
+      }
+      if (!eip1193Provider || !headerAddress) {
+        throw new Error('Wallet not connected. Connect your wallet to update registration.');
+      }
+
+      const parsedChainId = Number.parseInt(finalChainId, 10);
+      if (!Number.isFinite(parsedChainId)) {
+        throw new Error('Invalid chainId in URL.');
+      }
+
+      const chain = getChainById(parsedChainId) as Chain;
+      const bundlerEnv = getClientBundlerUrl(parsedChainId);
+      if (!bundlerEnv) {
+        throw new Error(
+          'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
+        );
+      }
+
+      const did8004 = buildDid8004(parsedChainId, finalAgentId);
+      const agentNameForAA = displayAgentName === '...' ? '' : displayAgentName;
+
+      // Ensure wallet is on the correct chain before continuing (Metamask)
+      if (eip1193Provider && typeof (eip1193Provider as any).request === 'function') {
+        const targetHex = `0x${parsedChainId.toString(16)}`;
+        try {
+          await (eip1193Provider as any).request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: targetHex }],
+          });
+        } catch (switchErr) {
+          console.warn('Failed to switch chain in wallet for registration update', switchErr);
+          throw new Error(`Please switch your wallet to chain ${parsedChainId} and retry.`);
+        }
+      }
+
+      const accountClient = await getDeployedAccountClientByAgentName(
+        bundlerEnv,
+        agentNameForAA,
+        headerAddress as `0x${string}`,
+        {
+          chain,
+          ethereumProvider: eip1193Provider,
+        },
+      );
+
+      await updateAgentRegistrationWithWallet({
+        did8004,
+        chain,
+        accountClient,
+        registration: raw,
+        onStatusUpdate: (msg: string) => {
+          console.log('[RegistrationUpdate][admin-tools]', msg);
+        },
+      });
+    },
+    [
+      isEditMode,
+      finalAgentId,
+      finalChainId,
+      eip1193Provider,
+      headerAddress,
+      displayAgentName,
+    ],
+  );
+
+  const handleSetAgentActive = async (
+    nextActive: boolean,
+    operatorAddressOverride?: string | null,
+  ) => {
+    try {
+      setActiveToggleError(null);
+      setActiveToggleSaving(true);
+
+      const effectiveOperatorAddress =
+        typeof operatorAddressOverride === 'string' ? operatorAddressOverride : nftOperator.operatorAddress;
+
+      if (nextActive && !nftOperator.loading && !effectiveOperatorAddress) {
+        throw new Error(
+          'You must set an Operator on the NFT before activating. Go to Agent Operator tab and click "Set Operator Session Keys and Delegation".',
+        );
+      }
+
+      if (!registrationPreviewText) {
+        throw new Error('Registration JSON is not loaded yet.');
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(registrationPreviewText);
+      } catch {
+        throw new Error('Registration JSON is not valid JSON.');
+      }
+
+      const currentActive = Boolean(parsed?.active);
+      if (currentActive === nextActive) {
+        return;
+      }
+
+      parsed.active = nextActive;
+      const raw = JSON.stringify(parsed, null, 2);
+      await updateRegistrationJsonRaw(raw);
+
+      setRegistrationParsed(parsed);
+      setRegistrationPreviewText(raw);
+      setSuccess(`Agent is now ${nextActive ? 'active' : 'inactive'} (registration updated).`);
+    } catch (e: any) {
+      setActiveToggleError(e?.message || 'Failed to update agent active flag.');
+    } finally {
+      setActiveToggleSaving(false);
+    }
+  };
 
   // Update agent form state
   const [updateForm, setUpdateForm] = useState({
@@ -1196,9 +1372,14 @@ export default function AdminPage() {
     });
   }, [isEditMode, activeManagementTab, finalAgentId, finalChainId]);
 
-  // Fetch NFT operator when registration tab is active
+  // Fetch NFT operator when registration or session tab is active
   useEffect(() => {
-    if (!isEditMode || activeManagementTab !== 'registration' || !finalAgentId || !finalChainId) {
+    if (
+      !isEditMode ||
+      (activeManagementTab !== 'registration' && activeManagementTab !== 'session') ||
+      !finalAgentId ||
+      !finalChainId
+    ) {
       setNftOperator({
         loading: false,
         error: null,
@@ -2117,6 +2298,18 @@ export default function AdminPage() {
                           size="small"
                         />
 
+                        <TextField
+                          label="Capability"
+                          fullWidth
+                          value={registrationCapability}
+                          onChange={(e) => setRegistrationCapability(e.target.value)}
+                          placeholder="Optional capability hint (freeform)"
+                          disabled={!registrationParsed}
+                          helperText="Stored in the registration JSON as `capability` (optional)."
+                          variant="outlined"
+                          size="small"
+                        />
+
                         <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
                           <Button
                             variant="outlined"
@@ -2288,6 +2481,39 @@ export default function AdminPage() {
                     <Typography variant="body2" color="text.secondary" paragraph>
                       The Agent Operator is a delegation from the Agent Owner to an operator that allows the agent app to interact with the Reputation Registry and Validation Registry. A session package contains the operator session keys and delegation information that enables this functionality.
                     </Typography>
+
+                    <Box sx={{ mb: 2, p: 2, borderRadius: 1, bgcolor: 'grey.50', border: 1, borderColor: 'grey.300' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                        <Box>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                            Agent Active
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Activation is controlled by the registration JSON (`tokenUri`). To activate, an operator must be set on the NFT.
+                          </Typography>
+                        </Box>
+                        <Switch
+                          checked={Boolean((registrationParsed as any)?.active)}
+                          onChange={(_, checked) => {
+                            void handleSetAgentActive(checked);
+                          }}
+                          disabled={activeToggleSaving || sessionPackageLoading || !registrationPreviewText}
+                          inputProps={{ 'aria-label': 'Agent active toggle' }}
+                        />
+                      </Box>
+
+                      {!nftOperator.loading && !nftOperator.operatorAddress && (
+                        <Alert severity="warning" sx={{ mt: 1 }}>
+                          Cannot activate until an Operator is assigned to the NFT. Click "Set Operator Session Keys and Delegation" below.
+                        </Alert>
+                      )}
+
+                      {activeToggleError && (
+                        <Alert severity="error" sx={{ mt: 1 }}>
+                          {activeToggleError}
+                        </Alert>
+                      )}
+                    </Box>
 
                     <Button
                       variant="contained"

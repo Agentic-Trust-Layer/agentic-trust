@@ -7,8 +7,10 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    // Don't fail build on TypeScript errors (we run type-check separately)
-    ignoreBuildErrors: false,
+    // Speed up `next build` by skipping Next.js' built-in typecheck.
+    // Run `pnpm -C apps/admin type-check` (or `turbo run type-check`) in CI / pre-merge.
+    // Set NEXT_STRICT_TYPECHECK=true to restore build-time typechecking.
+    ignoreBuildErrors: process.env.NEXT_STRICT_TYPECHECK !== 'true',
   },
   webpack: (config, { isServer }) => {
     // Externalize Node.js modules for server-side

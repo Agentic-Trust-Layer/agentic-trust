@@ -142,6 +142,13 @@ export async function discoverAgents(
         createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,
         agentAccount: String(raw?.agentAccount ?? ''),
         agentOwner: String(raw?.agentOwner ?? ''),
+        eoaOwner:
+          stringOrNull(
+            (raw as any)?.eoaOwner ??
+              (raw as any)?.eoa_owner ??
+              (raw as any)?.eoaAddress ??
+              (raw as any)?.eoa_address,
+          ) ?? undefined,
         contractAddress: stringOrNull(raw?.contractAddress) ?? undefined,
         agentName: String(raw?.agentName ?? ''),
         agentCategory: agentCategory, // Add extracted agentCategory

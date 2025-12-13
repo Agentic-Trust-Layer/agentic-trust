@@ -1,7 +1,7 @@
 /**
  * Integration Tests for /api/accounts/counterfactual-account route
  * 
- * These tests make actual calls to compute counterfactual AA addresses using:
+ * These tests make actual calls to compute counterfactual SmartAccount addresses using:
  * - AdminApp with private key (AGENTIC_TRUST_ADMIN_PRIVATE_KEY)
  * - Blockchain RPC (to compute counterfactual address)
  * 
@@ -123,7 +123,7 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
     await ensureAdminAppInitialized();
   });
 
-  it('should compute counterfactual AA address for a valid agent name', async () => {
+  it('should compute counterfactual SmartAccount address for a valid agent name', async () => {
     // Ensure AdminApp is initialized before each test
     // This ensures the AdminApp instance from beforeAll is still valid
     await ensureAdminAppInitialized();
@@ -148,7 +148,7 @@ describe.skipIf(skip || shouldSkipPrivateKeyTests())('POST /api/accounts/counter
     expect(data.address.length).toBe(42);
   }, 30000); // 30 second timeout for integration test
 
-  it('should compute counterfactual AA address for a valid agent name without chainId (uses default)', async () => {
+  it('should compute counterfactual SmartAccount address for a valid agent name without chainId (uses default)', async () => {
     // Ensure AdminApp is initialized before each test
     await ensureAdminAppInitialized();
     

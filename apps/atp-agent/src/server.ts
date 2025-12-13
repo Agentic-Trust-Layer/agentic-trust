@@ -21,6 +21,7 @@ import {
   loadSessionPackage,
   mountAgentApiRoutes,
   getENSClient,
+  isENSNameAvailable,
   getAgentValidationsSummary,
   DEFAULT_CHAIN_ID,
   type SessionPackage,
@@ -296,6 +297,15 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
         return [
           ...baseSkills,
           {
+            id: 'atp.ens.isNameAvailable',
+            name: 'atp.ens.isNameAvailable',
+            tags: ['ens', 'availability', 'a2a', 'admin'],
+            examples: ['Check ENS availability for <label>.8004-agent.eth'],
+            inputModes: ['text', 'json'],
+            outputModes: ['text', 'json'],
+            description: 'Check if an ENS name is available. Payload: { ensName, chainId }',
+          },
+          {
             id: 'atp.feedback.request',
             name: 'atp.feedback.request',
             tags: ['erc8004', 'feedback', 'request', 'a2a', 'admin'],
@@ -481,6 +491,57 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
       ...(payload && { receivedPayload: payload }),
     };
 
+    if (skillId === 'atp.ens.isNameAvailable') {
+      responseContent.skill = skillId;
+      if (subdomain !== 'agents-atp') {
+        responseContent.error = 'atp.ens.isNameAvailable skill is only available on the agents-atp subdomain';
+        res.set(getCorsHeaders());
+        return res.status(403).json({
+          success: false,
+          messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          response: responseContent,
+        });
+      }
+
+      const ensNameRaw = (payload as any)?.ensName ?? (payload as any)?.name;
+      const chainIdRaw = (payload as any)?.chainId ?? (payload as any)?.chain;
+      const ensName = typeof ensNameRaw === 'string' ? ensNameRaw.trim() : '';
+      const chainId =
+        typeof chainIdRaw === 'number'
+          ? chainIdRaw
+          : Number.isFinite(Number(chainIdRaw))
+            ? Number(chainIdRaw)
+            : 11155111;
+
+      if (!ensName) {
+        responseContent.error = 'ensName is required in payload';
+        res.set(getCorsHeaders());
+        return res.status(400).json({
+          success: false,
+          messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+          response: responseContent,
+        });
+      }
+
+      const timeoutMs = 6000;
+      const available = await Promise.race([
+        isENSNameAvailable(ensName, chainId).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      ]);
+
+      responseContent.available = available;
+      responseContent.name = ensName;
+      responseContent.chainId = chainId;
+      responseContent.timeoutMs = timeoutMs;
+
+      res.set(getCorsHeaders());
+      return res.json({
+        success: true,
+        messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+        response: responseContent,
+      });
+    }
+
     // Handle feedback request auth skill
     if (skillId === 'agent.feedback.requestAuth') {
       try {
@@ -516,6 +577,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
               to_agent_name: string | null;
               to_agent_id: string;
               to_agent_chain_id: number;
+              approved?: number | null;
+              approved_on_date?: number | null;
+              approved_for_days?: number | null;
             }
           | null = null;
 
@@ -523,7 +587,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           const db = getD1Database();
           requestRecord = await db
             .prepare(
-              'SELECT id, client_address, from_agent_did, from_agent_name, to_agent_did, to_agent_name, to_agent_id, to_agent_chain_id FROM agent_feedback_requests WHERE id = ?',
+              'SELECT id, client_address, from_agent_did, from_agent_name, to_agent_did, to_agent_name, to_agent_id, to_agent_chain_id, approved, approved_on_date, approved_for_days FROM agent_feedback_requests WHERE id = ?',
             )
             .bind(feedbackRequestId)
             .first<any>();
@@ -537,6 +601,37 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
               messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
               response: responseContent,
             });
+          }
+
+          // Must be approved before we issue feedbackAuth
+          const approved = Number(requestRecord.approved || 0) === 1;
+          if (!approved) {
+            responseContent.error = 'Feedback request is not approved yet';
+            responseContent.skill = skillId;
+            res.set(getCorsHeaders());
+            return res.status(400).json({
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            });
+          }
+
+          // If approval has an expiry window, enforce it
+          const approvedOn = typeof requestRecord.approved_on_date === 'number' ? requestRecord.approved_on_date : null;
+          const approvedForDays = typeof requestRecord.approved_for_days === 'number' ? requestRecord.approved_for_days : null;
+          if (approvedOn && approvedForDays && approvedForDays > 0) {
+            const nowSec = Math.floor(Date.now() / 1000);
+            const expiresAt = approvedOn + approvedForDays * 24 * 60 * 60;
+            if (nowSec > expiresAt) {
+              responseContent.error = 'Feedback request approval has expired';
+              responseContent.skill = skillId;
+              res.set(getCorsHeaders());
+              return res.status(400).json({
+                success: false,
+                messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+                response: responseContent,
+              });
+            }
           }
 
           clientAddress = requestRecord.client_address;

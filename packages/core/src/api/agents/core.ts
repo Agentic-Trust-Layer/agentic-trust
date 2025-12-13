@@ -58,8 +58,8 @@ function assertAddress(value: string, field: string): void {
 }
 
 function assertMode(mode: string | undefined): asserts mode is AgentOperationMode {
-  if (mode !== 'aa' && mode !== 'eoa') {
-    throw new AgentApiError('mode must be either "aa" or "eoa"', 400);
+  if (mode !== 'smartAccount' && mode !== 'eoa') {
+    throw new AgentApiError('mode must be either "smartAccount" or "eoa"', 400);
   }
 }
 
@@ -156,13 +156,13 @@ export async function createAgentCore(
 
   const client = await resolveClient(ctx);
 
-  if (mode === 'aa') {
+  if (mode === 'smartAccount') {
     if (!input.account) {
-      throw new AgentApiError('account is required for AA creation', 400);
+      throw new AgentApiError('account is required for SmartAccount creation', 400);
     }
     assertAddress(input.account, 'account');
 
-    const result = await client.agents.createAgentForAA({
+    const result = await client.agents.createAgentWithSmartAccountOwnerUsingWallet({
       agentName: input.agentName,
       agentAccount: input.agentAccount as `0x${string}`,
       agentCategory: input.agentCategory,
@@ -177,7 +177,7 @@ export async function createAgentCore(
     return {
       success: true,
       operation: 'create',
-      mode: 'aa',
+      mode: 'smartAccount',
       chainId: result.chainId,
       tokenUri: result.tokenUri,
       bundlerUrl: result.bundlerUrl,
@@ -226,7 +226,7 @@ export async function createAgentCore(
     transaction,
   };
 }
-const SUPPORTED_UPDATE_MODES: AgentOperationMode[] = ['aa'];
+const SUPPORTED_UPDATE_MODES: AgentOperationMode[] = ['smartAccount'];
 
 function normalizeRegistrationPayload(
   registration: unknown,
@@ -263,7 +263,7 @@ export async function updateAgentRegistrationCore(
     throw new AgentApiError('did8004 parameter is required', 400);
   }
 
-  const mode: AgentOperationMode = input.mode ?? 'aa';
+  const mode: AgentOperationMode = input.mode ?? 'smartAccount';
   if (!SUPPORTED_UPDATE_MODES.includes(mode)) {
     throw new AgentApiError(
       `mode "${mode}" is not supported for registration updates`,
@@ -297,7 +297,7 @@ export async function updateAgentRegistrationCore(
   return {
     success: true,
     operation: 'update',
-    mode: 'aa',
+    mode: 'smartAccount',
     chainId: prepared.chainId,
     cid: uploadResult.cid,
     tokenUri: uploadResult.tokenUri,
@@ -447,10 +447,10 @@ export async function prepareValidationRequestCore(
     throw new AgentApiError('did8004 parameter is required', 400);
   }
 
-  const mode: AgentOperationMode = input.mode ?? 'aa';
-  if (mode !== 'aa') {
+  const mode: AgentOperationMode = input.mode ?? 'smartAccount';
+  if (mode !== 'smartAccount') {
     throw new AgentApiError(
-      `mode "${mode}" is not supported for validation requests. Only "aa" mode is supported.`,
+      `mode "${mode}" is not supported for validation requests. Only "smartAccount" mode is supported.`,
       400,
     );
   }
@@ -555,7 +555,7 @@ export async function prepareValidationRequestCore(
   return {
     success: true,
     operation: 'update',
-    mode: 'aa',
+    mode: 'smartAccount',
     chainId: parsed.chainId,
     bundlerUrl,
     calls: [call],

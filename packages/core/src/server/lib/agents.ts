@@ -313,7 +313,7 @@ export class AgentsAPI {
    * @param params - Agent creation parameters
    * @returns Created agent ID and transaction hash, or prepared transaction for client-side signing
    */
-  async createAgentForEOA(params: {
+  async createAgentWithEOAOwnerUsingWallet(params: {
     agentName: string;
     agentAccount: `0x${string}`;
     agentCategory?: string;
@@ -365,7 +365,7 @@ export class AgentsAPI {
       // Create registration JSON and upload to IPFS
       let tokenUri = '';
       const chainId: number = targetChainId;
-      console.log('[agents.createAgentForEOA] Using chainId', chainId);
+      console.log('[agents.createAgentWithEOAOwnerUsingWallet] Using chainId', chainId);
       
       try {
         const registrationJSON = createRegistrationJSON({
@@ -496,9 +496,9 @@ export class AgentsAPI {
 
   /**
    * Create a new agent for EOA using the server admin private key.
-   * Same interface as createAgentForEOA, but always executes the transaction server-side.
+   * Same interface as createAgentWithEOAOwnerUsingWallet, but always executes the transaction server-side.
    */
-  async createAgentForEOAPK(params: {
+  async createAgentWithEOAOwnerUsingPrivateKey(params: {
     agentName: string;
     agentAccount: `0x${string}`;
     agentCategory?: string;
@@ -572,7 +572,8 @@ export class AgentsAPI {
 
     return result;
   }
-  async createAgentForAA(params: {
+
+  async createAgentWithSmartAccountOwnerUsingWallet(params: {
     agentName: string;
     agentAccount: `0x${string}`;
     agentCategory?: string;
@@ -611,7 +612,7 @@ export class AgentsAPI {
 
     // Create registration JSON and upload to IPFS
     let tokenUri = '';
-    console.log('[agents.createAgentForAA] Using chainId', chainId);
+    console.log('[agents.createAgentWithSmartAccountOwnerUsingWallet] Using chainId', chainId);
     
     try {
       const registrationJSON = createRegistrationJSON({
@@ -679,9 +680,9 @@ export class AgentsAPI {
 
   /**
    * Create a new agent for AA and execute via server admin private key (no client prompts).
-   * Same input interface as createAgentForAA, but performs the UserOperation using the server key.
+   * Same input interface as createAgentWithSmartAccountOwnerUsingWallet, but performs the UserOperation using the server key.
    */
-  async createAgentForAAPK(params: {
+  async createAgentWithSmartAccountOwnerUsingPrivateKey(params: {
     agentName: string;
     agentAccount: `0x${string}`;
     agentCategory?: string;
@@ -710,7 +711,7 @@ export class AgentsAPI {
     }
 
     // First reuse existing preparation to get register calls
-    const prepared = await this.createAgentForAA({
+    const prepared = await this.createAgentWithSmartAccountOwnerUsingWallet({
       ...params,
       chainId,
     });
@@ -796,7 +797,7 @@ export class AgentsAPI {
               value: (call as any).value ?? 0n,
             }));
 
-            console.info('[createAgentForAAPK] Submitting L1 ENS metadata calls');
+            console.info('[createAgentWithSmartAccountOwnerUsingPrivateKey] Submitting L1 ENS metadata calls');
             await sendUserOpWithTimeout({
               bundlerUrl,
               chain,
@@ -810,7 +811,7 @@ export class AgentsAPI {
             }
           }
         } else {
-          console.info('[createAgentForAAPK] Running L2 ENS setup via agent account');
+          console.info('[createAgentWithSmartAccountOwnerUsingPrivateKey] Running L2 ENS setup via agent account');
           const { calls: addCalls } = await ensClient.prepareAddAgentNameToOrgCalls({
             orgName: params.ensOptions.orgName,
             agentName: params.agentName,
@@ -827,7 +828,7 @@ export class AgentsAPI {
               value: 'value' in call && typeof call.value === 'bigint' ? call.value : 0n,
             }));
 
-            console.info('[createAgentForAAPK] Submitting L2 ENS subdomain registration');
+            console.info('[createAgentWithSmartAccountOwnerUsingPrivateKey] Submitting L2 ENS subdomain registration');
             await sendUserOpWithTimeout({
               bundlerUrl,
               chain,
@@ -856,7 +857,7 @@ export class AgentsAPI {
               value: (call as any).value ?? 0n,
             }));
 
-            console.info('[createAgentForAAPK] Submitting L2 ENS metadata calls');
+            console.info('[createAgentWithSmartAccountOwnerUsingPrivateKey] Submitting L2 ENS metadata calls');
             await sendUserOpWithTimeout({
               bundlerUrl,
               chain,
@@ -871,12 +872,14 @@ export class AgentsAPI {
           }
         }
       } catch (ensError) {
-        console.warn('[createAgentForAAPK] ENS setup failed:', ensError);
+        console.warn('[createAgentWithSmartAccountOwnerUsingPrivateKey] ENS setup failed:', ensError);
       }
     }
 
     return { txHash: userOperationHash as string, agentId };
   }
+
+ 
   async extractAgentIdFromReceipt(
     receipt: any,
     chainId: number = 11155111
@@ -1496,7 +1499,7 @@ export class AgentsAPI {
     /**
      * Prepare low-level contract calls to update an agent's token URI and/or
      * on-chain metadata. These calls can be executed client-side via a bundler
-     * or wallet, similar to createAgentForAA.
+         * or wallet, similar to createAgentWithSmartAccountOwnerUsingWallet.
      */
     prepareUpdateAgent: async (params: {
       agentId: bigint | string;

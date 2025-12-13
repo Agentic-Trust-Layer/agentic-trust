@@ -7,7 +7,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address } from 'viem';
-import { createAgentWithWallet, getCounterfactualAAAddressByAgentName, createAgentDirect, getDeployedAccountClientByAgentName } from '@agentic-trust/core/client';
+import { createAgentWithWallet, getCounterfactualSmartAccountAddressByAgentName, createAgentDirect, getDeployedAccountClientByAgentName } from '@agentic-trust/core/client';
 import type { Chain } from 'viem';
 import {
   getEnsOrgName,
@@ -465,7 +465,7 @@ export default function AgentRegistrationPage() {
             console.error(
               `[chain] Auto-switch failed for ${chainLabel}. Ensure RPC env vars ` +
                 `${envNames.rpcClient} (client) and ${envNames.rpcServer} (server) are configured. ` +
-                `If you use AA, also set ${envNames.bundlerClient} and ${envNames.bundlerServer}.`,
+                `If you use Smart Accounts, also set ${envNames.bundlerClient} and ${envNames.bundlerServer}.`,
             );
           }
         } catch (envErr) {
@@ -475,7 +475,7 @@ export default function AgentRegistrationPage() {
     })();
   }, [selectedChainId, synchronizeProvidersWithChain, eip1193Provider, eoaConnected, CHAIN_METADATA]);
 
-  // Set agent account in EOA mode (when AA is not enabled)
+  // Set agent account in EOA mode (when SmartAccount is not enabled)
   useEffect(() => {
     if (!useAA) {
       // Priority: use wallet address if available, otherwise fetch admin EOA address in private key mode
@@ -507,7 +507,7 @@ export default function AgentRegistrationPage() {
     }
   }, [eoaAddress, useAA, privateKeyMode]);
 
-  // Auto-compute AA address as the agent name changes
+  // Auto-compute SmartAccount address as the agent name changes
   // Use server-side endpoint for private key mode, client-side function for wallet mode
   useEffect(() => {
     if (!useAA) {
@@ -541,7 +541,7 @@ export default function AgentRegistrationPage() {
           
           if (!resp.ok) {
             const err = await resp.json().catch(() => ({}));
-            console.warn('Server-side AA address computation failed:', err);
+            console.warn('Server-side SmartAccount address computation failed:', err);
             if (!cancelled) {
               setAaAddress(null);
               setCreateForm(prev => ({ ...prev, agentAccount: '' }));
@@ -556,7 +556,7 @@ export default function AgentRegistrationPage() {
             setCreateForm(prev => ({ ...prev, agentAccount: computed }));
           }
         } catch (error) {
-          console.error('Error computing AA address (server-side):', error);
+          console.error('Error computing SmartAccount address (server-side):', error);
           if (!cancelled) {
             setAaAddress(null);
             setCreateForm(prev => ({ ...prev, agentAccount: '' }));
@@ -585,8 +585,8 @@ export default function AgentRegistrationPage() {
 
     (async () => {
       try {
-        // Use client-side function to compute AA address with wallet provider
-        const computed = await getCounterfactualAAAddressByAgentName(
+        // Use client-side function to compute SmartAccount address with wallet provider
+        const computed = await getCounterfactualSmartAccountAddressByAgentName(
           name,
           eoaAddress as `0x${string}`,
           {
@@ -599,7 +599,7 @@ export default function AgentRegistrationPage() {
           setCreateForm(prev => ({ ...prev, agentAccount: computed }));
         }
       } catch (error) {
-        console.error('Error computing AA address (client-side):', error);
+        console.error('Error computing SmartAccount address (client-side):', error);
         if (!cancelled) {
           setAaAddress(null);
           setCreateForm(prev => ({ ...prev, agentAccount: '' }));
@@ -876,10 +876,10 @@ export default function AgentRegistrationPage() {
       // Use the agent account from the form by default
       let agentAccountToUse = createForm.agentAccount as `0x${string}`;
 
-      // If using AA, compute or confirm the AA address
+      // If using SmartAccount, compute or confirm the SmartAccount address
       if (useAA) {
         if (privateKeyMode) {
-          // Private key mode: prefer already-computed AA address from state,
+          // Private key mode: prefer already-computed SmartAccount address from state,
           // otherwise call the server-side endpoint to compute it.
           let computedAa = aaAddress;
 
@@ -898,7 +898,7 @@ export default function AgentRegistrationPage() {
               throw new Error(
                 err?.message ||
                   err?.error ||
-                  'Server-side AA address computation failed. Ensure private key mode is configured.',
+                  'Server-side SmartAccount address computation failed. Ensure private key mode is configured.',
               );
             }
 
@@ -907,22 +907,22 @@ export default function AgentRegistrationPage() {
           }
 
           if (!computedAa || !computedAa.startsWith('0x')) {
-            throw new Error('Failed to compute AA address. Please retry.');
+            throw new Error('Failed to compute SmartAccount address. Please retry.');
           }
 
           setAaAddress(computedAa);
           agentAccountToUse = computedAa as `0x${string}`;
-          setSuccess('Using Account Abstraction address (server-side)…');
+          setSuccess('Using Smart Account address (server-side)…');
         } else {
-          // Wallet mode: compute AA address using wallet provider (client-side)
+          // Wallet mode: compute SmartAccount address using wallet provider (client-side)
           if (!eip1193Provider) {
-            throw new Error('Wallet provider is required to compute AA address. Please connect your wallet.');
+            throw new Error('Wallet provider is required to compute SmartAccount address. Please connect your wallet.');
           }
           if (!eoaAddress) {
-            throw new Error('EOA address is required to compute AA address.');
+            throw new Error('EOA address is required to compute SmartAccount address.');
           }
 
-          const computedAa = await getCounterfactualAAAddressByAgentName(
+          const computedAa = await getCounterfactualSmartAccountAddressByAgentName(
             createForm.agentName,
             eoaAddress as `0x${string}`,
             {
@@ -931,21 +931,21 @@ export default function AgentRegistrationPage() {
             },
           );
           if (!computedAa || !computedAa.startsWith('0x')) {
-            throw new Error('Failed to compute AA address. Please retry.');
+            throw new Error('Failed to compute SmartAccount address. Please retry.');
           }
           setAaAddress(computedAa);
           agentAccountToUse = computedAa as `0x${string}`;
-          setSuccess('Using Account Abstraction address...');
+          setSuccess('Using Smart Account address...');
         }
       }
 
       // Validate agentAccountToUse before proceeding
       if (!agentAccountToUse || agentAccountToUse.trim() === '' || !agentAccountToUse.startsWith('0x')) {
-        throw new Error('Agent account address is required. Please provide an agent account address or enable Account Abstraction.');
+        throw new Error('Agent account address is required. Please provide an agent account address or enable Smart Account.');
       }
 
 
-      // Use Account Abstraction (AA) creation path
+      // Use SmartAccount creation path
         if (privateKeyMode) {
           // Server-only path (admin private key signs on server)
           // Build endpoints array using provided values or auto-generated defaults
@@ -966,7 +966,7 @@ export default function AgentRegistrationPage() {
           }
 
           const directPlan = await createAgentDirect({
-            mode: 'aa',
+            mode: 'smartAccount',
             agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
             agentCategory: createForm.agentCategory || undefined,
@@ -989,7 +989,7 @@ export default function AgentRegistrationPage() {
           } else if (directPlan.txHash) {
             setSuccess(`Agent creation transaction confirmed! TX: ${directPlan.txHash} (Agent ID will be available after indexing)`);
           } else {
-            setSuccess('Agent AA creation requested. Check server logs for details.');
+            setSuccess('Agent SmartAccount creation requested. Check server logs for details.');
           }
 
           // Note: Validation request is skipped in private key mode as we don't have wallet provider

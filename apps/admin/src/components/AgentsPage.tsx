@@ -26,6 +26,8 @@ export type AgentsPageAgent = {
   agentName?: string | null;
   agentAccount?: string | null;
   agentCategory?: string | null;
+  active?: boolean | null;
+  eoaOwner?: string | null;
   ownerAddress?: string | null;
   tokenUri?: string | null;
   description?: string | null;
@@ -160,20 +162,17 @@ export function AgentsPage({
   onClear,
   onPageChange,
 }: AgentsPageProps) {
-  // Debug logging for agent names
-  console.log('[AgentsPage] Received agents:', {
-    count: agents.length,
-    agentNames: agents.map((a) => ({
-      agentId: a.agentId,
-      agentName: a.agentName,
-      agentNameType: typeof a.agentName,
-      agentNameValue: JSON.stringify(a.agentName),
-      agentNameLength: typeof a.agentName === 'string' ? a.agentName.length : 0,
-    })),
-  });
+
 
   // Ensure filters is never undefined
   const filters = filtersProp || DEFAULT_FILTERS;
+
+  // If user disconnects, force "My agents" off (it depends on ownedMap from an active session)
+  useEffect(() => {
+    if (!isConnected && filters.mineOnly) {
+      onFilterChange('mineOnly', false);
+    }
+  }, [isConnected, filters.mineOnly, onFilterChange]);
 
   const [activeDialog, setActiveDialog] = useState<{ agent: Agent; action: AgentActionType } | null>(null);
   const [registrationPreview, setRegistrationPreview] = useState<{
@@ -343,6 +342,16 @@ export function AgentsPage({
 
   // Client-side filtering for address, mineOnly, and 8004-agent name suffix (applied on the client)
   const filteredAgents = useMemo(() => {
+    const normalizeAddr = (value: unknown): string => {
+      if (typeof value !== 'string') return '';
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+      // Handle common structured formats like eip155:chainId:0x..., did:pkh:eip155:...:0x...
+      const last = trimmed.includes(':') ? trimmed.split(':').pop() ?? trimmed : trimmed;
+      const candidate = last.trim();
+      return candidate.toLowerCase();
+    };
+
     let result = agents;
     const addressQuery = filters.address.trim().toLowerCase();
     if (addressQuery) {
@@ -351,7 +360,31 @@ export function AgentsPage({
       );
     }
     if (filters.mineOnly) {
-      result = result.filter(agent => ownedMap[`${agent.chainId}:${agent.agentId}`]);
+      const eoa = normalizeAddr(walletAddress);
+      const before = result.length;
+      result = result.filter((agent) => {
+        const eoaOwner = normalizeAddr(agent.eoaOwner);
+        const agentOwner = normalizeAddr((agent as any).agentOwner);
+        const ownerAddress = normalizeAddr((agent as any).ownerAddress);
+        return Boolean(eoa) && (eoaOwner === eoa || agentOwner === eoa || ownerAddress === eoa);
+      });
+
+      console.log('[AgentsPage][MyAgents]', {
+        eoa,
+        before,
+        after: result.length,
+        hasWalletAddress: Boolean(walletAddress),
+        missingEoaOwnerCount: agents.filter((a) => !normalizeAddr(a.eoaOwner)).length,
+        sampleEoaOwners: agents.slice(0, 10).map((a) => ({
+          key: `${a.chainId}:${a.agentId}`,
+          eoaOwner: a.eoaOwner ?? null,
+          agentOwner: (a as any).agentOwner ?? null,
+          normalized: {
+            eoaOwner: normalizeAddr(a.eoaOwner) || null,
+            agentOwner: normalizeAddr((a as any).agentOwner) || null,
+          },
+        })),
+      });
     }
     if (filters.protocol === 'a2a') {
       result = result.filter(agent => Boolean(agent.a2aEndpoint));
@@ -390,6 +423,7 @@ export function AgentsPage({
     filters.path,
     filters.only8004Agents,
     ownedMap,
+    walletAddress,
   ]);
 
   const totalAgentsLabel =
@@ -1198,7 +1232,7 @@ export function AgentsPage({
                     const did8004 = buildDid8004(agent.chainId, agent.agentId);
                     const chain = getChainForId(agent.chainId);
 
-                    // Rebuild AA account client for this agent using wallet + bundler
+                    // Rebuild SmartAccount client for this agent using wallet + bundler
                     const bundlerEnv = getBundlerUrlForId(agent.chainId);
                     if (!bundlerEnv) {
                       setRegistrationEditError(
@@ -2243,7 +2277,7 @@ export function AgentsPage({
                       throw new Error('No feedbackAuth returned by provider');
                     }
 
-                    // Build AA account client for this agent using the connected wallet
+                    // Build SmartAccount client for this agent using the connected wallet
                     const chain = getChainForId(resolvedChainId);
                     const bundlerEnv = getBundlerUrlForId(resolvedChainId);
                     if (!bundlerEnv) {
@@ -2323,7 +2357,7 @@ export function AgentsPage({
         return (
           <>
             <p style={{ marginTop: 0 }}>
-              Session packages describe delegated AA access and can be used by tools to perform actions on behalf of this agent.
+              Session packages describe delegated SmartAccount access and can be used by tools to perform actions on behalf of this agent.
             </p>
             <div
               style={{
@@ -3373,31 +3407,65 @@ export function AgentsPage({
                 >
                   {isOwned && (
                     <>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          const did8004 = buildDid8004(agent.chainId, Number(agent.agentId));
-                          setNavigatingToAgent(did8004);
-                          router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
-                        }}
-                        aria-label={`Manage Agent ${agent.agentId}`}
-                        title="Manage Agent"
-                        style={{
-                          width: '32px',
-                          height: '32px',
-                          borderRadius: '999px',
-                          border: `1px solid ${palette.border}`,
-                          backgroundColor: palette.surface,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: 'pointer',
-                          boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
-                        }}
-                      >
-                        ⚙️
-                      </button>
+                      {(() => {
+                        const raw = (agent as any).active ?? (agent as any).agentActive;
+                        const isActive =
+                          typeof raw === 'boolean'
+                            ? raw
+                            : typeof raw === 'string'
+                              ? raw.toLowerCase() === 'true'
+                              : true;
+                        const fg = isActive ? '#166534' : '#1e3a8a'; // green / dark blue
+                        const bg = isActive ? 'rgba(22,101,52,0.10)' : 'rgba(30,58,138,0.10)';
+                        const border = isActive ? 'rgba(22,101,52,0.35)' : 'rgba(30,58,138,0.35)';
+                        return (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const did8004 = buildDid8004(agent.chainId, Number(agent.agentId));
+                              setNavigatingToAgent(did8004);
+                              router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
+                            }}
+                            aria-label={`Edit Agent ${agent.agentId}`}
+                            title={isActive ? 'Edit agent (active)' : 'Edit agent (inactive)'}
+                            style={{
+                              width: '32px',
+                              height: '32px',
+                              borderRadius: '999px',
+                              border: `1px solid ${border}`,
+                              backgroundColor: bg,
+                              color: fg,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              boxShadow: '0 2px 6px rgba(15,23,42,0.15)',
+                              lineHeight: 1,
+                            }}
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                              aria-hidden="true"
+                              focusable="false"
+                              style={{ display: 'block' }}
+                            >
+                              <path
+                                d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25Z"
+                                fill="currentColor"
+                              />
+                              <path
+                                d="M20.71 7.04a1.003 1.003 0 0 0 0-1.42l-2.34-2.34a1.003 1.003 0 0 0-1.42 0l-1.83 1.83 3.75 3.75 1.84-1.82Z"
+                                fill="currentColor"
+                              />
+                            </svg>
+                          </button>
+                        );
+                      })()}
                     </>
                   )}
                 </div>

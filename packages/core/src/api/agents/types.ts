@@ -1,5 +1,5 @@
 export type AgentOperationKind = 'create' | 'update';
-export type AgentOperationMode = 'aa' | 'eoa';
+export type AgentOperationMode = 'smartAccount' | 'eoa';
 
 export interface AgentOperationCall {
   to: string;

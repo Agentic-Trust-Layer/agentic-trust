@@ -1,0 +1,4 @@
+export declare function searchAgentsGetRouteHandler(): (req: Request) => Promise<any>;
+export declare function searchAgentsPostRouteHandler(): (req: Request) => Promise<any>;
+export declare function semanticAgentSearchPostRouteHandler(): (req: Request) => Promise<any>;
+//# sourceMappingURL=next.d.ts.map

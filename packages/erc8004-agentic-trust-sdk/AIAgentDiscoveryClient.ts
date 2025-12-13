@@ -17,6 +17,7 @@ export interface AgentData {
   agentAccount?: string;
   agentOwner?: string;
   eoaOwner?: string | null;
+  agentCategory?: string | null;
   didIdentity?: string | null;
   didAccount?: string | null;
   didName?: string | null;
@@ -457,6 +458,11 @@ export class AIAgentDiscoveryClient {
       normalized.eoaOwner = eoaOwner;
     }
 
+    const agentCategory = toOptionalStringOrNull(record.agentCategory);
+    if (agentCategory !== undefined) {
+      normalized.agentCategory = agentCategory;
+    }
+
     const didIdentity = toOptionalStringOrNull(record.didIdentity);
     if (didIdentity !== undefined) {
       normalized.didIdentity = didIdentity;
@@ -536,22 +542,9 @@ export class AIAgentDiscoveryClient {
     const directAgentName = typeof rawAgentName === 'string' && rawAgentName.trim().length > 0
       ? rawAgentName.trim()
       : undefined;
-    
-    console.log('[AIAgentDiscoveryClient.normalizeAgent] Processing agentName:', {
-      agentId: normalized.agentId,
-      rawAgentName,
-      rawAgentNameType: typeof rawAgentName,
-      rawAgentNameValue: JSON.stringify(rawAgentName),
-      directAgentName,
-      hasParsedMetadata: Object.keys(parsedMetadata).length > 0,
-      parsedMetadataKeys: Object.keys(parsedMetadata),
-      parsedMetadataName: parsedMetadata.name,
-      parsedMetadataAgentName: parsedMetadata.agentName,
-    });
-    
+
     if (directAgentName) {
       agentName = directAgentName;
-      console.log('[AIAgentDiscoveryClient.normalizeAgent] Using directAgentName:', agentName);
     } else {
       // Check parsedMetadata for name or agentName
       const metadataName = typeof parsedMetadata.name === 'string' && parsedMetadata.name.trim().length > 0
@@ -608,7 +601,9 @@ export class AIAgentDiscoveryClient {
           agentId
           agentAccount
           agentOwner
+          eoaOwner
           agentName
+          agentCategory
           didIdentity
           didAccount
           didName
@@ -713,7 +708,9 @@ export class AIAgentDiscoveryClient {
               agentId
               agentAccount
               agentOwner
+              eoaOwner
               agentName
+              agentCategory
               didIdentity
               didAccount
               didName
@@ -868,7 +865,9 @@ export class AIAgentDiscoveryClient {
                 agentId
                 agentAccount
                 agentOwner
+                eoaOwner
                 agentName
+                agentCategory
                 didIdentity
                 didAccount
                 didName
@@ -1013,7 +1012,9 @@ export class AIAgentDiscoveryClient {
       agentId
       agentAccount
       agentOwner
+      eoaOwner
       agentName
+      agentCategory
       didIdentity
       didAccount
       didName
@@ -1118,7 +1119,9 @@ export class AIAgentDiscoveryClient {
               agentId
               agentAccount
               agentOwner
+              eoaOwner
               agentName
+              agentCategory
               didIdentity
               didAccount
               didName
@@ -1260,7 +1263,9 @@ export class AIAgentDiscoveryClient {
             agentId
             agentAccount
             agentOwner
+            eoaOwner
             agentName
+            agentCategory
             didIdentity
             didAccount
             didName
@@ -1318,23 +1323,7 @@ export class AIAgentDiscoveryClient {
     const agents = (result.agents ?? []).map((agent) => {
       const rawAgent = agent as AgentData;
       const normalized = this.normalizeAgent(rawAgent);
-      console.log('[AIAgentDiscoveryClient.searchAgentsGraph] Normalized agent:', {
-        agentId: normalized.agentId,
-        rawAgentName: rawAgent.agentName,
-        normalizedAgentName: normalized.agentName,
-        agentNameType: typeof normalized.agentName,
-        hasRawJson: !!normalized.rawJson,
-      });
       return normalized;
-    });
-
-    console.log('[AIAgentDiscoveryClient.searchAgentsGraph] Returning agents:', {
-      count: agents.length,
-      agentNames: agents.map(a => ({
-        agentId: a.agentId,
-        agentName: a.agentName,
-        agentNameType: typeof a.agentName,
-      })),
     });
 
     return {
@@ -1650,7 +1639,9 @@ export class AIAgentDiscoveryClient {
             agentId
             agentAccount
             agentOwner
+            eoaOwner
             agentName
+            agentCategory
             didIdentity
             didAccount
             didName
@@ -1759,7 +1750,9 @@ export class AIAgentDiscoveryClient {
           agentId
           agentAccount
           agentOwner
+          eoaOwner
           agentName
+          agentCategory
           didIdentity
           didAccount
           didName
@@ -1808,7 +1801,9 @@ export class AIAgentDiscoveryClient {
           agentId
           agentAccount
           agentOwner
+          eoaOwner
           agentName
+          agentCategory
           didIdentity
       didAccount
       didName
@@ -1863,7 +1858,9 @@ export class AIAgentDiscoveryClient {
           agentId
           agentAccount
           agentOwner
+          eoaOwner
           agentName
+          agentCategory
           didIdentity
           didAccount
           didName
@@ -2162,6 +2159,7 @@ export class AIAgentDiscoveryClient {
             agentAccount
             agentOwner
             agentName
+            agentCategory
             didIdentity
             didAccount
             didName

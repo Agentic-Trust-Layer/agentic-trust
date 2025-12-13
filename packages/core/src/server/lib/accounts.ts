@@ -290,7 +290,7 @@ export async function getAgentAccountByAgentName(agentName: string): Promise<Age
  * @param chainId - Chain ID (defaults to DEFAULT_CHAIN_ID)
  * @returns The counterfactual AA address
  */
-export async function getCounterfactualAAAddressByAgentName(
+export async function getCounterfactualSmartAccountAddressByAgentName(
   agentName: string,
   chainId?: number
 ): Promise<`0x${string}`> {
@@ -361,4 +361,14 @@ export async function getCounterfactualAAAddressByAgentName(
 
   const accountClient = await toMetaMaskSmartAccount(clientConfig as any);
   return accountClient.address as `0x${string}`;
+}
+
+/**
+ * @deprecated Use getCounterfactualSmartAccountAddressByAgentName
+ */
+export async function getCounterfactualAAAddressByAgentName(
+  agentName: string,
+  chainId?: number,
+): Promise<`0x${string}`> {
+  return getCounterfactualSmartAccountAddressByAgentName(agentName, chainId);
 }

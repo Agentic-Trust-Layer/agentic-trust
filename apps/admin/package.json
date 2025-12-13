@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p ${PORT:-3002}",
-    "prebuild": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true })\"",
+    "dev:fast": "next dev --turbo -p ${PORT:-3002}",
+    "prebuild": "node -e \"require('fs').rmSync('.next/cache',{ recursive:true, force:true })\"",
     "build": "next build",
+    "build:clean": "node -e \"require('fs').rmSync('.next',{ recursive:true, force:true })\" && next build",
     "start": "next start -p ${PORT:-3002}",
     "lint": "next lint",
     "type-check": "tsc --noEmit",

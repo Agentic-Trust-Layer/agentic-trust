@@ -1,5 +1,8 @@
 'use client';
 
+// Avoid static prerendering for this route to speed up `next build` page-data collection.
+export const dynamic = 'force-dynamic';
+
 import React, { useEffect, useMemo, useCallback, useState } from 'react';
 import {
   Alert,
@@ -33,6 +36,7 @@ import {
   Typography,
   CircularProgress,
 } from '@mui/material';
+import Rating from '@mui/material/Rating';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
@@ -44,7 +48,7 @@ import CreateOutlinedIcon from '@mui/icons-material/CreateOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { useRouter } from 'next/navigation';
-import { buildDid8004 } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
 
 type Message = {
   id: number;
@@ -136,6 +140,16 @@ export default function MessagesPage() {
   const [approveError, setApproveError] = useState<string | null>(null);
   const [approveSuccess, setApproveSuccess] = useState<string | null>(null);
   // Approval flow does not issue on-chain feedbackAuth; it only marks the request approved in ATP DB.
+
+  const [feedbackAuthLoading, setFeedbackAuthLoading] = useState(false);
+  const [feedbackAuthError, setFeedbackAuthError] = useState<string | null>(null);
+  const [feedbackAuthValue, setFeedbackAuthValue] = useState<string | null>(null);
+
+  const [giveFeedbackOpen, setGiveFeedbackOpen] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState<number>(5);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
+  const [feedbackSuccess, setFeedbackSuccess] = useState(false);
 
   const fetchMessages = useCallback(async (agentKeyOverride?: string) => {
     const key = agentKeyOverride ?? selectedAgentKey;
@@ -232,6 +246,114 @@ export default function MessagesPage() {
     if (!selectedMessageId) return null;
     return messages.find((m) => m.id === selectedMessageId) ?? null;
   }, [messages, selectedMessageId]);
+
+  const selectedMessageTargetDid = useMemo(() => {
+    if (!selectedMessage) return null;
+    // For feedback_request_approved, the sender is the target agent that will issue feedbackAuth.
+    const did = normalizeDid(selectedMessage.fromAgentDid);
+    return did || null;
+  }, [selectedMessage]);
+
+  const selectedMessageTargetParsed = useMemo(() => {
+    if (!selectedMessageTargetDid) return null;
+    if (!selectedMessageTargetDid.startsWith('did:8004:')) return null;
+    try {
+      return parseDid8004(selectedMessageTargetDid);
+    } catch {
+      return null;
+    }
+  }, [selectedMessageTargetDid]);
+
+  const selectedMessageFeedbackRequestId = useMemo(() => {
+    if (!selectedMessage?.contextId) return null;
+    const n = Number(selectedMessage.contextId);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, [selectedMessage]);
+
+  const requestFeedbackAuthForSelectedMessage = useCallback(async () => {
+    if (!selectedMessage) return;
+    if (selectedMessage.contextType !== 'feedback_request_approved') return;
+    if (!walletAddress) {
+      setFeedbackAuthError('Wallet address not available. Please connect.');
+      return;
+    }
+    if (!selectedMessageTargetDid || !selectedMessageTargetParsed) {
+      setFeedbackAuthError('Target agent DID is missing or invalid.');
+      return;
+    }
+    if (!selectedMessageFeedbackRequestId) {
+      setFeedbackAuthError('feedbackRequestId is missing on this message.');
+      return;
+    }
+
+    setFeedbackAuthLoading(true);
+    setFeedbackAuthError(null);
+    setFeedbackAuthValue(null);
+
+    try {
+      const response = await fetch(`/api/agents/${encodeURIComponent(selectedMessageTargetDid)}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skillId: 'agent.feedback.requestAuth',
+          payload: {
+            // Worker will derive clientAddress/agentId/chainId from the stored request record
+            feedbackRequestId: selectedMessageFeedbackRequestId,
+            clientAddress: walletAddress,
+            chainId: selectedMessageTargetParsed.chainId,
+            expirySeconds: 30 * 24 * 60 * 60,
+          },
+          metadata: {
+            source: 'admin-app',
+            timestamp: new Date().toISOString(),
+          },
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.response?.error || 'Failed to request feedback authorization');
+      }
+
+      const auth =
+        data?.response?.feedbackAuth ??
+        data?.feedbackAuth ??
+        null;
+
+      if (!auth || (typeof auth === 'string' && auth.trim() === '0x0')) {
+        throw new Error('No feedbackAuth returned');
+      }
+
+      setFeedbackAuthValue(String(auth));
+    } catch (err: any) {
+      setFeedbackAuthError(err?.message || 'Failed to request feedback authorization');
+    } finally {
+      setFeedbackAuthLoading(false);
+    }
+  }, [
+    selectedMessage,
+    selectedMessageTargetDid,
+    selectedMessageTargetParsed,
+    selectedMessageFeedbackRequestId,
+    walletAddress,
+  ]);
+
+  useEffect(() => {
+    // Reset per-message feedbackAuth state whenever selection changes
+    setFeedbackAuthLoading(false);
+    setFeedbackAuthError(null);
+    setFeedbackAuthValue(null);
+    setGiveFeedbackOpen(false);
+    setFeedbackSuccess(false);
+    setFeedbackComment('');
+    setFeedbackRating(5);
+    // Auto-fetch feedbackAuth for approved messages
+    if (selectedMessage?.contextType === 'feedback_request_approved') {
+      // fire-and-forget; errors shown in UI
+      requestFeedbackAuthForSelectedMessage();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMessageId]);
 
   const visibleFolders = useMemo(() => {
     const q = folderSearch.trim().toLowerCase();
@@ -895,18 +1017,61 @@ export default function MessagesPage() {
                           <Typography variant="body2" color="text.secondary">
                             <strong>From:</strong>{' '}
                             {selectedMessage.fromAgentName ||
-                              selectedMessage.fromAgentDid ||
+                              (selectedMessage.fromAgentDid ? displayDid(selectedMessage.fromAgentDid) : null) ||
                               selectedMessage.fromClientAddress ||
                               'Unknown'}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
                             <strong>To:</strong>{' '}
                             {selectedMessage.toAgentName ||
-                              selectedMessage.toAgentDid ||
+                              (selectedMessage.toAgentDid ? displayDid(selectedMessage.toAgentDid) : null) ||
                               selectedMessage.toClientAddress ||
                               'Unknown'}
                           </Typography>
                         </Stack>
+
+                        {mailboxMode === 'inbox' &&
+                          selectedMessage.contextType === 'feedback_request_approved' && (
+                            <Box>
+                              <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+                                <Button
+                                  variant="outlined"
+                                  onClick={requestFeedbackAuthForSelectedMessage}
+                                  disabled={feedbackAuthLoading}
+                                >
+                                  {feedbackAuthLoading ? 'Checking feedback auth…' : 'Refresh feedback auth'}
+                                </Button>
+                                <Button
+                                  variant="contained"
+                                  onClick={() => setGiveFeedbackOpen(true)}
+                                  disabled={
+                                    feedbackAuthLoading ||
+                                    !feedbackAuthValue ||
+                                    !selectedMessageTargetParsed ||
+                                    !walletAddress ||
+                                    !selectedFolderAgent
+                                  }
+                                  sx={{
+                                    backgroundColor: palette.accent,
+                                    '&:hover': { backgroundColor: palette.border },
+                                  }}
+                                >
+                                  Give Feedback
+                                </Button>
+                              </Stack>
+
+                              {feedbackAuthError && (
+                                <Alert severity="error" sx={{ mt: 1 }}>
+                                  {feedbackAuthError}
+                                </Alert>
+                              )}
+                              {!feedbackAuthError && !feedbackAuthLoading && !feedbackAuthValue && (
+                                <Alert severity="info" sx={{ mt: 1 }}>
+                                  Feedback authorization not available yet.
+                                </Alert>
+                              )}
+                            </Box>
+                          )}
 
                         <Paper variant="outlined" sx={{ p: 2, borderColor: palette.border, backgroundColor: palette.surface }}>
                           <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
@@ -1100,6 +1265,96 @@ export default function MessagesPage() {
             sx={{ backgroundColor: palette.accent, '&:hover': { backgroundColor: palette.border } }}
           >
             {sending ? 'Sending…' : 'Send'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={giveFeedbackOpen} onClose={() => setGiveFeedbackOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          Give Feedback
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            From: {selectedFolderAgent?.agentName || `Agent #${selectedFolderAgent?.agentId || ''}`} · To:{' '}
+            {selectedMessage?.fromAgentName || (selectedMessage?.fromAgentDid ? displayDid(selectedMessage.fromAgentDid) : '—')}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                Rating
+              </Typography>
+              <Rating
+                value={feedbackRating}
+                onChange={(_, v) => setFeedbackRating(v || 0)}
+              />
+            </Box>
+
+            <TextField
+              label="Comment"
+              fullWidth
+              multiline
+              minRows={3}
+              value={feedbackComment}
+              onChange={(e) => setFeedbackComment(e.target.value)}
+            />
+
+            {feedbackSuccess && <Alert severity="success">Feedback submitted.</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGiveFeedbackOpen(false)} disabled={submittingFeedback}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            disabled={
+              submittingFeedback ||
+              !feedbackComment.trim() ||
+              !feedbackAuthValue ||
+              !selectedMessageTargetParsed ||
+              !walletAddress
+            }
+            onClick={async () => {
+              if (!feedbackAuthValue || !selectedMessageTargetParsed || !walletAddress) return;
+              setSubmittingFeedback(true);
+              setFeedbackSuccess(false);
+              try {
+                const score = Math.max(0, Math.min(5, feedbackRating)) * 20;
+                const resp = await fetch('/api/feedback', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    agentId: String(selectedMessageTargetParsed.agentId),
+                    chainId: selectedMessageTargetParsed.chainId,
+                    score,
+                    feedback: feedbackComment.trim(),
+                    feedbackAuth: feedbackAuthValue,
+                    clientAddress: walletAddress,
+                    context: selectedMessageFeedbackRequestId
+                      ? `feedback_request:${selectedMessageFeedbackRequestId}`
+                      : undefined,
+                    capability: selectedFromAgentDid ? `fromAgentDid:${normalizeDid(selectedFromAgentDid)}` : undefined,
+                  }),
+                });
+                if (!resp.ok) {
+                  const errData = await resp.json().catch(() => ({}));
+                  throw new Error(errData.message || errData.error || 'Failed to submit feedback');
+                }
+                setFeedbackSuccess(true);
+                setTimeout(() => {
+                  setGiveFeedbackOpen(false);
+                  setFeedbackSuccess(false);
+                  setFeedbackComment('');
+                  setFeedbackRating(5);
+                }, 800);
+              } catch (e: any) {
+                setFeedbackAuthError(e?.message || 'Failed to submit feedback');
+              } finally {
+                setSubmittingFeedback(false);
+              }
+            }}
+          >
+            {submittingFeedback ? 'Submitting…' : 'Submit'}
           </Button>
         </DialogActions>
       </Dialog>

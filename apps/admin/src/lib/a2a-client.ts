@@ -28,7 +28,7 @@ export interface A2AMessagePayload {
   social_account_id?: string;
   social_account_type?: string;
   eoa_address?: string; // Externally Owned Account address (0x...)
-  aa_address?: string; // Account Abstraction address (0x...)
+  aa_address?: string; // Smart Account address (0x...)
   agent_name?: string;
   agent_account?: string;
   ens_name?: string;

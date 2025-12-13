@@ -51,10 +51,10 @@ export async function POST(request: NextRequest) {
       throw error;
     }
   } catch (error) {
-    console.error('Error computing counterfactual AA address:', error);
+    console.error('Error computing counterfactual SmartAccount address:', error);
     return NextResponse.json(
       {
-        error: 'Failed to compute counterfactual AA address',
+        error: 'Failed to compute counterfactual SmartAccount address',
         message: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }

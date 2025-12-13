@@ -25,7 +25,7 @@ type GetAAAccountClientOptions = {
  * @param options - Options for chain, ethereumProvider, etc.
  * @returns The counterfactual AA address
  */
-export async function getCounterfactualAAAddressByAgentName(
+export async function getCounterfactualSmartAccountAddressByAgentName(
   agentName: string,
   eoaAddress: `0x${string}`,
   options?: GetAAAccountClientOptions
@@ -37,6 +37,17 @@ export async function getCounterfactualAAAddressByAgentName(
     options
   );
   return accountClient.address as `0x${string}`;
+}
+
+/**
+ * @deprecated Use getCounterfactualSmartAccountAddressByAgentName
+ */
+export async function getCounterfactualAAAddressByAgentName(
+  agentName: string,
+  eoaAddress: `0x${string}`,
+  options?: GetAAAccountClientOptions,
+): Promise<`0x${string}`> {
+  return getCounterfactualSmartAccountAddressByAgentName(agentName, eoaAddress, options);
 }
 
 export async function getCounterfactualAccountClientByAgentName(

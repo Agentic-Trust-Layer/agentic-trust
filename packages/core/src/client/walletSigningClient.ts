@@ -19,7 +19,7 @@ export {
   requestAIDValidationWithWallet,
   getCounterfactualAccountClientByAgentName,
   getDeployedAccountClientByAgentName,
-  getCounterfactualAAAddressByAgentName,
+  getCounterfactualSmartAccountAddressByAgentName,
 } from './walletSigning';
 export {
   createAgentDirect,

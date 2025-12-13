@@ -59,7 +59,7 @@ function handleError(error: unknown) {
 }
 
 function assertMode(mode?: string): mode is AgentOperationMode {
-  return mode === 'aa' || mode === 'eoa';
+  return mode === 'smartAccount' || mode === 'eoa';
 }
 
 export function createAgentDirectRouteHandler(
@@ -74,7 +74,7 @@ export function createAgentDirectRouteHandler(
       const modeToUse = modeFromBody ?? defaultMode;
 
       if (!assertMode(modeToUse)) {
-        throw new AgentApiError('mode must be either "aa" or "eoa"', 400);
+        throw new AgentApiError('mode must be either "smartAccount" or "eoa"', 400);
       }
 
       const result: AgentOperationPlan = await createAgentDirectCore(ctx, {

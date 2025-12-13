@@ -8,6 +8,10 @@ export interface AgentInfo {
   chainId: number;
   agentAccount: string;
   agentCategory?: string | null;
+  /**
+   * EOA owner address (if indexed). Used for "My Agents" filtering.
+   */
+  eoaOwner?: string | null;
   agentOwner: string;
   contractAddress?: string | null;
   didIdentity?: string | null;

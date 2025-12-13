@@ -40,6 +40,7 @@ import type { AgentOperationPlan } from '../api/agents/types';
 export {
   getDeployedAccountClientByAgentName,
   getCounterfactualAccountClientByAgentName,
+  getCounterfactualSmartAccountAddressByAgentName,
   getCounterfactualAAAddressByAgentName,
 } from './accountClient';
 
@@ -1039,7 +1040,7 @@ async function createAgentWithWalletAA(
   let data: CreateAgentClientResult;
   try {
     data = await callCreateAgentEndpoint({
-      mode: 'aa',
+      mode: 'smartAccount',
       account: computedAddress,
       agentName: agentData.agentName,
       agentAccount: agentData.agentAccount,
@@ -1057,8 +1058,8 @@ async function createAgentWithWalletAA(
     );
   }
 
-  if (data.mode !== 'aa') {
-    throw new Error('Server returned an unexpected plan mode for AA creation');
+  if (data.mode !== 'smartAccount') {
+    throw new Error('Server returned an unexpected plan mode for SmartAccount creation');
   }
 
   if (data.bundlerUrl) {
@@ -1208,7 +1209,7 @@ export async function updateAgentRegistrationWithWallet(
     prepared = await callUpdateAgentRegistrationEndpoint({
       did8004,
       registration: serialized,
-      mode: 'aa',
+      mode: 'smartAccount',
     });
   } catch (error) {
     throw new Error(
@@ -1454,7 +1455,7 @@ export async function requestNameValidationWithWallet(
       body: JSON.stringify({
         requestUri,
         requestHash,
-        mode: 'aa',
+        mode: 'smartAccount',
         validatorName,
       }),
     });
@@ -1542,7 +1543,7 @@ export async function requestAccountValidationWithWallet(
       body: JSON.stringify({
         requestUri,
         requestHash,
-        mode: 'aa',
+        mode: 'smartAccount',
         validatorName,
       }),
     });
@@ -1630,7 +1631,7 @@ export async function requestAppValidationWithWallet(
       body: JSON.stringify({
         requestUri,
         requestHash,
-        mode: 'aa',
+        mode: 'smartAccount',
         validatorName,
       }),
     });
@@ -1718,7 +1719,7 @@ export async function requestAIDValidationWithWallet(
       body: JSON.stringify({
         requestUri,
         requestHash,
-        mode: 'aa',
+        mode: 'smartAccount',
         validatorName,
       }),
     });

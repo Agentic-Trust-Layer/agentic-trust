@@ -109,6 +109,7 @@ export {
 export {
   getAgentAccountByAgentName,
   extractAgentAccountFromDiscovery,
+  getCounterfactualSmartAccountAddressByAgentName,
   getCounterfactualAAAddressByAgentName,
   type AgentAccountResolution,
 } from './lib/accounts';

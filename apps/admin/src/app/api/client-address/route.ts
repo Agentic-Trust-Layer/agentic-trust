@@ -10,7 +10,7 @@ import { getClientApp } from '@agentic-trust/core/server';
 
 export async function GET(request: NextRequest) {
   try {
-    // Get client app account (session/AA or EOA) from ClientApp
+    // Get client app account (session/SmartAccount or EOA) from ClientApp
     const clientApp = await getClientApp();
     const clientAppAccount = clientApp?.address;
     

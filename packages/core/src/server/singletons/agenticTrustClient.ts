@@ -31,8 +31,33 @@ import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 import type { SessionPackage } from '../../shared/sessionPackage';
 import type { Address } from 'viem';
 
-type OwnerType = 'eoa' | 'aa';
+type OwnerType = 'eoa' | 'smartAccount';
 type ExecutionMode = 'auto' | 'server' | 'client';
+
+const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io';
+const DEFAULT_DISCOVERY_API_KEY =
+  '9073051bb4bb81de87567794f24caf78f77d7985f79bc1cf6f79c33ce2cafdc3';
+
+// Best-known defaults (can be overridden by env vars or explicit params).
+const DEFAULT_REGISTRIES_BY_CHAIN: Record<number, { identityRegistry: `0x${string}`; reputationRegistry: `0x${string}` } | undefined> =
+  {
+    11155111: {
+      identityRegistry: '0x8004a6090Cd10A7288092483047B097295Fb8847',
+      reputationRegistry: '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
+    },
+    84532: {
+      identityRegistry: '0x8004AA63c570c570eBF15376c0dB199918BFe9Fb',
+      reputationRegistry: '0x8004bd8daB57f14Ed299135749a5CB5c42d341BF',
+    },
+  };
+
+function as0xAddress(value: string | undefined): `0x${string}` | undefined {
+  const v = String(value || '').trim();
+  if (!v) return undefined;
+  const with0x = v.startsWith('0x') ? v : `0x${v}`;
+  if (!/^0x[a-fA-F0-9]{40}$/.test(with0x)) return undefined;
+  return with0x as `0x${string}`;
+}
 
 type CreateAgentBaseParams = {
   agentName: string;
@@ -51,16 +76,24 @@ type CreateAgentBaseParams = {
   chainId?: number;
 };
 
-type CreateAgentEOAClientResult = Awaited<ReturnType<AgentsAPI['createAgentForEOA']>>;
-type CreateAgentEOAServerResult = Awaited<ReturnType<AgentsAPI['createAgentForEOAPK']>>;
-type CreateAgentAAClientResult = Awaited<ReturnType<AgentsAPI['createAgentForAA']>>;
-type CreateAgentAAServerResult = Awaited<ReturnType<AgentsAPI['createAgentForAAPK']>>;
+type CreateAgentWithEOAOwnerUsingWalletResult = Awaited<
+  ReturnType<AgentsAPI['createAgentWithEOAOwnerUsingWallet']>
+>;
+type CreateAgentWithEOAOwnerUsingPrivateKeyResult = Awaited<
+  ReturnType<AgentsAPI['createAgentWithEOAOwnerUsingPrivateKey']>
+>;
+type CreateAgentWithSmartAccountOwnerUsingWalletResult = Awaited<
+  ReturnType<AgentsAPI['createAgentWithSmartAccountOwnerUsingWallet']>
+>;
+type CreateAgentWithSmartAccountOwnerUsingPrivateKeyResult = Awaited<
+  ReturnType<AgentsAPI['createAgentWithSmartAccountOwnerUsingPrivateKey']>
+>;
 
 type CreateAgentResult =
-  | CreateAgentEOAClientResult
-  | CreateAgentEOAServerResult
-  | CreateAgentAAClientResult
-  | CreateAgentAAServerResult;
+  | CreateAgentWithEOAOwnerUsingWalletResult
+  | CreateAgentWithEOAOwnerUsingPrivateKeyResult
+  | CreateAgentWithSmartAccountOwnerUsingWalletResult
+  | CreateAgentWithSmartAccountOwnerUsingPrivateKeyResult;
 
 export class AgenticTrustClient {
   private graphQLClient: GraphQLClient;
@@ -68,11 +101,71 @@ export class AgenticTrustClient {
   public agents: AgentsAPI;
   public a2aProtocolProvider: A2AProtocolProviderAPI;
   public veramo: VeramoAPI;
+  /** Resolves when async initialization (Veramo + optional reputation clients) is complete */
+  public readonly ready: Promise<void>;
 
+  constructor(
+    configOrParams:
+      | ApiClientConfig
+      | {
+          privateKey: string;
+          chainId: number;
+          rpcUrl: string;
+          discoveryUrl?: string;
+          discoveryApiKey?: string;
+          identityRegistry?: `0x${string}`;
+          reputationRegistry?: `0x${string}`;
+        },
+  ) {
+    const config: ApiClientConfig =
+      'chainId' in (configOrParams as any)
+        ? (() => {
+            const params = configOrParams as {
+              privateKey: string;
+              chainId: number;
+              rpcUrl: string;
+              discoveryUrl?: string;
+              discoveryApiKey?: string;
+              identityRegistry?: `0x${string}`;
+              reputationRegistry?: `0x${string}`;
+            };
 
+            const chainId = Number(params.chainId);
+            if (!Number.isFinite(chainId)) {
+              throw new Error('chainId is required');
+            }
 
+            const envIdentity = as0xAddress(getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId));
+            const envReputation = as0xAddress(getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', chainId));
+            const baked = DEFAULT_REGISTRIES_BY_CHAIN[chainId];
 
-  private constructor(config: ApiClientConfig) {
+            const identityRegistry =
+              params.identityRegistry || envIdentity || baked?.identityRegistry;
+            const reputationRegistry =
+              params.reputationRegistry || envReputation || baked?.reputationRegistry;
+
+            if (!identityRegistry || !reputationRegistry) {
+              throw new Error(
+                `Missing default registry addresses for chainId=${chainId}. ` +
+                  `Provide identityRegistry/reputationRegistry explicitly or set ` +
+                  `AGENTIC_TRUST_IDENTITY_REGISTRY_<CHAIN> and AGENTIC_TRUST_REPUTATION_REGISTRY_<CHAIN>.`,
+              );
+            }
+
+            const graphQLUrl = (params.discoveryUrl || DEFAULT_DISCOVERY_URL).trim();
+            const apiKey = (params.discoveryApiKey || DEFAULT_DISCOVERY_API_KEY).trim();
+
+            return {
+              graphQLUrl,
+              apiKey,
+              privateKey: String(params.privateKey || '').trim(),
+              rpcUrl: String(params.rpcUrl || '').trim(),
+              identityRegistry,
+              reputationRegistry,
+            } satisfies ApiClientConfig;
+          })()
+        : (configOrParams as ApiClientConfig);
+
     this.config = { ...config };
     
     // Construct GraphQL endpoint URL
@@ -122,6 +215,44 @@ export class AgenticTrustClient {
     this.a2aProtocolProvider = new A2AProtocolProviderAPI(this.graphQLClient);
     this.veramo = new VeramoAPI();
 
+    // Kick off async initialization. Users can await `client.ready` if they need
+    // Veramo / reputation client to be ready before making calls.
+    this.ready = (async () => {
+      // Step 1: Initialize Veramo agent (always happens - either provided or created from privateKey)
+      await this.initializeVeramoAgent(config);
+
+      // Step 2: Initialize reputation client if configured
+      // Priority: sessionPackage > reputation config > top-level config with identity/reputation registry
+      if (config.sessionPackage) {
+        console.log('🔧 create: Initializing reputation from session package...');
+        await this.initializeReputationFromSessionPackage(
+          config.sessionPackage as { filePath?: string; package?: SessionPackage; ensRegistry: `0x${string}` },
+        );
+      } else if (config.identityRegistry && config.reputationRegistry) {
+        // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
+        // Uses the EOA derived from privateKey (same as VeramoAgent)
+        // Note: Reputation client requires private key for signing operations
+        if (config.privateKey) {
+          console.log('🔧 create: Initializing reputation from top-level config...');
+          await this.initializeClientReputationFromConfig(config);
+        }
+      }
+
+      // Step 3: Eagerly initialize core domain clients (best-effort)
+      // so downstream calls don't pay first-call initialization cost.
+      const defaultChainId = DEFAULT_CHAIN_ID;
+      try {
+        await Promise.allSettled([
+          getDiscoveryClient(), // discovery indexer
+          getENSClient(defaultChainId), // ENS client
+          getIdentityRegistryClient(defaultChainId), // identity client
+          getReputationRegistryClient(defaultChainId), // reputation client
+        ]);
+      } catch {
+        // Individual domain client initialization errors are logged
+        // in their respective modules; we don't fail client creation.
+      }
+    })();
   }
 
   /**
@@ -149,45 +280,23 @@ export class AgenticTrustClient {
    * Create a new AgenticTrust client instance
    */
   static async create(config: ApiClientConfig): Promise<AgenticTrustClient> {
-
-
     const client = new AgenticTrustClient(config);
-    
-    // Step 1: Initialize Veramo agent (always happens - either provided or created from privateKey)
-    await client.initializeVeramoAgent(config);
-    
-    // Step 2: Initialize reputation client if configured
-    // Priority: sessionPackage > reputation config > top-level config with identity/reputation registry
-    if (config.sessionPackage) {
-      console.log('🔧 create: Initializing reputation from session package...');
-      await client.initializeReputationFromSessionPackage(config.sessionPackage as { filePath?: string; package?: SessionPackage; ensRegistry: `0x${string}` });
-    } else if (config.identityRegistry && config.reputationRegistry) {
-      // Initialize reputation from top-level config (identityRegistry and reputationRegistry)
-      // Uses the EOA derived from privateKey (same as VeramoAgent)
-      // Note: Reputation client requires private key for signing operations
-      if (config.privateKey) {
-        console.log('🔧 create: Initializing reputation from top-level config...');
-        await client.initializeClientReputationFromConfig(config);
-      } else {
-      }
-    } else {
-    }
+    await client.ready;
+    return client;
+  }
 
-    // Step 3: Eagerly initialize core domain clients (best-effort)
-    // so downstream calls don't pay first-call initialization cost.
-    const defaultChainId = DEFAULT_CHAIN_ID;
-    try {
-      await Promise.allSettled([
-        getDiscoveryClient(),                // discovery indexer
-        getENSClient(defaultChainId),        // ENS client
-        getIdentityRegistryClient(defaultChainId),   // identity client
-        getReputationRegistryClient(defaultChainId), // reputation client
-      ]);
-    } catch {
-      // Individual domain client initialization errors are logged
-      // in their respective modules; we don't fail client creation.
-    }
-
+  /** @deprecated Use `new AgenticTrustClient({ privateKey, chainId, rpcUrl, ... })` instead. */
+  static async createWithDefaults(params: {
+    privateKey: string;
+    chainId: number;
+    rpcUrl: string;
+    discoveryUrl?: string;
+    discoveryApiKey?: string;
+    identityRegistry?: `0x${string}`;
+    reputationRegistry?: `0x${string}`;
+  }): Promise<AgenticTrustClient> {
+    const client = new AgenticTrustClient(params);
+    await client.ready;
     return client;
   }
 
@@ -642,7 +751,7 @@ export class AgenticTrustClient {
    * High-level createAgent helper that routes to the appropriate underlying
    * AgentsAPI method based on ownerType (EOA vs AA) and executionMode.
    *
-   * - ownerType: 'eoa' | 'aa'
+   * - ownerType: 'eoa' | 'smartAccount'
    * - executionMode:
    *    - 'auto'   (default): use server if an admin/private key is configured, otherwise client
    *    - 'server' : execute on server (requires admin/private key, otherwise falls back to 'client')
@@ -669,16 +778,16 @@ export class AgenticTrustClient {
 
     if (ownerType === 'eoa') {
       if (mode === 'server') {
-        return (await this.agents.createAgentForEOAPK(rest)) as CreateAgentEOAServerResult;
+        return (await this.agents.createAgentWithEOAOwnerUsingPrivateKey(rest)) as CreateAgentWithEOAOwnerUsingPrivateKeyResult;
       }
-      return (await this.agents.createAgentForEOA(rest)) as CreateAgentEOAClientResult;
+      return (await this.agents.createAgentWithEOAOwnerUsingWallet(rest)) as CreateAgentWithEOAOwnerUsingWalletResult;
     }
 
-    // ownerType === 'aa'
+    // ownerType === 'smartAccount'
     if (mode === 'server') {
-      return (await this.agents.createAgentForAAPK(rest)) as CreateAgentAAServerResult;
+      return (await this.agents.createAgentWithSmartAccountOwnerUsingPrivateKey(rest)) as CreateAgentWithSmartAccountOwnerUsingPrivateKeyResult;
     }
-    return (await this.agents.createAgentForAA(rest)) as CreateAgentAAClientResult;
+    return (await this.agents.createAgentWithSmartAccountOwnerUsingWallet(rest)) as CreateAgentWithSmartAccountOwnerUsingWalletResult;
   }
 
   /**

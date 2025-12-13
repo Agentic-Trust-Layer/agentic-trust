@@ -1,5 +1,8 @@
 'use client';
 
+// Avoid static prerendering for this route to speed up `next build` page-data collection.
+export const dynamic = 'force-dynamic';
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Box, Container } from '@mui/material';
 import { createPublicClient, http, type PublicClient, type Address } from 'viem';
@@ -402,6 +405,9 @@ export default function AgentsRoute() {
           onClear={handleClear}
           chainOptions={chainOptions}
           ownedMap={ownedMap}
+          isConnected={isConnected}
+          walletAddress={walletAddress}
+          provider={eip1193Provider}
           total={total}
           currentPage={currentPage}
           totalPages={totalPages}

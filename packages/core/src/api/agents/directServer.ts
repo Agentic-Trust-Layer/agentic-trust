@@ -39,9 +39,9 @@ export async function createAgentDirectCore(
   }
   assertAddress(input.agentAccount, 'agentAccount');
 
-  if (input.mode === 'aa') {
+  if (input.mode === 'smartAccount') {
     const result = await client.createAgent({
-      ownerType: 'aa',
+      ownerType: 'smartAccount',
       executionMode: 'server',
       agentName: input.agentName,
       agentAccount: input.agentAccount as `0x${string}`,
@@ -63,7 +63,7 @@ export async function createAgentDirectCore(
     return {
       success: true,
       operation: 'create',
-      mode: 'aa',
+      mode: 'smartAccount',
       chainId,
       tokenUri: undefined,
       bundlerUrl: undefined,
