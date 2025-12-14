@@ -209,7 +209,7 @@ async function runWalletRegistrationViaAdmin(params: {
           ? 'https://sepolia-optimism.app.ens.domains'
           : 'https://app.ens.domains';
   const ensUrl = `${ensAppBase}/${encodeURIComponent(ensName)}`;
-  const agenticTrustUrl = `https://8004-agent.io/?q=${encodeURIComponent(ensName)}`;
+  const agenticTrustUrl = `https://agentictrust.io/?q=${encodeURIComponent(ensName)}`;
 
   const state = base64url(randomBytes(16));
   const { verifier, challenge } = pkce();
@@ -567,7 +567,8 @@ function templateAgentJson(opts: { agentName: string; description: string; port:
       name: opts.agentName,
       description: opts.description,
       endpoints: [
-        { name: 'A2A', endpoint: `http://localhost:${opts.port}/api/a2a`, version: '0.1.0' },
+        { name: 'A2A', endpoint: `http://localhost:${opts.port}/a2a`, version: '0.3.0' },
+        { name: 'MCP', endpoint: `http://localhost:${opts.port}/mcp`, version: '2025-06-18' },
       ],
       skills: [
         {
@@ -603,7 +604,7 @@ app.get('/.well-known/agent.json', (_req, res) => {
   res.sendFile(fileURLToPath(new URL('../.well-known/agent.json', import.meta.url)));
 });
 
-app.post('/api/a2a', async (req, res) => {
+app.post('/a2a', async (req, res) => {
   const body = (req.body ?? {}) as any;
   const skillId = typeof body.skillId === 'string' ? body.skillId : '';
 
@@ -626,6 +627,13 @@ app.post('/api/a2a', async (req, res) => {
     success: false,
     error: 'Skill not implemented',
     skillId,
+  });
+});
+
+app.post('/mcp', async (_req, res) => {
+  return res.status(501).json({
+    ok: false,
+    error: 'MCP endpoint stub. Implement MCP protocol handling here.',
   });
 });
 
@@ -655,7 +663,7 @@ app.get('/.well-known/agent.json', async (c) => {
   return c.text(file, 200, { 'content-type': 'application/json' });
 });
 
-app.post('/api/a2a', async (c) => {
+app.post('/a2a', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as any;
   const skillId = typeof body.skillId === 'string' ? body.skillId : '';
   if (!skillId) {
@@ -669,6 +677,10 @@ app.post('/api/a2a', async (c) => {
     });
   }
   return c.json({ success: false, error: 'Skill not implemented', skillId }, 404);
+});
+
+app.post('/mcp', async (c) => {
+  return c.json({ ok: false, error: 'MCP endpoint stub. Implement MCP protocol handling here.' }, 501);
 });
 
 const port = Number(process.env.PORT || ${opts.port});
@@ -696,7 +708,7 @@ app.get('/.well-known/agent.json', async (_req, reply) => {
   return text;
 });
 
-app.post('/api/a2a', async (req, reply) => {
+app.post('/a2a', async (req, reply) => {
   const body = (req.body ?? {}) as any;
   const skillId = typeof body.skillId === 'string' ? body.skillId : '';
   if (!skillId) {
@@ -712,6 +724,11 @@ app.post('/api/a2a', async (req, reply) => {
   }
   reply.code(404);
   return { success: false, error: 'Skill not implemented', skillId };
+});
+
+app.post('/mcp', async (_req, reply) => {
+  reply.code(501);
+  return { ok: false, error: 'MCP endpoint stub. Implement MCP protocol handling here.' };
 });
 
 const port = Number(process.env.PORT || ${opts.port});
@@ -742,10 +759,8 @@ function templateRegistrationJson(opts: {
   const baseUrl = (opts.agentUrl || '').trim().replace(/\/$/, '');
   const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
   if (baseUrl) {
-    endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/api/a2a`, version: '0.3.0' });
-    if (opts.enableMcp) {
-      endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/api/mcp`, version: '2025-06-18' });
-    }
+    endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/a2a`, version: '0.3.0' });
+    endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/mcp`, version: '2025-06-18' });
   }
 
   return JSON.stringify(
@@ -823,8 +838,8 @@ async function main() {
   const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
   if (agentUrl) {
     const base = agentUrl.replace(/\\/$/, '');
-    endpoints.push({ name: 'A2A', endpoint: \`\${base}/api/a2a\`, version: '0.3.0' });
-    if (enableMcp) endpoints.push({ name: 'MCP', endpoint: \`\${base}/api/mcp\`, version: '2025-06-18' });
+    endpoints.push({ name: 'A2A', endpoint: \`\${base}/a2a\`, version: '0.3.0' });
+    if (enableMcp) endpoints.push({ name: 'MCP', endpoint: \`\${base}/mcp\`, version: '2025-06-18' });
   }
 
   const res = await client.agents.createAgentWithEOAOwnerUsingPrivateKey({
@@ -977,7 +992,8 @@ pnpm -C ${rel}/${opts.appDirName} dev
 
 - \`GET /health\`
 - \`GET /.well-known/agent.json\`
-- \`POST /api/a2a\` (skill: \`demo.echo\`)
+- \`POST /a2a\` (skill: \`demo.echo\`)
+- \`POST /mcp\` (stub)
  
 ## Server
 
@@ -1087,21 +1103,6 @@ async function runWizard(params: { rootDir: string; projectKind: ProjectKind }):
       },
       {
         type: 'text',
-        name: 'agentName',
-        message: 'Display name (human readable)',
-        initial: (prev: any, values: any) => {
-          const label = normalizeAgentLabel(String(values?.agentNameLabel || 'my-agent'));
-          return label ? label.replace(/-/g, ' ') : 'My Agent';
-        },
-      },
-      {
-        type: 'text',
-        name: 'description',
-        message: 'Description',
-        initial: 'A simple Agentic Trust agent.',
-      },
-      {
-        type: 'text',
         name: 'outputBaseDir',
         message: (prev: any, values: any) => {
           const kind = (values?.projectKind ?? params.projectKind) as ProjectKind;
@@ -1137,8 +1138,8 @@ async function runWizard(params: { rootDir: string; projectKind: ProjectKind }):
   const ensName = buildAgentEnsName(label);
   const appDirName = label; // enforce: path == agent label
 
-  const agentName = String(answers.agentName ?? label).trim();
-  const description = String(answers.description ?? '').trim();
+  const agentName = label;
+  const description = 'A simple Agentic Trust agent.';
   const port = typeof answers.port === 'number' && Number.isFinite(answers.port) ? answers.port : 3005;
   const projectKind = (answers.projectKind ?? params.projectKind) as ProjectKind;
   const serverKind = (answers.serverKind ?? 'express') as ServerKind;
@@ -1160,6 +1161,8 @@ async function runRegistrationWizard(params: {
   defaultAgentName: string;
   defaultDescription: string;
   projectKind: ProjectKind;
+  chainId: number;
+  port: number;
 }): Promise<RegistrationAnswers | null> {
   const defaultDiscoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL || DEFAULT_DISCOVERY_URL;
   const defaultDiscoveryApiKey =
@@ -1171,149 +1174,40 @@ async function runRegistrationWizard(params: {
   const defaultEnableX402 =
     String(process.env.CREATE_AGENTIC_TRUST_ENABLE_X402 || '').trim().toLowerCase() === 'true';
 
-  const answers = await prompts(
-    [
-      {
-        type: 'confirm',
-        name: 'continue',
-        message: 'Continue with ERC-8004 registration setup now?',
-        initial: false,
-      },
-      {
-        type: (prev: any) => (prev ? 'select' : null),
-        name: 'chainId',
-        message: 'Chain',
-        choices: CHAIN_CHOICES.map((c) => ({ title: c.title, value: c.value })),
-        initial: 0,
-      },
-      {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
-        name: 'agentUrl',
-        message: 'Agent base URL (used to form A2A/MCP endpoints)',
-        initial: 'http://localhost:3005',
-      },
-      {
-        type: (prev: any, values: any) => (values?.continue ? 'confirm' : null),
-        name: 'enableMcp',
-        message: 'Enable MCP endpoint in registration?',
-        initial: false,
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'enableX402',
-        message: 'Enable x402 payment support flag in registration?',
-        initial: defaultEnableX402,
-      },
-      {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
-        name: 'imageUrl',
-        message: 'Image URL (optional)',
-        initial: '',
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'privateKey',
-        message: 'Admin private key (AGENTIC_TRUST_ADMIN_PRIVATE_KEY)',
-        validate: (value: string) => {
-          const v = String(value || '').trim();
-          if (!v) return 'Required';
-          if (!v.startsWith('0x') || v.length < 66) return 'Expected a 0x-prefixed hex private key';
-          return true;
-        },
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'agentAccount',
-        message: 'Agent account address (optional; leave blank to use counterfactual AA by agent name)',
-        initial: '',
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'discoveryUrl',
-        message: 'Discovery URL (AGENTIC_TRUST_DISCOVERY_URL)',
-        initial: defaultDiscoveryUrl,
-        validate: (value: string) => (String(value || '').trim() ? true : 'Required'),
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'discoveryApiKey',
-        message: 'Discovery API key (AGENTIC_TRUST_DISCOVERY_API_KEY) (optional)',
-        initial: defaultDiscoveryApiKey,
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'rpcUrl',
-        message: 'Chain RPC URL (AGENTIC_TRUST_RPC_URL_<CHAIN>)',
-        initial: (prev: any, values: any) => {
-          const chainId = typeof values?.chainId === 'number' ? values.chainId : 11155111;
-          return defaultPublicRpcUrl(chainId);
-        },
-        validate: (value: string) => (String(value || '').trim() ? true : 'Required to register on-chain'),
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'identityRegistry',
-        message: 'Identity Registry address (AGENTIC_TRUST_IDENTITY_REGISTRY_<CHAIN>)',
-        initial: DEFAULT_IDENTITY_REGISTRY_ADDRESS,
-        validate: (value: string) => {
-          const v = String(value || '').trim();
-          if (!v) return 'Required to register on-chain';
-          if (!/^0x[a-fA-F0-9]{40}$/.test(v)) return 'Expected 0x + 40 hex chars';
-          return true;
-        },
-      },
-      {
-        type: (prev: any, values: any) =>
-          null,
-        name: 'pinataJwt',
-        message: 'Pinata JWT (PINATA_JWT) (optional, for IPFS uploads)',
-      },
-      {
-        type: (prev: any, values: any) => (values?.continue ? 'confirm' : null),
-        name: 'registerNow',
-        message: 'Open admin UI to register now?',
-        initial: true,
-      },
-    ],
-    {
-      onCancel: () => {
-        throw new Error('Cancelled');
-      },
-    },
-  );
+  // Wallet registration via admin UI (recommended) — automatic, no extra prompts.
+  // eslint-disable-next-line no-console
+  console.log('');
+  // eslint-disable-next-line no-console
+  console.log('[ERC-8004] Preparing browser-based wallet registration…');
+  // eslint-disable-next-line no-console
+  console.log(`- Chain: ${params.chainId}`);
+  // eslint-disable-next-line no-console
+  console.log(`- Local agent URL (for endpoints): http://localhost:${params.port}`);
+  // eslint-disable-next-line no-console
+  console.log(`- Admin UI: ${defaultAdminUrl}`);
 
-  if (!answers.continue) {
-    return null;
-  }
-
-  const chainId = typeof answers.chainId === 'number' ? answers.chainId : 11155111;
+  const chainId = params.chainId;
+  const agentUrl = `http://localhost:${params.port}`;
   const supportedTrust: Array<'reputation' | 'crypto-economic' | 'tee-attestation'> = [];
   // Wallet flow is the default (no prompt).
   const authMethod: RegistrationAnswers['authMethod'] = 'wallet';
   return {
     authMethod,
     chainId,
-    agentUrl: String(answers.agentUrl || '').trim() || undefined,
+    agentUrl,
     agentAccount: undefined,
     agentCategory: undefined,
-    imageUrl: String(answers.imageUrl || '').trim() || undefined,
+    imageUrl: undefined,
     supportedTrust,
-    enableMcp: Boolean(answers.enableMcp),
+    enableMcp: true,
     enableX402: defaultEnableX402,
     privateKey: undefined,
     discoveryUrl: defaultDiscoveryUrl,
     discoveryApiKey: defaultDiscoveryApiKey,
-    rpcUrl: String(answers.rpcUrl || '').trim() || undefined,
-    identityRegistry: String(answers.identityRegistry || '').trim() || undefined,
+    rpcUrl: undefined,
+    identityRegistry: undefined,
     pinataJwt: undefined,
-    registerNow: Boolean(answers.registerNow),
+    registerNow: true,
     adminUrl: authMethod === 'wallet' ? defaultAdminUrl : undefined,
   };
 }
@@ -1377,10 +1271,8 @@ async function performOnChainRegistration(params: {
     const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
     if (reg.agentUrl) {
       const base = reg.agentUrl.replace(/\/$/, '');
-      endpoints.push({ name: 'A2A', endpoint: `${base}/api/a2a`, version: '0.3.0' });
-      if (reg.enableMcp) {
-        endpoints.push({ name: 'MCP', endpoint: `${base}/api/mcp`, version: '2025-06-18' });
-      }
+      endpoints.push({ name: 'A2A', endpoint: `${base}/a2a`, version: '0.3.0' });
+      endpoints.push({ name: 'MCP', endpoint: `${base}/mcp`, version: '2025-06-18' });
     }
 
     const identityRegistryHex = reg.identityRegistry.startsWith('0x')
@@ -1547,6 +1439,8 @@ async function main() {
     defaultAgentName: answers.agentName,
     defaultDescription: answers.description,
     projectKind: detectedKind,
+    chainId: answers.chainId,
+    port: answers.port,
   });
 
   if (reg) {

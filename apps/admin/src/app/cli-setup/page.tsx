@@ -185,10 +185,8 @@ export default function CliSetupPage() {
                 const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
                 const baseUrl = (draft.agentUrl ?? '').trim().replace(/\/$/, '');
                 if (baseUrl) {
-                  endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/api/a2a`, version: '0.3.0' });
-                  if (draft.enableMcp) {
-                    endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/api/mcp`, version: '2025-06-18' });
-                  }
+                  endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/a2a`, version: '0.3.0' });
+                  endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/mcp`, version: '2025-06-18' });
                 }
 
                 const result = await createAgentWithWallet({
