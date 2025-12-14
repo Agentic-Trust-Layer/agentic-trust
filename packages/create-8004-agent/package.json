@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/create-8004-agent",
-  "version": "0.1.5",
+  "version": "0.1.7",
   "private": false,
   "type": "module",
   "description": "Wizard CLI to scaffold a simple Agentic Trust (ERC-8004 / A2A) agent app",
