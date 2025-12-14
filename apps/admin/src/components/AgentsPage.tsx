@@ -360,30 +360,33 @@ export function AgentsPage({
       );
     }
     if (filters.mineOnly) {
-      const eoa = normalizeAddr(walletAddress);
       const before = result.length;
-      result = result.filter((agent) => {
-        const eoaOwner = normalizeAddr(agent.eoaOwner);
-        const agentOwner = normalizeAddr((agent as any).agentOwner);
-        const ownerAddress = normalizeAddr((agent as any).ownerAddress);
-        return Boolean(eoa) && (eoaOwner === eoa || agentOwner === eoa || ownerAddress === eoa);
-      });
+      const ownedKeys = Object.keys(ownedMap ?? {}).filter((k) => Boolean((ownedMap ?? {})[k]));
+      const hasOwnedMap = ownedKeys.length > 0;
+
+      if (hasOwnedMap) {
+        result = result.filter((agent) => {
+          const key = `${agent.chainId}:${agent.agentId}`;
+          return Boolean(ownedMap?.[key]);
+        });
+      } else {
+        // Fallback (best-effort) if a parent route didn't provide ownedMap.
+        const eoa = normalizeAddr(walletAddress);
+        result = result.filter((agent) => {
+          const eoaOwner = normalizeAddr(agent.eoaOwner);
+          const agentOwner = normalizeAddr((agent as any).agentOwner);
+          const ownerAddress = normalizeAddr((agent as any).ownerAddress);
+          return Boolean(eoa) && (eoaOwner === eoa || agentOwner === eoa || ownerAddress === eoa);
+        });
+      }
 
       console.log('[AgentsPage][MyAgents]', {
-        eoa,
         before,
         after: result.length,
         hasWalletAddress: Boolean(walletAddress),
-        missingEoaOwnerCount: agents.filter((a) => !normalizeAddr(a.eoaOwner)).length,
-        sampleEoaOwners: agents.slice(0, 10).map((a) => ({
-          key: `${a.chainId}:${a.agentId}`,
-          eoaOwner: a.eoaOwner ?? null,
-          agentOwner: (a as any).agentOwner ?? null,
-          normalized: {
-            eoaOwner: normalizeAddr(a.eoaOwner) || null,
-            agentOwner: normalizeAddr((a as any).agentOwner) || null,
-          },
-        })),
+        ownedMapTrueCount: ownedKeys.length,
+        ownedMapSampleKeys: ownedKeys.slice(0, 10),
+        usedOwnedMap: hasOwnedMap,
       });
     }
     if (filters.protocol === 'a2a') {

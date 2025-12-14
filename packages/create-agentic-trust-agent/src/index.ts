@@ -562,7 +562,7 @@ function templateRegisterTs(opts: { chainId: number; agentName: string }): strin
 dotenv.config({ path: '.env.local' });
 dotenv.config();
 
-import { AgenticTrustClient, getCounterfactualAAAddressByAgentName } from '@agentic-trust/core/server';
+import { AgenticTrustClient, getCounterfactualSmartAccountAddressByAgentName } from '@agentic-trust/core/server';
 
 async function main() {
   const chainId = Number(process.env.AGENTIC_TRUST_CHAIN_ID || ${opts.chainId});
@@ -592,7 +592,7 @@ async function main() {
 
   const agentAccount =
     (process.env.AGENT_ACCOUNT || '').trim() ||
-    (await getCounterfactualAAAddressByAgentName(agentName, chainId));
+    (await getCounterfactualSmartAccountAddressByAgentName(agentName, chainId));
 
   const agentUrl = (process.env.AGENT_URL || '').trim() || undefined;
   const agentCategory = (process.env.AGENT_CATEGORY || '').trim() || undefined;
@@ -677,7 +677,7 @@ function templateEnvLocal(opts: {
   lines.push(`AGENTIC_TRUST_DISCOVERY_API_KEY=${opts.discoveryApiKey || DEFAULT_DISCOVERY_API_KEY}`);
   if (opts.pinataJwt) lines.push(`PINATA_JWT=${opts.pinataJwt}`);
   lines.push('');
-  lines.push(`AGENTIC_TRUST_ADMIN_PRIVATE_KEY=${opts.privateKey}`);
+  lines.push(`AGENTIC_TRUST_ADMIN_PRIVATE_KEY=${opts.privateKey || ''}`);
   lines.push(`AGENTIC_TRUST_APP_ROLES=admin|provider`);
   lines.push('');
   lines.push(`# Required chain configuration for registration / provider capabilities (${chainSuffix})`);
@@ -1035,7 +1035,6 @@ async function runRegistrationWizard(params: {
 
   const chainId = typeof answers.chainId === 'number' ? answers.chainId : 11155111;
   const supportedTrust = Array.isArray(answers.supportedTrust) ? answers.supportedTrust : [];
-
   return {
     chainId,
     agentUrl: String(answers.agentUrl || '').trim() || undefined,
@@ -1092,12 +1091,12 @@ async function performOnChainRegistration(params: {
     const moduleName: string = '@agentic-trust/core/server';
     const core = await import(moduleName);
     const AgenticTrustClient = (core as any).AgenticTrustClient as any;
-    const getCounterfactualAAAddressByAgentName = (core as any)
-      .getCounterfactualAAAddressByAgentName as (agentName: string, chainId: number) => Promise<string>;
+    const getCounterfactualSmartAccountAddressByAgentName = (core as any)
+      .getCounterfactualSmartAccountAddressByAgentName as (agentName: string, chainId: number) => Promise<string>;
 
     const agentAccount =
       (reg.agentAccount || '').trim() ||
-      (await getCounterfactualAAAddressByAgentName(params.agentName, reg.chainId));
+      (await getCounterfactualSmartAccountAddressByAgentName(params.agentName, reg.chainId));
 
     const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
     if (reg.agentUrl) {
