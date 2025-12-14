@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@agentic-trust/core'],
+  transpilePackages: ['@agentic-trust/core', '@agentic-trust/8004-ext-sdk', '@agentic-trust/8004-sdk'],
   eslint: {
     // Don't fail build on ESLint warnings
     ignoreDuringBuilds: true,
@@ -13,6 +13,13 @@ const nextConfig = {
     ignoreBuildErrors: process.env.NEXT_STRICT_TYPECHECK !== 'true',
   },
   webpack: (config, { isServer }) => {
+    // Configure module resolution for workspace packages
+    // Ensure TypeScript source is preferred over compiled JS
+    config.resolve = {
+      ...config.resolve,
+      extensions: ['.ts', '.tsx', '.js', '.jsx', ...(config.resolve.extensions || [])],
+    };
+
     // Externalize Node.js modules for server-side
     if (isServer) {
       config.externals = config.externals || [];

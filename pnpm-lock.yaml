@@ -621,6 +621,9 @@ importers:
 
   packages/create-agentic-trust-agent:
     dependencies:
+      '@agentic-trust/core':
+        specifier: workspace:*
+        version: link:../core
       prompts:
         specifier: ^2.4.2
         version: 2.4.2

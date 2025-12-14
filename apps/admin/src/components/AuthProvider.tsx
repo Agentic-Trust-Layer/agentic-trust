@@ -60,7 +60,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      isConnected: Boolean(eoaConnected),
+      // Only consider the user connected if we have an address.
+      isConnected: Boolean(eoaConnected && eoaAddress),
       privateKeyMode,
       loading,
       walletAddress: eoaAddress ?? null,

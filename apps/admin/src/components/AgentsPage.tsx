@@ -429,6 +429,15 @@ export function AgentsPage({
     walletAddress,
   ]);
 
+  // If we're in "my agents" mode and we already loaded an owned-agents list,
+  // never allow the client-side ownership filter to hide everything.
+  const agentsToRender = useMemo(() => {
+    if (filters.mineOnly && agents.length > 0 && filteredAgents.length === 0) {
+      return agents;
+    }
+    return filteredAgents;
+  }, [filters.mineOnly, agents, filteredAgents]);
+
   const totalAgentsLabel =
     typeof total === 'number' && Number.isFinite(total) ? total : undefined;
 
@@ -2890,7 +2899,7 @@ export function AgentsPage({
                 </span>
                 <span>8004-agent.eth</span>
               </button>
-              {isConnected && (
+              {isConnected && Boolean(walletAddress) && (
                 <button
                   type="button"
                   onClick={() => {
@@ -3281,7 +3290,7 @@ export function AgentsPage({
             gap: '1.5rem',
           }}
         >
-          {filteredAgents.length === 0 && (
+          {agentsToRender.length === 0 && (
             <div
               style={{
                 gridColumn: '1 / -1',
@@ -3296,7 +3305,7 @@ export function AgentsPage({
             </div>
           )}
 
-          {filteredAgents.map(agent => {
+          {agentsToRender.map(agent => {
             const ownershipKey = `${agent.chainId}:${agent.agentId}`;
             const isOwned = Boolean(ownedMap[ownershipKey]);
             const imageUrl =

@@ -21,8 +21,10 @@
     "allowSyntheticDefaultImports": true,
     "baseUrl": ".",
     "paths": {
-      "@agentic-trust/8004-ext-sdk": ["packages/erc8004-agentic-trust-sdk/src/index.ts"],
-      "@agentic-trust/8004-ext-sdk/*": ["packages/erc8004-agentic-trust-sdk/src/*"],
+      "@agentic-trust/8004-ext-sdk": ["packages/erc8004-agentic-trust-sdk/index.ts"],
+      "@agentic-trust/8004-ext-sdk/*": ["packages/erc8004-agentic-trust-sdk/*"],
+      "@agentic-trust/8004-sdk": ["packages/erc8004-sdk/index.ts"],
+      "@agentic-trust/8004-sdk/*": ["packages/erc8004-sdk/*"],
       "@agentic-trust/core": ["packages/core/src/index.ts"],
       "@agentic-trust/core/*": ["packages/core/src/*"],
       "@agentic-trust/core/server": ["packages/core/src/server/index.ts"]

@@ -3,6 +3,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import http from 'node:http';
+import { randomBytes, createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import prompts from 'prompts';
 
 type ServerKind = 'express' | 'hono' | 'fastify';
@@ -45,6 +48,7 @@ type WizardAnswers = {
 };
 
 type RegistrationAnswers = {
+  authMethod: 'privateKey' | 'wallet';
   chainId: number;
   agentUrl?: string;
   agentAccount?: string;
@@ -53,13 +57,14 @@ type RegistrationAnswers = {
   supportedTrust: Array<'reputation' | 'crypto-economic' | 'tee-attestation'>;
   enableMcp: boolean;
   enableX402: boolean;
-  privateKey: string;
+  privateKey?: string;
   discoveryUrl: string;
   discoveryApiKey?: string;
-  rpcUrl: string;
-  identityRegistry: string;
+  rpcUrl?: string;
+  identityRegistry?: string;
   pinataJwt?: string;
   registerNow: boolean;
+  adminUrl?: string;
 };
 
 function toSlug(input: string): string {
@@ -97,6 +102,51 @@ function chainSuffixForId(chainId: number): ChainChoice['suffix'] | null {
   return CHAIN_CHOICES.find((c) => c.value === chainId)?.suffix ?? null;
 }
 
+function base64url(buf: Buffer) {
+  return buf
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function pkce() {
+  const verifier = base64url(randomBytes(32));
+  const challenge = base64url(createHash('sha256').update(verifier).digest());
+  return { verifier, challenge };
+}
+
+async function openInBrowser(url: string): Promise<void> {
+  const platform = process.platform;
+  const cmd = platform === 'darwin' ? 'open' : platform === 'win32' ? 'cmd' : 'xdg-open';
+  const args = platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: 'ignore', detached: true });
+    child.on('error', reject);
+    child.unref();
+    resolve();
+  });
+}
+
+async function runCommand(params: {
+  cwd: string;
+  command: string;
+  args: string[];
+}): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(params.command, params.args, {
+      cwd: params.cwd,
+      stdio: 'inherit',
+      env: process.env,
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${params.command} ${params.args.join(' ')} exited with code ${code ?? 'null'}`));
+    });
+  });
+}
+
 async function checkEnsAvailability(params: {
   chainId: number;
   ensName: string;
@@ -125,6 +175,167 @@ async function checkEnsAvailability(params: {
   } catch {
     return null;
   }
+}
+
+async function runWalletRegistrationViaAdmin(params: {
+  adminUrl: string;
+  draft: {
+    agentName: string;
+    description: string;
+    chainId: number;
+    agentUrl?: string;
+    agentCategory?: string;
+    imageUrl?: string;
+    supportedTrust?: string[];
+    enableMcp?: boolean;
+    enableX402?: boolean;
+  };
+}): Promise<{
+  agentId: string;
+  txHash: string;
+  agentAccount: string;
+  ownerAddress: string;
+  agentRegistry?: string;
+  sessionPackage?: unknown;
+}> {
+  const agentLabel = normalizeAgentLabel(params.draft.agentName);
+  const ensName = buildAgentEnsName(agentLabel);
+  const ensAppBase =
+    params.draft.chainId === 11155111
+      ? 'https://sepolia.app.ens.domains'
+      : params.draft.chainId === 84532
+        ? 'https://sepolia.app.ens.domains'
+        : params.draft.chainId === 11155420
+          ? 'https://sepolia-optimism.app.ens.domains'
+          : 'https://app.ens.domains';
+  const ensUrl = `${ensAppBase}/${encodeURIComponent(ensName)}`;
+  const agenticTrustUrl = `https://8004-agent.io/?q=${encodeURIComponent(ensName)}`;
+
+  const state = base64url(randomBytes(16));
+  const { verifier, challenge } = pkce();
+
+  const server = http.createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address();
+  if (!addr || typeof addr === 'string') throw new Error('No server address');
+  const redirectUri = `http://127.0.0.1:${addr.port}/callback`;
+
+  const done = new Promise<{ code: string }>((resolve, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error('Timed out waiting for browser callback')),
+      5 * 60_000,
+    );
+
+    server.on('request', (req, res) => {
+      try {
+        const url = new URL(req.url ?? '/', redirectUri);
+        if (url.pathname !== '/callback') {
+          res.writeHead(404);
+          res.end('Not found');
+          return;
+        }
+        const code = url.searchParams.get('code');
+        const returnedState = url.searchParams.get('state');
+        if (!code || returnedState !== state) {
+          throw new Error('Invalid callback');
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(`<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Setup complete</title>
+    <style>
+      body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; padding: 32px; background: #0b1220; color: #e5e7eb; }
+      .card { max-width: 680px; margin: 0 auto; padding: 24px; border-radius: 16px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); }
+      h1 { margin: 0 0 8px; font-size: 22px; }
+      p { margin: 0; color: #cbd5e1; line-height: 1.5; }
+      code { background: rgba(0,0,0,0.25); padding: 2px 6px; border-radius: 8px; }
+      .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+      .btn { display: inline-flex; align-items: center; justify-content: center; padding: 10px 12px; border-radius: 12px; text-decoration: none; font-weight: 600; border: 1px solid rgba(255,255,255,0.16); }
+      .btn.primary { background: #16a34a; color: #061016; border-color: rgba(0,0,0,0.0); }
+      .btn.secondary { background: rgba(255,255,255,0.06); color: #e5e7eb; }
+      .hint { margin-top: 12px; font-size: 13px; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Setup complete</h1>
+      <p>Your agent registration flow finished. You can close this tab and return to your terminal.</p>
+      <p style="margin-top:12px;">Agent ENS name: <code>${ensName}</code></p>
+
+      <div class="actions">
+        <a class="btn primary" href="${agenticTrustUrl}" target="_blank" rel="noreferrer">View on AgenticTrust</a>
+        <a class="btn secondary" href="${ensUrl}" target="_blank" rel="noreferrer">View in ENS</a>
+      </div>
+
+      <p class="hint">If your agent doesn’t show up immediately, give the indexer a minute and refresh.</p>
+    </div>
+  </body>
+</html>`);
+        clearTimeout(timeout);
+        resolve({ code });
+      } catch {
+        res.writeHead(400);
+        res.end('Bad request');
+      } finally {
+        server.close();
+      }
+    });
+  });
+
+  const setupUrl = new URL('/cli-setup', params.adminUrl);
+  setupUrl.searchParams.set('state', state);
+  setupUrl.searchParams.set('code_challenge', challenge);
+  setupUrl.searchParams.set('code_challenge_method', 'S256');
+  setupUrl.searchParams.set('redirect_uri', redirectUri);
+  setupUrl.searchParams.set('agentName', params.draft.agentName);
+  setupUrl.searchParams.set('description', params.draft.description);
+  setupUrl.searchParams.set('chainId', String(params.draft.chainId));
+  if (params.draft.agentUrl) setupUrl.searchParams.set('agentUrl', params.draft.agentUrl);
+  if (params.draft.agentCategory) setupUrl.searchParams.set('agentCategory', params.draft.agentCategory);
+  if (params.draft.imageUrl) setupUrl.searchParams.set('imageUrl', params.draft.imageUrl);
+  if (params.draft.supportedTrust?.length) {
+    setupUrl.searchParams.set('supportedTrust', params.draft.supportedTrust.join(','));
+  }
+  if (params.draft.enableMcp) setupUrl.searchParams.set('enableMcp', 'true');
+  if (params.draft.enableX402) setupUrl.searchParams.set('enableX402', 'true');
+
+  // eslint-disable-next-line no-console
+  console.log('');
+  // eslint-disable-next-line no-console
+  console.log('[ERC-8004] Opening admin UI to connect wallet and register…');
+  // eslint-disable-next-line no-console
+  console.log(`If it doesn't open, paste this into your browser:\n${setupUrl.toString()}\n`);
+  await openInBrowser(setupUrl.toString());
+
+  const { code } = await done;
+
+  const exchangeUrl = new URL('/api/cli/exchange', params.adminUrl);
+  const exchangeRes = await fetch(exchangeUrl.toString(), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      code,
+      code_verifier: verifier,
+      redirect_uri: redirectUri,
+    }),
+  });
+  if (!exchangeRes.ok) {
+    const err: any = await exchangeRes.json().catch(() => ({} as any));
+    throw new Error(err?.error || err?.message || `Exchange failed (${exchangeRes.status})`);
+  }
+  const data = (await exchangeRes.json()) as any;
+  const result = data?.result ?? data;
+  return {
+    agentId: String(result?.agentId ?? ''),
+    txHash: String(result?.txHash ?? ''),
+    agentAccount: String(result?.agentAccount ?? ''),
+    ownerAddress: String(result?.ownerAddress ?? ''),
+    agentRegistry: typeof result?.agentRegistry === 'string' ? result.agentRegistry : undefined,
+    sessionPackage: (result as any)?.sessionPackage,
+  };
 }
 
 async function pathExists(p: string): Promise<boolean> {
@@ -221,6 +432,7 @@ Options:
 
 Env:
   CREATE_AGENTIC_TRUST_REPO_ROOT  Same as --repo-root
+  CREATE_AGENTIC_TRUST_ADMIN_URL  Admin app base URL for wallet registration (default: http://localhost:3002)
 `);
 }
 
@@ -345,6 +557,7 @@ dist
 .env
 .env.*
 *.secret
+secret.sessionpackage.json
 `;
 }
 
@@ -651,7 +864,7 @@ function templateEnvLocal(opts: {
   supportedTrust: string[];
   enableMcp: boolean;
   enableX402: boolean;
-  privateKey: string;
+  privateKey?: string;
   discoveryUrl: string;
   discoveryApiKey?: string;
   pinataJwt?: string;
@@ -688,6 +901,55 @@ function templateEnvLocal(opts: {
       (opts.identityRegistry || '').trim() || DEFAULT_IDENTITY_REGISTRY_ADDRESS
     }`,
   );
+  lines.push(`AGENTIC_TRUST_REPUTATION_REGISTRY_${chainSuffix}=`);
+  lines.push(`AGENTIC_TRUST_ENS_REGISTRY_${chainSuffix}=`);
+  lines.push('');
+  return lines.join('\n') + '\n';
+}
+
+function templateEnvLocalWallet(opts: {
+  port: number;
+  agentName: string;
+  description: string;
+  chainId: number;
+  agentUrl?: string;
+  agentAccount?: string;
+  agentCategory?: string;
+  imageUrl?: string;
+  supportedTrust: string[];
+  enableMcp: boolean;
+  enableX402: boolean;
+  discoveryUrl: string;
+  discoveryApiKey?: string;
+  pinataJwt?: string;
+}): string {
+  const chainSuffix = CHAIN_CHOICES.find((c) => c.value === opts.chainId)?.suffix ?? 'SEPOLIA';
+  const lines: string[] = [];
+  lines.push(`PORT=${opts.port}`);
+  lines.push('');
+  lines.push(`AGENT_NAME=${opts.agentName}`);
+  lines.push(`AGENT_DESCRIPTION=${opts.description}`);
+  if (opts.imageUrl) lines.push(`AGENT_IMAGE=${opts.imageUrl}`);
+  if (opts.agentUrl) lines.push(`AGENT_URL=${opts.agentUrl.replace(/\/$/, '')}`);
+  if (opts.agentAccount) lines.push(`AGENT_ACCOUNT=${opts.agentAccount}`);
+  if (opts.agentCategory) lines.push(`AGENT_CATEGORY=${opts.agentCategory}`);
+  lines.push(`AGENTIC_TRUST_CHAIN_ID=${opts.chainId}`);
+  lines.push(`SUPPORTED_TRUST=${opts.supportedTrust.join(',')}`);
+  lines.push(`ENABLE_MCP=${opts.enableMcp ? 'true' : 'false'}`);
+  lines.push(`ENABLE_X402=${opts.enableX402 ? 'true' : 'false'}`);
+  lines.push('');
+  lines.push(`AGENTIC_TRUST_DISCOVERY_URL=${opts.discoveryUrl || DEFAULT_DISCOVERY_URL}`);
+  lines.push(`AGENTIC_TRUST_DISCOVERY_API_KEY=${opts.discoveryApiKey || DEFAULT_DISCOVERY_API_KEY}`);
+  if (opts.pinataJwt) lines.push(`PINATA_JWT=${opts.pinataJwt}`);
+  lines.push('');
+  lines.push('AGENTIC_TRUST_APP_ROLES=provider');
+  lines.push('AGENTIC_TRUST_IS_PROVIDER_APP=true');
+  lines.push('AGENTIC_TRUST_SESSION_PACKAGE_PATH=./secret.sessionpackage.json');
+  lines.push('');
+  lines.push(`# Chain configuration for provider capabilities (${chainSuffix})`);
+  lines.push(`AGENTIC_TRUST_RPC_URL_${chainSuffix}=`);
+  lines.push(`AGENTIC_TRUST_BUNDLER_URL_${chainSuffix}=`);
+  lines.push(`AGENTIC_TRUST_IDENTITY_REGISTRY_${chainSuffix}=${DEFAULT_IDENTITY_REGISTRY_ADDRESS}`);
   lines.push(`AGENTIC_TRUST_REPUTATION_REGISTRY_${chainSuffix}=`);
   lines.push(`AGENTIC_TRUST_ENS_REGISTRY_${chainSuffix}=`);
   lines.push('');
@@ -901,6 +1163,10 @@ async function runRegistrationWizard(params: {
   const defaultDiscoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL || DEFAULT_DISCOVERY_URL;
   const defaultDiscoveryApiKey =
     process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || DEFAULT_DISCOVERY_API_KEY;
+  const defaultAdminUrl =
+    String(process.env.CREATE_AGENTIC_TRUST_ADMIN_URL || '').trim() || 'http://localhost:3002';
+  const defaultEnableX402 =
+    String(process.env.CREATE_AGENTIC_TRUST_ENABLE_X402 || '').trim().toLowerCase() === 'true';
 
   const answers = await prompts(
     [
@@ -924,33 +1190,17 @@ async function runRegistrationWizard(params: {
         initial: 'http://localhost:3005',
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
-        name: 'agentCategory',
-        message: 'Agent category (optional)',
-        initial: '',
-      },
-      {
-        type: (prev: any, values: any) => (values?.continue ? 'multiselect' : null),
-        name: 'supportedTrust',
-        message: 'Supported Trust Mechanisms',
-        choices: [
-          { title: 'reputation', value: 'reputation' },
-          { title: 'crypto-economic', value: 'crypto-economic' },
-          { title: 'tee-attestation', value: 'tee-attestation' },
-        ],
-        hint: '- Space to select. Enter to submit.',
-      },
-      {
         type: (prev: any, values: any) => (values?.continue ? 'confirm' : null),
         name: 'enableMcp',
         message: 'Enable MCP endpoint in registration?',
         initial: false,
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'confirm' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'enableX402',
         message: 'Enable x402 payment support flag in registration?',
-        initial: false,
+        initial: defaultEnableX402,
       },
       {
         type: (prev: any, values: any) => (values?.continue ? 'text' : null),
@@ -959,7 +1209,8 @@ async function runRegistrationWizard(params: {
         initial: '',
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'password' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'privateKey',
         message: 'Admin private key (AGENTIC_TRUST_ADMIN_PRIVATE_KEY)',
         validate: (value: string) => {
@@ -970,26 +1221,30 @@ async function runRegistrationWizard(params: {
         },
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'agentAccount',
         message: 'Agent account address (optional; leave blank to use counterfactual AA by agent name)',
         initial: '',
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'discoveryUrl',
         message: 'Discovery URL (AGENTIC_TRUST_DISCOVERY_URL)',
         initial: defaultDiscoveryUrl,
         validate: (value: string) => (String(value || '').trim() ? true : 'Required'),
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'discoveryApiKey',
         message: 'Discovery API key (AGENTIC_TRUST_DISCOVERY_API_KEY) (optional)',
         initial: defaultDiscoveryApiKey,
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'rpcUrl',
         message: 'Chain RPC URL (AGENTIC_TRUST_RPC_URL_<CHAIN>)',
         initial: (prev: any, values: any) => {
@@ -999,7 +1254,8 @@ async function runRegistrationWizard(params: {
         validate: (value: string) => (String(value || '').trim() ? true : 'Required to register on-chain'),
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'text' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'identityRegistry',
         message: 'Identity Registry address (AGENTIC_TRUST_IDENTITY_REGISTRY_<CHAIN>)',
         initial: DEFAULT_IDENTITY_REGISTRY_ADDRESS,
@@ -1011,14 +1267,15 @@ async function runRegistrationWizard(params: {
         },
       },
       {
-        type: (prev: any, values: any) => (values?.continue ? 'password' : null),
+        type: (prev: any, values: any) =>
+          null,
         name: 'pinataJwt',
         message: 'Pinata JWT (PINATA_JWT) (optional, for IPFS uploads)',
       },
       {
         type: (prev: any, values: any) => (values?.continue ? 'confirm' : null),
         name: 'registerNow',
-        message: 'Perform on-chain registration now?',
+        message: 'Open admin UI to register now?',
         initial: true,
       },
     ],
@@ -1034,23 +1291,27 @@ async function runRegistrationWizard(params: {
   }
 
   const chainId = typeof answers.chainId === 'number' ? answers.chainId : 11155111;
-  const supportedTrust = Array.isArray(answers.supportedTrust) ? answers.supportedTrust : [];
+  const supportedTrust: Array<'reputation' | 'crypto-economic' | 'tee-attestation'> = [];
+  // Wallet flow is the default (no prompt).
+  const authMethod: RegistrationAnswers['authMethod'] = 'wallet';
   return {
+    authMethod,
     chainId,
     agentUrl: String(answers.agentUrl || '').trim() || undefined,
-    agentAccount: String(answers.agentAccount || '').trim() || undefined,
-    agentCategory: String(answers.agentCategory || '').trim() || undefined,
+    agentAccount: undefined,
+    agentCategory: undefined,
     imageUrl: String(answers.imageUrl || '').trim() || undefined,
     supportedTrust,
     enableMcp: Boolean(answers.enableMcp),
-    enableX402: Boolean(answers.enableX402),
-    privateKey: String(answers.privateKey || '').trim(),
-    discoveryUrl: String(answers.discoveryUrl || '').trim() || DEFAULT_DISCOVERY_URL,
-    discoveryApiKey: String(answers.discoveryApiKey || '').trim() || DEFAULT_DISCOVERY_API_KEY,
-    rpcUrl: String(answers.rpcUrl || '').trim(),
-    identityRegistry: String(answers.identityRegistry || '').trim(),
-    pinataJwt: String(answers.pinataJwt || '').trim() || undefined,
+    enableX402: defaultEnableX402,
+    privateKey: undefined,
+    discoveryUrl: defaultDiscoveryUrl,
+    discoveryApiKey: defaultDiscoveryApiKey,
+    rpcUrl: String(answers.rpcUrl || '').trim() || undefined,
+    identityRegistry: String(answers.identityRegistry || '').trim() || undefined,
+    pinataJwt: undefined,
     registerNow: Boolean(answers.registerNow),
+    adminUrl: authMethod === 'wallet' ? defaultAdminUrl : undefined,
   };
 }
 
@@ -1061,6 +1322,18 @@ async function performOnChainRegistration(params: {
   description: string;
 }): Promise<{ agentId: string; txHash: string; agentAccount: string }> {
   const { outDir, reg } = params;
+  if (reg.authMethod !== 'privateKey') {
+    throw new Error('performOnChainRegistration requires authMethod=privateKey');
+  }
+  if (!reg.privateKey) {
+    throw new Error('AGENTIC_TRUST_ADMIN_PRIVATE_KEY is required');
+  }
+  if (!reg.rpcUrl) {
+    throw new Error('RPC URL is required (set AGENTIC_TRUST_RPC_URL_<CHAIN> or AGENTIC_TRUST_RPC_URL)');
+  }
+  if (!reg.identityRegistry) {
+    throw new Error('Identity Registry address is required');
+  }
   const chainSuffix = CHAIN_CHOICES.find((c) => c.value === reg.chainId)?.suffix ?? 'SEPOLIA';
 
   // Temporarily set env vars so @agentic-trust/core/server picks them up.
@@ -1277,10 +1550,11 @@ async function main() {
   });
 
   if (reg) {
-    // Only generate a local register script for monorepo projects, since it depends
-    // on `@agentic-trust/core/server` (workspace export). For standalone projects,
-    // the wizard can still perform registration now, but we don't ship register.ts.
-    if (answers.projectKind === 'monorepo') {
+    const isPrivateKeyRegistration = reg.authMethod === 'privateKey';
+    const isWalletRegistration = reg.authMethod === 'wallet';
+
+    // Only generate a local register script for private-key flows.
+    if (isPrivateKeyRegistration && answers.projectKind === 'monorepo') {
       const packageJsonPath = path.join(outDir, 'package.json');
       const pkg = (await readJsonFile(packageJsonPath)) ?? {};
       pkg.scripts = pkg.scripts ?? {};
@@ -1305,50 +1579,169 @@ async function main() {
       }),
     );
 
-    if (answers.projectKind === 'monorepo') {
+    if (isPrivateKeyRegistration && answers.projectKind === 'monorepo') {
       await writeFileIfMissing(
         path.join(outDir, 'src', 'register.ts'),
         templateRegisterTs({ chainId: reg.chainId, agentName: answers.agentName }),
       );
     }
 
+    // Wallet flow: write env without private key; we will overwrite after registration
+    // to include AGENT_ACCOUNT if we get it back from the admin UI.
     await writeFileOverwrite(
       path.join(outDir, '.env.local'),
-      templateEnvLocal({
-        port: answers.port,
-        agentName: answers.agentName,
-        description: answers.description,
-        chainId: reg.chainId,
-        agentUrl: reg.agentUrl,
-        agentAccount: reg.agentAccount,
-        agentCategory: reg.agentCategory,
-        imageUrl: reg.imageUrl,
-        supportedTrust: reg.supportedTrust,
-        enableMcp: reg.enableMcp,
-        enableX402: reg.enableX402,
-        privateKey: reg.privateKey,
-        discoveryUrl: reg.discoveryUrl,
-        discoveryApiKey: reg.discoveryApiKey,
-        pinataJwt: reg.pinataJwt,
-        rpcUrl: reg.rpcUrl,
-        identityRegistry: reg.identityRegistry,
-      }),
+      isWalletRegistration
+        ? templateEnvLocalWallet({
+            port: answers.port,
+            agentName: answers.agentName,
+            description: answers.description,
+            chainId: reg.chainId,
+            agentUrl: reg.agentUrl,
+            agentAccount: reg.agentAccount,
+            agentCategory: reg.agentCategory,
+            imageUrl: reg.imageUrl,
+            supportedTrust: reg.supportedTrust,
+            enableMcp: reg.enableMcp,
+            enableX402: reg.enableX402,
+            discoveryUrl: reg.discoveryUrl,
+            discoveryApiKey: reg.discoveryApiKey,
+            pinataJwt: reg.pinataJwt,
+          })
+        : templateEnvLocal({
+            port: answers.port,
+            agentName: answers.agentName,
+            description: answers.description,
+            chainId: reg.chainId,
+            agentUrl: reg.agentUrl,
+            agentAccount: reg.agentAccount,
+            agentCategory: reg.agentCategory,
+            imageUrl: reg.imageUrl,
+            supportedTrust: reg.supportedTrust,
+            enableMcp: reg.enableMcp,
+            enableX402: reg.enableX402,
+            privateKey: reg.privateKey,
+            discoveryUrl: reg.discoveryUrl,
+            discoveryApiKey: reg.discoveryApiKey,
+            pinataJwt: reg.pinataJwt,
+            rpcUrl: reg.rpcUrl,
+            identityRegistry: reg.identityRegistry,
+          }),
     );
 
     if (reg.registerNow) {
-      const result = await performOnChainRegistration({
-        outDir,
-        reg,
-        agentName: answers.agentName,
-        description: answers.description,
-      });
-      // eslint-disable-next-line no-console
-      console.log('');
-      // eslint-disable-next-line no-console
-      console.log(`[ERC-8004] Registered agentId=${result.agentId} txHash=${result.txHash}`);
+      if (isWalletRegistration) {
+        if (!reg.adminUrl) {
+          throw new Error('Admin URL is required for wallet registration');
+        }
+        const walletResult = await runWalletRegistrationViaAdmin({
+          adminUrl: reg.adminUrl,
+          draft: {
+            agentName: answers.agentName,
+            description: answers.description,
+            chainId: reg.chainId,
+            agentUrl: reg.agentUrl,
+            agentCategory: reg.agentCategory,
+            imageUrl: reg.imageUrl,
+            supportedTrust: reg.supportedTrust,
+            enableMcp: reg.enableMcp,
+            enableX402: reg.enableX402,
+          },
+        });
+
+        // Persist session package for provider app usage.
+        if (!walletResult.sessionPackage) {
+          throw new Error(
+            'Wallet registration completed but sessionPackage was not returned from the admin flow.',
+          );
+        }
+        const sessionPackagePath = path.join(outDir, 'secret.sessionpackage.json');
+        await writeFileOverwrite(
+          sessionPackagePath,
+          JSON.stringify(walletResult.sessionPackage, null, 2) + '\n',
+        );
+        // eslint-disable-next-line no-console
+        console.log(`[ERC-8004] Wrote session package: ${sessionPackagePath}`);
+
+        await writeFileOverwrite(
+          path.join(outDir, 'registration-result.json'),
+          JSON.stringify(
+            {
+              chainId: reg.chainId,
+              agentId: walletResult.agentId,
+              txHash: walletResult.txHash,
+              agentAccount: walletResult.agentAccount,
+              ownerAddress: walletResult.ownerAddress,
+              agentRegistry: walletResult.agentRegistry,
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+
+        // Update registration.json with agentId + agentRegistry (if provided)
+        const registrationPath = path.join(outDir, 'registration.json');
+        const existing = await readJsonFile(registrationPath);
+        if (existing && typeof existing === 'object') {
+          (existing as any).registrations = Array.isArray((existing as any).registrations)
+            ? (existing as any).registrations
+            : [];
+          if ((existing as any).registrations.length === 0) {
+            (existing as any).registrations.push({
+              agentId: null,
+              agentRegistry: walletResult.agentRegistry ?? `eip155:${reg.chainId}:<IDENTITY_REGISTRY_ADDRESS>`,
+            });
+          }
+          (existing as any).registrations[0] = {
+            ...((existing as any).registrations[0] || {}),
+            agentId: walletResult.agentId ? Number(walletResult.agentId) : (existing as any).registrations[0]?.agentId ?? null,
+            agentRegistry:
+              walletResult.agentRegistry ??
+              (existing as any).registrations[0]?.agentRegistry ??
+              `eip155:${reg.chainId}:<IDENTITY_REGISTRY_ADDRESS>`,
+          };
+          await writeFileOverwrite(registrationPath, JSON.stringify(existing, null, 2) + '\n');
+        }
+
+        // Re-write env with AGENT_ACCOUNT filled in from actual registered value.
+        await writeFileOverwrite(
+          path.join(outDir, '.env.local'),
+          templateEnvLocalWallet({
+            port: answers.port,
+            agentName: answers.agentName,
+            description: answers.description,
+            chainId: reg.chainId,
+            agentUrl: reg.agentUrl,
+            agentAccount: walletResult.agentAccount,
+            agentCategory: reg.agentCategory,
+            imageUrl: reg.imageUrl,
+            supportedTrust: reg.supportedTrust,
+            enableMcp: reg.enableMcp,
+            enableX402: reg.enableX402,
+            discoveryUrl: reg.discoveryUrl,
+            discoveryApiKey: reg.discoveryApiKey,
+            pinataJwt: reg.pinataJwt,
+          }),
+        );
+
+        // eslint-disable-next-line no-console
+        console.log('');
+        // eslint-disable-next-line no-console
+        console.log(`[ERC-8004] Registered agentId=${walletResult.agentId} txHash=${walletResult.txHash}`);
+      } else {
+        const result = await performOnChainRegistration({
+          outDir,
+          reg,
+          agentName: answers.agentName,
+          description: answers.description,
+        });
+        // eslint-disable-next-line no-console
+        console.log('');
+        // eslint-disable-next-line no-console
+        console.log(`[ERC-8004] Registered agentId=${result.agentId} txHash=${result.txHash}`);
+      }
     }
 
-    if (answers.projectKind !== 'monorepo') {
+    if (isPrivateKeyRegistration && answers.projectKind !== 'monorepo') {
       // eslint-disable-next-line no-console
       console.log(
         '[ERC-8004] Note: this project was generated as standalone, so `src/register.ts` was not created. ' +
@@ -1361,8 +1754,22 @@ async function main() {
   console.log('');
   // eslint-disable-next-line no-console
   console.log(`Created ${outDir}`);
+
+  // Automatically install + run.
+  // - monorepo: install at repo root, run dev at app dir
+  // - standalone: install+dev at app dir
+  const installCwd = answers.projectKind === 'monorepo' ? root : outDir;
   // eslint-disable-next-line no-console
-  console.log(`Next: pnpm -C ${outDir} dev`);
+  console.log('');
+  // eslint-disable-next-line no-console
+  console.log(`[Setup] Installing dependencies in ${installCwd} …`);
+  await runCommand({ cwd: installCwd, command: 'pnpm', args: ['install'] });
+
+  // eslint-disable-next-line no-console
+  console.log('');
+  // eslint-disable-next-line no-console
+  console.log(`[Setup] Starting dev server in ${outDir} …`);
+  await runCommand({ cwd: outDir, command: 'pnpm', args: ['dev'] });
 }
 
 main().catch((err) => {

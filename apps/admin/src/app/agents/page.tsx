@@ -180,6 +180,39 @@ export default function AgentsRoute() {
         setError(null);
         // Ensure sourceFilters is never undefined
         const safeFilters = sourceFilters || filters || DEFAULT_FILTERS;
+
+        // "My agents" should not just filter the current discovery page.
+        // If enabled, load the owned agents list directly (then the UI can still
+        // apply secondary client-side filters like protocol / 8004-agent name).
+        if (safeFilters.mineOnly && isConnected && walletAddress) {
+          const ownedUrl =
+            `/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}` +
+            `&limit=1000&orderBy=createdAtTime&orderDirection=DESC&source=mineOnly`;
+          const ownedRes = await fetch(ownedUrl, { cache: 'no-store' });
+          if (!ownedRes.ok) {
+            const err = await ownedRes.json().catch(() => ({}));
+            throw new Error(err?.error || `Failed to fetch owned agents (${ownedRes.status})`);
+          }
+          const ownedData = await ownedRes.json().catch(() => ({} as any));
+          const ownedAgents = Array.isArray((ownedData as any)?.agents) ? ((ownedData as any).agents as Agent[]) : [];
+
+          // Ensure the UI's client-side "mineOnly" filter can't filter these out again.
+          // We don't always have an EIP-1193 provider available to compute ownership,
+          // so we mark returned agents as owned by key.
+          const ownedEntries: Record<string, boolean> = {};
+          for (const agent of ownedAgents) {
+            ownedEntries[`${agent.chainId}:${agent.agentId}`] = true;
+          }
+          setOwnedMap(ownedEntries);
+
+          setAgents(ownedAgents);
+          setTotal(ownedAgents.length);
+          setTotalPages(1);
+          setCurrentPage(1);
+          setHasLoaded(true);
+          return;
+        }
+
         const params = buildParams(safeFilters);
         const pathQuery =
           typeof safeFilters.path === 'string' && safeFilters.path.trim().length > 0
@@ -291,10 +324,15 @@ export default function AgentsRoute() {
     }
 
     async function computeOwnership() {
+      // If "my agents" is enabled, we treat the list as already owned and keep
+      // the ownedMap set by the owned-agents fetch.
+      if (filters.mineOnly) {
+        return;
+      }
+
       if (!isConnected || !walletAddress || agents.length === 0 || !eip1193Provider) {
-        if (!cancelled) {
-          setOwnedMap({});
-        }
+        // Don't clobber an existing ownedMap in cases where we can't compute ownership.
+        // (e.g. no EIP-1193 provider available)
         return;
       }
 
@@ -372,7 +410,7 @@ export default function AgentsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [agents, isConnected, walletAddress, eip1193Provider]);
+  }, [agents, isConnected, walletAddress, eip1193Provider, filters.mineOnly]);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>

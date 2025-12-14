@@ -7,6 +7,7 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const eoaAddress = searchParams.get('eoaAddress');
+    const source = searchParams.get('source') || 'unknown';
 
     if (!eoaAddress) {
       return NextResponse.json(
@@ -38,6 +39,11 @@ export async function GET(request: Request) {
       orderDirection,
     });
 
+    const addrPreview =
+      typeof eoaAddress === 'string' && eoaAddress.length > 10
+        ? `${eoaAddress.slice(0, 6)}…${eoaAddress.slice(-4)}`
+        : eoaAddress;
+    console.info('[API][agents/owned]', { source, eoa: addrPreview, count: agents.length });
 
     return NextResponse.json({
       success: true,

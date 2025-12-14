@@ -1,0 +1,1739 @@
+/**
+ * AI Agent Discovery Client
+ *
+ * Fronts for discovery-index GraphQL requests to the indexer
+ * Provides a clean interface for querying agent data
+ */
+import { GraphQLClient } from 'graphql-request';
+const INTROSPECTION_QUERY = `
+  query SearchCapabilities {
+    __schema {
+      queryType {
+        fields {
+          name
+          args {
+            name
+            type {
+              ...TypeRef
+            }
+          }
+          type {
+            ...TypeRef
+          }
+        }
+      }
+    }
+  }
+  fragment TypeRef on __Type {
+    kind
+    name
+    ofType {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+        }
+      }
+    }
+  }
+`;
+const TYPE_FIELDS_QUERY = `
+  query TypeFields($name: String!) {
+    __type(name: $name) {
+      fields {
+        name
+        type {
+          ...TypeRef
+        }
+      }
+    }
+  }
+  fragment TypeRef on __Type {
+    kind
+    name
+    ofType {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+        }
+      }
+    }
+  }
+`;
+function unwrapType(type) {
+    let current = type;
+    while (current && (current.kind === 'NON_NULL' || current.kind === 'LIST')) {
+        current = current.ofType ?? null;
+    }
+    return current ?? null;
+}
+function unwrapToTypeName(type) {
+    const named = unwrapType(type);
+    return named?.name ?? null;
+}
+function isNonNull(type) {
+    return type?.kind === 'NON_NULL';
+}
+function isListOf(type, expectedName) {
+    if (!type)
+        return false;
+    if (type.kind === 'NON_NULL')
+        return isListOf(type.ofType, expectedName);
+    if (type.kind === 'LIST') {
+        const inner = type.ofType || null;
+        if (!inner)
+            return false;
+        if (inner.kind === 'NON_NULL') {
+            return isListOf(inner.ofType, expectedName);
+        }
+        return inner.kind === 'OBJECT' && inner.name === expectedName;
+    }
+    return false;
+}
+/**
+ * AI Agent Discovery Client
+ *
+ * Provides methods for querying agent data from the indexer
+ */
+export class AIAgentDiscoveryClient {
+    client;
+    config;
+    searchStrategy;
+    searchStrategyPromise;
+    typeFieldsCache = new Map();
+    constructor(config) {
+        this.config = config;
+        const headers = {
+            'Content-Type': 'application/json',
+            ...(config.headers || {}),
+        };
+        if (config.apiKey) {
+            headers['Authorization'] = `Bearer ${config.apiKey}`;
+            // Also support API key in header
+            headers['X-API-Key'] = config.apiKey;
+        }
+        this.client = new GraphQLClient(config.endpoint, {
+            headers,
+        });
+    }
+    normalizeAgent(agent) {
+        const record = (agent ?? {});
+        const toOptionalString = (value) => {
+            if (value === undefined || value === null) {
+                return undefined;
+            }
+            return String(value);
+        };
+        const toOptionalStringOrNull = (value) => {
+            if (value === undefined) {
+                return undefined;
+            }
+            if (value === null) {
+                return null;
+            }
+            return String(value);
+        };
+        const toOptionalNumber = (value) => {
+            if (value === undefined || value === null) {
+                return undefined;
+            }
+            const numeric = typeof value === 'number' ? value : Number(value);
+            return Number.isFinite(numeric) ? numeric : undefined;
+        };
+        const toOptionalNumberOrNull = (value) => {
+            if (value === undefined) {
+                return undefined;
+            }
+            if (value === null) {
+                return null;
+            }
+            const numeric = typeof value === 'number' ? value : Number(value);
+            return Number.isFinite(numeric) ? numeric : null;
+        };
+        // Parse rawJson to extract all metadata fields
+        let parsedMetadata = {};
+        if (record.rawJson && typeof record.rawJson === 'string') {
+            try {
+                const parsed = JSON.parse(record.rawJson);
+                if (parsed && typeof parsed === 'object') {
+                    // Extract all fields from the registration JSON
+                    parsedMetadata = parsed;
+                }
+            }
+            catch (error) {
+                // Silently ignore JSON parse errors
+            }
+        }
+        const normalized = {
+            ...record,
+            // Merge all metadata from parsed rawJson
+            ...parsedMetadata,
+        };
+        const agentAccount = toOptionalString(record.agentAccount);
+        if (agentAccount !== undefined) {
+            normalized.agentAccount = agentAccount;
+        }
+        const agentOwner = toOptionalString(record.agentOwner);
+        if (agentOwner !== undefined) {
+            normalized.agentOwner = agentOwner;
+        }
+        const eoaOwner = toOptionalStringOrNull(record.eoaOwner);
+        if (eoaOwner !== undefined) {
+            normalized.eoaOwner = eoaOwner;
+        }
+        const agentCategory = toOptionalStringOrNull(record.agentCategory);
+        if (agentCategory !== undefined) {
+            normalized.agentCategory = agentCategory;
+        }
+        const didIdentity = toOptionalStringOrNull(record.didIdentity);
+        if (didIdentity !== undefined) {
+            normalized.didIdentity = didIdentity;
+        }
+        const didAccount = toOptionalStringOrNull(record.didAccount);
+        if (didAccount !== undefined) {
+            normalized.didAccount = didAccount;
+        }
+        const didName = toOptionalStringOrNull(record.didName);
+        if (didName !== undefined) {
+            normalized.didName = didName;
+        }
+        const tokenUri = toOptionalString(record.tokenUri);
+        if (tokenUri !== undefined) {
+            normalized.tokenUri = tokenUri;
+        }
+        const validationPendingCount = toOptionalNumberOrNull(record.validationPendingCount);
+        if (validationPendingCount !== undefined) {
+            normalized.validationPendingCount = validationPendingCount;
+        }
+        const validationCompletedCount = toOptionalNumberOrNull(record.validationCompletedCount);
+        if (validationCompletedCount !== undefined) {
+            normalized.validationCompletedCount = validationCompletedCount;
+        }
+        const validationRequestedCount = toOptionalNumberOrNull(record.validationRequestedCount);
+        if (validationRequestedCount !== undefined) {
+            normalized.validationRequestedCount = validationRequestedCount;
+        }
+        const description = toOptionalStringOrNull(record.description);
+        if (description !== undefined) {
+            normalized.description = description;
+        }
+        const image = toOptionalStringOrNull(record.image);
+        if (image !== undefined) {
+            normalized.image = image;
+        }
+        const a2aEndpoint = toOptionalStringOrNull(record.a2aEndpoint);
+        if (a2aEndpoint !== undefined) {
+            normalized.a2aEndpoint = a2aEndpoint;
+        }
+        const ensEndpoint = toOptionalStringOrNull(record.ensEndpoint);
+        if (ensEndpoint !== undefined) {
+            normalized.ensEndpoint = ensEndpoint;
+        }
+        const agentAccountEndpoint = toOptionalStringOrNull(record.agentAccountEndpoint);
+        if (agentAccountEndpoint !== undefined) {
+            normalized.agentAccountEndpoint = agentAccountEndpoint;
+        }
+        const supportedTrust = toOptionalString(record.supportedTrust);
+        if (supportedTrust !== undefined) {
+            normalized.supportedTrust = supportedTrust;
+        }
+        const did = toOptionalStringOrNull(record.did);
+        if (did !== undefined) {
+            normalized.did = did;
+        }
+        // Handle agentName: prefer non-empty values from multiple sources
+        // Priority: 1) direct agentName field, 2) name from parsedMetadata, 3) agentName from parsedMetadata
+        let agentName = undefined;
+        // Check direct agentName field (must be non-empty after trim)
+        const rawAgentName = record.agentName;
+        const directAgentName = typeof rawAgentName === 'string' && rawAgentName.trim().length > 0
+            ? rawAgentName.trim()
+            : undefined;
+        if (directAgentName) {
+            agentName = directAgentName;
+        }
+        else {
+            // Check parsedMetadata for name or agentName
+            const metadataName = typeof parsedMetadata.name === 'string' && parsedMetadata.name.trim().length > 0
+                ? parsedMetadata.name.trim()
+                : undefined;
+            const metadataAgentName = typeof parsedMetadata.agentName === 'string' && parsedMetadata.agentName.trim().length > 0
+                ? parsedMetadata.agentName.trim()
+                : undefined;
+            agentName = metadataAgentName || metadataName;
+            if (agentName) {
+                console.log('[AIAgentDiscoveryClient.normalizeAgent] Using metadata name:', {
+                    fromMetadataAgentName: !!metadataAgentName,
+                    fromMetadataName: !!metadataName,
+                    agentName,
+                });
+            }
+            else {
+                console.log('[AIAgentDiscoveryClient.normalizeAgent] No valid agentName found in direct field or metadata');
+            }
+        }
+        // Set agentName: use found value, or undefined if original was empty and no replacement found
+        // This ensures empty strings are converted to undefined
+        if (agentName && agentName.length > 0) {
+            normalized.agentName = agentName;
+        }
+        else if (typeof rawAgentName === 'string' && rawAgentName.trim().length === 0) {
+            // Original was empty string, and we didn't find a replacement - set to undefined
+            normalized.agentName = undefined;
+            console.log('[AIAgentDiscoveryClient.normalizeAgent] Original was empty string, set to undefined');
+        }
+        else {
+            console.log('[AIAgentDiscoveryClient.normalizeAgent] Leaving agentName as-is:', normalized.agentName);
+        }
+        // If rawAgentName was undefined/null, leave it as-is (don't overwrite)
+        return normalized;
+    }
+    /**
+     * List agents with a deterministic default ordering (agentId DESC).
+     *
+     * @param limit - Maximum number of agents to return per page
+     * @param offset - Number of agents to skip
+     * @returns List of agents
+     */
+    async listAgents(limit, offset) {
+        let allAgents = [];
+        const effectiveLimit = limit ?? 100;
+        const effectiveOffset = offset ?? 0;
+        const query = `
+      query ListAgents($limit: Int, $offset: Int) {
+        agents(limit: $limit, offset: $offset) {
+          chainId
+          agentId
+          agentAccount
+          agentOwner
+          eoaOwner
+          agentName
+          agentCategory
+          didIdentity
+          didAccount
+          didName
+          tokenUri
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
+          supportedTrust
+          rawJson
+        }
+      }
+    `;
+        try {
+            const data = await this.client.request(query, {
+                limit: effectiveLimit,
+                offset: effectiveOffset,
+            });
+            const pageAgents = (data.agents || []).map((agent) => {
+                const normalized = this.normalizeAgent(agent);
+                console.log('[AIAgentDiscoveryClient.listAgents] Normalized agent:', {
+                    agentId: normalized.agentId,
+                    rawAgentName: agent.agentName,
+                    normalizedAgentName: normalized.agentName,
+                    agentNameType: typeof normalized.agentName,
+                    hasRawJson: !!normalized.rawJson,
+                });
+                return normalized;
+            });
+            allAgents = allAgents.concat(pageAgents);
+            console.log('[AIAgentDiscoveryClient.listAgents] Returning agents:', {
+                count: allAgents.length,
+                agentNames: allAgents.map(a => ({
+                    agentId: a.agentId,
+                    agentName: a.agentName,
+                    agentNameType: typeof a.agentName,
+                })),
+            });
+            // Apply client-side ordering to ensure deterministic results,
+            // since the base agents query may not support orderBy/orderDirection
+            // arguments. Default is agentId DESC for "newest first".
+            // Default to newest agents first by agentId DESC
+            allAgents.sort((a, b) => {
+                const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId ?? 0) || 0;
+                const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId ?? 0) || 0;
+                return idB - idA;
+            });
+        }
+        catch (error) {
+            console.warn('[AIAgentDiscoveryClient.listAgents] Error fetching agents with pagination:', error);
+        }
+        return allAgents;
+    }
+    /**
+     * Run a semantic search over agents using the discovery indexer's
+     * `semanticAgentSearch` GraphQL field.
+     *
+     * NOTE: This API is best-effort. If the backend does not expose
+     * `semanticAgentSearch`, this will return an empty result instead of
+     * throwing, so callers can fall back gracefully.
+     */
+    async semanticAgentSearch(params) {
+        const rawText = typeof params?.text === 'string' ? params.text : '';
+        const text = rawText.trim();
+        if (!text) {
+            return { total: 0, matches: [] };
+        }
+        // Use JSON.stringify to safely escape the text for inclusion in the
+        // GraphQL query as a string literal.
+        const textLiteral = JSON.stringify(text);
+        const query = `
+      query SemanticAgentSearch {
+        semanticAgentSearch(
+          input: {
+            text: ${textLiteral}
+          }
+        ) {
+          total
+          matches {
+            score
+            matchReasons
+            agent {
+              chainId
+              agentId
+              agentAccount
+              agentOwner
+              eoaOwner
+              agentName
+              agentCategory
+              didIdentity
+              didAccount
+              didName
+              tokenUri
+              createdAtBlock
+              createdAtTime
+              updatedAtTime
+              type
+              description
+              image
+              a2aEndpoint
+              ensEndpoint
+              agentAccountEndpoint
+              supportedTrust
+              rawJson
+              did
+              mcp
+              x402support
+              active
+              feedbackCount
+              feedbackAverageScore
+              validationPendingCount
+              validationCompletedCount
+              validationRequestedCount
+              metadata {
+                key
+                valueText
+              }
+            }
+          }
+        }
+      }
+    `;
+        try {
+            const data = await this.client.request(query);
+            const root = data.semanticAgentSearch;
+            if (!root) {
+                return { total: 0, matches: [] };
+            }
+            const total = typeof root.total === 'number' && Number.isFinite(root.total) && root.total >= 0
+                ? root.total
+                : 0;
+            const matches = [];
+            const rawMatches = Array.isArray(root.matches) ? root.matches : [];
+            for (const item of rawMatches) {
+                if (!item || !item.agent) {
+                    continue;
+                }
+                const normalizedAgent = this.normalizeAgent(item.agent);
+                // Extract metadata entries (if present) into a strongly-typed array.
+                const metadataRaw = item.agent.metadata;
+                let metadata = null;
+                if (Array.isArray(metadataRaw)) {
+                    const entries = [];
+                    for (const entry of metadataRaw) {
+                        if (!entry || typeof entry.key !== 'string')
+                            continue;
+                        entries.push({
+                            key: entry.key,
+                            valueText: entry.valueText === null || entry.valueText === undefined
+                                ? null
+                                : String(entry.valueText),
+                        });
+                    }
+                    if (entries.length > 0) {
+                        metadata = entries;
+                    }
+                }
+                if (metadata) {
+                    normalizedAgent.metadata = metadata;
+                }
+                matches.push({
+                    score: typeof item.score === 'number' && Number.isFinite(item.score)
+                        ? item.score
+                        : null,
+                    matchReasons: Array.isArray(item.matchReasons)
+                        ? item.matchReasons.map((reason) => String(reason))
+                        : null,
+                    agent: normalizedAgent,
+                });
+            }
+            return {
+                total,
+                matches,
+            };
+        }
+        catch (error) {
+            console.warn('[AIAgentDiscoveryClient.semanticAgentSearch] Error performing semantic search:', error);
+            return { total: 0, matches: [] };
+        }
+    }
+    async searchAgentsAdvanced(options) {
+        console.log('>>>>>>>>>>>>>>>>>> searchAgentsAdvanced', options);
+        const strategy = await this.detectSearchStrategy();
+        const { query, params, limit, offset } = options;
+        const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+        const hasQuery = trimmedQuery.length > 0;
+        const hasParams = params && Object.keys(params).length > 0;
+        if (!hasQuery && !hasParams) {
+            return null;
+        }
+        // If no detected strategy (introspection disabled), attempt a direct list-form searchAgents call.
+        // Only use this fallback if we have a query string, since the GraphQL query requires a non-null query parameter.
+        // If we only have params but no query, return null to trigger local filtering fallback.
+        console.log('>>>>>>>>>>>>>>>>>> 012 strategy', strategy);
+        if (!strategy) {
+            console.log('>>>>>>>>>>>>>>>>>> 012 hasQuery', hasQuery);
+            if (hasQuery) {
+                try {
+                    console.log('>>>>>>>>>>>>>>>>>> 012 trimmedQuery', trimmedQuery);
+                    console.log('>>>>>>>>>>>>>>>>>> 012 limit', limit);
+                    console.log('>>>>>>>>>>>>>>>>>> 012 offset', offset);
+                    console.log('>>>>>>>>>>>>>>>>>> 012 options.orderBy', options.orderBy);
+                    console.log('>>>>>>>>>>>>>>>>>> 012 options.orderDirection', options.orderDirection);
+                    const queryText = `
+            query SearchAgentsFallback($query: String!, $limit: Int, $offset: Int, $orderBy: String, $orderDirection: String) {
+              searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
+                chainId
+                agentId
+                agentAccount
+                agentOwner
+                eoaOwner
+                agentName
+                agentCategory
+                didIdentity
+                didAccount
+                didName
+                tokenUri
+                createdAtBlock
+                createdAtTime
+                updatedAtTime
+                type
+                description
+                image
+                a2aEndpoint
+                ensEndpoint
+                agentAccountEndpoint
+                did
+                mcp
+                x402support
+                active
+                supportedTrust
+                rawJson
+              }
+            }
+          `;
+                    const variables = {
+                        query: trimmedQuery,
+                        limit: typeof limit === 'number' ? limit : undefined,
+                        offset: typeof offset === 'number' ? offset : undefined,
+                        orderBy: options.orderBy,
+                        orderDirection: options.orderDirection,
+                    };
+                    const data = await this.client.request(queryText, variables);
+                    const list = data?.searchAgents;
+                    console.log('>>>>>>>>>>>>>>>>>> 012 list.length', list?.length);
+                    if (list && list.length > 0) {
+                        console.log('>>>>>>>>>>>>>>>>>> 012 First raw agent sample:', JSON.stringify(list[0], null, 2));
+                    }
+                    if (Array.isArray(list)) {
+                        const normalizedList = list
+                            .filter(Boolean)
+                            .map((item) => {
+                            const rawAgent = item;
+                            const normalized = this.normalizeAgent(rawAgent);
+                            console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Normalized agent (fallback):', {
+                                agentId: normalized.agentId,
+                                rawAgentName: rawAgent.agentName,
+                                normalizedAgentName: normalized.agentName,
+                                agentNameType: typeof normalized.agentName,
+                                hasRawJson: !!normalized.rawJson,
+                            });
+                            return normalized;
+                        });
+                        console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Returning normalized agents (fallback):', {
+                            count: normalizedList.length,
+                            agentNames: normalizedList.map(a => ({
+                                agentId: a.agentId,
+                                agentName: a.agentName,
+                                agentNameType: typeof a.agentName,
+                            })),
+                        });
+                        // Ensure fallback respects the requested ordering, even if the
+                        // underlying searchAgents resolver uses its own default order.
+                        const orderBy = typeof options.orderBy === 'string' ? options.orderBy.trim() : undefined;
+                        const orderDirectionRaw = typeof options.orderDirection === 'string'
+                            ? options.orderDirection.toUpperCase()
+                            : 'DESC';
+                        const orderDirection = orderDirectionRaw === 'DESC' ? 'DESC' : 'ASC';
+                        if (orderBy === 'agentName') {
+                            normalizedList.sort((a, b) => {
+                                const aName = (a.agentName ?? '').toLowerCase();
+                                const bName = (b.agentName ?? '').toLowerCase();
+                                return orderDirection === 'ASC'
+                                    ? aName.localeCompare(bName)
+                                    : bName.localeCompare(aName);
+                            });
+                        }
+                        else if (orderBy === 'agentId') {
+                            normalizedList.sort((a, b) => {
+                                const idA = typeof a.agentId === 'number'
+                                    ? a.agentId
+                                    : Number(a.agentId ?? 0) || 0;
+                                const idB = typeof b.agentId === 'number'
+                                    ? b.agentId
+                                    : Number(b.agentId ?? 0) || 0;
+                                return orderDirection === 'ASC' ? idA - idB : idB - idA;
+                            });
+                        }
+                        else if (orderBy === 'createdAtTime') {
+                            normalizedList.sort((a, b) => {
+                                const tA = typeof a.createdAtTime === 'number'
+                                    ? a.createdAtTime
+                                    : Number(a.createdAtTime ?? 0) || 0;
+                                const tB = typeof b.createdAtTime === 'number'
+                                    ? b.createdAtTime
+                                    : Number(b.createdAtTime ?? 0) || 0;
+                                return orderDirection === 'ASC' ? tA - tB : tB - tA;
+                            });
+                        }
+                        else if (orderBy === 'createdAtBlock') {
+                            normalizedList.sort((a, b) => {
+                                const bA = typeof a.createdAtBlock === 'number'
+                                    ? a.createdAtBlock
+                                    : Number(a.createdAtBlock ?? 0) || 0;
+                                const bB = typeof b.createdAtBlock === 'number'
+                                    ? b.createdAtBlock
+                                    : Number(b.createdAtBlock ?? 0) || 0;
+                                return orderDirection === 'ASC' ? bA - bB : bB - bA;
+                            });
+                        }
+                        else if (orderBy === 'agentOwner') {
+                            normalizedList.sort((a, b) => {
+                                const aOwner = (a.agentOwner ?? '').toLowerCase();
+                                const bOwner = (b.agentOwner ?? '').toLowerCase();
+                                return orderDirection === 'ASC'
+                                    ? aOwner.localeCompare(bOwner)
+                                    : bOwner.localeCompare(aOwner);
+                            });
+                        }
+                        console.log('>>>>>>>>>>>>>>>>>> 345 AdvancedSearch', normalizedList);
+                        return { agents: normalizedList, total: undefined };
+                    }
+                }
+                catch (error) {
+                    console.warn('[AIAgentDiscoveryClient] Fallback searchAgents call failed:', error);
+                }
+            }
+            // If no strategy and no query (only params), return null to trigger local filtering fallback
+            return null;
+        }
+        const variables = {};
+        const variableDefinitions = [];
+        const argumentAssignments = [];
+        const agentSelection = `
+      chainId
+      agentId
+      agentAccount
+      agentOwner
+      eoaOwner
+      agentName
+      agentCategory
+      didIdentity
+      didAccount
+      didName
+      tokenUri
+      createdAtBlock
+      createdAtTime
+      updatedAtTime
+      type
+      description
+      image
+      a2aEndpoint
+      ensEndpoint
+      agentAccountEndpoint
+      did
+      mcp
+      x402support
+      active
+      supportedTrust
+      rawJson
+      feedbackCount
+      feedbackAverageScore
+      validationPendingCount
+      validationCompletedCount
+      validationRequestedCount
+    `;
+        const addStringArg = (arg, value) => {
+            if (!arg)
+                return !value;
+            if (!value) {
+                return arg.isNonNull ? false : true;
+            }
+            const typeName = arg.typeName ?? 'String';
+            variableDefinitions.push(`$${arg.name}: ${typeName}${arg.isNonNull ? '!' : ''}`);
+            argumentAssignments.push(`${arg.name}: $${arg.name}`);
+            variables[arg.name] = value;
+            return true;
+        };
+        const addInputArg = (arg, value) => {
+            if (!arg)
+                return !value;
+            if (!value || Object.keys(value).length === 0) {
+                return arg.isNonNull ? false : true;
+            }
+            const typeName = arg.typeName ?? 'JSON';
+            variableDefinitions.push(`$${arg.name}: ${typeName}${arg.isNonNull ? '!' : ''}`);
+            argumentAssignments.push(`${arg.name}: $${arg.name}`);
+            variables[arg.name] = value;
+            return true;
+        };
+        const addIntArg = (arg, value) => {
+            if (!arg)
+                return;
+            if (value === undefined || value === null) {
+                if (arg.isNonNull) {
+                    return;
+                }
+                return;
+            }
+            const typeName = arg.typeName ?? 'Int';
+            variableDefinitions.push(`$${arg.name}: ${typeName}${arg.isNonNull ? '!' : ''}`);
+            argumentAssignments.push(`${arg.name}: $${arg.name}`);
+            variables[arg.name] = value;
+        };
+        if (strategy.kind === 'connection') {
+            // Add query arg only if we have a query, or if queryArg is optional
+            // If queryArg is required (non-null) but we don't have a query, only proceed if we have params
+            const queryArgAdded = addStringArg(strategy.queryArg, hasQuery ? trimmedQuery : undefined);
+            if (!queryArgAdded && strategy.queryArg?.isNonNull && !hasParams) {
+                // Required query arg but no query and no params - can't proceed
+                return null;
+            }
+            // Add filter arg if we have params
+            const filterArgAdded = addInputArg(strategy.filterArg, hasParams ? params : undefined);
+            if (!filterArgAdded && strategy.filterArg?.isNonNull && !hasQuery) {
+                // Required filter arg but no params and no query - can't proceed
+                return null;
+            }
+            // If neither query nor params were added, and both are optional, we need at least one
+            if (!queryArgAdded && !filterArgAdded && (!strategy.queryArg || !strategy.filterArg)) {
+                return null;
+            }
+            addIntArg(strategy.limitArg, typeof limit === 'number' ? limit : undefined);
+            addIntArg(strategy.offsetArg, typeof offset === 'number' ? offset : undefined);
+            addStringArg(strategy.orderByArg, options.orderBy);
+            addStringArg(strategy.orderDirectionArg, options.orderDirection);
+            if (argumentAssignments.length === 0) {
+                return null;
+            }
+            console.log('>>>>>>>>>>>>>>>>>> AdvancedSearch', variableDefinitions, argumentAssignments);
+            const queryText = `
+        query AdvancedSearch(${variableDefinitions.join(', ')}) {
+          ${strategy.fieldName}(${argumentAssignments.join(', ')}) {
+            ${strategy.totalFieldName ? `${strategy.totalFieldName}` : ''}
+            ${strategy.listFieldName} {
+              chainId
+              agentId
+              agentAccount
+              agentOwner
+              eoaOwner
+              agentName
+              agentCategory
+              didIdentity
+              didAccount
+              didName
+              tokenUri
+              createdAtBlock
+              createdAtTime
+              updatedAtTime
+              type
+              description
+              image
+              a2aEndpoint
+              ensEndpoint
+              agentAccountEndpoint
+              did
+              mcp
+              x402support
+              active
+              supportedTrust
+              rawJson
+            }
+          }
+        }
+      `;
+            try {
+                const data = await this.client.request(queryText, variables);
+                const node = data?.[strategy.fieldName];
+                if (!node)
+                    return null;
+                const list = node?.[strategy.listFieldName];
+                if (!Array.isArray(list))
+                    return null;
+                const totalValue = typeof strategy.totalFieldName === 'string' ? node?.[strategy.totalFieldName] : undefined;
+                console.log('>>>>>>>>>>>>>>>>>> 123 AdvancedSearch', list);
+                return {
+                    agents: list.filter(Boolean),
+                    total: typeof totalValue === 'number' ? totalValue : undefined,
+                };
+            }
+            catch (error) {
+                console.warn('[AIAgentDiscoveryClient] Advanced connection search failed:', error);
+                this.searchStrategy = null;
+                return null;
+            }
+        }
+        if (strategy.kind === 'list') {
+            console.log('>>>>>>>>>>>>>>>>>> AdvancedSearchList', variableDefinitions, argumentAssignments);
+            if (!addStringArg(strategy.queryArg, hasQuery ? trimmedQuery : undefined)) {
+                return null;
+            }
+            addIntArg(strategy.limitArg, typeof limit === 'number' ? limit : undefined);
+            addIntArg(strategy.offsetArg, typeof offset === 'number' ? offset : undefined);
+            addStringArg(strategy.orderByArg, options.orderBy);
+            addStringArg(strategy.orderDirectionArg, options.orderDirection);
+            if (argumentAssignments.length === 0) {
+                return null;
+            }
+            const queryText = `
+        query AdvancedSearchList(${variableDefinitions.join(', ')}) {
+          ${strategy.fieldName}(${argumentAssignments.join(', ')}) {
+            ${agentSelection}
+          }
+        }
+      `;
+            try {
+                const data = await this.client.request(queryText, variables);
+                const list = data?.[strategy.fieldName];
+                if (!Array.isArray(list))
+                    return null;
+                const agents = list
+                    .filter(Boolean)
+                    .map((item) => {
+                    const rawAgent = item;
+                    const normalized = this.normalizeAgent(rawAgent);
+                    console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Normalized agent (strategy):', {
+                        agentId: normalized.agentId,
+                        rawAgentName: rawAgent.agentName,
+                        normalizedAgentName: normalized.agentName,
+                        agentNameType: typeof normalized.agentName,
+                        hasRawJson: !!normalized.rawJson,
+                    });
+                    return normalized;
+                });
+                console.log('[AIAgentDiscoveryClient.searchAgentsAdvanced] Returning normalized agents (strategy):', {
+                    count: agents.length,
+                    agentNames: agents.map(a => ({
+                        agentId: a.agentId,
+                        agentName: a.agentName,
+                        agentNameType: typeof a.agentName,
+                    })),
+                });
+                return {
+                    agents,
+                    total: undefined,
+                };
+            }
+            catch (error) {
+                console.warn('[AIAgentDiscoveryClient] Advanced list search failed:', error);
+                this.searchStrategy = null;
+                return null;
+            }
+        }
+        return null;
+    }
+    /**
+     * Search agents using the strongly-typed AgentWhereInput / searchAgentsGraph API.
+     * This is tailored to the indexer schema that exposes AgentWhereInput and
+     * searchAgentsGraph(where:, first:, skip:, orderBy:, orderDirection:).
+     */
+    async searchAgentsGraph(options) {
+        const query = `
+      query SearchAgentsGraph(
+        $where: AgentWhereInput
+        $first: Int
+        $skip: Int
+        $orderBy: AgentOrderBy
+        $orderDirection: OrderDirection
+      ) {
+        searchAgentsGraph(
+          where: $where
+          first: $first
+          skip: $skip
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          agents {
+            chainId
+            agentId
+            agentAccount
+            agentOwner
+            eoaOwner
+            agentName
+            agentCategory
+            didIdentity
+            didAccount
+            didName
+            tokenUri
+            createdAtBlock
+            createdAtTime
+            updatedAtTime
+            type
+            description
+            image
+            a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            supportedTrust
+            rawJson
+            did
+            mcp
+            x402support
+            active
+            feedbackCount
+            feedbackAverageScore
+            validationPendingCount
+            validationCompletedCount
+            validationRequestedCount
+          }
+          total
+          hasMore
+        }
+      }
+    `;
+        // Default ordering when not explicitly provided: newest agents first
+        // by agentId DESC.
+        const effectiveOrderBy = options.orderBy ?? 'agentId';
+        const effectiveOrderDirection = (options.orderDirection ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+        const variables = {
+            where: options.where,
+            first: typeof options.first === 'number' ? options.first : undefined,
+            skip: typeof options.skip === 'number' ? options.skip : undefined,
+            orderBy: effectiveOrderBy,
+            orderDirection: effectiveOrderDirection,
+        };
+        const data = await this.client.request(query, variables);
+        const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
+        const agents = (result.agents ?? []).map((agent) => {
+            const rawAgent = agent;
+            const normalized = this.normalizeAgent(rawAgent);
+            return normalized;
+        });
+        return {
+            agents,
+            total: typeof result.total === 'number' ? result.total : agents.length,
+            hasMore: Boolean(result.hasMore),
+        };
+    }
+    async detectSearchStrategy() {
+        if (this.searchStrategy !== undefined) {
+            return this.searchStrategy;
+        }
+        if (this.searchStrategyPromise) {
+            return this.searchStrategyPromise;
+        }
+        this.searchStrategyPromise = (async () => {
+            try {
+                const data = await this.client.request(INTROSPECTION_QUERY);
+                const fields = data.__schema?.queryType?.fields ?? [];
+                const candidateNames = ['searchAgentsAdvanced', 'searchAgents'];
+                for (const candidate of candidateNames) {
+                    const field = fields.find((f) => f.name === candidate);
+                    if (!field)
+                        continue;
+                    const strategy = await this.buildStrategyFromField(field);
+                    if (strategy) {
+                        this.searchStrategy = strategy;
+                        return strategy;
+                    }
+                }
+            }
+            catch (error) {
+                console.warn('[AIAgentDiscoveryClient] Failed to introspect search capabilities:', error);
+            }
+            finally {
+                this.searchStrategyPromise = undefined;
+            }
+            this.searchStrategy = null;
+            return null;
+        })();
+        return this.searchStrategyPromise;
+    }
+    async buildStrategyFromField(field) {
+        const baseReturn = unwrapType(field.type);
+        if (!baseReturn)
+            return null;
+        const limitArg = field.args.find((arg) => arg.name === 'limit') ??
+            field.args.find((arg) => arg.name === 'first');
+        const offsetArg = field.args.find((arg) => arg.name === 'offset') ??
+            field.args.find((arg) => arg.name === 'skip');
+        const queryArg = field.args.find((arg) => arg.name === 'query') ??
+            field.args.find((arg) => arg.name === 'term') ??
+            field.args.find((arg) => arg.name === 'search');
+        const filterArg = field.args.find((arg) => arg.name === 'params') ??
+            field.args.find((arg) => arg.name === 'filters');
+        const orderByArg = field.args.find((arg) => arg.name === 'orderBy');
+        const orderDirectionArg = field.args.find((arg) => arg.name === 'orderDirection');
+        if (baseReturn.kind === 'OBJECT' && baseReturn.name) {
+            const connectionFields = await this.getTypeFields(baseReturn.name);
+            if (!connectionFields) {
+                return null;
+            }
+            const listField = connectionFields.find((f) => isListOf(f.type, 'Agent'));
+            if (!listField) {
+                return null;
+            }
+            const totalField = connectionFields.find((f) => f.name === 'total') ??
+                connectionFields.find((f) => f.name === 'totalCount') ??
+                connectionFields.find((f) => f.name === 'count');
+            return {
+                kind: 'connection',
+                fieldName: field.name,
+                listFieldName: listField.name,
+                totalFieldName: totalField?.name,
+                queryArg: queryArg
+                    ? {
+                        name: queryArg.name,
+                        typeName: unwrapToTypeName(queryArg.type),
+                        isNonNull: isNonNull(queryArg.type),
+                    }
+                    : undefined,
+                filterArg: filterArg
+                    ? {
+                        name: filterArg.name,
+                        typeName: unwrapToTypeName(filterArg.type),
+                        isNonNull: isNonNull(filterArg.type),
+                    }
+                    : undefined,
+                limitArg: limitArg
+                    ? {
+                        name: limitArg.name,
+                        typeName: unwrapToTypeName(limitArg.type),
+                        isNonNull: isNonNull(limitArg.type),
+                    }
+                    : undefined,
+                offsetArg: offsetArg
+                    ? {
+                        name: offsetArg.name,
+                        typeName: unwrapToTypeName(offsetArg.type),
+                        isNonNull: isNonNull(offsetArg.type),
+                    }
+                    : undefined,
+                orderByArg: orderByArg
+                    ? {
+                        name: orderByArg.name,
+                        typeName: unwrapToTypeName(orderByArg.type),
+                        isNonNull: isNonNull(orderByArg.type),
+                    }
+                    : undefined,
+                orderDirectionArg: orderDirectionArg
+                    ? {
+                        name: orderDirectionArg.name,
+                        typeName: unwrapToTypeName(orderDirectionArg.type),
+                        isNonNull: isNonNull(orderDirectionArg.type),
+                    }
+                    : undefined,
+            };
+        }
+        if (isListOf(field.type, 'Agent')) {
+            return {
+                kind: 'list',
+                fieldName: field.name,
+                queryArg: queryArg
+                    ? {
+                        name: queryArg.name,
+                        typeName: unwrapToTypeName(queryArg.type),
+                        isNonNull: isNonNull(queryArg.type),
+                    }
+                    : undefined,
+                limitArg: limitArg
+                    ? {
+                        name: limitArg.name,
+                        typeName: unwrapToTypeName(limitArg.type),
+                        isNonNull: isNonNull(limitArg.type),
+                    }
+                    : undefined,
+                offsetArg: offsetArg
+                    ? {
+                        name: offsetArg.name,
+                        typeName: unwrapToTypeName(offsetArg.type),
+                        isNonNull: isNonNull(offsetArg.type),
+                    }
+                    : undefined,
+                orderByArg: orderByArg
+                    ? {
+                        name: orderByArg.name,
+                        typeName: unwrapToTypeName(orderByArg.type),
+                        isNonNull: isNonNull(orderByArg.type),
+                    }
+                    : undefined,
+                orderDirectionArg: orderDirectionArg
+                    ? {
+                        name: orderDirectionArg.name,
+                        typeName: unwrapToTypeName(orderDirectionArg.type),
+                        isNonNull: isNonNull(orderDirectionArg.type),
+                    }
+                    : undefined,
+            };
+        }
+        return null;
+    }
+    async getTypeFields(typeName) {
+        if (this.typeFieldsCache.has(typeName)) {
+            return this.typeFieldsCache.get(typeName) ?? null;
+        }
+        try {
+            const data = await this.client.request(TYPE_FIELDS_QUERY, { name: typeName });
+            const fields = data.__type?.fields ?? null;
+            this.typeFieldsCache.set(typeName, fields ?? null);
+            return fields ?? null;
+        }
+        catch (error) {
+            console.warn(`[AIAgentDiscoveryClient] Failed to introspect type fields for ${typeName}:`, error);
+            this.typeFieldsCache.set(typeName, null);
+            return null;
+        }
+    }
+    /**
+     * Get all token metadata from The Graph indexer for an agent
+     * Uses tokenMetadata_collection query to get all metadata key-value pairs
+     * Handles pagination if an agent has more than 1000 metadata entries
+     * @param chainId - Chain ID
+     * @param agentId - Agent ID
+     * @returns Record of all metadata key-value pairs, or null if not available
+     */
+    async getTokenMetadata(chainId, agentId) {
+        // Newer indexer schemas may not expose tokenMetadata_collection anymore.
+        // Avoid spamming logs / failing requests by introspecting once and bailing out if unsupported.
+        try {
+            const queryFields = await this.getTypeFields('Query');
+            const hasTokenMetadataCollection = Boolean(queryFields?.some((f) => f?.name === 'tokenMetadata_collection'));
+            if (!hasTokenMetadataCollection) {
+                // tokenMetadataById may exist, but it doesn't help us enumerate all metadata pairs.
+                // We only use this method as a best-effort fallback, so return null when unsupported.
+                console.warn('[AIAgentDiscoveryClient.getTokenMetadata] tokenMetadata_collection not available in GraphQL schema; skipping token metadata lookup.');
+                return null;
+            }
+        }
+        catch (e) {
+            // If introspection fails, keep existing behavior (attempt the query; it will be caught below).
+        }
+        const metadata = {};
+        const pageSize = 1000; // The Graph's default page size
+        let skip = 0;
+        let hasMore = true;
+        while (hasMore) {
+            const query = `
+        query GetTokenMetadata($chainId: Int!, $agentId: String!, $first: Int!, $skip: Int!) {
+          tokenMetadata_collection(
+            chainId: $chainId
+            agentId: $agentId
+            first: $first
+            skip: $skip
+          ) {
+            key
+            value
+            id
+            indexedKey
+          }
+        }
+      `;
+            try {
+                const data = await this.client.request(query, {
+                    chainId,
+                    agentId: String(agentId),
+                    first: pageSize,
+                    skip: skip,
+                });
+                if (!data.tokenMetadata_collection || !Array.isArray(data.tokenMetadata_collection)) {
+                    hasMore = false;
+                    break;
+                }
+                // Add entries from this page
+                for (const entry of data.tokenMetadata_collection) {
+                    if (entry.key && entry.value) {
+                        metadata[entry.key] = entry.value;
+                    }
+                }
+                // Check if we got a full page (might have more)
+                hasMore = data.tokenMetadata_collection.length === pageSize;
+                skip += pageSize;
+                // Safety check: The Graph has a max skip of 5000
+                // If we've reached that, we can't fetch more (unlikely for a single agent)
+                if (skip >= 5000) {
+                    console.warn(`[AIAgentDiscoveryClient.getTokenMetadata] Reached The Graph skip limit (5000) for agent ${agentId}`);
+                    hasMore = false;
+                }
+            }
+            catch (error) {
+                console.warn('[AIAgentDiscoveryClient.getTokenMetadata] Error fetching token metadata from GraphQL:', error);
+                // If we got some metadata before the error, return what we have
+                if (Object.keys(metadata).length > 0) {
+                    return metadata;
+                }
+                return null;
+            }
+        }
+        return Object.keys(metadata).length > 0 ? metadata : null;
+    }
+    /**
+     * Get a single agent by ID with metadata
+     * @param chainId - Chain ID (required by schema)
+     * @param agentId - Agent ID to fetch
+     * @returns Agent data with metadata or null if not found
+     */
+    async getAgent(chainId, agentId) {
+        // Try searchAgentsGraph first to get metadata
+        const graphQuery = `
+      query GetAgentWithMetadata($where: AgentWhereInput, $first: Int) {
+        searchAgentsGraph(
+          where: $where
+          first: $first
+        ) {
+          agents {
+            chainId
+            agentId
+            agentAccount
+            agentOwner
+            eoaOwner
+            agentName
+            agentCategory
+            didIdentity
+            didAccount
+            didName
+            tokenUri
+            createdAtBlock
+            createdAtTime
+            updatedAtTime
+            type
+            description
+            image
+            a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            did
+            mcp
+            x402support
+            active
+            supportedTrust
+            rawJson
+            metadata {
+              key
+              valueText
+            }
+          }
+        }
+      }
+    `;
+        try {
+            const graphData = await this.client.request(graphQuery, {
+                where: {
+                    chainId,
+                    agentId: String(agentId),
+                },
+                first: 1,
+            });
+            if (graphData.searchAgentsGraph?.agents && graphData.searchAgentsGraph.agents.length > 0) {
+                const agentData = graphData.searchAgentsGraph.agents[0];
+                if (!agentData) {
+                    return null;
+                }
+                // Convert metadata array to record and add to agent data
+                const normalized = this.normalizeAgent(agentData);
+                if (agentData.metadata && Array.isArray(agentData.metadata)) {
+                    // Add metadata as a flat object on the agent data
+                    for (const meta of agentData.metadata) {
+                        if (meta.key && meta.valueText) {
+                            normalized[meta.key] = meta.valueText;
+                        }
+                    }
+                    // Also store as metadata property for easy access
+                    normalized.metadata = agentData.metadata.reduce((acc, meta) => {
+                        if (meta.key && meta.valueText) {
+                            acc[meta.key] = meta.valueText;
+                        }
+                        return acc;
+                    }, {});
+                }
+                return normalized;
+            }
+        }
+        catch (error) {
+            console.warn('[AIAgentDiscoveryClient.getAgent] GraphQL searchAgentsGraph failed, trying fallback:', error);
+        }
+        // Fallback to original agent query if searchAgentsGraph doesn't work
+        const query = `
+      query GetAgent($chainId: Int!, $agentId: String!) {
+        agent(chainId: $chainId, agentId: $agentId) {
+          chainId
+          agentId
+          agentAccount
+          agentOwner
+          eoaOwner
+          agentName
+          agentCategory
+          didIdentity
+          didAccount
+          didName
+          tokenUri
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
+          supportedTrust
+          rawJson
+        }
+      }
+    `;
+        try {
+            const data = await this.client.request(query, {
+                chainId,
+                agentId: String(agentId),
+            });
+            if (!data.agent) {
+                return null;
+            }
+            return this.normalizeAgent(data.agent);
+        }
+        catch (error) {
+            console.error('[AIAgentDiscoveryClient.getAgent] Error fetching agent:', error);
+            return null;
+        }
+    }
+    async getAgentByName(agentName) {
+        const query = `
+      query GetAgentByName($agentName: String!) {
+        agentByName(agentName: $agentName) {
+          chainId
+          agentId
+          agentAccount
+          agentOwner
+          eoaOwner
+          agentName
+          agentCategory
+          didIdentity
+      didAccount
+      didName
+      tokenUri
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
+          supportedTrust
+          rawJson
+        }
+      }
+    `;
+        try {
+            const data = await this.client.request(query, {
+                agentName,
+            });
+            console.log("*********** AIAgentDiscoveryClient.getAgentByName: data", data);
+            if (!data.agentByName) {
+                return null;
+            }
+            return this.normalizeAgent(data.agentByName);
+        }
+        catch (error) {
+            console.error('[AIAgentDiscoveryClient.getAgentByName] Error fetching agent:', error);
+            return null;
+        }
+    }
+    /**
+     * Search agents by name
+     * @param searchTerm - Search term to match against agent names
+     * @param limit - Maximum number of results
+     * @returns List of matching agents
+     */
+    async searchAgents(searchTerm, limit) {
+        const query = `
+      query SearchAgents($searchTerm: String!, $limit: Int) {
+        agents(searchTerm: $searchTerm, limit: $limit) {
+          chainId
+          agentId
+          agentAccount
+          agentOwner
+          eoaOwner
+          agentName
+          agentCategory
+          didIdentity
+          didAccount
+          didName
+          tokenUri
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          did
+          mcp
+          x402support
+          active
+          supportedTrust
+          rawJson
+        }
+      }
+    `;
+        try {
+            const data = await this.client.request(query, {
+                searchTerm,
+                limit: limit || 100,
+            });
+            const agents = data.agents || [];
+            return agents.map((agent) => this.normalizeAgent(agent));
+        }
+        catch (error) {
+            console.error('[AIAgentDiscoveryClient.searchAgents] Error searching agents:', error);
+            throw error;
+        }
+    }
+    /**
+     * Refresh/Index an agent in the indexer
+     * Triggers the indexer to re-index the specified agent
+     * @param agentId - Agent ID to refresh (required)
+     * @param chainId - Optional chain ID (if not provided, indexer may use default)
+     * @param apiKey - Optional API key override (uses config API key if not provided)
+     * @returns Refresh result with success status and processed chains
+     */
+    async refreshAgent(agentId, chainId, apiKey) {
+        const mutation = `
+      mutation IndexAgent($agentId: String!, $chainId: Int) {
+        indexAgent(agentId: $agentId, chainId: $chainId) {
+          success
+          message
+          processedChains
+        }
+      }
+    `;
+        const variables = {
+            agentId: String(agentId),
+        };
+        if (chainId !== undefined) {
+            variables.chainId = chainId;
+        }
+        // If API key override is provided, create a temporary client with that key
+        let clientToUse = this.client;
+        if (apiKey) {
+            const headers = {
+                'Content-Type': 'application/json',
+                ...(this.config.headers || {}),
+                'Authorization': `Bearer ${apiKey}`,
+            };
+            clientToUse = new GraphQLClient(this.config.endpoint, {
+                headers,
+            });
+        }
+        try {
+            const data = await clientToUse.request(mutation, variables);
+            return data.indexAgent;
+        }
+        catch (error) {
+            console.error('[AIAgentDiscoveryClient.refreshAgent] Error refreshing agent:', error);
+            throw new Error(`Failed to refresh agent: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }
+    /**
+     * Search validation requests for an agent using GraphQL
+     */
+    async searchValidationRequestsAdvanced(options) {
+        const { chainId, agentId, limit = 10, offset = 0, orderBy = 'blockNumber', orderDirection = 'DESC' } = options;
+        const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+        const queryText = `
+      query ValidationRequestsForAgent(
+        $agentId: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        validationRequests(
+          agentId: $agentId
+          limit: $limit
+          offset: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          id
+          agentId
+          validatorAddress
+          requestUri
+          requestJson
+          requestHash
+          txHash
+          blockNumber
+          timestamp
+          createdAt
+          updatedAt
+        }
+      }
+    `;
+        const variables = {
+            agentId: agentIdString,
+            limit: typeof limit === 'number' ? limit : undefined,
+            offset: typeof offset === 'number' ? offset : undefined,
+            orderBy: typeof orderBy === 'string' ? orderBy : undefined,
+            orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+        };
+        try {
+            const data = await this.client.request(queryText, variables);
+            const requests = data?.validationRequests;
+            if (!Array.isArray(requests)) {
+                return null;
+            }
+            return {
+                validationRequests: requests.filter(Boolean),
+            };
+        }
+        catch (error) {
+            console.warn('[AIAgentDiscoveryClient] searchValidationRequestsAdvanced failed:', error);
+            return null;
+        }
+    }
+    /**
+     * Search feedback for an agent using GraphQL
+     */
+    async searchFeedbackAdvanced(options) {
+        const { chainId, agentId, limit = 10, offset = 0, orderBy = 'timestamp', orderDirection = 'DESC' } = options;
+        const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+        const queryText = `
+      query FeedbackForAgent(
+        $chainId: Int!
+        $agentId: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        feedbacks(
+          chainId: $chainId
+          agentId: $agentId
+          limit: $limit
+          offset: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          id
+          agentId
+          clientAddress
+          score
+          feedbackUri
+          feedbackJson
+          comment
+          ratingPct
+          txHash
+          blockNumber
+          timestamp
+          isRevoked
+          responseCount
+        }
+      }
+    `;
+        const variables = {
+            chainId,
+            agentId: agentIdString,
+            limit: typeof limit === 'number' ? limit : undefined,
+            offset: typeof offset === 'number' ? offset : undefined,
+            orderBy: typeof orderBy === 'string' ? orderBy : undefined,
+            orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+        };
+        try {
+            const data = await this.client.request(queryText, variables);
+            const feedbacks = data?.feedbacks;
+            if (!Array.isArray(feedbacks)) {
+                return null;
+            }
+            return {
+                feedbacks: feedbacks.filter(Boolean),
+            };
+        }
+        catch (error) {
+            console.warn('[AIAgentDiscoveryClient] searchFeedbackAdvanced failed:', error);
+            return null;
+        }
+    }
+    /**
+     * Execute a raw GraphQL query
+     * @param query - GraphQL query string
+     * @param variables - Query variables
+     * @returns Query response
+     */
+    async request(query, variables) {
+        return this.client.request(query, variables);
+    }
+    /**
+     * Execute a raw GraphQL mutation
+     * @param mutation - GraphQL mutation string
+     * @param variables - Mutation variables
+     * @returns Mutation response
+     */
+    async mutate(mutation, variables) {
+        return this.client.request(mutation, variables);
+    }
+    /**
+     * Get the underlying GraphQLClient instance
+     * @returns The GraphQLClient instance
+     */
+    getClient() {
+        return this.client;
+    }
+    /**
+     * Get agents owned by a specific EOA address
+     * @param eoaAddress - The EOA (Externally Owned Account) address to search for
+     * @param options - Optional search options (limit, offset, orderBy, orderDirection)
+     * @returns List of agents owned by the EOA address
+     */
+    async getOwnedAgents(eoaAddress, options) {
+        if (!eoaAddress || typeof eoaAddress !== 'string' || !eoaAddress.startsWith('0x')) {
+            throw new Error('Invalid EOA address. Must be a valid Ethereum address starting with 0x');
+        }
+        // Use the address as-is (don't normalize to lowercase) since the database may store it with mixed case
+        const normalizedAddress = eoaAddress;
+        const limit = options?.limit ?? 100;
+        const offset = options?.offset ?? 0;
+        const orderBy = options?.orderBy ?? 'agentId';
+        const orderDirection = options?.orderDirection ?? 'DESC';
+        const query = `
+      query GetOwnedAgents(
+        $where: AgentWhereInput
+        $first: Int
+        $skip: Int
+        $orderBy: AgentOrderBy
+        $orderDirection: OrderDirection
+      ) {
+        searchAgentsGraph(
+          where: $where
+          first: $first
+          skip: $skip
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          agents {
+            chainId
+            agentId
+            agentAccount
+            agentOwner
+            agentName
+            agentCategory
+            didIdentity
+            didAccount
+            didName
+            tokenUri
+            createdAtBlock
+            createdAtTime
+            updatedAtTime
+            type
+            description
+            image
+            a2aEndpoint
+            ensEndpoint
+            agentAccountEndpoint
+            supportedTrust
+            rawJson
+            did
+            mcp
+            x402support
+            active
+            feedbackCount
+            feedbackAverageScore
+            validationPendingCount
+            validationCompletedCount
+            validationRequestedCount
+          }
+          total
+          hasMore
+        }
+      }
+    `;
+        const variables = {
+            where: {
+                eoaOwner: normalizedAddress,
+            },
+            first: limit,
+            skip: offset,
+            orderBy: orderBy,
+            orderDirection: orderDirection,
+        };
+        console.log('[AIAgentDiscoveryClient.getOwnedAgents] Query variables:', {
+            eoaAddress,
+            normalizedAddress,
+            where: { eoaOwner: normalizedAddress },
+            limit,
+            offset,
+            orderBy,
+            orderDirection,
+        });
+        try {
+            const data = await this.client.request(query, variables);
+            const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
+            const agents = (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+            return agents;
+        }
+        catch (error) {
+            console.error('[AIAgentDiscoveryClient.getOwnedAgents] Error fetching owned agents:', error);
+            throw error;
+        }
+    }
+}
+//# sourceMappingURL=AIAgentDiscoveryClient.js.map

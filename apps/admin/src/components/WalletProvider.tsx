@@ -63,8 +63,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   
   const privateKeyMode = usePrivateKey || serverPrivateKeyMode;
   
-  // Combine Web3Auth and direct wallet connection
-  const eoaConnected = web3AuthConnected || connected;
+  // Combine Web3Auth and direct wallet connection.
+  // IMPORTANT: Web3Auth can report "connected" briefly before an address is available.
+  // Treat "connected" as true only when we also have an address, otherwise downstream
+  // "my agents" filtering can run with an empty wallet address.
+  const eoaConnected = (web3AuthConnected && Boolean(web3AuthAddress)) || connected;
   const eoaAddress = web3AuthAddress || address;
   const combinedLoading = authLoading || loading;
   
