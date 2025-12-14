@@ -31,6 +31,15 @@ export async function GET(request: Request) {
     const limit = limitParam ? parseInt(limitParam, 10) : 100;
     const offset = offsetParam ? parseInt(offsetParam, 10) : 0;
 
+    const discoveryUrlRaw = process.env.AGENTIC_TRUST_DISCOVERY_URL;
+    const discoveryEndpoint =
+      typeof discoveryUrlRaw === 'string' && discoveryUrlRaw.trim()
+        ? discoveryUrlRaw.trim().endsWith('/graphql')
+          ? discoveryUrlRaw.trim()
+          : `${discoveryUrlRaw.trim().replace(/\/$/, '')}/graphql`
+        : '';
+    const apiKeyPresent = Boolean(String(process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || '').trim());
+
     const discoveryClient = await getDiscoveryClient();
     const agents = await discoveryClient.getOwnedAgents(eoaAddress, {
       limit,
@@ -56,6 +65,18 @@ export async function GET(request: Request) {
       {
         success: false,
         error: error?.message || 'Failed to fetch owned agents',
+        debug:
+          process.env.NODE_ENV === 'production'
+            ? {
+                discoveryUrlPresent: Boolean(String(process.env.AGENTIC_TRUST_DISCOVERY_URL || '').trim()),
+                apiKeyPresent: Boolean(String(process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || '').trim()),
+                discoveryEndpoint: (() => {
+                  const raw = String(process.env.AGENTIC_TRUST_DISCOVERY_URL || '').trim();
+                  if (!raw) return '';
+                  return raw.endsWith('/graphql') ? raw : `${raw.replace(/\/$/, '')}/graphql`;
+                })(),
+              }
+            : undefined,
       },
       { status: 500 }
     );
