@@ -8,7 +8,6 @@ import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
-import { getClientChainEnv } from '@/lib/clientChainEnv';
 import {
   createAgentWithWallet,
   getCounterfactualSmartAccountAddressByAgentName,
@@ -220,32 +219,20 @@ export default function CliSetupPage() {
                 }
 
                 setStatus('Generating session package…');
-                const chainEnv = getClientChainEnv(draft.chainId);
-                if (!chainEnv.rpcUrl) {
-                  throw new Error(
-                    'Missing RPC URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_* env vars.',
-                  );
+                const envRes = await fetch(`/api/chain-env?chainId=${encodeURIComponent(String(draft.chainId))}`, {
+                  cache: 'no-store',
+                });
+                if (!envRes.ok) {
+                  const err = await envRes.json().catch(() => ({}));
+                  throw new Error(err?.message || err?.error || `Failed to load chain env (${envRes.status})`);
                 }
-                if (!chainEnv.bundlerUrl) {
-                  throw new Error(
-                    'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
-                  );
-                }
-                if (!chainEnv.identityRegistry) {
-                  throw new Error(
-                    'Missing IdentityRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_* env vars.',
-                  );
-                }
-                if (!chainEnv.reputationRegistry) {
-                  throw new Error(
-                    'Missing ReputationRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_* env vars.',
-                  );
-                }
-                if (!chainEnv.validationRegistry) {
-                  throw new Error(
-                    'Missing ValidationRegistry address. Set NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_* env vars.',
-                  );
-                }
+                const chainEnv = (await envRes.json()) as {
+                  rpcUrl: string;
+                  bundlerUrl: string;
+                  identityRegistry: `0x${string}`;
+                  reputationRegistry: `0x${string}`;
+                  validationRegistry: `0x${string}`;
+                };
 
                 const sessionPackage = await generateSessionPackage({
                   agentId: agentIdNumeric,

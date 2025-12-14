@@ -432,7 +432,7 @@ Options:
 
 Env:
   CREATE_AGENTIC_TRUST_REPO_ROOT  Same as --repo-root
-  CREATE_AGENTIC_TRUST_ADMIN_URL  Admin app base URL for wallet registration (default: https://agentictrust.io in prod, http://localhost:3002 otherwise)
+  CREATE_AGENTIC_TRUST_ADMIN_URL  Admin app base URL for wallet registration (default: https://agentictrust.io, or http://localhost:3002 when run inside monorepo)
 `);
 }
 
@@ -1159,14 +1159,13 @@ async function runWizard(params: { rootDir: string; projectKind: ProjectKind }):
 async function runRegistrationWizard(params: {
   defaultAgentName: string;
   defaultDescription: string;
+  projectKind: ProjectKind;
 }): Promise<RegistrationAnswers | null> {
   const defaultDiscoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL || DEFAULT_DISCOVERY_URL;
   const defaultDiscoveryApiKey =
     process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || DEFAULT_DISCOVERY_API_KEY;
   const fallbackAdminUrl =
-    String(process.env.NODE_ENV || '').toLowerCase() === 'production'
-      ? 'https://agentictrust.io'
-      : 'http://localhost:3002';
+    params.projectKind === 'monorepo' ? 'http://localhost:3002' : 'https://agentictrust.io';
   const defaultAdminUrl =
     String(process.env.CREATE_AGENTIC_TRUST_ADMIN_URL || '').trim() || fallbackAdminUrl;
   const defaultEnableX402 =
@@ -1459,15 +1458,11 @@ async function main() {
   const repoRootEnv = process.env.CREATE_AGENTIC_TRUST_REPO_ROOT;
   const rootCandidate = repoRootFlag ?? repoRootEnv ?? cwd;
 
+  // If user explicitly provides a repo root, trust it.
+  // Otherwise, try to discover the monorepo root; if not found, fall back to standalone mode in cwd.
   const root = repoRootFlag || repoRootEnv
     ? path.resolve(rootCandidate)
-    : await findRepoRoot(rootCandidate);
-
-  if (!root) {
-    throw new Error(
-      `Expected to run somewhere inside the monorepo (could not find pnpm-workspace.yaml + apps/ from ${cwd}).`,
-    );
-  }
+    : (await findRepoRoot(rootCandidate)) ?? path.resolve(rootCandidate);
 
   const detectedKind = await detectProjectKind(root);
   const answers = await runWizard({ rootDir: root, projectKind: detectedKind });
@@ -1551,6 +1546,7 @@ async function main() {
   const reg = await runRegistrationWizard({
     defaultAgentName: answers.agentName,
     defaultDescription: answers.description,
+    projectKind: detectedKind,
   });
 
   if (reg) {
