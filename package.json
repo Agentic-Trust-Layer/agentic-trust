@@ -11,7 +11,7 @@
   "scripts": {
     "build": "turbo run build",
     "build:admin": "turbo run build --filter=@agentic-trust/admin",
-    "create-agent": "pnpm -C packages/create-agentic-trust-agent dev",
+    "create-agent": "pnpm -C packages/create-8004-agent dev",
     "dev": "turbo run dev",
     "dev:admin": "turbo run dev --filter=@agentic-trust/admin",
     "test": "turbo run test",

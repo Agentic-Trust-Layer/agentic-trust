@@ -1,24 +1,24 @@
-# @agentic-trust/create-agent
+# @agentic-trust/create-8004-agent
 
 Local wizard CLI to scaffold a **simple agent app** inside this monorepo (under `apps/`).
 
 ## Run (local)
 
 ```bash
-pnpm -C packages/create-agentic-trust-agent dev
+pnpm -C packages/create-8004-agent dev
 ```
 
 Run from anywhere (pick where the app is created):
 
 ```bash
-node /path/to/agentic-trust/packages/create-agentic-trust-agent/dist/index.js --repo-root /path/to/agentic-trust
+node /path/to/agentic-trust/packages/create-8004-agent/dist/index.js --repo-root /path/to/agentic-trust
 ```
 
 Or build + run:
 
 ```bash
-pnpm -C packages/create-agentic-trust-agent build
-node packages/create-agentic-trust-agent/dist/index.js
+pnpm -C packages/create-8004-agent build
+node packages/create-8004-agent/dist/index.js
 ```
 
 ## What it generates

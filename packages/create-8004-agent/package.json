@@ -1,11 +1,15 @@
 {
-  "name": "@agentic-trust/create-agent",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@agentic-trust/create-8004-agent",
+  "version": "0.1.2",
+  "private": false,
   "type": "module",
   "description": "Wizard CLI to scaffold a simple Agentic Trust (ERC-8004 / A2A) agent app",
   "bin": {
-    "create-agentic-trust-agent": "dist/index.js"
+    "create-8004-agent": "dist/index.js",
+    "create-8004-agentic-trust": "dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc && node ./scripts/postbuild.mjs",
@@ -23,5 +27,3 @@
     "typescript": "^5.3.0"
   }
 }
-
-
