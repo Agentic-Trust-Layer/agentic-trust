@@ -111,6 +111,17 @@ export default function AgentRegistrationPage() {
   const [registering, setRegistering] = useState(false);
   const [registerProgress, setRegisterProgress] = useState(0);
   const registerTimerRef = useRef<number | null>(null);
+  const [walletConfirmOpen, setWalletConfirmOpen] = useState(false);
+  const [walletConfirmPayload, setWalletConfirmPayload] = useState<{
+    chainLabel: string;
+    chainId: number;
+    ensName: string;
+    agentAccount: string;
+    agentUrl: string;
+    a2aEndpoint: string | null;
+    mcpEndpoint: string | null;
+  } | null>(null);
+  const pendingWalletActionRef = useRef<null | (() => Promise<void>)>(null);
   const totalCreateSteps = CREATE_STEPS.length;
   const isReviewStep = createStep === totalCreateSteps - 1;
   const [isMobile, setIsMobile] = useState(false);
@@ -833,7 +844,6 @@ export default function AgentRegistrationPage() {
     try {
       setError(null);
       setSuccess(null);
-      startRegistrationProgress();
 
       const baseUrl = resolveAgentBaseUrl();
       const resolvedA2A =
@@ -944,9 +954,9 @@ export default function AgentRegistrationPage() {
         throw new Error('Agent account address is required. Please provide an agent account address or enable Smart Account.');
       }
 
-
       // Use SmartAccount creation path
         if (privateKeyMode) {
+          startRegistrationProgress();
           // Server-only path (admin private key signs on server)
           // Build endpoints array using provided values or auto-generated defaults
           const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
@@ -1013,37 +1023,56 @@ export default function AgentRegistrationPage() {
             });
           }
 
-        const result = await createAgentWithWallet({
-          agentData: {
-              agentName: createForm.agentName,
-            agentAccount: agentAccountToUse,
-            agentCategory: createForm.agentCategory || undefined,
-            supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
-            description: createForm.description || undefined,
-            image: createForm.image || undefined,
-            agentUrl: baseUrl || undefined,
-            endpoints: endpoints.length > 0 ? endpoints : undefined,
-          },
-          account: eoaAddress as Address,
-          ethereumProvider: eip1193Provider as any,
-          onStatusUpdate: setSuccess,
-          useAA: true,
-              ensOptions: {
-                enabled: true,
-                orgName: ensOrgName,
-              },
-          chainId: selectedChainId,
-        });
+          // Friendly pre-confirm before MetaMask shows the raw UserOperation typed-data.
+          if (!walletConfirmOpen) {
+            const chainLabel =
+              CHAIN_METADATA[selectedChainId]?.displayName ||
+              CHAIN_METADATA[selectedChainId]?.chainName ||
+              `Chain ${selectedChainId}`;
+            const ensName = ensFullNamePreview || `${createForm.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth`;
+            const agentUrl = baseUrl || '';
+            setWalletConfirmPayload({
+              chainLabel,
+              chainId: selectedChainId,
+              ensName,
+              agentAccount: agentAccountToUse,
+              agentUrl,
+              a2aEndpoint: resolvedA2A || null,
+              mcpEndpoint: resolvedMcp || null,
+            });
+            pendingWalletActionRef.current = async () => {
+              startRegistrationProgress();
+              const result = await createAgentWithWallet({
+                agentData: {
+                  agentName: createForm.agentName,
+                  agentAccount: agentAccountToUse,
+                  agentCategory: createForm.agentCategory || undefined,
+                  supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
+                  description: createForm.description || undefined,
+                  image: createForm.image || undefined,
+                  agentUrl: baseUrl || undefined,
+                  endpoints: endpoints.length > 0 ? endpoints : undefined,
+                },
+                account: eoaAddress as Address,
+                ethereumProvider: eip1193Provider as any,
+                onStatusUpdate: setSuccess,
+                useAA: true,
+                ensOptions: {
+                  enabled: true,
+                  orgName: ensOrgName,
+                },
+                chainId: selectedChainId,
+              });
 
-        let finalAgentId: string | number | undefined;
-        if (result.agentId) {
-          finalAgentId = result.agentId;
-          setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
-        } else {
-          setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
-        }
-
-     
+              if (result.agentId) {
+                setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+              } else {
+                setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+              }
+            };
+            setWalletConfirmOpen(true);
+            return;
+          }
       }
       
 
@@ -1751,6 +1780,140 @@ export default function AgentRegistrationPage() {
           adminGate
         ) : (
           <>
+            {walletConfirmOpen && (
+              <div
+                role="dialog"
+                aria-modal="true"
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  zIndex: 2000,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '1rem',
+                }}
+                onClick={() => {
+                  // click backdrop to cancel
+                  setWalletConfirmOpen(false);
+                  setWalletConfirmPayload(null);
+                  pendingWalletActionRef.current = null;
+                }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: '640px',
+                    backgroundColor: '#fff',
+                    borderRadius: '16px',
+                    border: '1px solid #dcdcdc',
+                    padding: '1.25rem',
+                    boxShadow: '0 20px 60px rgba(15,23,42,0.25)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Confirm registration</h3>
+                  <p style={{ marginTop: '0.5rem', color: '#4f4f4f', fontSize: '0.95rem' }}>
+                    MetaMask is about to ask you to sign one or more <strong>ERC-4337 Smart Account UserOperations</strong>.
+                    This is not a normal “send ETH” transaction: you&apos;re authorizing your smart account to execute the
+                    registration steps (ENS + ERC-8004) via a bundler + EntryPoint. When available, a paymaster can make
+                    this gasless (or at least you don&apos;t need to deal with gas settings). MetaMask shows the raw
+                    UserOperation data, so use the summary below to verify what you&apos;re approving.
+                  </p>
+
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '160px 1fr',
+                      gap: '0.5rem 1rem',
+                      marginTop: '1rem',
+                      fontSize: '0.95rem',
+                    }}
+                  >
+                    <div style={{ color: '#6a6a6a' }}>Network</div>
+                    <div>{walletConfirmPayload?.chainLabel}</div>
+                    <div style={{ color: '#6a6a6a' }}>ENS name</div>
+                    <div style={{ fontFamily: 'monospace' }}>{walletConfirmPayload?.ensName}</div>
+                    <div style={{ color: '#6a6a6a' }}>Smart account</div>
+                    <div style={{ fontFamily: 'monospace' }}>{walletConfirmPayload?.agentAccount}</div>
+                    <div style={{ color: '#6a6a6a' }}>A2A endpoint</div>
+                    <div style={{ fontFamily: 'monospace' }}>{walletConfirmPayload?.a2aEndpoint ?? '—'}</div>
+                    <div style={{ color: '#6a6a6a' }}>MCP endpoint</div>
+                    <div style={{ fontFamily: 'monospace' }}>{walletConfirmPayload?.mcpEndpoint ?? '—'}</div>
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: '0.9rem',
+                      padding: '0.75rem',
+                      borderRadius: '10px',
+                      backgroundColor: '#f6f6f6',
+                      border: '1px solid #e5e5e5',
+                      color: '#2f2f2f',
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    In MetaMask, confirm you see <strong>Sepolia</strong> (or your selected network) and the smart account address above.
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWalletConfirmOpen(false);
+                        setWalletConfirmPayload(null);
+                        pendingWalletActionRef.current = null;
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '0.75rem',
+                        borderRadius: '10px',
+                        border: '1px solid #dcdcdc',
+                        backgroundColor: '#fff',
+                        cursor: 'pointer',
+                        fontWeight: 700,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const fn = pendingWalletActionRef.current;
+                        if (!fn) {
+                          setWalletConfirmOpen(false);
+                          return;
+                        }
+                        try {
+                          setWalletConfirmOpen(false);
+                          await fn();
+                        } catch (e: any) {
+                          resetRegistrationProgress();
+                          setError(e?.message || 'Failed to create agent');
+                        } finally {
+                          setWalletConfirmPayload(null);
+                          pendingWalletActionRef.current = null;
+                        }
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '0.75rem',
+                        borderRadius: '10px',
+                        border: 'none',
+                        backgroundColor: '#2f2f2f',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontWeight: 800,
+                      }}
+                    >
+                      Continue in MetaMask
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
         {error && (
           <div style={{ 
             marginBottom: '1rem', 

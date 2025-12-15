@@ -875,7 +875,9 @@ async function createAgentWithWalletAA(
           }
 
           if (infoCalls.length > 0) {
-            onStatusUpdate?.('Updating ENS agent info...');
+            onStatusUpdate?.(
+              'MetaMask signature: update ENS metadata (URL/description/image)',
+            );
             // Ensure we are using a deployed-only AA client (no factory/factoryData)
             //const fullAgentName = agentName + '.' + options.ensOptions.orgName + ".eth";
             console.log(
@@ -963,6 +965,7 @@ async function createAgentWithWalletAA(
       }));
       if (l2EnsCalls.length > 0) {
         for (const call of l2EnsCalls) {
+          onStatusUpdate?.('MetaMask signature: create ENS subdomain / set ENS records');
           console.log(
             '********************* send sponsored user operation for L2 ENS call'
           );
@@ -1079,7 +1082,7 @@ async function createAgentWithWalletAA(
 
   // Send UserOperation via bundler
 
-  onStatusUpdate?.('Sending UserOperation via bundler...');
+  onStatusUpdate?.('MetaMask signature: register agent identity (ERC-8004)');
   const userOpHash = await sendSponsoredUserOperation({
     bundlerUrl,
     chain: chain as any,

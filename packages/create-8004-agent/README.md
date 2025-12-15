@@ -6,6 +6,7 @@ Local wizard CLI to scaffold a **simple agent app** inside this monorepo (under 
 
 ```bash
 pnpm -C packages/create-8004-agent dev
+
 ```
 
 Run from anywhere (pick where the app is created):

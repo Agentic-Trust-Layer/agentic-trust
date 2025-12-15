@@ -146,7 +146,19 @@ export function LoginModal({ onClose }: LoginModalProps) {
               border: `1px solid ${palette.borderStrong}`,
             }}
           >
-            {error}
+            <div>{error}</div>
+            {error.includes('No Ethereum wallet found') && (
+              <div style={{ marginTop: '0.5rem' }}>
+                <a
+                  href="https://metamask.io/download/"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ color: palette.textPrimary, textDecoration: 'underline', fontWeight: 700 }}
+                >
+                  Install MetaMask
+                </a>
+              </div>
+            )}
           </div>
         )}
 

@@ -2,11 +2,18 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import os from 'node:os';
 import process from 'node:process';
 import http from 'node:http';
 import { randomBytes, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
+import dotenv from 'dotenv';
 import prompts from 'prompts';
+
+// Local dev convenience: load env vars from a `.env` in the current working directory
+// (e.g. `pnpm -C packages/create-8004-agent dev`). For `npx` usage, users can still
+// set env vars normally; if no `.env` exists, this is a no-op.
+dotenv.config();
 
 type ServerKind = 'express' | 'hono' | 'fastify';
 type ProjectKind = 'monorepo' | 'standalone';
@@ -26,6 +33,13 @@ const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io';
 const DEFAULT_DISCOVERY_API_KEY =
   '9073051bb4bb81de87567794f24caf78f77d7985f79bc1cf6f79c33ce2cafdc3';
 const DEFAULT_IDENTITY_REGISTRY_ADDRESS = '0x8004a6090Cd10A7288092483047B097295Fb8847';
+
+function expandHomeDir(p: string): string {
+  const input = String(p ?? '');
+  if (input === '~') return os.homedir();
+  if (input.startsWith('~/')) return path.join(os.homedir(), input.slice(2));
+  return input;
+}
 
 function defaultPublicRpcUrl(chainId: number): string {
   // Public/free endpoints (best-effort). Users can override with their own provider.
@@ -1061,7 +1075,7 @@ async function runWizard(params: { rootDir: string; projectKind: ProjectKind }):
         message: (prev: any, values: any) => {
           const chainId = typeof values?.chainId === 'number' ? values.chainId : 11155111;
           const suffix = chainSuffixForId(chainId) ?? 'SEPOLIA';
-          return `Agent name (DNS label). This becomes ${'<name>'}.8004-agent.eth on ${suffix}`;
+          return `Agent name. This becomes ${'<name>'}.8004-agent.eth on ${suffix}`;
         },
         initial: '',
         validate: async (value: string, values: any) => {
@@ -1112,7 +1126,7 @@ async function runWizard(params: { rootDir: string; projectKind: ProjectKind }):
         },
         initial: defaultBaseDir,
         validate: async (value: string) => {
-          const resolved = path.resolve(value);
+          const resolved = path.resolve(expandHomeDir(value));
           if (!(await pathExists(resolved))) return `Directory not found: ${resolved}`;
           return true;
         },
@@ -1143,7 +1157,7 @@ async function runWizard(params: { rootDir: string; projectKind: ProjectKind }):
   const port = typeof answers.port === 'number' && Number.isFinite(answers.port) ? answers.port : 3005;
   const projectKind = (answers.projectKind ?? params.projectKind) as ProjectKind;
   const serverKind = (answers.serverKind ?? 'express') as ServerKind;
-  const outputBaseDir = path.resolve(String(answers.outputBaseDir ?? defaultBaseDir));
+  const outputBaseDir = path.resolve(expandHomeDir(String(answers.outputBaseDir ?? defaultBaseDir)));
 
   // Best-effort warning if ENS check couldn't run.
   const availability = await checkEnsAvailability({ chainId, ensName });
@@ -1348,7 +1362,7 @@ async function main() {
   const cwd = process.cwd();
   const repoRootFlag = readArgValue(argv, '--repo-root');
   const repoRootEnv = process.env.CREATE_AGENTIC_TRUST_REPO_ROOT;
-  const rootCandidate = repoRootFlag ?? repoRootEnv ?? cwd;
+  const rootCandidate = expandHomeDir(repoRootFlag ?? repoRootEnv ?? cwd);
 
   // If user explicitly provides a repo root, trust it.
   // Otherwise, try to discover the monorepo root; if not found, fall back to standalone mode in cwd.

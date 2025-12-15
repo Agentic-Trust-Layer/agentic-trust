@@ -2,7 +2,23 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Alert, Box, Button, Container, TextField, Typography } from '@mui/material';
+import {
+  Alert,
+  Box,
+  Button,
+  Container,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  LinearProgress,
+  Paper,
+  Step,
+  StepLabel,
+  Stepper,
+  TextField,
+  Typography,
+} from '@mui/material';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 
 import { Header } from '@/components/Header';
@@ -89,7 +105,38 @@ export default function CliSetupPage() {
   const [description, setDescription] = useState(draft?.description ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [statusLog, setStatusLog] = useState<Array<{ ts: number; msg: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmPayload, setConfirmPayload] = useState<{
+    chainId: number;
+    ensName: string;
+    agentAccount: string;
+    agentUrl?: string;
+    a2aEndpoint?: string;
+    mcpEndpoint?: string;
+  } | null>(null);
+  const [pendingAction, setPendingAction] = useState<null | (() => Promise<void>)>(null);
+  const [flowState, setFlowState] = useState<'idle' | 'confirm' | 'running'>('idle');
+  const [activeStep, setActiveStep] = useState(0);
+
+  const pushStatus = (msg: string) => {
+    setStatus(msg);
+    setStatusLog((prev) => {
+      const next = [...prev, { ts: Date.now(), msg }];
+      return next.slice(-40);
+    });
+  };
+
+  const steps = useMemo(
+    () => [
+      'Establish Agent Smart Account address',
+      'Register agent (ENS and 8004 Identity)',
+      'Create SessionPackage (delegation for feedback + validation)',
+      'Return to CLI',
+    ],
+    [],
+  );
 
   // Auto-open connect flow when arriving from CLI.
   useEffect(() => {
@@ -137,6 +184,37 @@ export default function CliSetupPage() {
           </Alert>
         )}
 
+        <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>
+            Progress
+          </Typography>
+          <Stepper activeStep={activeStep} alternativeLabel>
+            {steps.map((label) => (
+              <Step key={label}>
+                <StepLabel>{label}</StepLabel>
+              </Step>
+            ))}
+          </Stepper>
+          {flowState !== 'idle' && <LinearProgress sx={{ mt: 2 }} />}
+          {statusLog.length > 0 && (
+            <Box sx={{ mt: 2, maxHeight: 180, overflow: 'auto' }}>
+              {statusLog
+                .slice()
+                .reverse()
+                .map((entry) => (
+                  <Typography
+                    key={`${entry.ts}-${entry.msg}`}
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ display: 'block', fontFamily: 'monospace' }}
+                  >
+                    {new Date(entry.ts).toLocaleTimeString()} — {entry.msg}
+                  </Typography>
+                ))}
+            </Box>
+          )}
+        </Paper>
+
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           <TextField label="Agent name (ENS label)" value={agentLabel} fullWidth disabled />
           <TextField label="ENS name" value={fullEnsName} fullWidth disabled />
@@ -157,13 +235,16 @@ export default function CliSetupPage() {
 
           <Button
             variant="contained"
-            disabled={!isConnected || !walletAddress || !eip1193Provider || submitting}
+            disabled={!isConnected || !walletAddress || !eip1193Provider || submitting || flowState !== 'idle'}
             onClick={async () => {
               setSubmitting(true);
               setError(null);
               setStatus(null);
+              setStatusLog([]);
+              setFlowState('confirm');
+              setActiveStep(0);
               try {
-                setStatus('Computing agent account…');
+                pushStatus('Computing smart account address…');
                 if (!agentLabel) {
                   throw new Error('Agent name is missing or invalid.');
                 }
@@ -180,8 +261,8 @@ export default function CliSetupPage() {
                   walletAddress as `0x${string}`,
                   { ethereumProvider: eip1193Provider, chain },
                 );
+                setActiveStep(1);
 
-                setStatus('Registering agent on-chain…');
                 const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
                 const baseUrl = (draft.agentUrl ?? '').trim().replace(/\/$/, '');
                 if (baseUrl) {
@@ -189,92 +270,115 @@ export default function CliSetupPage() {
                   endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/mcp`, version: '2025-06-18' });
                 }
 
-                const result = await createAgentWithWallet({
-                  agentData: {
-                    agentName: agentLabel,
-                    agentAccount,
-                    agentCategory: (draft.agentCategory ?? '').trim() || undefined,
-                    supportedTrust: draft.supportedTrust?.length ? draft.supportedTrust : undefined,
-                    description: description.trim() || undefined,
-                    image: (draft.imageUrl ?? '').trim() || undefined,
-                    agentUrl: baseUrl || undefined,
-                    endpoints: endpoints.length ? endpoints : undefined,
-                  },
-                  ethereumProvider: eip1193Provider,
-                  account: walletAddress as `0x${string}`,
+                // Show a human-readable summary before MetaMask displays the raw UserOperation typed-data.
+                setConfirmPayload({
                   chainId: draft.chainId,
-                  useAA: true,
-                  ensOptions: {
-                    enabled: true,
-                    orgName: getEnsOrgName(draft.chainId),
-                  },
-                  onStatusUpdate: (m) => setStatus(m),
+                  ensName: fullEnsName,
+                  agentAccount,
+                  agentUrl: baseUrl || undefined,
+                  a2aEndpoint: baseUrl ? `${baseUrl}/a2a` : undefined,
+                  mcpEndpoint: baseUrl ? `${baseUrl}/mcp` : undefined,
                 });
+                setPendingAction(() => async () => {
+                  setFlowState('running');
+                  setConfirmOpen(false);
+                  pushStatus('Opening MetaMask…');
+                  pushStatus('Registering agent (ENS and 8004 Identity)…');
 
-                const agentIdNumeric = Number(result.agentId);
-                if (!Number.isFinite(agentIdNumeric)) {
-                  throw new Error('Failed to determine agentId from registration result.');
-                }
-
-                setStatus('Generating session package…');
-                const envRes = await fetch(`/api/chain-env?chainId=${encodeURIComponent(String(draft.chainId))}`, {
-                  cache: 'no-store',
-                });
-                if (!envRes.ok) {
-                  const err = await envRes.json().catch(() => ({}));
-                  throw new Error(err?.message || err?.error || `Failed to load chain env (${envRes.status})`);
-                }
-                const chainEnv = (await envRes.json()) as {
-                  rpcUrl: string;
-                  bundlerUrl: string;
-                  identityRegistry: `0x${string}`;
-                  reputationRegistry: `0x${string}`;
-                  validationRegistry: `0x${string}`;
-                };
-
-                const sessionPackage = await generateSessionPackage({
-                  agentId: agentIdNumeric,
-                  chainId: draft.chainId,
-                  agentAccount: agentAccount as `0x${string}`,
-                  provider: eip1193Provider,
-                  ownerAddress: walletAddress as `0x${string}`,
-                  rpcUrl: chainEnv.rpcUrl,
-                  bundlerUrl: chainEnv.bundlerUrl,
-                  identityRegistry: chainEnv.identityRegistry,
-                  reputationRegistry: chainEnv.reputationRegistry,
-                  validationRegistry: chainEnv.validationRegistry,
-                });
-
-                const issueRes = await fetch('/api/cli/issue', {
-                  method: 'POST',
-                  headers: { 'content-type': 'application/json' },
-                  body: JSON.stringify({
-                    state: draft.state,
-                    code_challenge: draft.codeChallenge,
-                    redirect_uri: draft.redirectUri,
-                    result: {
-                      agentId: result.agentId,
-                      txHash: result.txHash,
+                  const result = await createAgentWithWallet({
+                    agentData: {
+                      agentName: agentLabel,
                       agentAccount,
-                      ownerAddress: walletAddress,
-                      chainId: draft.chainId,
-                      sessionPackage,
+                      agentCategory: (draft.agentCategory ?? '').trim() || undefined,
+                      supportedTrust: draft.supportedTrust?.length ? draft.supportedTrust : undefined,
+                      description: description.trim() || undefined,
+                      image: (draft.imageUrl ?? '').trim() || undefined,
+                      agentUrl: baseUrl || undefined,
+                      endpoints: endpoints.length ? endpoints : undefined,
                     },
-                  }),
-                });
-                if (!issueRes.ok) {
-                  const err = await issueRes.json().catch(() => ({}));
-                  throw new Error(err?.error || err?.message || `Issue failed (${issueRes.status})`);
-                }
-                const issued = (await issueRes.json()) as any;
-                const code = String(issued?.code ?? '');
-                if (!code) {
-                  throw new Error('Missing code from /api/cli/issue');
-                }
+                    ethereumProvider: eip1193Provider,
+                    account: walletAddress as `0x${string}`,
+                    chainId: draft.chainId,
+                    useAA: true,
+                    ensOptions: {
+                      enabled: true,
+                      orgName: getEnsOrgName(draft.chainId),
+                    },
+                    onStatusUpdate: (m) => pushStatus(m),
+                  });
 
-                window.location.href = `${draft.redirectUri}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(draft.state)}`;
+                  const agentIdNumeric = Number(result.agentId);
+                  if (!Number.isFinite(agentIdNumeric)) {
+                    throw new Error('Failed to determine agentId from registration result.');
+                  }
+
+                  setActiveStep(2);
+                  pushStatus('Preparing SessionPackage (delegation for feedback + validation)…');
+                  const envRes = await fetch(`/api/chain-env?chainId=${encodeURIComponent(String(draft.chainId))}`, {
+                    cache: 'no-store',
+                  });
+                  if (!envRes.ok) {
+                    const err = await envRes.json().catch(() => ({}));
+                    throw new Error(err?.message || err?.error || `Failed to load chain env (${envRes.status})`);
+                  }
+                  const chainEnv = (await envRes.json()) as {
+                    rpcUrl: string;
+                    bundlerUrl: string;
+                    identityRegistry: `0x${string}`;
+                    reputationRegistry: `0x${string}`;
+                    validationRegistry: `0x${string}`;
+                  };
+
+                  const sessionPackage = await generateSessionPackage({
+                    agentId: agentIdNumeric,
+                    chainId: draft.chainId,
+                    agentAccount: agentAccount as `0x${string}`,
+                    provider: eip1193Provider,
+                    ownerAddress: walletAddress as `0x${string}`,
+                    rpcUrl: chainEnv.rpcUrl,
+                    bundlerUrl: chainEnv.bundlerUrl,
+                    identityRegistry: chainEnv.identityRegistry,
+                    reputationRegistry: chainEnv.reputationRegistry,
+                    validationRegistry: chainEnv.validationRegistry,
+                  });
+
+                  setActiveStep(3);
+                  pushStatus('Returning to CLI…');
+                  const issueRes = await fetch('/api/cli/issue', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                      state: draft.state,
+                      code_challenge: draft.codeChallenge,
+                      redirect_uri: draft.redirectUri,
+                      result: {
+                        agentId: result.agentId,
+                        txHash: result.txHash,
+                        agentAccount,
+                        ownerAddress: walletAddress,
+                        chainId: draft.chainId,
+                        sessionPackage,
+                      },
+                    }),
+                  });
+                  if (!issueRes.ok) {
+                    const err = await issueRes.json().catch(() => ({}));
+                    throw new Error(err?.error || err?.message || `Issue failed (${issueRes.status})`);
+                  }
+                  const issued = (await issueRes.json()) as any;
+                  const code = String(issued?.code ?? '');
+                  if (!code) {
+                    throw new Error('Missing code from /api/cli/issue');
+                  }
+
+                  window.location.href = `${draft.redirectUri}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(draft.state)}`;
+                });
+
+                setConfirmOpen(true);
+                return;
               } catch (e: any) {
                 setError(e?.message || 'Failed to register agent');
+                setFlowState('idle');
               } finally {
                 setSubmitting(false);
               }
@@ -283,6 +387,85 @@ export default function CliSetupPage() {
             {submitting ? 'Working…' : 'Register and return to CLI'}
           </Button>
         </Box>
+
+        <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} fullWidth maxWidth="sm">
+          <DialogTitle>Confirm registration</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              MetaMask is about to ask you to sign one or more <strong>ERC-4337 Smart Account UserOperations</strong>.
+              This is not a normal “send ETH” transaction: you&apos;re authorizing your smart account to execute the
+              registration steps (ENS and 8004 Identity) via a bundler + EntryPoint. When available, a paymaster can make
+              this gasless (or at least you don&apos;t need to deal with gas settings). MetaMask shows the raw UserOperation
+              data, so use the summary below to verify what you&apos;re approving.
+            </Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Network
+              </Typography>
+              <Typography variant="body2">Chain {confirmPayload?.chainId}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                ENS name
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                {confirmPayload?.ensName}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Smart account
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                {confirmPayload?.agentAccount}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                A2A endpoint
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                {confirmPayload?.a2aEndpoint ?? '—'}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                MCP endpoint
+              </Typography>
+              <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                {confirmPayload?.mcpEndpoint ?? '—'}
+              </Typography>
+            </Box>
+            <Alert severity="info" sx={{ mt: 2 }}>
+              In MetaMask, confirm you see Sepolia and the smart account address above.
+            </Alert>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                setConfirmOpen(false);
+                setConfirmPayload(null);
+                setPendingAction(null);
+                setFlowState('idle');
+              }}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={async () => {
+                if (!pendingAction) return;
+                try {
+                  setSubmitting(true);
+                  await pendingAction();
+                } catch (e: any) {
+                  setError(e?.message || 'Failed to register agent');
+                  setFlowState('idle');
+                } finally {
+                  setSubmitting(false);
+                  setConfirmPayload(null);
+                  setPendingAction(null);
+                }
+              }}
+              disabled={submitting}
+            >
+              Continue in MetaMask
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Container>
     </Box>
   );
