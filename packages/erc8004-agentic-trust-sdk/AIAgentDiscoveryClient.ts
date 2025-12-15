@@ -2159,8 +2159,21 @@ export class AIAgentDiscoveryClient {
       throw new Error('Invalid EOA address. Must be a valid Ethereum address starting with 0x');
     }
 
-    // Use the address as-is (don't normalize to lowercase) since the database may store it with mixed case
-    const normalizedAddress = eoaAddress;
+    // Indexer/storage can vary: some deployments store checksum addresses as strings; others store lowercased hex.
+    // Query defensively in a case-safe way.
+    const addrLower = eoaAddress.toLowerCase();
+    const addrCandidates: string[] = [];
+    addrCandidates.push(eoaAddress);
+    if (addrLower !== eoaAddress) addrCandidates.push(addrLower);
+    try {
+      // viem getAddress normalizes to checksum format
+      const { getAddress } = await import('viem');
+      const checksum = getAddress(addrLower);
+      if (checksum !== eoaAddress && checksum !== addrLower) addrCandidates.push(checksum);
+    } catch {
+      // ignore; keep candidates we already have
+    }
+
     const limit = options?.limit ?? 100;
     const offset = options?.offset ?? 0;
     const orderBy = options?.orderBy ?? 'agentId';
@@ -2219,39 +2232,56 @@ export class AIAgentDiscoveryClient {
       }
     `;
 
-    const variables: Record<string, unknown> = {
-      where: {
-        eoaOwner: normalizedAddress,
-      },
-      first: limit,
-      skip: offset,
-      orderBy: orderBy,
-      orderDirection: orderDirection,
-    };
-
-    console.log('[AIAgentDiscoveryClient.getOwnedAgents] Query variables:', {
-      eoaAddress,
-      normalizedAddress,
-      where: { eoaOwner: normalizedAddress },
-      limit,
-      offset,
-      orderBy,
-      orderDirection,
-    });
-
     try {
-      const data = await this.client.request<{
-        searchAgentsGraph?: {
-          agents?: AgentData[];
-          total?: number;
-          hasMore?: boolean;
+      // Prefer _in filter (works for string fields and some bytes fields). If schema doesn't support it,
+      // fall back to exact-match attempts across candidates.
+      const tryQuery = async (where: Record<string, unknown>) => {
+        const variables: Record<string, unknown> = {
+          where,
+          first: limit,
+          skip: offset,
+          orderBy,
+          orderDirection,
         };
-      }>(query, variables);
+        const data = await this.client.request<{
+          searchAgentsGraph?: {
+            agents?: AgentData[];
+            total?: number;
+            hasMore?: boolean;
+          };
+        }>(query, variables);
+        const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
+        return (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+      };
 
-      const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
-      const agents = (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+      // 1) Try eoaOwner_in: [candidates]
+      try {
+        const owned = await tryQuery({ eoaOwner_in: addrCandidates });
+        if (owned.length > 0) return owned;
+      } catch (e: any) {
+        const responseErrors = e?.response?.errors;
+        const inNotSupported =
+          Array.isArray(responseErrors) &&
+          responseErrors.some(
+            (err) =>
+              typeof err?.message === 'string' &&
+              (err.message.includes('eoaOwner_in') ||
+                err.message.includes('Field "eoaOwner_in"') ||
+                err.message.includes('Unknown argument') ||
+                err.message.includes('Cannot query field')),
+          );
+        if (!inNotSupported) {
+          throw e;
+        }
+      }
 
-      return agents;
+      // 2) Exact match attempts
+      for (const candidate of addrCandidates) {
+        const owned = await tryQuery({ eoaOwner: candidate });
+        if (owned.length > 0) return owned;
+      }
+
+      return [];
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.getOwnedAgents] Error fetching owned agents:', error);
       throw error;

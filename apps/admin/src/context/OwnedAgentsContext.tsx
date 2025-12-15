@@ -2,7 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AgentsPageAgent } from '@/components/AgentsPage';
-import { useAuth } from '@/components/AuthProvider';
+import { useWallet } from '@/components/WalletProvider';
 
 type OwnedAgentsContextValue = {
   ownedAgents: AgentsPageAgent[];
@@ -39,14 +39,14 @@ function mapOwnedAgentToAgentsPageAgent(agent: any): AgentsPageAgent {
 }
 
 export function OwnedAgentsProvider({ children }: { children: ReactNode }) {
-  const { isConnected, walletAddress } = useAuth();
+  const { connected, address } = useWallet();
   const [ownedAgents, setOwnedAgents] = useState<AgentsPageAgent[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastFetchedAt, setLastFetchedAt] = useState<number | null>(null);
 
   const refreshOwnedAgents = useCallback(async () => {
-    if (!isConnected || !walletAddress) {
+    if (!connected || !address) {
       setOwnedAgents([]);
       setLastFetchedAt(null);
       setError(null);
@@ -57,7 +57,7 @@ export function OwnedAgentsProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const response = await fetch(
-        `/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}&limit=1000&orderBy=createdAtTime&orderDirection=DESC`,
+        `/api/agents/owned?eoaAddress=${encodeURIComponent(address)}&limit=1000&orderBy=createdAtTime&orderDirection=DESC`,
         { cache: 'no-store' },
       );
       if (!response.ok) {
@@ -75,7 +75,7 @@ export function OwnedAgentsProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [isConnected, walletAddress]);
+  }, [connected, address]);
 
   // Build cache on connect (and whenever walletAddress changes)
   useEffect(() => {

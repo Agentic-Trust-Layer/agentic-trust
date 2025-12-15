@@ -39,6 +39,7 @@ import {
 import Rating from '@mui/material/Rating';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
+import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SendIcon from '@mui/icons-material/Send';
@@ -100,14 +101,8 @@ function displayDid(value: unknown): string {
 }
 
 export default function MessagesPage() {
-  const {
-    isConnected,
-    privateKeyMode,
-    loading,
-    walletAddress,
-    openLoginModal,
-    handleDisconnect,
-  } = useAuth();
+  const auth = useAuth();
+  const { connected: walletConnected, address: walletAddress, privateKeyMode, loading } = useWallet();
   const { ownedAgents: cachedOwnedAgents, loading: ownedAgentsLoading } = useOwnedAgents();
   const router = useRouter();
 
@@ -612,10 +607,10 @@ export default function MessagesPage() {
       <Header
         displayAddress={walletAddress ?? null}
         privateKeyMode={privateKeyMode}
-        isConnected={isConnected}
-        onConnect={openLoginModal}
-        onDisconnect={handleDisconnect}
-        disableConnect={loading}
+        isConnected={walletConnected}
+        onConnect={auth.openLoginModal}
+        onDisconnect={auth.handleDisconnect}
+        disableConnect={loading || auth.loading}
       />
       <Container maxWidth={false} sx={{ py: { xs: 2, md: 3 } }}>
         <Stack spacing={2}>
@@ -644,7 +639,7 @@ export default function MessagesPage() {
                 variant="contained"
                 startIcon={<CreateOutlinedIcon />}
                 onClick={handleOpenCompose}
-                disabled={!isConnected || !selectedFolderAgent}
+                disabled={!walletConnected || !selectedFolderAgent}
                 sx={{
                   backgroundColor: palette.accent,
                   '&:hover': { backgroundColor: palette.border },
@@ -831,7 +826,7 @@ export default function MessagesPage() {
                 >
                   {/* Message list */}
                   <Box sx={{ borderRight: { xs: 'none', lg: `1px solid ${palette.border}` }, overflow: 'auto' }}>
-                    {!isConnected ? (
+                    {!walletConnected ? (
                       <Box sx={{ p: 3 }}>
                         <Typography color="text.secondary">Connect your wallet to view messages.</Typography>
                       </Box>

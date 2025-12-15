@@ -83,15 +83,14 @@ const OWNERS_ABI = [
 ] as const;
 
 export default function AgentsRoute() {
+  const auth = useAuth();
   const {
-    isConnected,
+    connected: walletConnected,
+    address: walletAddress,
+    eip1193Provider,
     privateKeyMode,
     loading,
-    walletAddress,
-    openLoginModal,
-    handleDisconnect,
-  } = useAuth();
-  const { eip1193Provider } = useWallet();
+  } = useWallet();
   const router = useRouter();
 
   const {
@@ -184,7 +183,7 @@ export default function AgentsRoute() {
         // "My agents" should not just filter the current discovery page.
         // If enabled, load the owned agents list directly (then the UI can still
         // apply secondary client-side filters like protocol / 8004-agent name).
-        if (safeFilters.mineOnly && isConnected && walletAddress) {
+        if (safeFilters.mineOnly && walletConnected && walletAddress) {
           const ownedUrl =
             `/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}` +
             `&limit=1000&orderBy=createdAtTime&orderDirection=DESC&source=mineOnly`;
@@ -330,7 +329,7 @@ export default function AgentsRoute() {
         return;
       }
 
-      if (!isConnected || !walletAddress || agents.length === 0 || !eip1193Provider) {
+      if (!walletConnected || !walletAddress || agents.length === 0 || !eip1193Provider) {
         // Don't clobber an existing ownedMap in cases where we can't compute ownership.
         // (e.g. no EIP-1193 provider available)
         return;
@@ -410,17 +409,17 @@ export default function AgentsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [agents, isConnected, walletAddress, eip1193Provider, filters.mineOnly]);
+  }, [agents, walletConnected, walletAddress, eip1193Provider, filters.mineOnly]);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
       <Header
         displayAddress={walletAddress ?? null}
         privateKeyMode={privateKeyMode}
-        isConnected={isConnected}
-        onConnect={openLoginModal}
-        onDisconnect={handleDisconnect}
-        disableConnect={loading}
+        isConnected={walletConnected}
+        onConnect={auth.openLoginModal}
+        onDisconnect={auth.handleDisconnect}
+        disableConnect={loading || auth.loading}
       />
       <Container
         maxWidth="lg"
@@ -443,7 +442,7 @@ export default function AgentsRoute() {
           onClear={handleClear}
           chainOptions={chainOptions}
           ownedMap={ownedMap}
-          isConnected={isConnected}
+          isConnected={walletConnected}
           walletAddress={walletAddress}
           provider={eip1193Provider}
           total={total}
