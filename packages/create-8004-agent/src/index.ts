@@ -641,6 +641,10 @@ const app = new Hono<{ Bindings: Env }>();
 app.use('*', cors());
 
 app.get('/health', (c) => c.json({ ok: true }));
+// A2A liveness probe (helps confirm the endpoint is alive without POSTing)
+app.get('/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
+// Compatibility: some clients probe /api/a2a
+app.get('/api/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
 
 app.get('/.well-known/agent.json', (c) => {
   const origin = new URL(c.req.url).origin.replace(/\\/$/, '');
@@ -1036,6 +1040,14 @@ app.use(express.json({ limit: '2mb' }));
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
+// A2A liveness probe (helps confirm the endpoint is alive without POSTing)
+app.get('/a2a', (_req, res) => {
+  res.json({ v: 'a2a/1', id: 'health', status: 'ok' });
+});
+// Compatibility: some clients probe /api/a2a
+app.get('/api/a2a', (_req, res) => {
+  res.json({ v: 'a2a/1', id: 'health', status: 'ok' });
+});
 
 app.get('/.well-known/agent.json', (_req, res) => {
   // Served from disk so you can edit it without touching code.
@@ -1093,6 +1105,10 @@ dotenv.config();
 const app = new Hono();
 
 app.get('/health', (c) => c.json({ ok: true }));
+// A2A liveness probe (helps confirm the endpoint is alive without POSTing)
+app.get('/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
+// Compatibility: some clients probe /api/a2a
+app.get('/api/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
 
 app.get('/.well-known/agent.json', async (c) => {
   // Served from disk so you can edit it without touching code.
@@ -1138,6 +1154,10 @@ dotenv.config();
 const app = Fastify({ logger: true });
 
 app.get('/health', async () => ({ ok: true }));
+// A2A liveness probe (helps confirm the endpoint is alive without POSTing)
+app.get('/a2a', async () => ({ v: 'a2a/1', id: 'health', status: 'ok' }));
+// Compatibility: some clients probe /api/a2a
+app.get('/api/a2a', async () => ({ v: 'a2a/1', id: 'health', status: 'ok' }));
 
 app.get('/.well-known/agent.json', async (_req, reply) => {
   const url = new URL('../.well-known/agent.json', import.meta.url);

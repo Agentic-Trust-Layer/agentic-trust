@@ -81,6 +81,11 @@ export default function AgentRegistrationPage() {
   const { refreshOwnedAgents } = useOwnedAgents();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [registrationCompleteOpen, setRegistrationCompleteOpen] = useState(false);
+  const [registrationCompleteDetails, setRegistrationCompleteDetails] = useState<{
+    agentId?: string;
+    txHash?: string;
+  } | null>(null);
 
   // Create agent form state
   const getDefaultImageUrl = () => (typeof window !== 'undefined' ? `${window.location.origin}/8004Agent.png` : '/8004Agent.png');
@@ -175,6 +180,11 @@ export default function AgentRegistrationPage() {
         registerTimerRef.current = null;
       }
     }, REGISTRATION_UPDATE_INTERVAL_MS);
+  }, []);
+
+  const openCompletionModal = useCallback((details: { agentId?: string; txHash?: string }) => {
+    setRegistrationCompleteDetails(details);
+    setRegistrationCompleteOpen(true);
   }, []);
 
   useEffect(() => {
@@ -996,10 +1006,18 @@ export default function AgentRegistrationPage() {
           if (directPlan.agentId) {
             finalAgentId = directPlan.agentId;
             setSuccess(`Agent created successfully! Agent ID: ${directPlan.agentId}, TX: ${directPlan.txHash}`);
+            openCompletionModal({
+              agentId: String(directPlan.agentId),
+              txHash: String(directPlan.txHash || ''),
+            });
           } else if (directPlan.txHash) {
             setSuccess(`Agent creation transaction confirmed! TX: ${directPlan.txHash} (Agent ID will be available after indexing)`);
+            openCompletionModal({
+              txHash: String(directPlan.txHash || ''),
+            });
           } else {
             setSuccess('Agent SmartAccount creation requested. Check server logs for details.');
+            openCompletionModal({});
           }
 
           // Note: Validation request is skipped in private key mode as we don't have wallet provider
@@ -1066,9 +1084,25 @@ export default function AgentRegistrationPage() {
 
               if (result.agentId) {
                 setSuccess(`Agent created successfully! Agent ID: ${result.agentId}, TX: ${result.txHash}`);
+                openCompletionModal({ agentId: String(result.agentId), txHash: String(result.txHash || '') });
               } else {
                 setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
+                openCompletionModal({ txHash: String(result.txHash || '') });
               }
+
+              // Refresh owned agents cache so new agents appear quickly
+              try {
+                await refreshOwnedAgents();
+              } catch {
+                // ignore
+              }
+
+              setRegisterProgress(100);
+              if (registerTimerRef.current) {
+                clearInterval(registerTimerRef.current);
+                registerTimerRef.current = null;
+              }
+              resetRegistrationProgress();
             };
             setWalletConfirmOpen(true);
             return;
@@ -1093,10 +1127,7 @@ export default function AgentRegistrationPage() {
         clearInterval(registerTimerRef.current);
         registerTimerRef.current = null;
       }
-      setTimeout(() => {
-        resetRegistrationProgress();
-        router.push('/agents');
-      }, 800);
+      resetRegistrationProgress();
     } catch (err) {
       console.error('Error creating agent:', err);
       resetRegistrationProgress();
@@ -1780,6 +1811,86 @@ export default function AgentRegistrationPage() {
           adminGate
         ) : (
           <>
+            {registrationCompleteOpen && (
+              <div
+                role="dialog"
+                aria-modal="true"
+                style={{
+                  position: 'fixed',
+                  inset: 0,
+                  backgroundColor: 'rgba(0,0,0,0.5)',
+                  zIndex: 2100,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '1rem',
+                }}
+              >
+                <div
+                  style={{
+                    width: '100%',
+                    maxWidth: '640px',
+                    backgroundColor: '#fff',
+                    borderRadius: '16px',
+                    border: '1px solid #dcdcdc',
+                    padding: '1.25rem',
+                    boxShadow: '0 20px 60px rgba(15,23,42,0.25)',
+                  }}
+                >
+                  <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Agent registration complete</h3>
+                  <p style={{ marginTop: '0.75rem', color: '#4f4f4f', fontSize: '0.95rem' }}>
+                    Your agent has been created successfully.
+                  </p>
+                  <div
+                    style={{
+                      marginTop: '0.75rem',
+                      padding: '0.75rem',
+                      borderRadius: '12px',
+                      backgroundColor: '#f6f6f6',
+                      border: '1px solid #e5e5e5',
+                      color: '#2f2f2f',
+                      fontSize: '0.95rem',
+                    }}
+                  >
+                    {registrationCompleteDetails?.agentId && (
+                      <div>
+                        <strong>Agent ID:</strong>{' '}
+                        <span style={{ fontFamily: 'monospace' }}>{registrationCompleteDetails.agentId}</span>
+                      </div>
+                    )}
+                    {registrationCompleteDetails?.txHash && (
+                      <div style={{ marginTop: registrationCompleteDetails?.agentId ? '0.35rem' : 0 }}>
+                        <strong>TX:</strong>{' '}
+                        <span style={{ fontFamily: 'monospace' }}>{registrationCompleteDetails.txHash}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRegistrationCompleteOpen(false);
+                        setRegistrationCompleteDetails(null);
+                        setSuccess(null);
+                        router.push('/agents');
+                      }}
+                      style={{
+                        padding: '0.75rem 1rem',
+                        borderRadius: '10px',
+                        border: 'none',
+                        backgroundColor: '#2f2f2f',
+                        color: '#fff',
+                        cursor: 'pointer',
+                        fontWeight: 800,
+                      }}
+                    >
+                      OK
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {walletConfirmOpen && (
               <div
                 role="dialog"

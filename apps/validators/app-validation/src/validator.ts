@@ -11,6 +11,7 @@
 
 // Load environment variables from .env file (if not already loaded)
 // This ensures env vars are available even if this module is imported directly
+import { randomBytes } from 'node:crypto';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -47,22 +48,154 @@ import {
   getValidationRegistryClient,
   getValidatorApp,
   createValidatorAccountAbstraction,
-  getENSClient,
+  getRegistration,
   DEFAULT_CHAIN_ID,
   type ValidationStatus,
   getChainBundlerUrl,
   getChainById,
+  requireChainEnvVar,
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
 import type { Chain } from 'viem';
 
+type ValidationClaim = { type: 'compliance'; text: string };
+type ValidationCriteria = {
+  id: string;
+  name: string;
+  method: string;
+  passCondition: string;
+};
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+
 export interface ValidationResult {
+  kind: 'erc8004.validation.request@1';
+  specVersion: '1.0';
   requestHash: string;
   agentId: string;
   chainId: number;
+  validationRegistry: `0x${string}`;
+  requesterAddress: `0x${string}`;
+  validatorAddress: `0x${string}`;
+  taskId: string;
+  createdAt: string;
+  claim: ValidationClaim;
+  criteria: ValidationCriteria[];
   success: boolean;
   error?: string;
   txHash?: string;
+}
+
+// ULID (Crockford base32) - no external dependency
+const ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+function encodeBase32Crockford(value: bigint, length: number): string {
+  let v = value;
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    const idx = Number(v % 32n);
+    out = ULID_ALPHABET[idx] + out;
+    v = v / 32n;
+  }
+  return out;
+}
+
+function generateTaskIdUlid(nowMs: number = Date.now()): string {
+  const time = BigInt(nowMs) & ((1n << 48n) - 1n);
+  const timePart = encodeBase32Crockford(time, 10);
+  const rand = randomBytes(10);
+  let randBig = 0n;
+  for (const b of rand) randBig = (randBig << 8n) | BigInt(b);
+  const randPart = encodeBase32Crockford(randBig, 16);
+  return `${timePart}${randPart}`;
+}
+
+function buildCommonResult(params: {
+  requestHash: string;
+  agentId: string;
+  chainId: number;
+  validationRegistry: `0x${string}`;
+  requesterAddress: `0x${string}`;
+  validatorAddress: `0x${string}`;
+  claimText: string;
+}): Omit<ValidationResult, 'success' | 'error' | 'txHash'> {
+  return {
+    kind: 'erc8004.validation.request@1',
+    specVersion: '1.0',
+    requestHash: params.requestHash,
+    agentId: params.agentId,
+    chainId: params.chainId,
+    validationRegistry: params.validationRegistry,
+    requesterAddress: params.requesterAddress,
+    validatorAddress: params.validatorAddress,
+    taskId: generateTaskIdUlid(),
+    createdAt: new Date().toISOString(),
+    claim: { type: 'compliance', text: params.claimText },
+    criteria: [
+      {
+        id: 'c1',
+        name: 'A2A endpoint responds to GET probe',
+        method: 'http.get(a2aEndpoint)',
+        passCondition: 'HTTP 200 and JSON indicates ok',
+      },
+      {
+        id: 'c2',
+        name: 'On-chain response submitted',
+        method: 'aa.validationResponse',
+        passCondition: 'txHash exists',
+      },
+    ],
+  };
+}
+
+function buildA2AProbeUrls(endpoint: string): string[] {
+  const raw = String(endpoint || '').trim();
+  if (!raw) return [];
+  const normalized = raw.replace(/\/+$/, '');
+  const urls = new Set<string>();
+  urls.add(normalized);
+  if (normalized.endsWith('/a2a')) {
+    urls.add(normalized.replace(/\/a2a$/, '/api/a2a'));
+  } else if (normalized.endsWith('/api/a2a')) {
+    urls.add(normalized.replace(/\/api\/a2a$/, '/a2a'));
+  } else {
+    urls.add(`${normalized}/a2a`);
+    urls.add(`${normalized}/api/a2a`);
+  }
+  return Array.from(urls);
+}
+
+async function probeA2A(endpoint: string): Promise<{ ok: boolean; status: number; body?: any }> {
+  const urls = buildA2AProbeUrls(endpoint);
+  let lastErr: unknown = null;
+  for (const url of urls) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 5000);
+    try {
+      const resp = await fetch(url, { method: 'GET', signal: controller.signal });
+      const status = resp.status;
+      const text = await resp.text().catch(() => '');
+      const json = (() => {
+        try {
+          return text ? JSON.parse(text) : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (resp.ok) {
+        const looksOk =
+          (json && (json.status === 'ok' || json.ok === true)) ||
+          (json && typeof json.v === 'string' && json.v.startsWith('a2a/')) ||
+          (!json && text.length >= 0); // any 200 response is "alive" for now
+        if (looksOk) return { ok: true, status, body: json ?? text };
+      }
+      lastErr = new Error(`GET ${url} => ${status}`);
+    } catch (e) {
+      lastErr = e;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  return { ok: false, status: 0, body: lastErr instanceof Error ? lastErr.message : String(lastErr) };
 }
 
 /**
@@ -190,6 +323,11 @@ export async function processValidationRequests(
       }
       console.log(`[Validator] ✓ Processing validation for agent ${agentId}`);
 
+      const validationRegistry = requireChainEnvVar(
+        'AGENTIC_TRUST_VALIDATION_REGISTRY',
+        chainId,
+      ) as `0x${string}`;
+
       // Get agent information using core library
       console.log(`[Validator] Fetching agent information...`);
       const client = await getAgenticTrustClient();
@@ -200,9 +338,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} not found`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: ZERO_ADDRESS,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
           success: false,
           error,
         });
@@ -216,9 +360,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} has no agentName`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: ZERO_ADDRESS,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
           success: false,
           error,
         });
@@ -232,9 +382,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} has no agentAccount`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: ZERO_ADDRESS,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
           success: false,
           error,
         });
@@ -243,66 +399,95 @@ export async function processValidationRequests(
 
       console.log(`[Validator] Agent Info: name="${agentName}", account="${agentAccount}"`);
 
-      // Get ENS client
-      console.log(`[Validator] Initializing ENS client...`);
-      const ensClient = await getENSClient(chainId);
-      if (!ensClient) {
+      // Load registration to extract endpoints
+      const tokenUri = (agent.data as any)?.tokenUri;
+      if (!tokenUri) {
         errorCount++;
-        const error = `ENS client not available for chain ${chainId}`;
+        const error = `Agent ${agentId} has no tokenUri`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
           success: false,
           error,
         });
         continue;
       }
 
-      // Validate ENS name exists and is owned by agent account
-      console.log(`[Validator] Validating ENS name "${agentName}"...`);
-      console.log(`[Validator] Agent account address from agent info: ${agentAccount}`);
-      
-      // Get account address from ENS name (addr text record)
-      console.log(`[Validator] Resolving ENS name "${agentName}" to account address (addr text record)...`);
-      const ensAccount = await ensClient.getAgentAccountByName(agentName);
-      console.log(`[Validator] ENS name "${agentName}" resolves to address: ${ensAccount || 'null'}`);
-      console.log(`[Validator] Comparing addresses:`);
-      console.log(`[Validator]   - Agent account: ${agentAccount}`);
-      console.log(`[Validator]   - ENS account (addr):  ${ensAccount || 'null'}`);
-      if (!ensAccount) {
+      let registration: any;
+      try {
+        registration = await getRegistration(tokenUri);
+      } catch (e: any) {
         errorCount++;
-        const error = `ENS name "${agentName}" does not resolve to an account address`;
+        const error = `Failed to load registration from tokenUri: ${e?.message || e}`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
           success: false,
           error,
         });
         continue;
       }
-      console.log(`[Validator] ✓ ENS name resolves to: ${ensAccount}`);
 
-      // Verify ENS account matches agent account
-      const addressesMatch = ensAccount.toLowerCase() === agentAccount.toLowerCase();
-      console.log(`[Validator] Address comparison: ${addressesMatch ? 'MATCH ✓' : 'MISMATCH ✗'}`);
-      if (!addressesMatch) {
+      const endpoints = Array.isArray(registration?.endpoints) ? registration.endpoints : [];
+      const a2aEndpoint =
+        (agent as any).a2aEndpoint ||
+        endpoints.find((ep: any) => ep?.name === 'A2A' || ep?.name === 'a2a')?.endpoint;
+      if (!a2aEndpoint) {
         errorCount++;
-        const error = `ENS name "${agentName}" resolves to ${ensAccount}, but agent account is ${agentAccount}`;
+        const error = `Agent ${agentId} has no A2A endpoint in registration`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
           success: false,
           error,
         });
         continue;
       }
-      console.log(`[Validator] ✓ Account ownership verified: ENS "${agentName}" resolves to ${ensAccount}, which matches agent account ${agentAccount}`);
+
+      const probe = await probeA2A(String(a2aEndpoint));
+      if (!probe.ok) {
+        errorCount++;
+        const error = `A2A endpoint did not respond OK: ${String(probe.body ?? '')}`;
+        console.error(`[Validator] ❌ ERROR: ${error}`);
+        results.push({
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Active A2A Endpoint',
+          }),
+          success: false,
+          error,
+        });
+        continue;
+      }
 
       // Prepare validation response transaction
       console.log(`[Validator] Preparing validation response transaction (score: 100)...`);
@@ -356,9 +541,15 @@ export async function processValidationRequests(
       console.log(`[Validator] Transaction Hash: ${txHash}`);
 
       results.push({
-        requestHash,
-        agentId,
-        chainId,
+        ...buildCommonResult({
+          requestHash,
+          agentId,
+          chainId,
+          validationRegistry,
+          requesterAddress: agentAccount as `0x${string}`,
+          validatorAddress: validatorAddress as `0x${string}`,
+          claimText: 'Active A2A Endpoint',
+        }),
         success: true,
         txHash,
       });
@@ -371,9 +562,18 @@ export async function processValidationRequests(
         console.error(`[Validator] Stack: ${error.stack}`);
       }
       results.push({
-        requestHash,
-        agentId: 'unknown',
-        chainId,
+        ...buildCommonResult({
+          requestHash,
+          agentId: 'unknown',
+          chainId,
+          validationRegistry: requireChainEnvVar(
+            'AGENTIC_TRUST_VALIDATION_REGISTRY',
+            chainId,
+          ) as `0x${string}`,
+          requesterAddress: ZERO_ADDRESS,
+          validatorAddress: validatorAddress as `0x${string}`,
+          claimText: 'Active A2A Endpoint',
+        }),
         success: false,
         error: errorMessage,
       });

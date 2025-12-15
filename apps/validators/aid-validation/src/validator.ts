@@ -17,6 +17,7 @@
 
 // Load environment variables from .env file (if not already loaded)
 // This ensures env vars are available even if this module is imported directly
+import { randomBytes } from 'node:crypto';
 import { config } from 'dotenv';
 import { resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -58,18 +59,105 @@ import {
   type ValidationStatus,
   getChainBundlerUrl,
   getChainById,
+  requireChainEnvVar,
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
 import { runCheck, type CheckOptions } from '@agentcommunity/aid-engine';
 import type { Chain } from 'viem';
 
+type ValidationClaim = { type: 'compliance'; text: string };
+type ValidationCriteria = {
+  id: string;
+  name: string;
+  method: string;
+  passCondition: string;
+};
+
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+
 export interface ValidationResult {
+  kind: 'erc8004.validation.request@1';
+  specVersion: '1.0';
   requestHash: string;
   agentId: string;
   chainId: number;
+  validationRegistry: `0x${string}`;
+  requesterAddress: `0x${string}`;
+  validatorAddress: `0x${string}`;
+  taskId: string;
+  createdAt: string;
+  claim: ValidationClaim;
+  criteria: ValidationCriteria[];
   success: boolean;
   error?: string;
   txHash?: string;
+}
+
+// ULID (Crockford base32) - no external dependency
+const ULID_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+function encodeBase32Crockford(value: bigint, length: number): string {
+  let v = value;
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    const idx = Number(v % 32n);
+    out = ULID_ALPHABET[idx] + out;
+    v = v / 32n;
+  }
+  return out;
+}
+
+function generateTaskIdUlid(nowMs: number = Date.now()): string {
+  const time = BigInt(nowMs) & ((1n << 48n) - 1n);
+  const timePart = encodeBase32Crockford(time, 10);
+  const rand = randomBytes(10);
+  let randBig = 0n;
+  for (const b of rand) randBig = (randBig << 8n) | BigInt(b);
+  const randPart = encodeBase32Crockford(randBig, 16);
+  return `${timePart}${randPart}`;
+}
+
+function buildCommonResult(params: {
+  requestHash: string;
+  agentId: string;
+  chainId: number;
+  validationRegistry: `0x${string}`;
+  requesterAddress: `0x${string}`;
+  validatorAddress: `0x${string}`;
+  claimText: string;
+}): Omit<ValidationResult, 'success' | 'error' | 'txHash'> {
+  return {
+    kind: 'erc8004.validation.request@1',
+    specVersion: '1.0',
+    requestHash: params.requestHash,
+    agentId: params.agentId,
+    chainId: params.chainId,
+    validationRegistry: params.validationRegistry,
+    requesterAddress: params.requesterAddress,
+    validatorAddress: params.validatorAddress,
+    taskId: generateTaskIdUlid(),
+    createdAt: new Date().toISOString(),
+    claim: { type: 'compliance', text: params.claimText },
+    criteria: [
+      {
+        id: 'c1',
+        name: 'Extract domains from registration endpoints',
+        method: 'getRegistration(tokenUri) + parse URL hostnames',
+        passCondition: 'at least one domain extracted',
+      },
+      {
+        id: 'c2',
+        name: 'AID record validates',
+        method: '@agentcommunity/aid-engine runCheck',
+        passCondition: 'exitCode === 0 for all domains',
+      },
+      {
+        id: 'c3',
+        name: 'On-chain response submitted',
+        method: 'aa.validationResponse',
+        passCondition: 'txHash exists',
+      },
+    ],
+  };
 }
 
 /**
@@ -197,6 +285,11 @@ export async function processValidationRequests(
       }
       console.log(`[Validator] ✓ Processing validation for agent ${agentId}`);
 
+      const validationRegistry = requireChainEnvVar(
+        'AGENTIC_TRUST_VALIDATION_REGISTRY',
+        chainId,
+      ) as `0x${string}`;
+
       // Get agent information using core library
       console.log(`[Validator] Fetching agent information...`);
       const client = await getAgenticTrustClient();
@@ -207,9 +300,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} not found`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: ZERO_ADDRESS,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -223,9 +322,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} has no agentName`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: ZERO_ADDRESS,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -239,9 +344,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} has no agentAccount`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: ZERO_ADDRESS,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -261,9 +372,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} has no tokenUri`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -281,9 +398,15 @@ export async function processValidationRequests(
         const errorText = `Failed to load registration from tokenUri: ${errorMessage}`;
         console.error(`[Validator] ❌ ERROR: ${errorText}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error: errorText,
         });
@@ -303,9 +426,15 @@ export async function processValidationRequests(
         const error = `Agent ${agentId} has no A2A or MCP endpoints in registration`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -360,9 +489,15 @@ export async function processValidationRequests(
         const error = `No valid domains extracted from endpoints`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -420,9 +555,15 @@ export async function processValidationRequests(
         const error = validationErrors.join('; ');
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
-          requestHash,
-          agentId,
-          chainId,
+          ...buildCommonResult({
+            requestHash,
+            agentId,
+            chainId,
+            validationRegistry,
+            requesterAddress: agentAccount as `0x${string}`,
+            validatorAddress: validatorAddress as `0x${string}`,
+            claimText: 'Valid AID Discovery',
+          }),
           success: false,
           error,
         });
@@ -483,9 +624,15 @@ export async function processValidationRequests(
       console.log(`[Validator] Transaction Hash: ${txHash}`);
 
       results.push({
-        requestHash,
-        agentId,
-        chainId,
+        ...buildCommonResult({
+          requestHash,
+          agentId,
+          chainId,
+          validationRegistry,
+          requesterAddress: agentAccount as `0x${string}`,
+          validatorAddress: validatorAddress as `0x${string}`,
+          claimText: 'Valid AID Discovery',
+        }),
         success: true,
         txHash,
       });
@@ -498,9 +645,18 @@ export async function processValidationRequests(
         console.error(`[Validator] Stack: ${error.stack}`);
       }
       results.push({
-        requestHash,
-        agentId: 'unknown',
-        chainId,
+        ...buildCommonResult({
+          requestHash,
+          agentId: 'unknown',
+          chainId,
+          validationRegistry: requireChainEnvVar(
+            'AGENTIC_TRUST_VALIDATION_REGISTRY',
+            chainId,
+          ) as `0x${string}`,
+          requesterAddress: ZERO_ADDRESS,
+          validatorAddress: validatorAddress as `0x${string}`,
+          claimText: 'Valid AID Discovery',
+        }),
         success: false,
         error: errorMessage,
       });
