@@ -371,6 +371,7 @@ export class AgentsAPI {
         const registrationJSON = createRegistrationJSON({
           name: params.agentName,
           agentAccount: params.agentAccount,
+          agentCategory: params.agentCategory,
           description: params.description,
           image: params.image,
           agentUrl: params.agentUrl,
@@ -534,6 +535,7 @@ export class AgentsAPI {
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
+        agentCategory: params.agentCategory,
         description: params.description,
         image: params.image,
         agentUrl: params.agentUrl,
@@ -618,6 +620,7 @@ export class AgentsAPI {
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
+        agentCategory: params.agentCategory,
         description: params.description,
         image: params.image,
         agentUrl: params.agentUrl,
@@ -1645,6 +1648,7 @@ export class AgentsAPI {
         const registrationJSON = createRegistrationJSON({
           name: params.agentName,
           agentAccount: params.agentAccount,
+          agentCategory: params.agentCategory,
           description: params.description,
           image: params.image,
           agentUrl: params.agentUrl,

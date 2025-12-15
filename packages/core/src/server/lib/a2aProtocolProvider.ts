@@ -600,15 +600,19 @@ export class A2AProtocolProvider {
           errorMessage = `${errorMessage} - ${errorText}`;
         }
         
-        console.error('[A2AProtocolProvider.sendMessage] Request failed:', {
+        // Log error but don't throw - return a graceful error response
+        console.warn('[A2AProtocolProvider.sendMessage] Request failed (returning error response):', {
           status: response.status,
           statusText: response.statusText,
           url: endpointInfo.endpoint,
-          errorText,
           errorMessage,
-          requestPayload: JSON.stringify(authenticatedRequest, null, 2),
         });
-        throw new Error(errorMessage);
+        
+        // Return an error response instead of throwing
+        return {
+          success: false,
+          error: errorMessage,
+        };
       }
 
       const data: A2AResponse = await response.json();

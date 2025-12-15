@@ -82,6 +82,7 @@ export function createRegistrationJSON(params: {
   agentAccount: `0x${string}`;
   agentId?: string | number;
   active?: boolean;
+  agentCategory?: string;
   description?: string;
   image?: string;
   agentUrl?: string;
@@ -179,6 +180,7 @@ export function createRegistrationJSON(params: {
   const registration: AgentRegistrationInfo = {
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: params.name,
+    agentCategory: params.agentCategory,
     description: params.description,
     image: params.image,
     active: typeof params.active === 'boolean' ? params.active : true,

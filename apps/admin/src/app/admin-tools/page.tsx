@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch } from '@mui/material';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch, Chip } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
@@ -21,6 +21,7 @@ import {
   getChainBundlerUrl,
 } from '@agentic-trust/core/server';
 import { getClientBundlerUrl, getClientChainEnv } from '@/lib/clientChainEnv';
+import { AGENT_CATEGORY_OPTIONS, SUPPORTED_TRUST_MECHANISMS } from '@/models/agentRegistration';
 type Agent = DiscoverResponse['agents'][number];
 type ValidationStatusWithHash = ValidationStatus & { requestHash?: string };
 type ValidatorAgentDetailsState = {
@@ -604,12 +605,18 @@ export default function AdminPage() {
 
   const [registrationParsed, setRegistrationParsed] = useState<Record<string, any> | null>(null);
   const [registrationImage, setRegistrationImage] = useState<string>('');
+  const [registrationDescription, setRegistrationDescription] = useState<string>('');
   const [registrationA2aEndpoint, setRegistrationA2aEndpoint] = useState<string>('');
   const [registrationMcpEndpoint, setRegistrationMcpEndpoint] = useState<string>('');
   const [registrationCapability, setRegistrationCapability] = useState<string>('');
+  const [registrationCategory, setRegistrationCategory] = useState<string>('');
+  const [registrationSupportedTrust, setRegistrationSupportedTrust] = useState<string[]>([]);
   const [registrationImageError, setRegistrationImageError] = useState<string | null>(null);
   const [registrationA2aError, setRegistrationA2aError] = useState<string | null>(null);
   const [registrationMcpError, setRegistrationMcpError] = useState<string | null>(null);
+  
+  // Tab state for Agent Info pane
+  const [agentInfoTab, setAgentInfoTab] = useState<'name' | 'info' | 'taxonomy' | 'protocols'>('name');
 
   const [sessionPackageText, setSessionPackageText] = useState<string | null>(null);
   const [sessionPackageLoading, setSessionPackageLoading] = useState(false);
@@ -653,12 +660,18 @@ export default function AdminPage() {
         setRegistrationEditError(null);
         setRegistrationParsed(null);
         setRegistrationImage('');
+        setRegistrationDescription('');
         setRegistrationA2aEndpoint('');
         setRegistrationMcpEndpoint('');
         setRegistrationCapability('');
+        setRegistrationCategory('');
+        setRegistrationSupportedTrust([]);
         setRegistrationImageError(null);
         setRegistrationA2aError(null);
         setRegistrationMcpError(null);
+        
+        // Reset tab to first tab
+        setAgentInfoTab('name');
 
         const parsedChainId = Number.parseInt(finalChainId, 10);
         if (!Number.isFinite(parsedChainId)) {
@@ -706,6 +719,9 @@ export default function AdminPage() {
           }
 
           const image = typeof parsed.image === 'string' ? parsed.image : '';
+          const description = typeof parsed.description === 'string' ? parsed.description : '';
+          const category = typeof parsed.agentCategory === 'string' ? parsed.agentCategory : '';
+          const supportedTrust = Array.isArray(parsed.supportedTrust) ? parsed.supportedTrust : [];
           const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
           const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
           const a2a = endpoints.find(
@@ -717,6 +733,9 @@ export default function AdminPage() {
 
           setRegistrationParsed(parsed);
           setRegistrationImage(image);
+          setRegistrationDescription(description);
+          setRegistrationCategory(category);
+          setRegistrationSupportedTrust(supportedTrust);
           setRegistrationA2aEndpoint(
             a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
           );
@@ -778,6 +797,32 @@ export default function AdminPage() {
     } else {
       if ('image' in next) {
         delete next.image;
+      }
+    }
+
+    const desc = registrationDescription.trim();
+    if (desc) {
+      next.description = desc;
+    } else {
+      if ('description' in next) {
+        delete next.description;
+      }
+    }
+
+    const cat = registrationCategory.trim();
+    if (cat) {
+      next.agentCategory = cat;
+    } else {
+      if ('agentCategory' in next) {
+        delete next.agentCategory;
+      }
+    }
+
+    if (registrationSupportedTrust.length > 0) {
+      next.supportedTrust = registrationSupportedTrust;
+    } else {
+      if ('supportedTrust' in next) {
+        delete next.supportedTrust;
       }
     }
 
@@ -843,6 +888,9 @@ export default function AdminPage() {
   }, [
     registrationParsed,
     registrationImage,
+    registrationDescription,
+    registrationCategory,
+    registrationSupportedTrust,
     registrationA2aEndpoint,
     registrationMcpEndpoint,
     registrationCapability,
@@ -2163,157 +2211,204 @@ export default function AdminPage() {
                     <Typography variant="h5" gutterBottom>
                       Agent Info
                     </Typography>
-                    
-                    {/* Agent Info Section */}
-                    <Box sx={{ mb: 3, p: 2, borderRadius: 1, bgcolor: 'grey.50', border: 1, borderColor: 'grey.300' }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                      <Typography variant="body1">
-                          <strong>Agent ID:</strong> {finalAgentId || '(not provided)'}
-                        </Typography>
-                        <Typography variant="body1">
-                          <strong>Agent Name:</strong> {displayAgentName}
-                        </Typography>
-                        <Typography variant="body1">
-                          <strong>Chain:</strong>{' '}
-                          {(() => {
-                            if (!finalChainId) return '(not provided)';
-                            const parsed = Number.parseInt(finalChainId, 10);
-                            const meta = Number.isFinite(parsed) ? CHAIN_METADATA[parsed] : undefined;
-                            const label = meta?.displayName || meta?.chainName || finalChainId;
-                            return `${label} (chain ${finalChainId})`;
-                          })()}
-                        </Typography>
-                        <Typography variant="body1">
-                          <strong>Agent Account Address:</strong>{' '}
-                          {displayAgentAddress ? (
-                            <Box component="span" fontFamily="monospace">{displayAgentAddress}</Box>
-                          ) : (
-                            '(not provided)'
-                          )}
-                        </Typography>
-                        
-                        <Typography variant="body1">
-                          <strong>Agent Operator Address:</strong>{' '}
-                          {nftOperator.loading ? (
-                            <Box component="span" color="text.secondary" fontStyle="italic">Loading...</Box>
-                          ) : nftOperator.error ? (
-                            <Box component="span" color="error.main">Error: {nftOperator.error}</Box>
-                          ) : nftOperator.operatorAddress ? (
-                            <Box component="span" fontFamily="monospace">{nftOperator.operatorAddress}</Box>
-                          ) : (
-                            <Box component="span" color="text.secondary" fontStyle="italic">(none)</Box>
-                          )}
-                        </Typography>
-                      </Box>
-                    </Box>
-
-                    
-
-                    <Box sx={{ mt: 2, mb: 2, p: 2, borderRadius: 1, bgcolor: 'grey.100', border: 1, borderColor: 'grey.300' }}>
-                      <Typography variant="caption" color="text.secondary" display="block" gutterBottom>
-                        Latest TokenUri (from contract):
-                      </Typography>
-                      {registrationTokenUriLoading ? (
-                        <Typography variant="body2" color="text.secondary">
-                          Loading tokenUri from contract...
-                        </Typography>
-                      ) : registrationLatestTokenUri ? (
-                        <Typography variant="body2" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>
-                          {registrationLatestTokenUri}
-                        </Typography>
-                      ) : (
-                        <Typography variant="body2" color="error">
-                          No tokenUri found on contract
-                        </Typography>
-                      )}
-                    </Box>
 
                     {registrationPreviewError && (
-                      <Alert severity="error" sx={{ mt: 1 }}>
+                      <Alert severity="error" sx={{ mt: 1, mb: 2 }}>
                         {registrationPreviewError}
                       </Alert>
                     )}
                     {registrationEditError && (
-                      <Alert severity="error" sx={{ mt: 1 }}>
+                      <Alert severity="error" sx={{ mt: 1, mb: 2 }}>
                         {registrationEditError}
                       </Alert>
                     )}
 
+                    {/* Agent Info Tabs */}
                     <Box sx={{ mt: 2 }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                        <TextField
-                          label="Image URL"
-                          fullWidth
-                          value={registrationImage}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setRegistrationImage(val);
-                            setRegistrationImageError(validateUrlLike(val));
-                          }}
-                          placeholder="https://example.com/agent-image.png or ipfs://..."
-                          disabled={!registrationParsed}
-                          error={!!registrationImageError}
-                          helperText={registrationImageError}
-                          variant="outlined"
-                          size="small"
-                        />
+                      <Tabs
+                        value={agentInfoTab}
+                        onChange={(_, newValue) => setAgentInfoTab(newValue)}
+                        sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}
+                      >
+                        <Tab label="Name" value="name" />
+                        <Tab label="Info" value="info" />
+                        <Tab label="Taxonomy" value="taxonomy" />
+                        <Tab label="Protocols" value="protocols" />
+                      </Tabs>
 
-                        <TextField
-                          label="A2A Endpoint"
-                          fullWidth
-                          value={registrationA2aEndpoint}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setRegistrationA2aEndpoint(val);
-                            setRegistrationA2aError(validateUrlLike(val));
-                          }}
-                          placeholder="https://agent.example.com"
-                          disabled={!registrationParsed}
-                          error={!!registrationA2aError}
-                          helperText={
-                            registrationA2aError || 
-                            'Base URL for A2A endpoint. The `.well-known/agent.json` path is automatically appended when fetching.'
-                          }
-                          variant="outlined"
-                          size="small"
-                        />
-
-                        <TextField
-                          label="MCP Endpoint"
-                          fullWidth
-                          value={registrationMcpEndpoint}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setRegistrationMcpEndpoint(val);
-                            setRegistrationMcpError(validateUrlLike(val));
-                          }}
-                          placeholder="https://agent.example.com/mcp"
-                          disabled={!registrationParsed}
-                          error={!!registrationMcpError}
-                          helperText={
-                            registrationMcpError || 
-                            'Single MCP endpoint. This will be stored in the endpoints array with name MCP.'
-                          }
-                          variant="outlined"
-                          size="small"
-                        />
-
-                        <TextField
-                          label="Capability"
-                          fullWidth
-                          value={registrationCapability}
-                          onChange={(e) => setRegistrationCapability(e.target.value)}
-                          placeholder="Optional capability hint (freeform)"
-                          disabled={!registrationParsed}
-                          helperText="Stored in the registration JSON as `capability` (optional)."
-                          variant="outlined"
-                          size="small"
-                        />
-
-                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 1 }}>
-                          <Button
+                      {/* Name Tab */}
+                      {agentInfoTab === 'name' && (
+                        <Box sx={{ mt: 3 }}>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Agent name is set during registration and cannot be changed.
+                          </Typography>
+                          <TextField
+                            label="Agent Name"
+                            fullWidth
+                            value={displayAgentName}
+                            disabled
                             variant="outlined"
-                            onClick={async () => {
+                            size="small"
+                            helperText="This field is read-only. The agent name is part of the agent identity and cannot be modified."
+                          />
+                        </Box>
+                      )}
+
+                      {/* Info Tab */}
+                      {agentInfoTab === 'info' && (
+                        <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <TextField
+                            label="Description"
+                            fullWidth
+                            multiline
+                            rows={4}
+                            value={registrationDescription}
+                            onChange={(e) => setRegistrationDescription(e.target.value)}
+                            placeholder="Describe what your agent does..."
+                            disabled={!registrationParsed}
+                            variant="outlined"
+                            size="small"
+                          />
+                          <TextField
+                            label="Image URL"
+                            fullWidth
+                            value={registrationImage}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRegistrationImage(val);
+                              setRegistrationImageError(validateUrlLike(val));
+                            }}
+                            placeholder="https://example.com/agent-image.png or ipfs://..."
+                            disabled={!registrationParsed}
+                            error={!!registrationImageError}
+                            helperText={registrationImageError || 'URL to the agent\'s image'}
+                            variant="outlined"
+                            size="small"
+                          />
+                        </Box>
+                      )}
+
+                      {/* Taxonomy Tab */}
+                      {agentInfoTab === 'taxonomy' && (
+                        <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <FormControl fullWidth size="small" disabled={!registrationParsed}>
+                            <InputLabel>Agent Category</InputLabel>
+                            <Select
+                              value={registrationCategory}
+                              label="Agent Category"
+                              onChange={(e) => setRegistrationCategory(e.target.value)}
+                            >
+                              {AGENT_CATEGORY_OPTIONS.map((option) => (
+                                <MenuItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+
+                          <Box>
+                            <Typography variant="body2" sx={{ mb: 1, fontWeight: 600 }}>
+                              Supported Trust Mechanisms
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ mb: 2, display: 'block' }}>
+                              Select the trust mechanisms your agent supports for validation and reputation
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                              {SUPPORTED_TRUST_MECHANISMS.map((mechanism) => (
+                                <Box
+                                  key={mechanism.value}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 1.5,
+                                    p: 1.5,
+                                    border: 1,
+                                    borderColor: 'divider',
+                                    borderRadius: 1,
+                                    bgcolor: 'grey.50',
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={registrationSupportedTrust.includes(mechanism.value)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setRegistrationSupportedTrust([...registrationSupportedTrust, mechanism.value]);
+                                      } else {
+                                        setRegistrationSupportedTrust(
+                                          registrationSupportedTrust.filter((t) => t !== mechanism.value),
+                                        );
+                                      }
+                                    }}
+                                    disabled={!registrationParsed}
+                                    style={{ marginTop: '0.25rem' }}
+                                  />
+                                  <Box sx={{ flex: 1 }}>
+                                    <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                      {mechanism.label}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {mechanism.description}
+                                    </Typography>
+                                  </Box>
+                                </Box>
+                              ))}
+                            </Box>
+                          </Box>
+                        </Box>
+                      )}
+
+                      {/* Protocols Tab */}
+                      {agentInfoTab === 'protocols' && (
+                        <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                          <TextField
+                            label="A2A Endpoint"
+                            fullWidth
+                            value={registrationA2aEndpoint}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRegistrationA2aEndpoint(val);
+                              setRegistrationA2aError(validateUrlLike(val));
+                            }}
+                            placeholder="https://agent.example.com/api/a2a"
+                            disabled={!registrationParsed}
+                            error={!!registrationA2aError}
+                            helperText={
+                              registrationA2aError ||
+                              'Base URL for A2A endpoint. The `.well-known/agent.json` path is automatically appended when fetching.'
+                            }
+                            variant="outlined"
+                            size="small"
+                          />
+
+                          <TextField
+                            label="MCP Endpoint"
+                            fullWidth
+                            value={registrationMcpEndpoint}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setRegistrationMcpEndpoint(val);
+                              setRegistrationMcpError(validateUrlLike(val));
+                            }}
+                            placeholder="https://agent.example.com/api/mcp"
+                            disabled={!registrationParsed}
+                            error={!!registrationMcpError}
+                            helperText={
+                              registrationMcpError ||
+                              'Single MCP endpoint. This will be stored in the endpoints array with name MCP.'
+                            }
+                            variant="outlined"
+                            size="small"
+                          />
+
+                        </Box>
+                      )}
+
+                      {/* Save Button */}
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+                        <Button
+                          variant="outlined"
+                          onClick={async () => {
                               if (!isEditMode || !finalAgentId || !finalChainId || registrationEditSaving) {
                                 return;
                               }
@@ -2326,8 +2421,12 @@ export default function AdminPage() {
                                 setRegistrationPreviewText(null);
                                 setRegistrationParsed(null);
                                 setRegistrationImage('');
+                                setRegistrationDescription('');
                                 setRegistrationA2aEndpoint('');
                                 setRegistrationMcpEndpoint('');
+                                setRegistrationCategory('');
+                                setRegistrationSupportedTrust([]);
+                                setRegistrationCapability('');
                                 setRegistrationImageError(null);
                                 setRegistrationA2aError(null);
                                 setRegistrationMcpError(null);
@@ -2373,6 +2472,10 @@ export default function AdminPage() {
                                 }
 
                                 const image = typeof parsed.image === 'string' ? parsed.image : '';
+                                const description = typeof parsed.description === 'string' ? parsed.description : '';
+                                const category = typeof parsed.agentCategory === 'string' ? parsed.agentCategory : '';
+                                const supportedTrust = Array.isArray(parsed.supportedTrust) ? parsed.supportedTrust : [];
+                                const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
                                 const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
                                 const a2a = endpoints.find(
                                   (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
@@ -2383,12 +2486,16 @@ export default function AdminPage() {
 
                                 setRegistrationParsed(parsed);
                                 setRegistrationImage(image);
+                                setRegistrationDescription(description);
+                                setRegistrationCategory(category);
+                                setRegistrationSupportedTrust(supportedTrust);
                                 setRegistrationA2aEndpoint(
                                   a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
                                 );
                                 setRegistrationMcpEndpoint(
                                   mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
                                 );
+                                setRegistrationCapability(capability);
                                 setRegistrationImageError(validateUrlLike(image) ?? null);
                                 setRegistrationA2aError(
                                   a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
@@ -2423,11 +2530,10 @@ export default function AdminPage() {
                               !!registrationMcpError
                             }
                           >
-                            {registrationEditSaving ? 'Saving…' : 'Save'}
+                            {registrationEditSaving ? 'Saving…' : 'Save All Changes'}
                           </Button>
                         </Box>
                       </Box>
-                    </Box>
                   </Paper>
                 )}
                 {(!isEditMode || activeManagementTab === 'delete') && (

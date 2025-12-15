@@ -61,6 +61,12 @@ export interface AgentRegistrationInfo {
   agentAccount?: `0x${string}`;
 
   /**
+   * Optional agent category.
+   * Not in ERC-8004 spec but used by our discovery/indexer.
+   */
+  agentCategory?: string;
+
+  /**
    * Legacy fields for backward compatibility
    */
   version?: string;

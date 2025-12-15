@@ -511,8 +511,16 @@ export class Agent {
       chainId: this.data.chainId,
       agentName: this.data.agentName,
       a2aEndpoint: this.data.a2aEndpoint,
+      active: this.data.active,
     });
     console.log('[Agent.getFeedbackAuth] Params:', JSON.stringify(params, null, 2));
+    
+    // Check if agent is active before attempting to contact A2A endpoint
+    // Only skip if explicitly false; undefined/null means active by default
+    if (this.data.active === false) {
+      console.warn('[Agent.getFeedbackAuth] Agent is not active, skipping A2A request');
+      throw new Error('Agent is not active. Cannot request feedback authorization for inactive agents.');
+    }
     
     const clientAddress = params.clientAddress?.toLowerCase();
     if (

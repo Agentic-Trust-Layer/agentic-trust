@@ -22,6 +22,7 @@ import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 import { ensureWeb3AuthChain } from '@/lib/web3auth';
 import { buildDidEnsFromAgentAndOrg } from '@/app/api/names/_lib/didEns';
 import { keccak256, toHex } from "viem";
+import { AGENT_CATEGORY_OPTIONS, SUPPORTED_TRUST_MECHANISMS } from '@/models/agentRegistration';
 
 const CREATE_STEPS = ['Name', 'Information', 'Taxonomy', 'Protocols', 'Review & Register'] as const;
 const REGISTRATION_PROGRESS_DURATION_MS = 60_000;
@@ -1487,14 +1488,11 @@ export default function AgentRegistrationPage() {
                 onChange={(e) => setCreateForm({ ...createForm, agentCategory: e.target.value })}
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', marginBottom: '1rem' }}
               >
-                <option value="">Select a category (optional)</option>
-                <option value="Service Agents">Service Agents (Function/Task Agents)</option>
-                <option value="Conversational / Interface Agents">Conversational / Interface Agents</option>
-                <option value="Orchestrator / Coordinator Agents">Orchestrator / Coordinator Agents</option>
-                <option value="Knowledge / Retrieval Agents">Knowledge / Retrieval Agents</option>
-                <option value="Autonomous / Goal-Seeking Agents">Autonomous / Goal-Seeking Agents</option>
-                <option value="Governance / Validation Agents">Governance / Validation Agents</option>
-                <option value="Domain-Specific / Vertical Agents">Domain-Specific / Vertical Agents</option>
+                {AGENT_CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
             
@@ -1774,6 +1772,9 @@ export default function AgentRegistrationPage() {
                   )}
                 </div>
               )}
+              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}>
+                <strong>Category:</strong> {createForm.agentCategory || '—'}
+              </p>
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Description:</strong> {createForm.description || '—'}</p>
             </div>
             <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>

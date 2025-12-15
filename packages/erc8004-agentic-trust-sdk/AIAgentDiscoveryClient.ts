@@ -366,6 +366,7 @@ export class AIAgentDiscoveryClient {
   private searchStrategyPromise?: Promise<SearchStrategy | null>;
   private typeFieldsCache = new Map<string, TypeField[] | null>();
   private tokenMetadataCollectionSupported?: boolean;
+  private agentMetadataValueField?: 'valueText' | 'value' | null;
 
   constructor(config: AIAgentDiscoveryClientConfig) {
     this.config = config;
@@ -1522,6 +1523,50 @@ export class AIAgentDiscoveryClient {
   }
 
   /**
+   * Some indexers expose `metadata { key valueText }`, others expose `metadata { key value }`.
+   * Introspect once and cache so we can query metadata reliably.
+   */
+  private async getAgentMetadataValueField(): Promise<'valueText' | 'value' | null> {
+    if (this.agentMetadataValueField !== undefined) {
+      return this.agentMetadataValueField;
+    }
+
+    try {
+      const agentFields = await this.getTypeFields('Agent');
+      const metadataField = agentFields?.find((f) => f?.name === 'metadata');
+      const metadataType = unwrapType(metadataField?.type);
+      const metadataTypeName = metadataType?.name ?? null;
+      if (!metadataTypeName) {
+        this.agentMetadataValueField = null;
+        return null;
+      }
+
+      const metadataFields = await this.getTypeFields(metadataTypeName);
+      const fieldNames = new Set(
+        (metadataFields ?? [])
+          .map((f) => f?.name)
+          .filter((name): name is string => typeof name === 'string' && name.length > 0),
+      );
+
+      if (fieldNames.has('valueText')) {
+        this.agentMetadataValueField = 'valueText';
+        return 'valueText';
+      }
+      if (fieldNames.has('value')) {
+        this.agentMetadataValueField = 'value';
+        return 'value';
+      }
+
+      this.agentMetadataValueField = null;
+      return null;
+    } catch {
+      // If schema blocks introspection, fall back to historical `valueText`.
+      this.agentMetadataValueField = 'valueText';
+      return 'valueText';
+    }
+  }
+
+  /**
    * Get all token metadata from The Graph indexer for an agent
    * Uses tokenMetadata_collection query to get all metadata key-value pairs
    * Handles pagination if an agent has more than 1000 metadata entries
@@ -1655,6 +1700,22 @@ export class AIAgentDiscoveryClient {
    * @returns Agent data with metadata or null if not found
    */
   async getAgent(chainId: number, agentId: number | string): Promise<AgentData | null> {
+    const metadataValueField = await this.getAgentMetadataValueField();
+    const metadataSelection =
+      metadataValueField === 'valueText'
+        ? `
+            metadata {
+              key
+              valueText
+            }`
+        : metadataValueField === 'value'
+          ? `
+            metadata {
+              key
+              valueText: value
+            }`
+          : '';
+
     // Try searchAgentsGraph first to get metadata
     const graphQuery = `
       query GetAgentWithMetadata($where: AgentWhereInput, $first: Int) {
@@ -1689,10 +1750,7 @@ export class AIAgentDiscoveryClient {
             active
             supportedTrust
             rawJson
-            metadata {
-              key
-              valueText
-            }
+${metadataSelection}
           }
         }
       }
