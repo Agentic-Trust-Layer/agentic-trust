@@ -365,6 +365,7 @@ export class AIAgentDiscoveryClient {
   private searchStrategy?: SearchStrategy | null;
   private searchStrategyPromise?: Promise<SearchStrategy | null>;
   private typeFieldsCache = new Map<string, TypeField[] | null>();
+  private tokenMetadataCollectionSupported?: boolean;
 
   constructor(config: AIAgentDiscoveryClientConfig) {
     this.config = config;
@@ -1529,6 +1530,12 @@ export class AIAgentDiscoveryClient {
    * @returns Record of all metadata key-value pairs, or null if not available
    */
   async getTokenMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    // If we already learned the GraphQL schema doesn't support this query field,
+    // skip to avoid repeated GRAPHQL_VALIDATION_FAILED warnings.
+    if (this.tokenMetadataCollectionSupported === false) {
+      return null;
+    }
+
     // Newer indexer schemas may not expose tokenMetadata_collection anymore.
     // Avoid spamming logs / failing requests by introspecting once and bailing out if unsupported.
     try {
@@ -1537,13 +1544,12 @@ export class AIAgentDiscoveryClient {
         queryFields?.some((f) => f?.name === 'tokenMetadata_collection'),
       );
       if (!hasTokenMetadataCollection) {
+        this.tokenMetadataCollectionSupported = false;
         // tokenMetadataById may exist, but it doesn't help us enumerate all metadata pairs.
         // We only use this method as a best-effort fallback, so return null when unsupported.
-        console.warn(
-          '[AIAgentDiscoveryClient.getTokenMetadata] tokenMetadata_collection not available in GraphQL schema; skipping token metadata lookup.',
-        );
         return null;
       }
+      this.tokenMetadataCollectionSupported = true;
     } catch (e) {
       // If introspection fails, keep existing behavior (attempt the query; it will be caught below).
     }
@@ -1608,6 +1614,28 @@ export class AIAgentDiscoveryClient {
           hasMore = false;
         }
       } catch (error) {
+        // Some indexers have evolved schema and removed `tokenMetadata_collection`.
+        // graphql-request surfaces this as GRAPHQL_VALIDATION_FAILED; treat it as "not supported"
+        // and disable future attempts for this client instance.
+        const responseErrors = (error as any)?.response?.errors;
+        const schemaDoesNotSupportCollection =
+          Array.isArray(responseErrors) &&
+          responseErrors.some(
+            (e: any) =>
+              typeof e?.message === 'string' &&
+              e.message.includes('tokenMetadata_collection') &&
+              (e?.extensions?.code === 'GRAPHQL_VALIDATION_FAILED' ||
+                e.message.includes('Cannot query field')),
+          );
+
+        if (schemaDoesNotSupportCollection) {
+          this.tokenMetadataCollectionSupported = false;
+          if (Object.keys(metadata).length > 0) {
+            return metadata;
+          }
+          return null;
+        }
+
         console.warn('[AIAgentDiscoveryClient.getTokenMetadata] Error fetching token metadata from GraphQL:', error);
         // If we got some metadata before the error, return what we have
         if (Object.keys(metadata).length > 0) {

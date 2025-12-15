@@ -170,7 +170,8 @@ export default function CliSetupPage() {
           CLI setup: connect + register
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-          Finish ERC-8004 registration in the browser, then you'll be redirected back to the CLI.
+          Finish Smart Agent registration of Smart Agent Account (ERC-4337), Smart Agent Name (name.8004-agent.eth), and
+          Smart Agent Identity (ERC-8004), then you&apos;ll be redirected back to the CLI.
         </Typography>
 
         {error && (
@@ -391,12 +392,12 @@ export default function CliSetupPage() {
         <Dialog open={confirmOpen} onClose={() => setConfirmOpen(false)} fullWidth maxWidth="sm">
           <DialogTitle>Confirm registration</DialogTitle>
           <DialogContent>
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Sponsored by a paymaster — gasless.
+            </Alert>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              MetaMask is about to ask you to sign one or more <strong>ERC-4337 Smart Account UserOperations</strong>.
-              This is not a normal “send ETH” transaction: you&apos;re authorizing your smart account to execute the
-              registration steps (ENS and 8004 Identity) via a bundler + EntryPoint. When available, a paymaster can make
-              this gasless (or at least you don&apos;t need to deal with gas settings). MetaMask shows the raw UserOperation
-              data, so use the summary below to verify what you&apos;re approving.
+              You&apos;ll be asked to sign a smart-account <strong>UserOperation</strong>. Verify the network + smart account
+              address below before continuing.
             </Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: '140px 1fr', gap: 1 }}>
               <Typography variant="body2" color="text.secondary">

@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     // clientAddress is optional - if not provided, it will be retrieved from ClientApp
-    const feedbackResult = await agent.giveFeedback({
+    const giveFeedbackInput = {
       ...(clientAddress && { clientAddress }),
       score: typeof score === 'number' ? score : parseInt(score, 10),
       feedback: feedback || 'Feedback submitted via admin client',
@@ -62,14 +62,37 @@ export async function POST(request: NextRequest) {
       skill,
       context,
       capability,
-    });
+    };
 
+    // Prefer server-side submission when possible (private key / server signer configured).
+    // If not available, fall back to returning a prepared transaction for client-side signing (MetaMask/Web3Auth).
+    try {
+      const feedbackResult = await agent.giveFeedback(giveFeedbackInput);
+      return NextResponse.json({
+        success: true,
+        mode: 'server',
+        txHash: feedbackResult.txHash,
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const needsClientSignature =
+        msg.includes('Wallet client required for sending transactions') ||
+        msg.includes('Provide walletClient') ||
+        msg.includes('walletClient') ||
+        msg.includes('wallet client');
 
+      if (!needsClientSignature) {
+        throw error;
+      }
 
-    return NextResponse.json({
-      success: true,
-      txHash: feedbackResult.txHash
-    });
+      const prepared = await agent.prepareGiveFeedback(giveFeedbackInput);
+      return NextResponse.json({
+        success: true,
+        mode: 'client',
+        chainId: prepared.chainId,
+        transaction: prepared.transaction,
+      });
+    }
   } catch (error: unknown) {
     console.error('Error submitting feedback:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';

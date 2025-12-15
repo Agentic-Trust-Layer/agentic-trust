@@ -17,7 +17,9 @@ import TrustGraphModal from '@/components/TrustGraphModal';
 import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
-import { buildDid8004 } from '@agentic-trust/core';
+import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
+import type { Address } from 'viem';
+import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
@@ -106,6 +108,18 @@ export default function AgentDetailsPageContent({
   const [selectedFromAgentId, setSelectedFromAgentId] = useState<string>('');
 
   const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
+  const chainFor = useCallback((id: number) => {
+    switch (id) {
+      case 11155111:
+        return sepolia;
+      case 84532:
+        return baseSepolia;
+      case 11155420:
+        return optimismSepolia;
+      default:
+        return sepolia;
+    }
+  }, []);
 
   const completedValidationCount = validations?.completed?.length ?? 0;
   const pendingValidationCount = validations?.pending?.length ?? 0;
@@ -1009,7 +1023,26 @@ export default function AgentDetailsPageContent({
                   throw new Error(errorData.message || errorData.error || 'Failed to submit feedback');
                 }
 
-                const feedbackResult = await feedbackResponse.json();
+                const feedbackResult = await feedbackResponse.json().catch(() => ({}));
+
+                // If the server can't sign (no server wallet), it returns a prepared tx for client signing.
+                if (feedbackResult?.mode === 'client' && feedbackResult?.transaction) {
+                  if (!eip1193Provider) {
+                    throw new Error('Wallet provider not available. Please connect your wallet.');
+                  }
+                  const preparedTx = feedbackResult.transaction as PreparedTransaction;
+                  const targetChainId =
+                    typeof feedbackResult.chainId === 'number'
+                      ? feedbackResult.chainId
+                      : preparedTx.chainId || Number(resolvedChainId) || chainId;
+
+                  await signAndSendTransaction({
+                    transaction: preparedTx,
+                    account: clientAddress as Address,
+                    chain: chainFor(targetChainId),
+                    ethereumProvider: eip1193Provider,
+                  });
+                }
 
                 setFeedbackSuccess(true);
 
@@ -1108,21 +1141,12 @@ export default function AgentDetailsPageContent({
                 );
               }}
             >
-              {(() => {
-                console.log('[AgentDetails] Select render state:', {
-                  ownedAgentsLoading,
-                  ownedAgentsLength: cachedOwnedAgents.length,
-                  ownedAgents: cachedOwnedAgents,
-                  selectedFromAgentId,
-                });
-                if (cachedOwnedAgents.length === 0) {
-                  return (
-                    <MenuItem disabled>
-                      {ownedAgentsLoading ? 'Loading…' : 'No owned agents found'}
-                    </MenuItem>
-                  );
-                }
-                return cachedOwnedAgents.map((ownedAgent) => {
+              {cachedOwnedAgents.length === 0 ? (
+                <MenuItem disabled>
+                  {ownedAgentsLoading ? 'Loading…' : 'No owned agents found'}
+                </MenuItem>
+              ) : (
+                cachedOwnedAgents.map((ownedAgent) => {
                   const agentKey = `${ownedAgent.chainId}:${ownedAgent.agentId}`;
                   const displayName = ownedAgent.agentName || `Agent #${ownedAgent.agentId}`;
                   const img = (ownedAgent.image || '').trim();
@@ -1148,8 +1172,8 @@ export default function AgentDetailsPageContent({
                       </Box>
                     </MenuItem>
                   );
-                });
-              })()}
+                })
+              )}
             </Select>
             {ownedAgentsLoading && (
               <FormHelperText sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

@@ -221,23 +221,42 @@ export class A2AProtocolProvider {
       
       if (card) {
         this.agentCard = card;
-        // Extract A2A endpoint from agent card
-        const cardProviderUrl = card.provider?.url;
-        console.log('[A2AProtocolProvider.fetchAgentCard] Card provider URL:', cardProviderUrl);
-        console.log('[A2AProtocolProvider.fetchAgentCard] Current providerUrl (with subdomain):', this.providerUrl);
+        // Prefer explicit A2A endpoint from agent card (supports /a2a and /api/a2a styles).
+        // Fall back to constructing from providerUrl if missing.
+        const baseOrigin = (() => {
+          try {
+            return new URL(this.providerUrl).origin.replace(/\/$/, '');
+          } catch {
+            return this.providerUrl.replace(/\/$/, '');
+          }
+        })();
 
-        // Use providerUrl (which should have subdomain from Agent.initialize) instead of card provider URL
-        // The providerUrl was constructed with the agent name as subdomain in Agent.initialize()
-        const baseUrlToUse = this.providerUrl;
-        console.log('[A2AProtocolProvider.fetchAgentCard] Using providerUrl for endpoint construction:', baseUrlToUse);
-        
-        // Construct A2A endpoint from providerUrl (which has the subdomain)
-        const constructedEndpoint = baseUrlToUse.endsWith('/api/a2a') 
-          ? baseUrlToUse 
-          : `${baseUrlToUse.replace(/\/$/, '')}/api/a2a`;
-        
-        console.log('[A2AProtocolProvider.fetchAgentCard] Constructed A2A endpoint:', constructedEndpoint);
-        this.a2aEndpoint = constructedEndpoint;
+        const endpointFromCard = Array.isArray((card as any).endpoints)
+          ? ((card as any).endpoints as Array<{ name?: string; endpoint?: string }>).find((e) =>
+              String(e?.name || '').toLowerCase() === 'a2a',
+            )?.endpoint
+          : undefined;
+
+        const normalizeEndpoint = (raw: unknown): string | null => {
+          const s = String(raw || '').trim();
+          if (!s) return null;
+          if (s.startsWith('http://') || s.startsWith('https://')) return s.replace(/\/$/, '');
+          if (s.startsWith('/')) return `${baseOrigin}${s}`;
+          return `${baseOrigin}/${s.replace(/^\/+/, '')}`;
+        };
+
+        const picked = normalizeEndpoint(endpointFromCard);
+        if (picked) {
+          console.log('[A2AProtocolProvider.fetchAgentCard] Using A2A endpoint from agent card:', picked);
+          this.a2aEndpoint = picked;
+        } else {
+          // Construct from providerUrl by appending /api/a2a only if providerUrl doesn't already look like an A2A endpoint.
+          const urlStr = this.providerUrl.replace(/\/$/, '');
+          const constructedEndpoint =
+            urlStr.endsWith('/a2a') || urlStr.endsWith('/api/a2a') ? urlStr : `${baseOrigin}/api/a2a`;
+          console.log('[A2AProtocolProvider.fetchAgentCard] Constructed A2A endpoint:', constructedEndpoint);
+          this.a2aEndpoint = constructedEndpoint;
+        }
           
         // Verify the constructed a2aEndpoint is absolute
         if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {

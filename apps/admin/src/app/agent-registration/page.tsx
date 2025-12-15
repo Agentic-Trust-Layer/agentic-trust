@@ -1814,12 +1814,22 @@ export default function AgentRegistrationPage() {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Confirm registration</h3>
-                  <p style={{ marginTop: '0.5rem', color: '#4f4f4f', fontSize: '0.95rem' }}>
-                    MetaMask is about to ask you to sign one or more <strong>ERC-4337 Smart Account UserOperations</strong>.
-                    This is not a normal “send ETH” transaction: you&apos;re authorizing your smart account to execute the
-                    registration steps (ENS + ERC-8004) via a bundler + EntryPoint. When available, a paymaster can make
-                    this gasless (or at least you don&apos;t need to deal with gas settings). MetaMask shows the raw
-                    UserOperation data, so use the summary below to verify what you&apos;re approving.
+                  <div
+                    style={{
+                      marginTop: '0.75rem',
+                      padding: '0.75rem',
+                      borderRadius: '12px',
+                      backgroundColor: '#ecfdf5',
+                      border: '1px solid #86efac',
+                      color: '#14532d',
+                      fontWeight: 800,
+                    }}
+                  >
+                    Sponsored by a paymaster — gasless.
+                  </div>
+                  <p style={{ marginTop: '0.75rem', color: '#4f4f4f', fontSize: '0.95rem' }}>
+                    You&apos;ll be asked to sign a smart-account <strong>UserOperation</strong>. Verify the network + smart
+                    account address below before continuing.
                   </p>
 
                   <div
