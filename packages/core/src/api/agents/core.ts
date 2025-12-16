@@ -487,24 +487,20 @@ export async function prepareValidationRequestCore(
     );
   }
 
-  if (!input.validatorName?.trim()) {
-    throw new AgentApiError('validatorName parameter is required', 400);
+  if (!input.validatorAddress?.trim()) {
+    throw new AgentApiError('validatorAddress parameter is required', 400);
   }
 
-  const validatorName = input.validatorName;
-  const { address: validatorAddress } = await createValidatorAccountAbstraction(
-    validatorName,
-    validatorPrivateKey,
-    parsed.chainId,
-  );
+  const validatorAddress = input.validatorAddress;
+
 
   // Prepare the validation request transaction
   // Type assertion needed because TypeScript may not see the method on the base class type
   const { txRequest, requestHash } = await (validationClient as any).prepareValidationRequestTx({
-    agentId: parsed.agentId,
-    validatorAddress,
-    requestUri: input.requestUri,
-    requestHash: input.requestHash,
+    agentId: parsed.agentId,        // agentId requesting validation (the agent being validated)
+    validatorAddress,               // validatorAddress that performs the validation (the validator)
+    requestUri: input.requestUri,   // URI of the request (e.g. https://agentic-trust.org/validation/1)
+    requestHash: input.requestHash, // hash of the request (e.g. keccak256 of the requestUri)
   });
 
   try {

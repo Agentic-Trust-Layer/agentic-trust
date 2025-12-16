@@ -24,7 +24,7 @@ type ProviderAppInstance = {
 
 // Singleton instance
 let providerAppInstance: ProviderAppInstance | null = null;
-let initializationPromise: Promise<ProviderAppInstance> | null = null;
+let initializationPromise: Promise<ProviderAppInstance | undefined> | null = null;
 
 /**
  * Get or create the ProviderApp singleton
@@ -41,15 +41,22 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
     return initializationPromise;
   }
 
+  // Check if this is a provider app (environment variable flag)
+  if (!isUserAppEnabled('provider')) {
+    return undefined;
+  }
+
+  const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+  if (!sessionPackagePath) {
+    // Session package may be loaded from database instead of env var
+    // Silently return undefined - no error logging as this is expected behavior
+    return undefined;
+  }
+
   // Start initialization
   logUserAppInitStart('provider');
   initializationPromise = (async () => {
     try {
-      const sessionPackagePath = process.env.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
-
-      if (!sessionPackagePath) {
-        throw new Error('Missing required environment variable: AGENTIC_TRUST_SESSION_PACKAGE_PATH');
-      }
 
       // Load session package and build delegation setup
       const { loadSessionPackage, buildDelegationSetup, buildAgentAccountFromSession } = await import('../lib/sessionPackage');
@@ -95,14 +102,11 @@ export async function getProviderApp(): Promise<ProviderAppInstance | undefined>
     } catch (error) {
       logUserAppInitFailure('provider', error);
       initializationPromise = null; // Reset on error so it can be retried
-      throw error;
+      // Return undefined instead of throwing to allow graceful fallback
+      // (session package may be loaded from database instead)
+      return undefined;
     }
   })();
-
-  // Check if this is a provider app (environment variable flag)
-  if (!isUserAppEnabled('provider')) {
-    return undefined;
-  }
 
   return initializationPromise;
 

@@ -41,8 +41,14 @@ export async function resolveDomainUserApps(): Promise<DomainUserApps> {
   if (isUserAppEnabled('provider')) {
     try {
       ctx.providerApp = await getProviderApp();
+      // If undefined, session package may be loaded from database instead - this is expected
+      // Only log if there was an actual error (not just missing env var)
     } catch (error) {
-      console.warn('ProviderApp not available while resolving domain user apps:', error);
+      // Only log actual errors, not missing env var (which is expected when using database-loaded packages)
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!errorMessage.includes('AGENTIC_TRUST_SESSION_PACKAGE_PATH')) {
+        console.warn('ProviderApp not available while resolving domain user apps:', error);
+      }
     }
   }
 

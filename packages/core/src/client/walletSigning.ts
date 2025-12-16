@@ -1431,6 +1431,7 @@ export interface RequestValidationWithWalletOptions {
   requesterAccountClient: any; // Agent account abstraction client (the requester)
   requestUri?: string;
   requestHash?: string;
+  validatorAddress?: string; // Optional: if provided, use this address directly instead of validatorName
   onStatusUpdate?: (status: string) => void;
 }
 
@@ -1452,15 +1453,23 @@ export async function requestNameValidationWithWallet(
 
   let prepared: AgentOperationPlan;
   try {
+    const requestBody: any = {
+      requestUri,
+      requestHash,
+      mode: 'smartAccount',
+    };
+    
+    // If validatorAddress is provided, use it directly; otherwise use validatorName
+    if (options.validatorAddress) {
+      requestBody.validatorAddress = options.validatorAddress;
+    } else {
+      requestBody.validatorName = validatorName;
+    }
+
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestUri,
-        requestHash,
-        mode: 'smartAccount',
-        validatorName,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -1540,15 +1549,23 @@ export async function requestAccountValidationWithWallet(
 
   let prepared: AgentOperationPlan;
   try {
+    const requestBody: any = {
+      requestUri,
+      requestHash,
+      mode: 'smartAccount',
+    };
+    
+    // If validatorAddress is provided, use it directly; otherwise use validatorName
+    if (options.validatorAddress) {
+      requestBody.validatorAddress = options.validatorAddress;
+    } else {
+      requestBody.validatorName = validatorName;
+    }
+
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestUri,
-        requestHash,
-        mode: 'smartAccount',
-        validatorName,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -1628,15 +1645,23 @@ export async function requestAppValidationWithWallet(
 
   let prepared: AgentOperationPlan;
   try {
+    const requestBody: any = {
+      requestUri,
+      requestHash,
+      mode: 'smartAccount',
+    };
+    
+    // If validatorAddress is provided, use it directly; otherwise use validatorName
+    if (options.validatorAddress) {
+      requestBody.validatorAddress = options.validatorAddress;
+    } else {
+      requestBody.validatorName = validatorName;
+    }
+
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestUri,
-        requestHash,
-        mode: 'smartAccount',
-        validatorName,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
@@ -1716,15 +1741,23 @@ export async function requestAIDValidationWithWallet(
 
   let prepared: AgentOperationPlan;
   try {
+    const requestBody: any = {
+      requestUri,
+      requestHash,
+      mode: 'smartAccount',
+    };
+    
+    // If validatorAddress is provided, use it directly; otherwise use validatorName
+    if (options.validatorAddress) {
+      requestBody.validatorAddress = options.validatorAddress;
+    } else {
+      requestBody.validatorName = validatorName;
+    }
+
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requestUri,
-        requestHash,
-        mode: 'smartAccount',
-        validatorName,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {

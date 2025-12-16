@@ -695,59 +695,51 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
             // Remove any trailing "-8004-agent-eth" or "-8004-agent" patterns
             baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
             
-            // Construct the full agent_name and ENS name for lookup: "xyzalliance-arn.8004-agent.eth"
-            const agentName = `${baseAgentName}.8004-agent.eth`;
-            const ensName = agentName; // Same format
+            // Construct normalized identifiers
+            const baseAgentNameLower = baseAgentName.toLowerCase();
+            const ensName = `${baseAgentNameLower}.8004-agent.eth`;
+            const ensNameDup = `${ensName}.8004-agent.eth`;
             
             console.log('[ATP Agent] Looking up agent in database by subdomain:', subdomain);
             console.log('[ATP Agent] Extracted base agent name:', baseAgentName);
-            console.log('[ATP Agent] Constructed agent_name for lookup:', agentName);
+            console.log('[ATP Agent] Constructed ens_name for lookup:', ensName);
             
-            // Try lookup by agent_name first (most reliable, matches database format)
-            let agentRecord = await db.prepare(
-              'SELECT session_package FROM agents WHERE agent_name = ?'
+            // Prefer any row that has a non-null session_package; otherwise newest updated
+            const agentRecord = await db.prepare(
+              `SELECT id, ens_name, agent_name, session_package, updated_at
+               FROM agents
+               WHERE ens_name = ? COLLATE NOCASE
+                  OR ens_name = ? COLLATE NOCASE
+                  OR agent_name = ? COLLATE NOCASE
+                  OR agent_name = ? COLLATE NOCASE
+               ORDER BY (session_package IS NOT NULL) DESC, updated_at DESC
+               LIMIT 1`
             )
-              .bind(agentName)
-              .first<{ session_package: string | null }>();
+              .bind(ensName, ensNameDup, baseAgentNameLower, ensName)
+              .first<{ id: number; ens_name: string; agent_name: string; session_package: string | null; updated_at: number }>();
 
-            // Check if record exists
-            if (agentRecord) {
-              if (agentRecord.session_package) {
-                try {
-                  sessionPackage = JSON.parse(agentRecord.session_package) as SessionPackage;
-                  console.log('[ATP Agent] ✓ Loaded session package from database by agent_name:', agentName);
-                } catch (parseError) {
-                  console.error('[ATP Agent] Failed to parse session package from database (by agent_name):', parseError);
-                }
-              } else {
-                console.warn('[ATP Agent] Agent record found by agent_name, but session_package is NULL');
+            if (agentRecord?.session_package) {
+              try {
+                sessionPackage = JSON.parse(agentRecord.session_package) as SessionPackage;
+                console.log('[ATP Agent] ✓ Loaded session package from database:', {
+                  id: agentRecord.id,
+                  ens_name: agentRecord.ens_name,
+                  agent_name: agentRecord.agent_name,
+                });
+              } catch (parseError) {
+                console.error('[ATP Agent] Failed to parse session package from database:', parseError);
               }
+            } else if (agentRecord) {
+              console.warn('[ATP Agent] Agent record found, but session_package is NULL:', {
+                id: agentRecord.id,
+                ens_name: agentRecord.ens_name,
+                agent_name: agentRecord.agent_name,
+              });
             } else {
-              console.warn('[ATP Agent] No agent record found by agent_name:', agentName);
-              
-              // Try lookup by ens_name (might have duplicate suffix in database like "xyzalliance-arn.8004-agent.eth.8004-agent.eth")
-              agentRecord = await db.prepare(
-                'SELECT session_package FROM agents WHERE ens_name = ? OR ens_name = ?'
-              )
-                .bind(ensName, `${ensName}.8004-agent.eth`) // Also try with duplicate suffix
-                .first<{ session_package: string | null }>();
-              
-              if (agentRecord) {
-                if (agentRecord.session_package) {
-                  try {
-                    sessionPackage = JSON.parse(agentRecord.session_package) as SessionPackage;
-                    console.log('[ATP Agent] ✓ Loaded session package from database by ens_name');
-                  } catch (parseError) {
-                    console.error('[ATP Agent] Failed to parse session package from database (by ens_name):', parseError);
-                  }
-                } else {
-                  console.warn('[ATP Agent] Agent record found by ens_name, but session_package is NULL');
-                }
-              } else {
-                console.warn('[ATP Agent] No agent record found by ens_name either:', ensName);
-                
-                // Create agent record if it doesn't exist
-                console.log('[ATP Agent] Creating new agent record in database:', { ensName, agentName, baseAgentName });
+              console.warn('[ATP Agent] No agent record found for subdomain:', subdomain, 'ens:', ensName);
+
+              // Create agent record if it doesn't exist
+              console.log('[ATP Agent] Creating new agent record in database:', { ensName, baseAgentName: baseAgentNameLower });
                 try {
                   const now = Math.floor(Date.now() / 1000);
                   
@@ -773,8 +765,8 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
                   // Extract email domain from agent name if possible
                   // Default to '8004-agent.eth' if we can't extract a domain
                   let emailDomain = '8004-agent.eth';
-                  if (agentName.includes('.')) {
-                    const parts = agentName.split('.');
+                  if (ensName.includes('.')) {
+                    const parts = ensName.split('.');
                     if (parts.length >= 2) {
                       emailDomain = parts.slice(-2).join('.');
                     }
@@ -782,7 +774,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
                   
                   // Check if record already exists (race condition check)
                   const existingCheck = await db.prepare(
-                    'SELECT id FROM agents WHERE ens_name = ?'
+                    'SELECT id FROM agents WHERE ens_name = ? COLLATE NOCASE'
                   )
                     .bind(ensName)
                     .first<{ id: number }>();
@@ -793,7 +785,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
                     )
                       .bind(
                         ensName,
-                        baseAgentName, // Use base agent name (without .8004-agent.eth suffix)
+                        baseAgentNameLower, // base label (no suffix)
                         emailDomain,
                         agentAccount?.toLowerCase() || null,
                         agentChainId,
@@ -811,7 +803,6 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
                   console.error('[ATP Agent] Failed to create agent record:', createError);
                   // Continue processing even if creation fails
                 }
-              }
             }
           } catch (dbError) {
             console.error('[ATP Agent] Error loading session package from database:', dbError);
@@ -928,6 +919,139 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         console.error('Error creating feedback auth:', error);
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
+      }
+    } else if (
+      skillId === 'atp.validation.respond' ||
+      skillId === 'agent.validation.respond'
+    ) {
+      // Process validation response using session package
+      try {
+        responseContent.skill = skillId;
+        
+        const agentIdParam = (payload as any)?.agentId ?? (metadata as any)?.agentId;
+        const chainIdParam = (payload as any)?.chainId ?? (metadata as any)?.chainId ?? DEFAULT_CHAIN_ID;
+        const requestHashParam = (payload as any)?.requestHash;
+        const responseScore = (payload as any)?.response ?? 100;
+        const responseUriParam = (payload as any)?.responseUri;
+        const responseTag = (payload as any)?.tag ?? 'agent-validation';
+
+        if (!agentIdParam) {
+          responseContent.error = 'agentId is required in payload for validation.respond skill';
+          responseContent.success = false;
+          return c.json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          }, 400);
+        }
+
+        const resolvedAgentId = String(agentIdParam);
+        const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
+
+        // Load session package from database
+        let sessionPackage: SessionPackage | null = null;
+        if (subdomain) {
+          try {
+            const db = c.env?.DB || getD1Database(c.env);
+            let baseAgentName = subdomain.trim();
+            baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
+            const agentName = `${baseAgentName}.8004-agent.eth`;
+
+            const agentRecord =
+              (await db
+                .prepare('SELECT session_package FROM agents WHERE agent_name = ?')
+                .bind(agentName)
+                .first<{ session_package: string | null }>()) ??
+              (await db
+                .prepare('SELECT session_package FROM agents WHERE ens_name = ? OR ens_name = ?')
+                .bind(agentName, `${agentName}.8004-agent.eth`)
+                .first<{ session_package: string | null }>());
+
+            if (agentRecord?.session_package) {
+              try {
+                sessionPackage = JSON.parse(agentRecord.session_package) as SessionPackage;
+                console.log('[ATP Agent] ✅ Successfully loaded SessionPackage from database (agents table) for validation.respond');
+                console.log('[ATP Agent]   SessionPackage agentId:', (sessionPackage as any)?.agentId, 'chainId:', (sessionPackage as any)?.chainId);
+              } catch (parseError) {
+                console.error('[ATP Agent] Failed to parse session package (validation.respond):', parseError);
+              }
+            }
+          } catch (dbError) {
+            console.error('[ATP Agent] Error loading session package (validation.respond):', dbError);
+          }
+        }
+
+        // Fallback to env path
+        if (!sessionPackage) {
+          const sessionPackagePath = c.env?.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+          if (sessionPackagePath) {
+            try {
+              sessionPackage = loadSessionPackage(sessionPackagePath);
+            } catch (loadError: any) {
+              console.warn('[ATP Agent] Failed to load session package from env (validation.respond):', loadError?.message || loadError);
+            }
+          }
+        }
+
+        if (!sessionPackage) {
+          responseContent.error = 'Session package is required for validation.respond. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+          responseContent.success = false;
+          return c.json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          }, 400);
+        }
+
+        // Dynamically import and call processValidationRequestsWithSessionPackage
+        console.log('[ATP Agent] Calling processValidationRequestsWithSessionPackage with:', {
+          sessionPackageAgentId: (sessionPackage as any)?.agentId,
+          chainId: resolvedChainId,
+          agentIdFilter: resolvedAgentId,
+          requestHashFilter: requestHashParam,
+          responseScore,
+          responseUri: responseUriParam,
+          responseTag,
+        });
+
+        const coreModule = await import('@agentic-trust/core/server');
+        const validationResults = await (coreModule.processValidationRequestsWithSessionPackage as any)({
+          sessionPackage,
+          chainId: resolvedChainId,
+          agentIdFilter: resolvedAgentId,
+          requestHashFilter: requestHashParam,
+          responseScore,
+          responseUri: responseUriParam,
+          responseTag,
+        } as any);
+
+        console.log('[ATP Agent] Validation results received:', {
+          resultsCount: validationResults?.length || 0,
+          results: validationResults,
+        });
+
+        const result = validationResults[0];
+        if (!result) {
+          console.warn('[ATP Agent] No matching validation result found. Results:', validationResults);
+          responseContent.error = 'No matching pending validation request found';
+          responseContent.success = false;
+          return c.json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          }, 404);
+        }
+
+        responseContent.validationResult = serializeBigInt(result);
+        responseContent.success = result.success;
+        if (!result.success) {
+          responseContent.error = result.error || 'Failed to submit validation response';
+        }
+      } catch (error: any) {
+        console.error('[ATP Agent] Error processing validation response:', error);
+        responseContent.error = error?.message || 'Failed to process validation response';
+        responseContent.skill = skillId;
+        responseContent.success = false;
       }
     } else if (skillId === 'atp.feedback.requestLegacy') {
       // Feedback request skill - just record in database (legacy)
@@ -1209,6 +1333,14 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           }, 400);
         }
 
+        console.log('[ATP Agent] Received atp.agent.createOrUpdate:', {
+          agent_name,
+          agent_account: agent_account.substring(0, 10) + '...',
+          ens_name: ens_name || 'undefined',
+          session_package_provided: session_package ? 'yes' : 'no',
+          session_package_type: typeof session_package,
+        });
+
         const db = c.env?.DB || getD1Database(c.env);
 
         // Determine ens_name: use provided ens_name, or generate from agent_name
@@ -1229,6 +1361,12 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
             : `${normalizedAgentName}.8004-agent.eth`;
         }
 
+        // Normalize for DB lookups: avoid case-sensitive duplicate ENS rows
+        const agentEnsNameLower = agentEnsName.toLowerCase();
+
+        // Normalize agent_name for DB: store base label (no ".8004-agent.eth" suffix)
+        const baseAgentName = String(agent_name || '').replace(/\.8004-agent\.eth$/i, '').trim();
+
         // Determine email_domain: use provided or extract from agent_name if possible
         let agentEmailDomain: string | null = email_domain || null;
         if (!agentEmailDomain && agent_name.includes('.')) {
@@ -1242,12 +1380,48 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         // Use provided chain_id or default to Sepolia (11155111)
         const agentChainId = chain_id && Number.isFinite(chain_id) ? Number(chain_id) : 11155111;
 
-        // Check if agent exists by ens_name (unique identifier)
-        const existing = await db.prepare(
-          'SELECT id FROM agents WHERE ens_name = ?'
+        // Handle session_package: convert to string if it's an object, or use as-is if string, or null if undefined
+        let sessionPackageValue: string | null = null;
+        if (session_package !== undefined && session_package !== null) {
+          if (typeof session_package === 'string') {
+            sessionPackageValue = session_package.trim().length > 0 ? session_package : null;
+          } else if (typeof session_package === 'object') {
+            // If it's an object, stringify it
+            sessionPackageValue = JSON.stringify(session_package);
+          }
+        }
+
+        console.log('[ATP Agent] Processing session_package:', {
+          provided: typeof session_package,
+          hasValue: session_package !== undefined && session_package !== null,
+          finalValue: sessionPackageValue ? `${sessionPackageValue.substring(0, 100)}...` : 'null',
+        });
+
+        // Check if agent exists by ens_name (prefer exact lowercase match, then case-insensitive)
+        console.log('[ATP Agent] Looking for agent by ens_name:', agentEnsNameLower, 'agent_name:', baseAgentName);
+
+        // Debug: show what agent records exist with similar names
+        const similarRecords = await db.prepare(
+          'SELECT id, ens_name, agent_name FROM agents WHERE LOWER(ens_name) LIKE LOWER(?) OR LOWER(agent_name) LIKE LOWER(?) LIMIT 5'
         )
-          .bind(agentEnsName)
-          .first<{ id: number }>();
+          .bind(`%${baseAgentName}%`, `%${baseAgentName}%`)
+          .all<{ id: number; ens_name: string; agent_name: string }>();
+
+        console.log('[ATP Agent] Similar agent records in DB:', similarRecords?.results || []);
+
+        const existing =
+          (await db.prepare(
+            'SELECT id, ens_name, updated_at FROM agents WHERE ens_name = ? ORDER BY updated_at DESC LIMIT 1'
+          )
+            .bind(agentEnsNameLower)
+            .first<{ id: number; ens_name: string; updated_at: number }>()) ??
+          (await db.prepare(
+            'SELECT id, ens_name, updated_at FROM agents WHERE ens_name = ? COLLATE NOCASE ORDER BY updated_at DESC LIMIT 1'
+          )
+            .bind(agentEnsName)
+            .first<{ id: number; ens_name: string; updated_at: number }>());
+
+        console.log('[ATP Agent] Lookup result for ens_name:', agentEnsNameLower, '->', existing ? `ID ${existing.id} (${existing.ens_name})` : 'NOT FOUND');
 
         // Use unixepoch() for timestamps (INTEGER)
         const now = Math.floor(Date.now() / 1000);
@@ -1255,16 +1429,16 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         if (existing) {
           // Update existing agent
           await db.prepare(
-            'UPDATE agents SET agent_name = ?, agent_account = ?, email_domain = ?, chain_id = ?, session_package = ?, updated_at = ? WHERE ens_name = ?'
+            'UPDATE agents SET agent_name = ?, agent_account = ?, email_domain = ?, chain_id = ?, session_package = ?, updated_at = ? WHERE id = ?'
           )
             .bind(
-              agent_name,
+              baseAgentName,
               agent_account.toLowerCase(),
               agentEmailDomain,
               agentChainId,
-              session_package || null,
+              sessionPackageValue,
               now,
-              agentEnsName
+              existing.id
             )
             .run();
 
@@ -1277,12 +1451,12 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
             'INSERT INTO agents (ens_name, agent_name, email_domain, agent_account, chain_id, session_package, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
           )
             .bind(
-              agentEnsName,
-              agent_name,
+              agentEnsNameLower,
+              baseAgentName,
               agentEmailDomain,
               agent_account.toLowerCase(),
               agentChainId,
-              session_package || null,
+              sessionPackageValue,
               now,
               now
             )
@@ -1293,8 +1467,8 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           responseContent.message = 'Agent created successfully';
         }
 
-        responseContent.ens_name = agentEnsName;
-        responseContent.agent_name = agent_name;
+        responseContent.ens_name = existing?.ens_name ?? agentEnsNameLower;
+        responseContent.agent_name = baseAgentName;
         responseContent.agent_account = agent_account.toLowerCase();
         responseContent.skill = skillId;
       } catch (error: any) {

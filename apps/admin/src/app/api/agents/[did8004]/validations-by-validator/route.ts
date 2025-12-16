@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { parseDid8004 } from '@agentic-trust/core';
-import { getAgentValidationsSummary, createValidatorAccountAbstraction } from '@agentic-trust/core/server';
+import { getAgentValidationsSummary } from '@agentic-trust/core/server';
 
 /**
  * Convert BigInt values to strings for JSON serialization
@@ -31,32 +31,25 @@ export async function GET(
     const parsed = parseDid8004(did8004);
     
     const searchParams = request.nextUrl.searchParams;
-    const validatorName = searchParams.get('validatorName');
+    const validatorAddress = searchParams.get('validatorAddress');
     
-    if (!validatorName) {
+    if (!validatorAddress) {
       return NextResponse.json(
-        { error: 'validatorName parameter is required' },
+        { error: 'validatorAddress parameter is required' },
+        { status: 400 },
+      );
+    }
+
+    // Validate address format
+    if (!/^0x[a-fA-F0-9]{40}$/.test(validatorAddress)) {
+      return NextResponse.json(
+        { error: 'Invalid validatorAddress format' },
         { status: 400 },
       );
     }
 
     // Get all validation requests for the agent
     const summary = await getAgentValidationsSummary(parsed.chainId, parsed.agentId);
-    
-    // Calculate validator address for the given validator name
-    const validatorPrivateKey = process.env.AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY;
-    if (!validatorPrivateKey) {
-      return NextResponse.json(
-        { error: 'AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY not configured' },
-        { status: 500 },
-      );
-    }
-
-    const { address: validatorAddress } = await createValidatorAccountAbstraction(
-      validatorName,
-      validatorPrivateKey,
-      parsed.chainId,
-    );
 
     // Filter requests by validator address
     const allRequests = [...summary.pending, ...summary.completed];
@@ -75,7 +68,6 @@ export async function GET(
 
     return NextResponse.json({
       validatorAddress,
-      validatorName,
       request: serializeValidation(latestRequest),
       totalRequests: matchingRequests.length,
     });

@@ -275,7 +275,9 @@ export default function AdminPage() {
     }
   }, [isEditMode, finalAgentId, finalChainId, queryAgentAddress, searchParams]);
 
-  const displayAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
+  // Normalize agent name for consistency (database lookups are case-insensitive but we want to be safe)
+  const rawAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
+  const displayAgentName = rawAgentName === '...' ? '...' : rawAgentName.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
   const displayAgentAddress = queryAgentAddress ?? fetchedAgentInfo?.agentAccount ?? null;
 
   const [activeManagementTab, setActiveManagementTab] = useState<
@@ -454,66 +456,93 @@ export default function AdminPage() {
             setSessionPackageProgress(95);
             setRegistrationPreviewLoading(true);
             try {
-              const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
-              if (agentResponse.ok) {
-                const agentDetails = await agentResponse.json();
-                const tokenUri: string | undefined = agentDetails.tokenUri;
-                setRegistrationLatestTokenUri(tokenUri ?? null);
-                
-                if (tokenUri) {
-                  const text = await loadRegistrationContent(tokenUri);
-                  const formatted = formatJsonIfPossible(text);
-                  let parsed: any;
-                  try {
-                    parsed = JSON.parse(formatted);
-                    
-                    // Set all registration fields like the main load function does
-                    const image = typeof parsed.image === 'string' ? parsed.image : '';
-                    const description = typeof parsed.description === 'string' ? parsed.description : '';
-                    const category = typeof parsed.agentCategory === 'string' ? parsed.agentCategory : '';
-                    const supportedTrust = Array.isArray(parsed.supportedTrust) ? parsed.supportedTrust : [];
-                    const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
-                    const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
-                    const a2a = endpoints.find(
-                      (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
-                    );
-                    const mcp = endpoints.find(
-                      (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
-                    );
+              // Poll chain/API until the updated registration JSON reflects active=true.
+              // This avoids finishing while `/api/agents/:did` is still returning the previous tokenUri content.
+              const maxAttempts = 12;
+              const delayMs = 1500;
+              let lastFormatted: string | null = null;
+              let lastParsed: any = null;
 
-                    setRegistrationParsed(parsed);
-                    setRegistrationImage(image);
-                    setRegistrationDescription(description);
-                    setRegistrationCategory(category);
-                    setRegistrationSupportedTrust(supportedTrust);
-                    setRegistrationA2aEndpoint(
-                      a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
-                    );
-                    setRegistrationMcpEndpoint(
-                      mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
-                    );
-                    setRegistrationCapability(capability);
-                    setRegistrationImageError(validateUrlLike(image) ?? null);
-                    setRegistrationA2aError(
-                      a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
-                    );
-                    setRegistrationMcpError(
-                      mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
-                    );
-                    setRegistrationPreviewText(JSON.stringify(parsed, null, 2));
-                    setRegistrationPreviewLoading(false);
-                  } catch {
-                    setRegistrationPreviewText(formatted);
-                    setRegistrationPreviewLoading(false);
+              for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+                if (agentResponse.ok) {
+                  const agentDetails = await agentResponse.json().catch(() => ({}));
+                  const tokenUri: string | undefined = agentDetails.tokenUri;
+                  setRegistrationLatestTokenUri(tokenUri ?? null);
+
+                  if (tokenUri) {
+                    const text = await loadRegistrationContent(tokenUri);
+                    lastFormatted = formatJsonIfPossible(text);
+                    try {
+                      lastParsed = JSON.parse(lastFormatted);
+                    } catch {
+                      lastParsed = null;
+                    }
+
+                    if (lastParsed && Boolean(lastParsed.active) === true) {
+                      break;
+                    }
                   }
-                } else {
-                  setRegistrationPreviewLoading(false);
                 }
-              } else {
-                setRegistrationPreviewLoading(false);
+
+                // Wait before next attempt
+                await new Promise((resolve) => setTimeout(resolve, delayMs));
               }
+
+              if (!lastFormatted) {
+                throw new Error('Unable to load registration JSON after session package creation.');
+              }
+
+              if (!lastParsed) {
+                // Not valid JSON; still show the best-effort content
+                setRegistrationPreviewText(lastFormatted);
+                throw new Error('Registration JSON could not be parsed after refresh.');
+              }
+
+              if (Boolean(lastParsed.active) !== true) {
+                // We loaded JSON successfully but it still isn't showing active=true after waiting
+                setRegistrationPreviewText(JSON.stringify(lastParsed, null, 2));
+                throw new Error('Timed out waiting for registration to reflect active=true.');
+              }
+
+              // Set all registration fields like the main load function does
+              const image = typeof lastParsed.image === 'string' ? lastParsed.image : '';
+              const description = typeof lastParsed.description === 'string' ? lastParsed.description : '';
+              const category = typeof lastParsed.agentCategory === 'string' ? lastParsed.agentCategory : '';
+              const supportedTrust = Array.isArray(lastParsed.supportedTrust) ? lastParsed.supportedTrust : [];
+              const capability = typeof lastParsed.capability === 'string' ? lastParsed.capability : '';
+              const endpoints = Array.isArray(lastParsed.endpoints) ? lastParsed.endpoints : [];
+              const a2a = endpoints.find(
+                (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
+              );
+              const mcp = endpoints.find(
+                (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
+              );
+
+              setRegistrationParsed(lastParsed);
+              setRegistrationImage(image);
+              setRegistrationDescription(description);
+              setRegistrationCategory(category);
+              setRegistrationSupportedTrust(supportedTrust);
+              setRegistrationA2aEndpoint(
+                a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
+              );
+              setRegistrationMcpEndpoint(
+                mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+              );
+              setRegistrationCapability(capability);
+              setRegistrationImageError(validateUrlLike(image) ?? null);
+              setRegistrationA2aError(
+                a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
+              );
+              setRegistrationMcpError(
+                mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
+              );
+              setRegistrationPreviewText(JSON.stringify(lastParsed, null, 2));
             } catch (refreshError) {
               console.warn('[AdminTools] Failed to refresh registration after session package:', refreshError);
+              throw refreshError;
+            } finally {
               setRegistrationPreviewLoading(false);
             }
             
@@ -547,13 +576,28 @@ export default function AdminPage() {
           try {
             const { syncAgentToATP } = await import('@/lib/a2a-client');
             const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
-            // Only add .8004-agent.eth suffix if it's not already present
-            const ensName = displayAgentName.endsWith('.8004-agent.eth')
-              ? displayAgentName
-              : `${displayAgentName}.8004-agent.eth`;
+            // Normalize agent identifiers for ATP database:
+            // - agent_name should be the base label (no .8004-agent.eth suffix), lowercased
+            // - ens_name should be lowercase full ENS (with suffix)
+            const baseAgentName = String(displayAgentName || '')
+              .replace(/\.8004-agent\.eth$/i, '')
+              .trim()
+              .toLowerCase();
+            const ensName = `${baseAgentName}.8004-agent.eth`;
             
-            const syncResult = await syncAgentToATP(
+            console.log(`[Session Package] Sending sync to ATP with:`, {
+              agentName: baseAgentName,
+              agentAccount: displayAgentAddress,
+              ensName,
+              chainId: parsedChainId,
+              sessionPackageLength: JSON.stringify(pkg).length,
               displayAgentName,
+              finalAgentId: finalAgentId,
+              queryAgentId: queryAgentId,
+            });
+
+            const syncResult = await syncAgentToATP(
+              baseAgentName,
               displayAgentAddress as string,
               pkg,
               {
@@ -1272,13 +1316,49 @@ export default function AdminPage() {
         );
       }
 
-      if (!registrationPreviewText) {
-        throw new Error('Registration JSON is not loaded yet.');
+      // Ensure we have the latest registration JSON loaded (tokenUri -> JSON).
+      // This avoids stale "Registration JSON is not loaded yet." errors when the UI hasn't populated it yet.
+      let registrationRaw = registrationPreviewText;
+      if (!registrationRaw) {
+        if (!finalAgentId || !finalChainId) {
+          throw new Error('Missing agent context to load registration JSON.');
+        }
+
+        setRegistrationPreviewLoading(true);
+        try {
+          const parsedChainId = Number.parseInt(finalChainId, 10);
+          if (!Number.isFinite(parsedChainId)) {
+            throw new Error('Invalid chainId in URL.');
+          }
+
+          const did8004 = buildDid8004(parsedChainId, finalAgentId);
+          const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+          if (!agentResponse.ok) {
+            throw new Error('Failed to load agent details to fetch registration JSON.');
+          }
+          const agentDetails = await agentResponse.json().catch(() => ({}));
+          const tokenUri: string | undefined = agentDetails?.tokenUri;
+          setRegistrationLatestTokenUri(tokenUri ?? null);
+          if (!tokenUri) {
+            throw new Error('Agent tokenUri is missing; cannot load registration JSON.');
+          }
+
+          const text = await loadRegistrationContent(tokenUri);
+          registrationRaw = formatJsonIfPossible(text);
+          setRegistrationPreviewText(registrationRaw);
+          try {
+            setRegistrationParsed(JSON.parse(registrationRaw));
+          } catch {
+            // If it's not valid JSON, we'll fail below with a clear message.
+          }
+        } finally {
+          setRegistrationPreviewLoading(false);
+        }
       }
 
       let parsed: any;
       try {
-        parsed = JSON.parse(registrationPreviewText);
+        parsed = JSON.parse(registrationRaw);
       } catch {
         throw new Error('Registration JSON is not valid JSON.');
       }
@@ -1469,9 +1549,27 @@ export default function AdminPage() {
       }));
 
       try {
-        const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
+        // First, get the validator address from the validator name
+        const validatorAddressResponse = await fetch(
+          `/api/validator-address?validatorName=${encodeURIComponent(validatorName)}&chainId=${finalChainId}`
+        );
+
+        if (!validatorAddressResponse.ok) {
+          const errorData = await validatorAddressResponse.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to get validator address');
+        }
+
+        const validatorAddressData = await validatorAddressResponse.json();
+        const validatorAddress = validatorAddressData.validatorAddress;
+
+        if (!validatorAddress) {
+          throw new Error('Validator address not found');
+        }
+
+        // Then, fetch validation status using the validator address
+        const did8004OfAgentBeingValidated = buildDid8004(Number(finalChainId), finalAgentId);
         const response = await fetch(
-          `/api/agents/${encodeURIComponent(did8004)}/validations-by-validator?validatorName=${encodeURIComponent(validatorName)}`
+          `/api/agents/${encodeURIComponent(did8004OfAgentBeingValidated)}/validations-by-validator?validatorAddress=${encodeURIComponent(validatorAddress)}`
         );
 
         if (!response.ok) {

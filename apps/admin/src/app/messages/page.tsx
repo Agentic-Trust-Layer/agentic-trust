@@ -945,6 +945,30 @@ export default function MessagesPage() {
             const ipfsResult = await ipfsResponse.json();
             const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
 
+            // Get the "To Agent" account address (this is the validator)
+            if (!composeToAgent) {
+              throw new Error('To Agent is required for validation requests');
+            }
+
+            // Fetch the "To Agent" details to get its account address
+            const toAgentDid = composeToAgent.did;
+            const toAgentResponse = await fetch(`/api/agents/${encodeURIComponent(toAgentDid)}`);
+            if (!toAgentResponse.ok) {
+              throw new Error('Failed to fetch To Agent details');
+            }
+            const toAgentData = await toAgentResponse.json();
+            const validatorAddress = toAgentData?.agentAccount || toAgentData?.account;
+            
+            if (!validatorAddress) {
+              throw new Error('To Agent account address not found. The agent must have an account address to be used as a validator.');
+            }
+
+            console.log('[Validation Request] Using To Agent as validator:', {
+              toAgentDid,
+              toAgentName: composeToAgent.agentName,
+              validatorAddress,
+            });
+
             // Determine which validation function to use based on validationKind
             // Map ValidationClaimType to appropriate validator
             const useNameValidator = validationRequestKind === 'compliance' || validationRequestKind === 'identity';
@@ -958,8 +982,9 @@ export default function MessagesPage() {
               requestHash,
               chain: chain as any,
               requesterAccountClient: agentAccountClient,
+              validatorAddress, // Pass the "To Agent" account address as the validator
               onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
-            });
+            } as any);
 
             console.log('[Validation Request] Created on-chain:', {
               txHash: validationResult.txHash,
@@ -1982,6 +2007,106 @@ export default function MessagesPage() {
                     </Typography>
                   )}
                 </Alert>
+
+                {/* Display validation request details from registry */}
+                {validationRequestStatus && (
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'background.default' }}>
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                      Validation Request Details
+                    </Typography>
+                    <Stack spacing={1}>
+                      {validationRequestStatus.agentId !== undefined && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Agent ID (being validated):
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                            {typeof validationRequestStatus.agentId === 'bigint' 
+                              ? validationRequestStatus.agentId.toString()
+                              : String(validationRequestStatus.agentId)}
+                          </Typography>
+                        </Box>
+                      )}
+                      {validationRequestStatus.validatorAddress && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Validator Address:
+                          </Typography>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {validationRequestStatus.validatorAddress}
+                          </Typography>
+                        </Box>
+                      )}
+                      {validationRequestStatus.requestUri && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Request URI:
+                          </Typography>
+                          <Typography 
+                            variant="body2" 
+                            sx={{ 
+                              fontFamily: 'monospace', 
+                              wordBreak: 'break-all',
+                              color: 'primary.main',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => window.open(validationRequestStatus.requestUri, '_blank')}
+                          >
+                            {validationRequestStatus.requestUri}
+                          </Typography>
+                        </Box>
+                      )}
+                      {validationRequestStatus.lastUpdate !== undefined && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Last Update:
+                          </Typography>
+                          <Typography variant="body2">
+                            {new Date(
+                              (typeof validationRequestStatus.lastUpdate === 'bigint' 
+                                ? Number(validationRequestStatus.lastUpdate) 
+                                : validationRequestStatus.lastUpdate) * 1000
+                            ).toLocaleString()}
+                          </Typography>
+                        </Box>
+                      )}
+                      {validationRequestStatus.response !== undefined && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Response Status:
+                          </Typography>
+                          <Typography variant="body2">
+                            {validationRequestStatus.response === 0 || validationRequestStatus.response === '0' 
+                              ? 'Pending (no response yet)' 
+                              : `Responded with score: ${validationRequestStatus.response}`}
+                          </Typography>
+                        </Box>
+                      )}
+                      {validationRequestStatus.responseUri && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Response URI:
+                          </Typography>
+                          <Typography 
+                            variant="body2" 
+                            sx={{ 
+                              fontFamily: 'monospace', 
+                              wordBreak: 'break-all',
+                              color: 'primary.main',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                            }}
+                            onClick={() => window.open(validationRequestStatus.responseUri, '_blank')}
+                          >
+                            {validationRequestStatus.responseUri}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Paper>
+                )}
+
                 {!validationResponseAlreadySubmitted && (
                   <>
                     <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>

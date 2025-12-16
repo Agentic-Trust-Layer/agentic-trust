@@ -98,6 +98,7 @@ export async function processValidationRequestsWithSessionPackage(params: {
   agentIdFilter?: string;
   requestHashFilter?: string;
   responseScore?: number;
+  responseUri?: string;
   responseTag?: string;
 }): Promise<ValidationResult[]> {
   const {
@@ -106,6 +107,7 @@ export async function processValidationRequestsWithSessionPackage(params: {
     agentIdFilter,
     requestHashFilter,
     responseScore = 100,
+    responseUri,
     responseTag = 'agent-validation',
   } = params;
 
@@ -117,36 +119,75 @@ export async function processValidationRequestsWithSessionPackage(params: {
   const validationRegistryClient = await getValidationRegistryClient(chainId);
 
   let requestHashes: string[] = [];
-  requestHashes = await validationRegistryClient.getValidatorRequests(delegationSetup.aa);
-
+  
+  // If requestHashFilter is provided, use it directly instead of querying all validator requests
+  // This is more efficient and avoids missing requests that might not be in the list
   if (requestHashFilter) {
-    requestHashes = requestHashes.filter(
-      (hash) => hash.toLowerCase() === requestHashFilter.toLowerCase(),
-    );
+    console.log('[delegatedValidation] Using provided requestHashFilter:', requestHashFilter);
+    requestHashes = [requestHashFilter];
+  } else {
+    console.log('[delegatedValidation] Querying all validator requests for:', delegationSetup.aa);
+    requestHashes = await validationRegistryClient.getValidatorRequests(delegationSetup.aa);
+    console.log('[delegatedValidation] Found validator requests:', requestHashes.length, requestHashes);
   }
 
   const client = await getAgenticTrustClient();
 
+  console.log('[delegatedValidation] =========================================');
+  console.log('[delegatedValidation] Processing validation requests');
+  console.log('[delegatedValidation] =========================================');
+  console.log('[delegatedValidation] Input parameters:', {
+    requestHashesCount: requestHashes.length,
+    requestHashes,
+    validatorAddress: `${validatorAddress} (from SessionPackage - this is the validator)`,
+    agentIdFilter: agentIdFilter ? `${agentIdFilter} (agent being validated, not used for filtering)` : 'none',
+    requestHashFilter,
+    responseScore,
+    responseTag,
+    chainId,
+  });
+
   for (const requestHash of requestHashes) {
     let currentAgentId = 'unknown';
     try {
+      console.log('[delegatedValidation] ---');
+      console.log('[delegatedValidation] Checking requestHash:', requestHash);
       const status: ValidationStatus = await validationRegistryClient.getValidationStatus(requestHash);
+      console.log('[delegatedValidation] Validation status from chain:', {
+        requestHash,
+        response: status.response,
+        validatorAddress: `${status.validatorAddress} (validator expected by this request)`,
+        agentId: `${status.agentId?.toString()} (agent being validated)`,
+      });
+      console.log('[delegatedValidation] Validator address check:', {
+        requestHashExpectedValidatorAddress: status.validatorAddress.toLowerCase(),
+        sessionPackageValidatorAddress: validatorAddress.toLowerCase(),
+        match: status.validatorAddress.toLowerCase() === validatorAddress.toLowerCase(),
+      });
+
       if (status.response !== 0) {
+        console.log('[delegatedValidation] ❌ Skipping: validation already responded (response =', status.response, '!= 0)');
         continue;
       }
 
       if (status.validatorAddress.toLowerCase() !== validatorAddress.toLowerCase()) {
+        console.log('[delegatedValidation] ❌ Skipping: VALIDATOR ADDRESS MISMATCH');
+        console.log('[delegatedValidation]   The validation request expects validator:', status.validatorAddress);
+        console.log('[delegatedValidation]   But SessionPackage validator address is:', validatorAddress);
+        console.log('[delegatedValidation]   This validation request cannot be processed by this validator.');
         continue;
       }
+
+      console.log('[delegatedValidation] ✅ Validator address matches - proceeding with validation response');
 
       const agentId = status.agentId.toString();
       currentAgentId = agentId;
-      if (agentIdFilter && agentId !== agentIdFilter) {
-        continue;
-      }
-
+      console.log('[delegatedValidation] Agent being validated:', agentId);
+      console.log('[delegatedValidation] Note: agentIdFilter parameter (', agentIdFilter, ') is not used for filtering');
+      console.log('[delegatedValidation] The validator is identified by validatorAddress from SessionPackage, not by agentIdFilter');
       const agent = await client.agents.getAgent(agentId, chainId);
       if (!agent?.agentName || !agent.agentAccount) {
+        console.log('[delegatedValidation] Agent missing name or account:', { agentId, agentName: agent?.agentName, agentAccount: agent?.agentAccount });
         results.push({
           requestHash,
           agentId,
@@ -157,9 +198,17 @@ export async function processValidationRequestsWithSessionPackage(params: {
         continue;
       }
 
+      console.log('[delegatedValidation] ✅ All checks passed - preparing validation response transaction');
+      console.log('[delegatedValidation] Transaction parameters:', {
+        requestHash,
+        responseScore,
+        responseUri: responseUri || '(none)',
+        responseTag,
+      });
       const txRequest = await (validationRegistryClient as any).prepareValidationResponseTx({
         requestHash,
         response: responseScore,
+        responseUri: responseUri || undefined,
         tag: responseTag,
       });
 
@@ -215,6 +264,12 @@ export async function processValidationRequestsWithSessionPackage(params: {
       });
       const txHash = receipt?.transactionHash || receipt?.receipt?.transactionHash || userOpHash;
 
+      console.log('[delegatedValidation] Validation response transaction successful:', {
+        requestHash,
+        agentId,
+        txHash,
+      });
+
       results.push({
         requestHash,
         agentId,
@@ -223,6 +278,12 @@ export async function processValidationRequestsWithSessionPackage(params: {
         txHash,
       });
     } catch (error) {
+      console.error('[delegatedValidation] Error processing validation request:', {
+        requestHash,
+        agentId: currentAgentId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined,
+      });
       results.push({
         requestHash,
         agentId: currentAgentId,
@@ -232,6 +293,29 @@ export async function processValidationRequestsWithSessionPackage(params: {
       });
     }
   }
+
+  console.log('[delegatedValidation] =========================================');
+  console.log('[delegatedValidation] Final results summary');
+  console.log('[delegatedValidation] =========================================');
+  console.log('[delegatedValidation] Results count:', results.length);
+  if (results.length === 0) {
+    console.log('[delegatedValidation] ⚠️  No results - validation request was not processed');
+    console.log('[delegatedValidation] This could be due to:');
+    console.log('[delegatedValidation]   - Validator address mismatch (request expects different validator)');
+    console.log('[delegatedValidation]   - Validation already responded');
+    console.log('[delegatedValidation]   - Error during processing');
+  } else {
+    results.forEach((r, idx) => {
+      console.log(`[delegatedValidation] Result ${idx + 1}:`, {
+        requestHash: r.requestHash,
+        agentId: r.agentId,
+        success: r.success ? '✅ SUCCESS' : '❌ FAILED',
+        error: r.error || '(none)',
+        txHash: r.txHash || '(none)',
+      });
+    });
+  }
+  console.log('[delegatedValidation] =========================================');
 
   return results;
 }

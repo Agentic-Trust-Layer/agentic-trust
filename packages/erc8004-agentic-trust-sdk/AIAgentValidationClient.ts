@@ -126,10 +126,10 @@ export class AIAgentValidationClient extends BaseValidationClient {
     requestHash?: string;
   }): Promise<{ txRequest: TxRequest; requestHash: string }> {
     if (!params.agentId) {
-      throw new Error('agentId is required');
+      throw new Error('agentId requesting validation is required');
     }
     if (!params.validatorAddress) {
-      throw new Error('validatorAddress is required');
+      throw new Error('validatorAddress that performs the validation is required');
     }
 
     // Prepare validation request parameters

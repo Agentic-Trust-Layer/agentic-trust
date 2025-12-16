@@ -43,10 +43,10 @@ export declare class AIAgentValidationClient extends BaseValidationClient {
      * Requires the validator account address to be provided (computed server-side).
      */
     prepareValidationRequestTx(params: {
-        agentId: string | number | bigint;
-        validatorAddress: `0x${string}`;
-        requestUri?: string;
-        requestHash?: string;
+        agentId: string | number | bigint;  // agentId requesting validation
+        validatorAddress: `0x${string}`;    // validatorAddress that performs the validation
+        requestUri?: string;                // URI of the request (e.g. https://agentic-trust.org/validation/1)
+        requestHash?: string;               // hash of the request (e.g. keccak256 of the requestUri)
     }): Promise<{
         txRequest: TxRequest;
         requestHash: string;
