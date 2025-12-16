@@ -370,98 +370,224 @@ export default function AdminPage() {
           );
         }
 
-        const pkg = await generateSessionPackage({
-          agentId: agentIdNumeric,
-          chainId: parsedChainId,
-          agentAccount: displayAgentAddress as `0x${string}`,
-          provider: eip1193Provider,
-          ownerAddress: headerAddress as `0x${string}`,
-          rpcUrl: chainEnv.rpcUrl,
-          bundlerUrl: chainEnv.bundlerUrl,
-          identityRegistry: chainEnv.identityRegistry,
-          reputationRegistry: chainEnv.reputationRegistry,
-          validationRegistry: chainEnv.validationRegistry,
-        });
-
-        setSessionPackageText(JSON.stringify(pkg, null, 2));
-
-        // Final step: ensure registration JSON marks agent as active=true (skip if already true)
+        let sessionPackageCreated = false;
+        let pkg: any = null;
         try {
-          // Refresh NFT operator first so the "Agent Active" warning clears immediately.
+          pkg = await generateSessionPackage({
+            agentId: agentIdNumeric,
+            chainId: parsedChainId,
+            agentAccount: displayAgentAddress as `0x${string}`,
+            provider: eip1193Provider,
+            ownerAddress: headerAddress as `0x${string}`,
+            rpcUrl: chainEnv.rpcUrl,
+            bundlerUrl: chainEnv.bundlerUrl,
+            identityRegistry: chainEnv.identityRegistry,
+            reputationRegistry: chainEnv.reputationRegistry,
+            validationRegistry: chainEnv.validationRegistry,
+          });
+
+          setSessionPackageText(JSON.stringify(pkg, null, 2));
+          sessionPackageCreated = true;
+        } catch (sessionError) {
+          // Session package creation failed
+          console.error('[AdminTools] Session package creation failed:', sessionError);
+          setSessionPackageText('');
+          sessionPackageCreated = false;
+          
+          // Set active=false since session package creation failed
           try {
             const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
             const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
             if (operatorResponse.ok) {
               const operatorData = await operatorResponse.json().catch(() => ({}));
               const operatorAddress = operatorData?.operatorAddress || null;
+              await handleSetAgentActive(false, operatorAddress);
+            } else {
+              await handleSetAgentActive(false);
+            }
+          } catch (e) {
+            console.warn('[AdminTools] Unable to set registration active=false:', e);
+          }
+          
+          throw sessionError; // Re-throw to be caught by outer catch
+        }
+
+        // Final step: ensure registration JSON marks agent as active=true (only if session package was created)
+        if (sessionPackageCreated) {
+          try {
+            // First, refresh NFT operator to get the operator address
+            setSessionPackageProgress(85);
+            const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
+            setNftOperator((prev) => ({ ...prev, loading: true }));
+            
+            let operatorAddress: string | null = null;
+            try {
+              const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
+              if (operatorResponse.ok) {
+                const operatorData = await operatorResponse.json().catch(() => ({}));
+                operatorAddress = operatorData?.operatorAddress || null;
+                setNftOperator({
+                  loading: false,
+                  error: null,
+                  operatorAddress,
+                });
+              } else {
+                setNftOperator({
+                  loading: false,
+                  error: 'Failed to fetch operator',
+                  operatorAddress: null,
+                });
+              }
+            } catch (operatorError) {
               setNftOperator({
                 loading: false,
-                error: null,
-                operatorAddress,
+                error: operatorError instanceof Error ? operatorError.message : 'Failed to fetch operator',
+                operatorAddress: null,
               });
-              // Now activate; operator is present so this should pass gating.
-              await handleSetAgentActive(true, operatorAddress);
-            } else {
-              // If we can't refresh operator, still attempt activation (may be gated).
-              await handleSetAgentActive(true);
             }
-          } catch {
-            await handleSetAgentActive(true);
+            
+            // Now set active=true in registration JSON (with operator address if available)
+            setSessionPackageProgress(90);
+            await handleSetAgentActive(true, operatorAddress);
+            
+            // Refresh registration JSON and wait for it to complete
+            setSessionPackageProgress(95);
+            setRegistrationPreviewLoading(true);
+            try {
+              const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+              if (agentResponse.ok) {
+                const agentDetails = await agentResponse.json();
+                const tokenUri: string | undefined = agentDetails.tokenUri;
+                setRegistrationLatestTokenUri(tokenUri ?? null);
+                
+                if (tokenUri) {
+                  const text = await loadRegistrationContent(tokenUri);
+                  const formatted = formatJsonIfPossible(text);
+                  let parsed: any;
+                  try {
+                    parsed = JSON.parse(formatted);
+                    
+                    // Set all registration fields like the main load function does
+                    const image = typeof parsed.image === 'string' ? parsed.image : '';
+                    const description = typeof parsed.description === 'string' ? parsed.description : '';
+                    const category = typeof parsed.agentCategory === 'string' ? parsed.agentCategory : '';
+                    const supportedTrust = Array.isArray(parsed.supportedTrust) ? parsed.supportedTrust : [];
+                    const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
+                    const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
+                    const a2a = endpoints.find(
+                      (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
+                    );
+                    const mcp = endpoints.find(
+                      (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
+                    );
+
+                    setRegistrationParsed(parsed);
+                    setRegistrationImage(image);
+                    setRegistrationDescription(description);
+                    setRegistrationCategory(category);
+                    setRegistrationSupportedTrust(supportedTrust);
+                    setRegistrationA2aEndpoint(
+                      a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
+                    );
+                    setRegistrationMcpEndpoint(
+                      mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+                    );
+                    setRegistrationCapability(capability);
+                    setRegistrationImageError(validateUrlLike(image) ?? null);
+                    setRegistrationA2aError(
+                      a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
+                    );
+                    setRegistrationMcpError(
+                      mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
+                    );
+                    setRegistrationPreviewText(JSON.stringify(parsed, null, 2));
+                    setRegistrationPreviewLoading(false);
+                  } catch {
+                    setRegistrationPreviewText(formatted);
+                    setRegistrationPreviewLoading(false);
+                  }
+                } else {
+                  setRegistrationPreviewLoading(false);
+                }
+              } else {
+                setRegistrationPreviewLoading(false);
+              }
+            } catch (refreshError) {
+              console.warn('[AdminTools] Failed to refresh registration after session package:', refreshError);
+              setRegistrationPreviewLoading(false);
+            }
+            
+            setSessionPackageProgress(100);
+            
+            // Wait a bit before clearing loading to ensure UI updates are visible
+            setTimeout(() => {
+              setSessionPackageLoading(false);
+              setSessionPackageProgress(0);
+            }, 500);
+          } catch (e) {
+            // Non-fatal: session package creation succeeded
+            console.warn('[AdminTools] Unable to auto-set registration active flag:', e);
+            setSessionPackageProgress(100);
+            // Reset loading states on error
+            setNftOperator((prev) => ({ ...prev, loading: false }));
+            setRegistrationPreviewLoading(false);
+            setTimeout(() => {
+              setSessionPackageLoading(false);
+              setSessionPackageProgress(0);
+            }, 500);
           }
-        } catch (e) {
-          // Non-fatal: session package creation succeeded
-          console.warn('[AdminTools] Unable to auto-set registration active flag:', e);
+        } else {
+          // Session package creation failed, so we're done
+          setSessionPackageLoading(false);
+          setSessionPackageProgress(0);
         }
 
-        // Sync agent and session package to ATP agent
-        try {
-          const { syncAgentToATP } = await import('@/lib/a2a-client');
-          const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
-          // Only add .8004-agent.eth suffix if it's not already present
-          const ensName = displayAgentName.endsWith('.8004-agent.eth')
-            ? displayAgentName
-            : `${displayAgentName}.8004-agent.eth`;
-          
-          const syncResult = await syncAgentToATP(
-            displayAgentName,
-            displayAgentAddress as string,
-            pkg,
-            {
-              ensName,
-              chainId: parsedChainId,
-            }
-          );
+        // Sync agent and session package to ATP agent (only if session package was created)
+        if (sessionPackageCreated && pkg) {
+          try {
+            const { syncAgentToATP } = await import('@/lib/a2a-client');
+            const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
+            // Only add .8004-agent.eth suffix if it's not already present
+            const ensName = displayAgentName.endsWith('.8004-agent.eth')
+              ? displayAgentName
+              : `${displayAgentName}.8004-agent.eth`;
+            
+            const syncResult = await syncAgentToATP(
+              displayAgentName,
+              displayAgentAddress as string,
+              pkg,
+              {
+                ensName,
+                chainId: parsedChainId,
+              }
+            );
 
-          if (syncResult.success) {
-            console.log(`[Session Package] Agent ${syncResult.action} in ATP:`, {
-              agentName: displayAgentName,
-              agentAccount: displayAgentAddress,
-              agentId: syncResult.agentId,
-            });
-          } else {
-            console.warn(`[Session Package] Failed to sync agent to ATP:`, syncResult.error);
+            if (syncResult.success) {
+              console.log(`[Session Package] Agent ${syncResult.action} in ATP:`, {
+                agentName: displayAgentName,
+                agentAccount: displayAgentAddress,
+                agentId: syncResult.agentId,
+              });
+            } else {
+              console.warn(`[Session Package] Failed to sync agent to ATP:`, syncResult.error);
+              // Don't fail the session package generation if ATP sync fails
+            }
+          } catch (syncError) {
+            console.error('[Session Package] Error syncing agent to ATP:', syncError);
             // Don't fail the session package generation if ATP sync fails
           }
-        } catch (syncError) {
-          console.error('[Session Package] Error syncing agent to ATP:', syncError);
-          // Don't fail the session package generation if ATP sync fails
         }
 
-        try {
-          await fetch(
-            `/api/agents/${encodeURIComponent(buildDid8004(parsedChainId, agentIdNumeric))}/refresh`,
-            { method: 'POST' },
-          );
-        } catch (refreshError) {
-          console.warn('Agent refresh failed after registration update:', refreshError);
-        }
       } catch (error: any) {
         console.error('Error creating session package (admin-tools):', error);
         setSessionPackageError(
           error?.message ?? 'Failed to create session package. Please try again.',
         );
-      } finally {
+        // Reset loading states on error
+        setNftOperator((prev) => ({ ...prev, loading: false }));
+        setRegistrationPreviewLoading(false);
         setSessionPackageLoading(false);
+        setSessionPackageProgress(0);
       }
     },
     [
@@ -2588,7 +2714,37 @@ export default function AdminPage() {
                       The Agent Operator is a delegation from the Agent Owner to an operator that allows the agent app to interact with the Reputation Registry and Validation Registry. A session package contains the operator session keys and delegation information that enables this functionality.
                     </Typography>
 
-                    <Box sx={{ mb: 2, p: 2, borderRadius: 1, bgcolor: 'grey.50', border: 1, borderColor: 'grey.300' }}>
+                    <Box 
+                      sx={{ 
+                        mb: 2, 
+                        p: 2, 
+                        borderRadius: 1, 
+                        bgcolor: 'grey.50', 
+                        border: 1, 
+                        borderColor: 'grey.300',
+                        opacity: (nftOperator.loading || registrationPreviewLoading) ? 0.5 : 1,
+                        pointerEvents: (nftOperator.loading || registrationPreviewLoading) ? 'none' : 'auto',
+                        position: 'relative',
+                      }}
+                    >
+                      {(nftOperator.loading || registrationPreviewLoading) && (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            bgcolor: 'rgba(255, 255, 255, 0.8)',
+                            zIndex: 1,
+                          }}
+                        >
+                          <CircularProgress size={24} />
+                        </Box>
+                      )}
                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
                         <Box>
                           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
@@ -2603,12 +2759,23 @@ export default function AdminPage() {
                           onChange={(_, checked) => {
                             void handleSetAgentActive(checked);
                           }}
-                          disabled={activeToggleSaving || sessionPackageLoading || !registrationPreviewText}
+                          disabled={activeToggleSaving || sessionPackageLoading || !registrationPreviewText || nftOperator.loading || registrationPreviewLoading}
                           inputProps={{ 'aria-label': 'Agent active toggle' }}
                         />
                       </Box>
 
-                      {!nftOperator.loading && !nftOperator.operatorAddress && (
+                      {!nftOperator.loading && !registrationPreviewLoading && nftOperator.operatorAddress && (
+                        <Box sx={{ mt: 1 }}>
+                          <Typography variant="body2" color="text.secondary">
+                            <strong>Operator Address:</strong>{' '}
+                            <Box component="span" sx={{ fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                              {nftOperator.operatorAddress}
+                            </Box>
+                          </Typography>
+                        </Box>
+                      )}
+
+                      {!nftOperator.loading && !registrationPreviewLoading && !nftOperator.operatorAddress && (
                         <Alert severity="warning" sx={{ mt: 1 }}>
                           Cannot activate until an Operator is assigned to the NFT. Click "Set Operator Session Keys and Delegation" below.
                         </Alert>
@@ -2632,6 +2799,9 @@ export default function AdminPage() {
 
                     {sessionPackageLoading && (
                       <Box sx={{ width: '100%', mb: 2 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          Setting operator session keys and delegation, updating registration, and refreshing state… {Math.round(sessionPackageProgress)}%
+                        </Typography>
                         <Box
                           sx={{
                             height: 6,
@@ -2649,9 +2819,6 @@ export default function AdminPage() {
                             }}
                           />
                         </Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
-                          Setting operator session keys and delegation… {Math.round(sessionPackageProgress)}% (up to 60 seconds)
-                        </Typography>
                       </Box>
                     )}
 

@@ -42,6 +42,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { grayscalePalette as palette } from '@/styles/palette';
+import { type ValidationClaimType, VALIDATION_CLAIM_TYPE_OPTIONS } from '@/models/validation';
 import SendIcon from '@mui/icons-material/Send';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -49,7 +50,12 @@ import CreateOutlinedIcon from '@mui/icons-material/CreateOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { useRouter } from 'next/navigation';
-import { buildDid8004, parseDid8004 } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004, getDeployedAccountClientByAgentName } from '@agentic-trust/core';
+import { getChainById, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
+import { requestNameValidationWithWallet, requestAppValidationWithWallet } from '@agentic-trust/core/client';
+import { getClientBundlerUrl } from '@/lib/clientChainEnv';
+import { keccak256, toHex } from 'viem';
+import type { Chain } from 'viem';
 
 type Message = {
   id: number;
@@ -102,7 +108,7 @@ function displayDid(value: unknown): string {
 
 export default function MessagesPage() {
   const auth = useAuth();
-  const { connected: walletConnected, address: walletAddress, privateKeyMode, loading } = useWallet();
+  const { connected: walletConnected, address: walletAddress, privateKeyMode, loading, eip1193Provider } = useWallet();
   const { ownedAgents: cachedOwnedAgents, loading: ownedAgentsLoading } = useOwnedAgents();
   const router = useRouter();
 
@@ -110,7 +116,7 @@ export default function MessagesPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [selectedMessageType, setSelectedMessageType] = useState<'general' | 'feedback_request' | 'validation_request'>('general');
+  const [selectedMessageType, setSelectedMessageType] = useState<'general' | 'feedback_request' | 'validation_request' | 'give_feedback'>('general');
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('');
   const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null);
   const [folderSearch, setFolderSearch] = useState('');
@@ -126,8 +132,9 @@ export default function MessagesPage() {
   const [composeToAgentLoading, setComposeToAgentLoading] = useState(false);
 
   const [feedbackRequestComment, setFeedbackRequestComment] = useState('');
-  const [validationRequestKind, setValidationRequestKind] = useState<'name' | 'account' | 'app' | 'aid'>('name');
+  const [validationRequestKind, setValidationRequestKind] = useState<ValidationClaimType>('compliance');
   const [validationRequestDetails, setValidationRequestDetails] = useState('');
+  const [validationRequestDomain, setValidationRequestDomain] = useState('');
 
   const [approveOpen, setApproveOpen] = useState(false);
   const [approveExpiryDays, setApproveExpiryDays] = useState<number>(30);
@@ -145,6 +152,16 @@ export default function MessagesPage() {
   const [feedbackComment, setFeedbackComment] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
+
+  // Validation dialog state
+  const [validateDialogOpen, setValidateDialogOpen] = useState(false);
+  const [validationResponseLoading, setValidationResponseLoading] = useState(false);
+  const [validationResponseError, setValidationResponseError] = useState<string | null>(null);
+  const [validationRequestHash, setValidationRequestHash] = useState<string | null>(null);
+  const [validationRequestStatus, setValidationRequestStatus] = useState<any | null>(null);
+  const [checkingValidationRequest, setCheckingValidationRequest] = useState(false);
+  const [validationResponseScore, setValidationResponseScore] = useState<number>(100);
+  const [validationResponseAlreadySubmitted, setValidationResponseAlreadySubmitted] = useState(false);
 
   const fetchMessages = useCallback(async (agentKeyOverride?: string) => {
     const key = agentKeyOverride ?? selectedAgentKey;
@@ -333,6 +350,231 @@ export default function MessagesPage() {
     walletAddress,
   ]);
 
+  // Check if validation request exists in Validation Registry
+  const checkValidationRequest = useCallback(async () => {
+    if (!selectedMessage || selectedMessage.contextType !== 'validation_request') return;
+    if (!selectedMessage.fromAgentDid || !selectedMessage.toAgentDid) return;
+    if (!selectedFolderAgent) return;
+
+    setCheckingValidationRequest(true);
+    setValidationRequestHash(null);
+    setValidationRequestStatus(null);
+
+    try {
+      // Parse the from agent DID (the agent being validated)
+      const fromDid = normalizeDid(selectedMessage.fromAgentDid);
+      if (!fromDid.startsWith('did:8004:')) {
+        setValidationResponseError('From agent DID is not a valid did:8004');
+        return;
+      }
+
+      const fromParsed = parseDid8004(fromDid);
+      
+      // Get validation requests for the from agent (the agent being validated)
+      const validationsResponse = await fetch(`/api/agents/${encodeURIComponent(fromDid)}/validations`);
+      if (!validationsResponse.ok) {
+        throw new Error('Failed to fetch validation requests');
+      }
+      
+      const validationsData = await validationsResponse.json();
+      const pendingValidations = Array.isArray(validationsData?.pending) ? validationsData.pending : [];
+      const completedValidations = Array.isArray(validationsData?.completed) ? validationsData.completed : [];
+      
+      // Check both pending and completed validations for the request
+      const allValidations = [...pendingValidations, ...completedValidations];
+      
+      if (allValidations.length > 0) {
+        // Sort by lastUpdate descending (most recent first)
+        const sorted = [...allValidations].sort((a: any, b: any) => {
+          const aTime = typeof a.lastUpdate === 'bigint' ? Number(a.lastUpdate) : (a.lastUpdate || 0);
+          const bTime = typeof b.lastUpdate === 'bigint' ? Number(b.lastUpdate) : (b.lastUpdate || 0);
+          return bTime - aTime;
+        });
+        const mostRecent = sorted[0];
+        
+        // Check if response has already been given (response !== 0 means it's been processed)
+        if (mostRecent.response !== undefined && mostRecent.response !== 0 && mostRecent.response !== '0') {
+          setValidationRequestHash(mostRecent.requestHash);
+          setValidationRequestStatus(mostRecent);
+          setValidationResponseAlreadySubmitted(true);
+        } else {
+          setValidationResponseAlreadySubmitted(false);
+        }
+        
+        setValidationRequestHash(mostRecent.requestHash);
+        setValidationRequestStatus(mostRecent);
+      } else {
+        setValidationResponseError('No validation requests found in Validation Registry for this agent. The on-chain validation request may not have been created yet.');
+      }
+    } catch (err: any) {
+      setValidationResponseError(err?.message || 'Failed to check validation request');
+    } finally {
+      setCheckingValidationRequest(false);
+    }
+  }, [selectedMessage, selectedFolderAgent]);
+
+  // Open validate dialog and check for validation request
+  const handleOpenValidateDialog = useCallback(() => {
+    setValidateDialogOpen(true);
+    setValidationResponseError(null);
+    setValidationRequestHash(null);
+    setValidationRequestStatus(null);
+    setValidationResponseAlreadySubmitted(false);
+    void checkValidationRequest();
+  }, [checkValidationRequest]);
+
+  // Generate a simple task ID (ULID-like but simpler)
+  const generateTaskId = () => {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 12);
+    return `${timestamp}${random}`;
+  };
+
+  // Submit validation response via A2A endpoint (similar to admin-tools)
+  const handleSubmitValidationResponse = useCallback(async (responseScore: number) => {
+    if (!validationRequestHash || !selectedFolderAgent || !selectedMessage || !validationRequestStatus) return;
+    
+    // Check if response already exists
+    if (validationRequestStatus.response !== undefined && validationRequestStatus.response !== 0 && validationRequestStatus.response !== '0') {
+      setValidationResponseError(`Validation response already submitted (response: ${validationRequestStatus.response}). Cannot submit again.`);
+      return;
+    }
+
+    if (!selectedMessage.fromAgentDid) {
+      setValidationResponseError('From agent DID is required');
+      return;
+    }
+
+    setValidationResponseLoading(true);
+    setValidationResponseError(null);
+
+    try {
+      // Parse from agent DID to get agentId
+      const fromDid = normalizeDid(selectedMessage.fromAgentDid);
+      if (!fromDid.startsWith('did:8004:')) {
+        throw new Error('From agent DID is not a valid did:8004');
+      }
+      const fromParsed = parseDid8004(fromDid);
+      const requestingAgentId = fromParsed.agentId.toString();
+
+      // Get validation kind from message metadata (metadata is stored in message context, check API response structure)
+      // For now, use defaults - can be enhanced to parse from message body or context
+      const validationKind = 'compliance';
+      const validationDetails = 'Validation Request';
+
+      // Generate ValidationResult structure similar to name-validation validator
+      const validationResult = {
+        kind: 'erc8004.validation.request@1' as const,
+        specVersion: '1.0',
+        requestHash: validationRequestHash,
+        agentId: requestingAgentId,
+        chainId: selectedFolderAgent.chainId,
+        validationRegistry: validationRequestStatus.validationRegistry || '',
+        requesterAddress: validationRequestStatus.requesterAddress || '',
+        validatorAddress: validationRequestStatus.validatorAddress || selectedFolderAgent.agentAccount || '',
+        taskId: generateTaskId(),
+        createdAt: new Date().toISOString(),
+        claim: {
+          type: validationKind,
+          text: validationDetails,
+        },
+        criteria: [
+          {
+            id: 'c1',
+            name: 'Validation criteria checked',
+            method: 'manual.validation',
+            passCondition: 'Validator reviewed and approved',
+          },
+          {
+            id: 'c2',
+            name: 'On-chain response submitted',
+            method: 'aa.validationResponse',
+            passCondition: 'txHash exists',
+          },
+        ],
+        success: responseScore >= 50, // Consider 50+ as success
+        response: responseScore,
+      };
+
+      // Upload validation result to IPFS
+      const jsonBlob = new Blob([JSON.stringify(validationResult, null, 2)], { type: 'application/json' });
+      const formData = new FormData();
+      formData.append('file', jsonBlob, 'validation-response.json');
+
+      const ipfsResponse = await fetch('/api/ipfs/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!ipfsResponse.ok) {
+        throw new Error('Failed to upload validation response to IPFS');
+      }
+
+      const ipfsResult = await ipfsResponse.json();
+      const finalResponseUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
+      // Get current agent's A2A endpoint
+      const currentAgentDid = buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId);
+      const agentResponse = await fetch(`/api/agents/${encodeURIComponent(currentAgentDid)}`);
+      if (!agentResponse.ok) {
+        throw new Error('Failed to fetch current agent details');
+      }
+      const agentData = await agentResponse.json();
+      
+      // Extract A2A endpoint from agent data
+      let a2aEndpoint: string | null = null;
+      try {
+        const rawJson = agentData.rawJson;
+        if (rawJson && typeof rawJson === 'string') {
+          const registration = JSON.parse(rawJson);
+          const endpoints = Array.isArray(registration?.endpoints) ? registration.endpoints : [];
+          const a2a = endpoints.find((e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a');
+          if (a2a && typeof a2a.endpoint === 'string') {
+            a2aEndpoint = a2a.endpoint;
+          }
+        }
+      } catch {
+        // Ignore parse errors
+      }
+
+      if (!a2aEndpoint) {
+        throw new Error('Current agent A2A endpoint is not configured. Please configure it in admin-tools.');
+      }
+
+      // Send validation response via A2A endpoint
+      const response = await fetch('/api/a2a/send-validation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          a2aEndpoint,
+          skillId: 'atp.validation.respond',
+          message: `Process validation request for agent ${requestingAgentId}`,
+          payload: {
+            agentId: requestingAgentId,
+            chainId: selectedFolderAgent.chainId,
+            requestHash: validationRequestHash,
+            response: responseScore,
+            responseUri: finalResponseUri,
+          },
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.success === false) {
+        throw new Error(data?.error || data?.response?.error || 'Failed to submit validation response');
+      }
+
+      setValidateDialogOpen(false);
+      setValidationRequestHash(null);
+      setValidationRequestStatus(null);
+      await fetchMessages();
+    } catch (err: any) {
+      setValidationResponseError(err?.message || 'Failed to submit validation response');
+    } finally {
+      setValidationResponseLoading(false);
+    }
+  }, [validationRequestHash, validationRequestStatus, selectedFolderAgent, selectedMessage, validationRequestDetails, fetchMessages]);
+
   useEffect(() => {
     // Reset per-message feedbackAuth state whenever selection changes
     setFeedbackAuthLoading(false);
@@ -386,42 +628,84 @@ export default function MessagesPage() {
     setComposeToAgentInput('');
     setComposeSubject(
       selectedMessageType === 'feedback_request'
-        ? 'Feedback Request'
+        ? 'Request Feedback Permission'
         : selectedMessageType === 'validation_request'
-          ? 'Validation Request'
-          : '',
+          ? 'Request Validation'
+          : selectedMessageType === 'give_feedback'
+            ? 'Give Feedback'
+            : '',
     );
     setComposeBody('');
     setFeedbackRequestComment('');
-    setValidationRequestKind('name');
+    setValidationRequestKind('compliance');
     setValidationRequestDetails('');
+    setValidationRequestDomain('');
     setComposeOpen(true);
   }, [selectedFolderAgent, selectedMessageType]);
 
   // Async agent search for "To Agent" autocomplete
+  // For validation requests, filter by agents with capability "Validation" or "Orchestration"
   useEffect(() => {
     let cancelled = false;
     const q = composeToAgentInput.trim();
 
     if (!composeOpen) return;
-    if (!q) {
-      setComposeToAgentOptions([]);
-      setComposeToAgentLoading(false);
-      return;
-    }
-
+    
     setComposeToAgentLoading(true);
     (async () => {
       try {
+        // For validation requests, we want to show all agents with Validation or Orchestration capability
+        // We'll fetch all agents and filter client-side, or use a search query
+        const searchQuery = selectedMessageType === 'validation_request' 
+          ? (q || '') // For validation requests, allow empty query to show all matching agents
+          : q; // For other message types, require a query
+        
+        if (!searchQuery && selectedMessageType !== 'validation_request') {
+          setComposeToAgentOptions([]);
+          setComposeToAgentLoading(false);
+          return;
+        }
+
         const response = await fetch(
-          `/api/agents/search?query=${encodeURIComponent(q)}&pageSize=10&orderBy=createdAtTime&orderDirection=DESC`,
+          `/api/agents/search?query=${encodeURIComponent(searchQuery)}&pageSize=50&orderBy=createdAtTime&orderDirection=DESC`,
           { cache: 'no-store' },
         );
         if (!response.ok) {
           throw new Error(`Failed to search agents (${response.status})`);
         }
         const data = await response.json();
-        const agents = Array.isArray(data?.agents) ? data.agents : [];
+        let agents = Array.isArray(data?.agents) ? data.agents : [];
+        
+        // Filter by agentCategory for validation requests
+        if (selectedMessageType === 'validation_request') {
+          agents = agents.filter((a: any) => {
+            const validCategories = [
+              'Governance / Validation Agents',
+              'Orchestrator / Coordinator Agents',
+            ];
+            
+            // Check agentCategory in registration JSON (rawJson field)
+            try {
+              const rawJson = a?.rawJson;
+              if (rawJson && typeof rawJson === 'string') {
+                const registration = JSON.parse(rawJson);
+                const agentCategory = registration?.agentCategory;
+                if (typeof agentCategory === 'string') {
+                  return validCategories.includes(agentCategory);
+                }
+              }
+              // Also check if agentCategory is directly on the agent object
+              const agentCategory = a?.agentCategory;
+              if (typeof agentCategory === 'string') {
+                return validCategories.includes(agentCategory);
+              }
+              return false;
+            } catch {
+              return false;
+            }
+          });
+        }
+        
         const mapped: AgentSearchOption[] = agents
           .map((a: any) => {
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
@@ -453,7 +737,78 @@ export default function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [composeOpen, composeToAgentInput]);
+  }, [composeOpen, composeToAgentInput, selectedMessageType]);
+
+  // Load validation/orchestration agents when compose dialog opens for validation requests
+  useEffect(() => {
+    if (!composeOpen || selectedMessageType !== 'validation_request') return;
+    
+    // Trigger the agent search with empty query to load all validation/orchestration agents
+    if (!composeToAgentInput) {
+      // Set a minimal query to trigger the search, or we can fetch directly
+      const loadValidationAgents = async () => {
+        try {
+          const response = await fetch(
+            `/api/agents/search?pageSize=100&orderBy=createdAtTime&orderDirection=DESC`,
+            { cache: 'no-store' },
+          );
+          if (!response.ok) return;
+          const data = await response.json();
+          let agents = Array.isArray(data?.agents) ? data.agents : [];
+          
+          // Filter by agentCategory
+          const validCategories = [
+            'Governance / Validation Agents',
+            'Orchestrator / Coordinator Agents',
+          ];
+          agents = agents.filter((a: any) => {
+            try {
+              // Check agentCategory in registration JSON (rawJson field)
+              const rawJson = a?.rawJson;
+              if (rawJson && typeof rawJson === 'string') {
+                const registration = JSON.parse(rawJson);
+                const agentCategory = registration?.agentCategory;
+                if (typeof agentCategory === 'string') {
+                  return validCategories.includes(agentCategory);
+                }
+              }
+              // Also check if agentCategory is directly on the agent object
+              const agentCategory = a?.agentCategory;
+              if (typeof agentCategory === 'string') {
+                return validCategories.includes(agentCategory);
+              }
+              return false;
+            } catch {
+              return false;
+            }
+          });
+          
+          const mapped: AgentSearchOption[] = agents
+            .map((a: any) => {
+              const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
+              const agentId = a?.agentId != null ? String(a.agentId) : '';
+              if (!chainId || !agentId) return null;
+              const did = buildDid8004(chainId, Number(agentId));
+              return {
+                key: `${chainId}:${agentId}`,
+                chainId,
+                agentId,
+                agentName: a?.agentName ?? null,
+                image: a?.image ?? null,
+                did,
+              } as AgentSearchOption;
+            })
+            .filter(Boolean) as AgentSearchOption[];
+          
+          setComposeToAgentOptions(mapped);
+        } catch (e) {
+          // Ignore errors
+        }
+      };
+      
+      void loadValidationAgents();
+    }
+  }, [composeOpen, selectedMessageType, composeToAgentInput]);
 
   const handleSendMessage = useCallback(async () => {
     if (!selectedFolderAgent || !selectedFromAgentDid) {
@@ -514,14 +869,115 @@ export default function MessagesPage() {
         const subject =
           composeSubject.trim() ||
           (selectedMessageType === 'validation_request'
-            ? `Validation Request: ${validationRequestKind}`
-            : 'Message');
+            ? `Request Validation: ${validationRequestKind}`
+            : selectedMessageType === 'give_feedback'
+              ? 'Give Feedback'
+              : 'Message');
+
+        // For validation requests, also create an on-chain validation request
+        if (selectedMessageType === 'validation_request') {
+          try {
+            const chainId = selectedFolderAgent.chainId;
+            const chain = getChainById(chainId);
+            const bundlerUrl = getClientBundlerUrl(chainId);
+
+            if (!bundlerUrl) {
+              throw new Error(`Bundler URL not configured for chain ${chainId}`);
+            }
+
+            if (!eip1193Provider || !walletAddress) {
+              throw new Error('Wallet not connected');
+            }
+
+            // Switch to correct chain
+            if (eip1193Provider && typeof eip1193Provider.request === 'function') {
+              const targetHex = `0x${chainId.toString(16)}`;
+              try {
+                await eip1193Provider.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: targetHex }],
+                });
+              } catch (switchErr) {
+                console.warn('Failed to switch chain', switchErr);
+              }
+            }
+
+            // Get agent account client for the requester (from agent)
+            const agentName = selectedFolderAgent.agentName || '';
+            if (!agentName) {
+              throw new Error('Agent name is required');
+            }
+
+            const agentAccountClient = await getDeployedAccountClientByAgentName(
+              bundlerUrl,
+              agentName,
+              walletAddress as `0x${string}`,
+              {
+                chain: chain as any,
+                ethereumProvider: eip1193Provider as any,
+              }
+            );
+
+            // Create validation request JSON
+            const requestJson = {
+              agentId: String(selectedFolderAgent.agentId),
+              agentName: agentName,
+              validationKind: validationRequestKind,
+              validationDetails: validationRequestDetails || undefined,
+              checks: ['Validation request'],
+            };
+            const requestHash = keccak256(toHex(JSON.stringify(requestJson)));
+
+            // Upload to IPFS
+            const jsonBlob = new Blob([JSON.stringify(requestJson, null, 2)], { type: 'application/json' });
+            const formData = new FormData();
+            formData.append('file', jsonBlob, 'validation-request.json');
+
+            const ipfsResponse = await fetch('/api/ipfs/upload', {
+              method: 'POST',
+              body: formData,
+            });
+
+            if (!ipfsResponse.ok) {
+              throw new Error('Failed to upload validation request to IPFS');
+            }
+
+            const ipfsResult = await ipfsResponse.json();
+            const requestUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
+
+            // Determine which validation function to use based on validationKind
+            // Map ValidationClaimType to appropriate validator
+            const useNameValidator = validationRequestKind === 'compliance' || validationRequestKind === 'identity';
+            const requestValidationFn = useNameValidator ? requestNameValidationWithWallet : requestAppValidationWithWallet;
+
+            // Create on-chain validation request
+            const requesterDid = buildDid8004(chainId, selectedFolderAgent.agentId);
+            const validationResult = await requestValidationFn({
+              requesterDid,
+              requestUri,
+              requestHash,
+              chain: chain as any,
+              requesterAccountClient: agentAccountClient,
+              onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
+            });
+
+            console.log('[Validation Request] Created on-chain:', {
+              txHash: validationResult.txHash,
+              validatorAddress: validationResult.validatorAddress,
+              requestHash: validationResult.requestHash,
+            });
+          } catch (validationErr: any) {
+            console.error('[Validation Request] Failed to create on-chain validation request:', validationErr);
+            // Continue with message sending even if validation request creation fails
+            // The user will still get the message notification
+          }
+        }
 
         const response = await fetch('/api/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            type: selectedMessageType,
+            type: selectedMessageType === 'give_feedback' ? 'give_feedback' : selectedMessageType,
             subject,
             content,
             fromClientAddress: walletAddress ?? undefined,
@@ -564,7 +1020,9 @@ export default function MessagesPage() {
     selectedMessageType,
     validationRequestKind,
     validationRequestDetails,
+    validationRequestDomain,
     walletAddress,
+    eip1193Provider,
     fetchMessages,
   ]);
 
@@ -579,13 +1037,15 @@ export default function MessagesPage() {
   const getMessageTypeLabel = (type: string) => {
     switch (type) {
       case 'feedback_request':
-        return 'Feedback Request';
+        return 'Request Feedback Permission';
       case 'validation_request':
-        return 'Validation Request';
+        return 'Request Validation';
       case 'feedback_request_approved':
         return 'Feedback Request Approved';
+      case 'give_feedback':
+        return 'Give Feedback';
       default:
-        return 'General';
+        return 'General Message';
     }
   };
 
@@ -1006,6 +1466,23 @@ export default function MessagesPage() {
                             </Box>
                           )}
 
+                        {mailboxMode === 'inbox' &&
+                          selectedMessage.contextType === 'validation_request' && (
+                            <Box>
+                              <Button
+                                variant="contained"
+                                onClick={handleOpenValidateDialog}
+                                disabled={!selectedFolderAgent || checkingValidationRequest}
+                                sx={{
+                                  backgroundColor: palette.accent,
+                                  '&:hover': { backgroundColor: palette.border },
+                                }}
+                              >
+                                {checkingValidationRequest ? 'Checking...' : 'Validate'}
+                              </Button>
+                            </Box>
+                          )}
+
                         <Divider />
 
                         <Stack spacing={0.5}>
@@ -1119,9 +1596,10 @@ export default function MessagesPage() {
                 label="Message Type"
                 onChange={(e) => setSelectedMessageType(e.target.value as any)}
               >
-                <MenuItem value="general">General</MenuItem>
-                <MenuItem value="feedback_request">Feedback Request</MenuItem>
-                <MenuItem value="validation_request">Validation Request</MenuItem>
+                <MenuItem value="general">General Message</MenuItem>
+                <MenuItem value="feedback_request">Request Feedback Permission</MenuItem>
+                <MenuItem value="validation_request">Request Validation</MenuItem>
+                <MenuItem value="give_feedback">Give Feedback</MenuItem>
               </Select>
               <FormHelperText>
                 Use standard types for inbox filtering. Sender is the selected agent folder.
@@ -1179,7 +1657,7 @@ export default function MessagesPage() {
               )}
             />
 
-            {selectedMessageType !== 'feedback_request' && (
+            {selectedMessageType !== 'feedback_request' && selectedMessageType !== 'give_feedback' && (
               <TextField
                 label="Subject"
                 value={composeSubject}
@@ -1206,17 +1684,47 @@ export default function MessagesPage() {
                   <Select
                     id="validation-request-kind"
                     labelId="validation-request-kind-label"
-                    value={validationRequestKind}
+                    value={validationRequestKind.startsWith('domain:') ? 'domain' : validationRequestKind}
                     label="Validation Type"
-                    onChange={(e) => setValidationRequestKind(e.target.value as any)}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      if (value === 'domain') {
+                        // When domain is selected, initialize with empty domain (user will fill it in)
+                        setValidationRequestDomain('');
+                        setValidationRequestKind('domain:' as ValidationClaimType);
+                      } else {
+                        setValidationRequestKind(value as ValidationClaimType);
+                        setValidationRequestDomain('');
+                      }
+                    }}
                   >
-                    <MenuItem value="name">Name</MenuItem>
-                    <MenuItem value="account">Account</MenuItem>
-                    <MenuItem value="app">App</MenuItem>
-                    <MenuItem value="aid">AID</MenuItem>
+                    {VALIDATION_CLAIM_TYPE_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                    <MenuItem value="domain">Domain (custom)</MenuItem>
                   </Select>
                   <FormHelperText>Structured request for validators / automation.</FormHelperText>
                 </FormControl>
+                {(validationRequestKind.startsWith('domain:') || validationRequestKind === 'domain:') && (
+                  <TextField
+                    label="Domain"
+                    value={validationRequestDomain}
+                    onChange={(e) => {
+                      const domain = e.target.value.trim();
+                      setValidationRequestDomain(domain);
+                      if (domain) {
+                        setValidationRequestKind(`domain:${domain}` as ValidationClaimType);
+                      } else {
+                        setValidationRequestKind('domain:' as ValidationClaimType);
+                      }
+                    }}
+                    fullWidth
+                    placeholder="e.g., healthcare, finance, gaming"
+                    helperText="Enter the domain name for the validation claim type"
+                  />
+                )}
                 <TextField
                   label="Details"
                   value={validationRequestDetails}
@@ -1234,6 +1742,18 @@ export default function MessagesPage() {
                   multiline
                   minRows={4}
                   placeholder="Optional additional context…"
+                />
+              </Stack>
+            ) : selectedMessageType === 'give_feedback' ? (
+              <Stack spacing={2}>
+                <TextField
+                  label="Message"
+                  value={composeBody}
+                  onChange={(e) => setComposeBody(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={6}
+                  placeholder="Share your feedback about this agent…"
                 />
               </Stack>
             ) : (
@@ -1430,6 +1950,87 @@ export default function MessagesPage() {
             sx={{ backgroundColor: palette.accent, '&:hover': { backgroundColor: palette.border } }}
           >
             {approving ? 'Approving…' : 'Approve'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Validation Response Dialog */}
+      <Dialog open={validateDialogOpen} onClose={() => setValidateDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>
+          Submit Validation Response
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+            Validating: {selectedMessage?.fromAgentName || (selectedMessage?.fromAgentDid ? displayDid(selectedMessage.fromAgentDid) : '—')}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            {checkingValidationRequest ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={16} />
+                <Typography variant="body2">Checking for validation request in Validation Registry...</Typography>
+              </Box>
+            ) : validationRequestHash ? (
+              <>
+                <Alert severity={validationResponseAlreadySubmitted ? 'warning' : 'success'}>
+                  Validation request found in Validation Registry
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                    Request Hash: {validationRequestHash.slice(0, 10)}...{validationRequestHash.slice(-8)}
+                  </Typography>
+                  {validationResponseAlreadySubmitted && validationRequestStatus && (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 0.5, fontWeight: 600 }}>
+                      Validation response already submitted (Response: {validationRequestStatus.response}). Cannot submit again.
+                    </Typography>
+                  )}
+                </Alert>
+                {!validationResponseAlreadySubmitted && (
+                  <>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                      Response URI will be automatically generated and uploaded to IPFS with the validation result information.
+                    </Typography>
+                    <TextField
+                      label="Response Score (0-100)"
+                      type="number"
+                      fullWidth
+                      value={validationResponseScore}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        if (!isNaN(val) && val >= 0 && val <= 100) {
+                          setValidationResponseScore(val);
+                        }
+                      }}
+                      inputProps={{ min: 0, max: 100 }}
+                      helperText="Score from 0 (invalid) to 100 (fully valid)"
+                      disabled={validationResponseAlreadySubmitted}
+                    />
+                  </>
+                )}
+                {validationResponseError && (
+                  <Alert severity="error">{validationResponseError}</Alert>
+                )}
+              </>
+            ) : validationResponseError ? (
+              <Alert severity="error">{validationResponseError}</Alert>
+            ) : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setValidateDialogOpen(false)} disabled={validationResponseLoading}>
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => handleSubmitValidationResponse(validationResponseScore)}
+            disabled={
+              validationResponseLoading ||
+              !validationRequestHash ||
+              validationResponseAlreadySubmitted ||
+              validationResponseScore < 0 ||
+              validationResponseScore > 100
+            }
+            startIcon={validationResponseLoading ? <CircularProgress size={16} /> : undefined}
+            sx={{ backgroundColor: palette.accent, '&:hover': { backgroundColor: palette.border } }}
+          >
+            {validationResponseLoading ? 'Submitting...' : 'Submit Response'}
           </Button>
         </DialogActions>
       </Dialog>
