@@ -113,6 +113,7 @@ const AgentDetailsTabs = ({
   const [revokeTx, setRevokeTx] = useState<string | null>(null);
   const [revokeReceipt, setRevokeReceipt] = useState<any | null>(null);
   const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [agentInfoByAddress, setAgentInfoByAddress] = useState<Map<string, { agentId?: string; agentName?: string; agentAccount?: string }>>(new Map());
 
   const feedbackList = useMemo(
     () => (Array.isArray(feedbackItems) ? feedbackItems : []),
@@ -175,6 +176,103 @@ const AgentDetailsTabs = ({
       void refreshAssociations();
     }
   }, [activeTab, agent.agentAccount, associationsData, associationsLoading, refreshAssociations]);
+
+  // Fetch agent info for association addresses
+  useEffect(() => {
+    if (!associationsData || !associationsData.ok || associationsData.associations.length === 0) return;
+    
+    // Collect all unique addresses from associations
+    const addressesToLookup = new Set<string>();
+    const centerAddr = agent.agentAccount?.toLowerCase();
+    
+    for (const a of associationsData.associations) {
+      const initiator = a.initiator?.toLowerCase?.();
+      const approver = a.approver?.toLowerCase?.();
+      const counterparty = a.counterparty?.toLowerCase?.();
+      
+      if (initiator && initiator !== centerAddr) addressesToLookup.add(initiator);
+      if (approver && approver !== centerAddr) addressesToLookup.add(approver);
+      if (counterparty && counterparty !== centerAddr) addressesToLookup.add(counterparty);
+    }
+    
+    if (addressesToLookup.size === 0) return;
+    
+    let cancelled = false;
+    
+    // Fetch agent info for each address
+    (async () => {
+      const results = await Promise.allSettled(
+        Array.from(addressesToLookup).map(async (addr) => {
+          try {
+            // Search for agents with this account address
+            const searchParams = new URLSearchParams({
+              query: addr,
+              pageSize: '10',
+            });
+            const res = await fetch(`/api/agents/search?${searchParams.toString()}`, {
+              cache: 'no-store',
+            });
+            if (!res.ok) return [addr, null] as const;
+            const data = await res.json();
+            const agents = data?.agents || [];
+            // Find exact match by agentAccount
+            const matchingAgent = agents.find((a: any) => {
+              const agentAccount = a.agentAccount || (a.data && a.data.agentAccount);
+              return agentAccount?.toLowerCase() === addr;
+            });
+            
+            if (matchingAgent) {
+              const agentData = matchingAgent.data || matchingAgent;
+              return [addr, {
+                agentId: (agentData.agentId || matchingAgent.agentId)?.toString(),
+                agentName: agentData.agentName || matchingAgent.agentName || undefined,
+                agentAccount: agentData.agentAccount || matchingAgent.agentAccount || addr,
+              }] as const;
+            }
+            return [addr, null] as const;
+          } catch (e) {
+            console.warn(`[AgentDetailsTabs] Failed to lookup agent for address ${addr}:`, e);
+            return [addr, null] as const;
+          }
+        })
+      );
+      
+      if (cancelled) return;
+      
+      setAgentInfoByAddress((prev) => {
+        const next = new Map(prev);
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            const [addr, info] = r.value;
+            if (info) {
+              next.set(addr.toLowerCase(), info);
+            }
+          }
+        }
+        return next;
+      });
+    })();
+    
+    return () => {
+      cancelled = true;
+    };
+  }, [associationsData, agent.agentAccount]);
+
+  // Helper to get agent info for an address
+  const getAgentInfoForAddress = useCallback((addr: string) => {
+    if (!addr) return null;
+    const addrLower = addr.toLowerCase();
+    // Check if it's the center agent
+    if (agent.agentAccount?.toLowerCase() === addrLower) {
+      return {
+        agentId: agent.agentId,
+        agentName: agent.agentName || undefined,
+        agentAccount: agent.agentAccount,
+      };
+    }
+    // Check cached agent info
+    return agentInfoByAddress.get(addrLower) || null;
+  }, [agent, agentInfoByAddress]);
 
   // Load registration data when registration tab is selected
   useEffect(() => {
@@ -1160,14 +1258,47 @@ const AgentDetailsTabs = ({
                           )}
                         </div>
                       </div>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                          gap: '0.75rem',
-                          fontSize: '0.85rem',
-                        }}
-                      >
+                      {(() => {
+                        // Determine which address is the counterparty (the associated agent)
+                        const counterparty = assoc.counterparty;
+                        const counterpartyInfo = getAgentInfoForAddress(counterparty);
+                        
+                        return (
+                          <>
+                            {counterpartyInfo && (
+                              <div
+                                style={{
+                                  marginBottom: '0.75rem',
+                                  padding: '0.75rem',
+                                  borderRadius: '6px',
+                                  backgroundColor: palette.surface,
+                                  border: `1px solid ${palette.border}`,
+                                }}
+                              >
+                                <div style={{ fontSize: '0.75rem', color: palette.textSecondary, marginBottom: '0.25rem' }}>
+                                  Associated Agent
+                                </div>
+                                <div style={{ fontSize: '0.95rem', fontWeight: 600, color: palette.textPrimary }}>
+                                  {counterpartyInfo.agentName || `Agent #${counterpartyInfo.agentId}`}
+                                </div>
+                                {counterpartyInfo.agentId && (
+                                  <div style={{ fontSize: '0.8rem', color: palette.textSecondary, marginTop: '0.25rem' }}>
+                                    ID: {counterpartyInfo.agentId}
+                                  </div>
+                                )}
+                                <div style={{ fontSize: '0.8rem', color: palette.textSecondary, fontFamily: 'monospace', marginTop: '0.25rem' }}>
+                                  {shorten(counterparty)}
+                                </div>
+                              </div>
+                            )}
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                                gap: '0.75rem',
+                                fontSize: '0.85rem',
+                              }}
+                            >
                         <div>
                           <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
                             Initiator
@@ -1226,7 +1357,10 @@ const AgentDetailsTabs = ({
                             {assoc.associationId}
                           </div>
                         </div>
-                      </div>
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   );
                 })}
