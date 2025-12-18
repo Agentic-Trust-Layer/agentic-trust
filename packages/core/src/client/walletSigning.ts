@@ -9,6 +9,7 @@ import {
   createWalletClient,
   custom,
   createPublicClient,
+  getAddress,
   type Address,
   type Chain,
   type Hex,
@@ -1433,6 +1434,97 @@ export interface RequestValidationWithWalletOptions {
   requestHash?: string;
   validatorAddress?: string; // Optional: if provided, use this address directly instead of validatorName
   onStatusUpdate?: (status: string) => void;
+}
+
+export interface RequestAssociationWithWalletOptions {
+  requesterDid: string; // initiator agent DID (did:8004:chainId:agentId)
+  chain: Chain;
+  requesterAccountClient: any; // initiator AA account client
+  approverAddress: `0x${string}`; // counterparty smart account address
+  assocType?: number;
+  description?: string;
+  onStatusUpdate?: (status: string) => void;
+}
+
+export async function requestAssociationWithWallet(
+  options: RequestAssociationWithWalletOptions,
+): Promise<{ txHash: string; requiresClientSigning: true }> {
+  const {
+    requesterDid,
+    chain,
+    requesterAccountClient,
+    approverAddress,
+    assocType,
+    description,
+    onStatusUpdate,
+  } = options;
+
+  const approverAddressChecksum = getAddress(approverAddress) as `0x${string}`;
+
+  onStatusUpdate?.('Preparing association request on server...');
+
+  let prepared: AgentOperationPlan;
+  try {
+    const response = await fetch('/api/associate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        did8004: requesterDid,
+        approverAddress: approverAddressChecksum,
+        assocType,
+        description,
+        mode: 'smartAccount',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.message || 'Failed to prepare association request');
+    }
+
+    prepared = (await response.json()) as AgentOperationPlan;
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : 'Failed to prepare association request',
+    );
+  }
+
+  const bundlerUrl: string | undefined = prepared.bundlerUrl;
+  const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
+    Array.isArray(prepared.calls) ? prepared.calls : [];
+
+  if (!bundlerUrl || rawCalls.length === 0) {
+    throw new Error('Association request response missing bundlerUrl or calls');
+  }
+
+  const calls = rawCalls.map((call) => ({
+    to: getAddress(call.to) as `0x${string}`,
+    data: call.data as `0x${string}`,
+    value: BigInt(call.value ?? '0'),
+  }));
+
+  onStatusUpdate?.('Sending association request via bundler...');
+  const userOpHash = await sendSponsoredUserOperation({
+    bundlerUrl,
+    chain: chain as any,
+    accountClient: requesterAccountClient,
+    calls,
+  });
+
+  onStatusUpdate?.(
+    `Association request sent! UserOperation hash: ${userOpHash}. Waiting for confirmation...`,
+  );
+
+  await waitForUserOperationReceipt({
+    bundlerUrl,
+    chain: chain as any,
+    hash: userOpHash,
+  });
+
+  return {
+    txHash: userOpHash,
+    requiresClientSigning: true as const,
+  };
 }
 
 export async function requestNameValidationWithWallet(

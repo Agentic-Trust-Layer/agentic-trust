@@ -117,6 +117,14 @@ export interface PrepareValidationRequestPayload {
   validatorAddress?: string;
 }
 
+export interface PrepareAssociationRequestPayload {
+  did8004: string;
+  approverAddress: string; // The agent account address that will approve the association
+  assocType?: number; // Association type (0=Membership, 1=Delegation, etc.)
+  description?: string; // Description of the association
+  mode?: AgentOperationMode;
+}
+
 export interface DirectFeedbackPayload {
   did8004?: string;
   agentId?: string | number;

@@ -16,6 +16,7 @@ export {
   requestFeedbackAuthRouteHandler,
   prepareFeedbackRouteHandler,
   prepareValidationRequestRouteHandler,
+  prepareAssociationRequestRouteHandler,
   getFeedbackRouteHandler,
   directFeedbackRouteHandler,
   getValidationsRouteHandler,
@@ -44,6 +45,7 @@ export {
   requestFeedbackAuthCore as requestFeedbackAuth,
   prepareFeedbackCore as prepareFeedback,
   prepareValidationRequestCore as prepareValidationRequest,
+  prepareAssociationRequestCore as prepareAssociationRequest,
 } from '../api/agents/core';
 export { createAgentDirectCore as createAgentDirect } from '../api/agents/directServer';
 

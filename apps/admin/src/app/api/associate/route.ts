@@ -1,63 +1,67 @@
-import { NextResponse } from "next/server";
-import { ethers } from "ethers";
-import { getAdminWallet, getSepoliaProvider } from "@/lib/wallet";
-import { buildSignedAssociation } from "@/lib/association";
-import { getAssociationsProxyAddress } from "@/lib/config";
-
-const ASSOCIATIONS_ABI = [
-  "function storeAssociation((uint40 revokedAt,bytes2 initiatorKeyType,bytes2 approverKeyType,bytes initiatorSignature,bytes approverSignature,(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data) record) sar)",
-] as const;
-
-async function resolveToAddress(provider: ethers.Provider, value: string): Promise<string> {
-  const v = value.trim();
-  if (v.startsWith("0x")) return ethers.getAddress(v);
-  const resolved = await provider.resolveName(v);
-  if (!resolved) throw new Error(`Could not resolve ENS name: ${v}`);
-  return ethers.getAddress(resolved);
-}
-
 export async function POST(req: Request) {
+  // NOTE:
+  // This route intentionally does NOT send a transaction server-side.
+  // It ONLY prepares an AgentOperationPlan (bundlerUrl + calls) for client-side AA execution.
+  console.log('[API /associate] POST (prepare-only) request received');
   try {
+    const { NextResponse } = await import('next/server');
+    const { prepareAssociationRequest } = await import('@agentic-trust/core/server');
+
     const body = (await req.json()) as {
-      initiatorAddress: string;
-      approverAddress: string;
-      initiatorKeyType?: string;
-      approverKeyType?: string;
+      did8004?: string; // initiator agent DID
+      initiatorDid?: string; // alias for did8004
+      approverAddress?: string; // counterparty account address
+      assocType?: number;
+      description?: string;
+      mode?: 'smartAccount' | 'eoa';
+
+      // Back-compat fields from the previous server-send implementation:
+      initiatorAddress?: string;
+      approverAddressLegacy?: string;
     };
 
-    if (!body?.initiatorAddress || !body?.approverAddress) {
-      return NextResponse.json({ ok: false, error: "Missing initiatorAddress/approverAddress" }, { status: 400 });
-    }
+    const did8004 = (body.did8004 || body.initiatorDid || '').trim();
+    const approverAddress = (body.approverAddress || '').trim();
 
-    const provider = getSepoliaProvider();
-    const wallet = getAdminWallet().connect(provider);
-    const network = await provider.getNetwork();
-    const chainId = Number(network.chainId);
-
-    const initiatorAddress = await resolveToAddress(provider, body.initiatorAddress);
-    const approverAddress = await resolveToAddress(provider, body.approverAddress);
-    const latestBlock = await provider.getBlock("latest");
-    const chainNow = Number(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
-    // small safety buffer to avoid clock skew causing (block.timestamp < validAt)
-    const validAt = Math.max(0, chainNow - 10);
-
-    const sar = await buildSignedAssociation({
-      chainId,
-      wallet,
-      initiatorAddress,
+    console.log('[API /associate] prepare payload:', {
+      did8004,
       approverAddress,
-      initiatorKeyType: body.initiatorKeyType ?? "0x8002",
-      approverKeyType: body.approverKeyType ?? "0x8002",
-      signIfEOA: false,
-      validAt,
+      assocType: body.assocType,
+      hasDescription: !!body.description,
+      mode: body.mode,
+      legacyProvided: {
+        initiatorAddress: !!body.initiatorAddress,
+        approverAddressLegacy: !!body.approverAddressLegacy,
+      },
     });
 
-    const proxy = getAssociationsProxyAddress();
-    const contract = new ethers.Contract(proxy, ASSOCIATIONS_ABI, wallet);
-    const tx = await contract.storeAssociation(sar);
-    return NextResponse.json({ ok: true, txHash: tx.hash });
+    if (!did8004) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'did8004 (initiator DID) is required. This endpoint now prepares a client-side transaction; it no longer sends with ADMIN_PRIVATE_KEY.',
+        },
+        { status: 400 },
+      );
+    }
+    if (!approverAddress) {
+      return NextResponse.json({ ok: false, error: 'approverAddress is required' }, { status: 400 });
+    }
+
+    const plan = await prepareAssociationRequest(undefined, {
+      did8004,
+      approverAddress,
+      assocType: body.assocType,
+      description: body.description,
+      mode: body.mode ?? 'smartAccount',
+    });
+
+    return NextResponse.json(plan);
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Unknown error";
+    const { NextResponse } = await import('next/server');
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('[API /associate] prepare-only error:', e);
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

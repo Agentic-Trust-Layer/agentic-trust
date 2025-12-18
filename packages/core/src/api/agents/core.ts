@@ -12,6 +12,7 @@ import {
   type RequestFeedbackAuthResult,
   type PrepareFeedbackPayload,
   type PrepareValidationRequestPayload,
+  type PrepareAssociationRequestPayload,
   type DirectFeedbackPayload,
   type AgentOperationCall,
   type AgentPreparedTransactionPayload,
@@ -559,6 +560,163 @@ export async function prepareValidationRequestCore(
     metadata: {
       validatorAddress,
       requestHash,
+    },
+  };
+}
+
+export async function prepareAssociationRequestCore(
+  ctx: AgentApiContext | undefined,
+  input: PrepareAssociationRequestPayload,
+): Promise<AgentOperationPlan> {
+  if (!input.did8004?.trim()) {
+    throw new AgentApiError('did8004 parameter is required', 400);
+  }
+
+  const mode: AgentOperationMode = input.mode ?? 'smartAccount';
+  if (mode !== 'smartAccount') {
+    throw new AgentApiError(
+      `mode "${mode}" is not supported for association requests. Only "smartAccount" mode is supported.`,
+      400,
+    );
+  }
+
+  const parsed = (() => {
+    try {
+      return parseDid8004(input.did8004);
+    } catch (error) {
+      throw new AgentApiError(
+        `Invalid did:8004 identifier: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+        400,
+      );
+    }
+  })();
+
+  const client = await resolveClient(ctx);
+  const agent = await client.getAgent(parsed.agentId.toString(), parsed.chainId);
+  if (!agent) {
+    throw new AgentApiError('Agent not found', 404, { did8004: input.did8004 });
+  }
+
+  if (!agent.agentAccount) {
+    throw new AgentApiError('Agent must have an agentAccount address', 400);
+  }
+
+  // Validate approver address
+  if (!input.approverAddress?.trim()) {
+    throw new AgentApiError('approverAddress parameter is required', 400);
+  }
+
+  const ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
+  if (!ADDRESS_REGEX.test(input.approverAddress)) {
+    throw new AgentApiError('approverAddress must be a valid Ethereum address (0x...)', 400);
+  }
+
+  const initiatorAddress = agent.agentAccount as `0x${string}`;
+  const approverAddress = input.approverAddress as `0x${string}`;
+
+  // Get associations client
+  const { getAssociationsClient } = await import('../../server/singletons/associationClient');
+  const associationsClient = await getAssociationsClient(parsed.chainId);
+
+  // Encode association metadata if provided
+  const { encodeAssociationData } = await import('../../server/lib/association');
+  let associationData: `0x${string}` = '0x' as `0x${string}`;
+  if (input.assocType !== undefined && input.description) {
+    associationData = encodeAssociationData({
+      assocType: input.assocType,
+      description: input.description,
+    });
+  }
+
+  // Build the signed association record
+  // Note: For smart accounts, signatures are handled via ERC-1271
+  // The transaction will be signed client-side using the account abstraction
+  // We create the record structure here, but the actual signature happens during execution
+  const now = Math.floor(Date.now() / 1000);
+  
+  // formatEvmV1: Create ERC-7930 interoperable address format using ethers
+  // Format: 0x00010000 || uint8(chainRef.length) || chainRef || uint8(20) || address
+  const { ethers } = await import('ethers');
+  
+  const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+    if (n === 0n) return new Uint8Array([0]);
+    let hex = n.toString(16);
+    if (hex.length % 2) hex = `0${hex}`;
+    return ethers.getBytes(`0x${hex}`);
+  };
+  
+  const formatEvmV1 = (chainId: number, address: string): string => {
+    const addr = ethers.getAddress(address);
+    const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+    const head = ethers.getBytes('0x00010000');
+    const out = ethers.concat([
+      head,
+      new Uint8Array([chainRef.length]),
+      chainRef,
+      new Uint8Array([20]),
+      ethers.getBytes(addr),
+    ]);
+    return ethers.hexlify(out);
+  };
+  
+  const initiator = formatEvmV1(parsed.chainId, initiatorAddress);
+  const approver = formatEvmV1(parsed.chainId, approverAddress);
+
+  const record = {
+    initiator,
+    approver,
+    validAt: now,
+    validUntil: 0, // No expiry by default
+    interfaceId: '0x00000000' as `0x${string}`,
+    data: associationData,
+  };
+
+  // Create SignedAssociationRecord with empty signatures (will be signed client-side via AA)
+  const sar: any = {
+    revokedAt: 0,
+    initiatorKeyType: '0x8002' as `0x${string}`, // ERC-1271 smart account
+    approverKeyType: '0x8002' as `0x${string}`, // ERC-1271 smart account
+    initiatorSignature: '0x' as `0x${string}`, // Will be signed client-side via ERC-1271
+    approverSignature: '0x' as `0x${string}`, // Approver will sign when accepting
+    record,
+  };
+
+  // Prepare the storeAssociation transaction
+  // The association client will encode the call, but signatures happen during AA execution
+  const { txRequest } = await associationsClient.prepareStoreAssociationTx({ sar } as any);
+
+  // Get bundler URL for AA mode
+  const bundlerUrl = getChainBundlerUrl(parsed.chainId);
+  if (!bundlerUrl) {
+    throw new AgentApiError(
+      `Bundler URL not configured for chain ${parsed.chainId}`,
+      500,
+    );
+  }
+
+  // Map TxRequest into AgentOperationCall for AA mode
+  const call: AgentOperationCall = {
+    to: txRequest.to,
+    data: txRequest.data,
+    value: normalizeCallValue(txRequest.value),
+  };
+
+  // Return the plan with association metadata
+  return {
+    success: true,
+    operation: 'update',
+    mode: 'smartAccount',
+    chainId: parsed.chainId,
+    bundlerUrl,
+    calls: [call],
+    transaction: undefined,
+    metadata: {
+      initiatorAddress,
+      approverAddress,
+      assocType: input.assocType,
+      description: input.description,
     },
   };
 }

@@ -5,7 +5,7 @@
  * Each concrete singleton wraps an instance of this base class.
  */
 
-export type DomainClientType = 'discovery' | 'identity' | 'ens' | 'reputation' | 'validation';
+export type DomainClientType = 'discovery' | 'identity' | 'ens' | 'reputation' | 'validation' | 'association';
 
 /**
  * Generic base class for domain-specific clients.

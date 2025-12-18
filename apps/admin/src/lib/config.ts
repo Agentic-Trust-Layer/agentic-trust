@@ -16,8 +16,15 @@ const DEFAULTS = {
  */
 export function getAssociationsProxyAddress(): string {
   const raw = (process.env.ASSOCIATIONS_STORE_PROXY ?? DEFAULTS.associationsStoreProxy).trim();
+  console.log('[getAssociationsProxyAddress] Resolving proxy address:', {
+    envVar: process.env.ASSOCIATIONS_STORE_PROXY,
+    default: DEFAULTS.associationsStoreProxy,
+    raw,
+  });
   // Accept lowercase or mixed case; normalize to a checksummed address for ethers.
-  return ethers.getAddress(raw.toLowerCase());
+  const address = ethers.getAddress(raw.toLowerCase());
+  console.log('[getAssociationsProxyAddress] Resolved to:', address);
+  return address;
 }
 
 /**

@@ -686,6 +686,9 @@ importers:
       '@agentic-trust/8004-sdk':
         specifier: workspace:*
         version: link:../erc8004-sdk
+      '@associatedaccounts/erc8092-sdk':
+        specifier: workspace:*
+        version: link:../erc8092-sdk
       '@metamask/smart-accounts-kit':
         specifier: ^0.1.0
         version: 0.1.0(viem@2.42.0)

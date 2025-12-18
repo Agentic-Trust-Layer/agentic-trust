@@ -1,34 +1,25 @@
 /**
- * Association utilities
- * Re-exports from @associatedaccounts/erc8092-sdk
+ * Association utility functions for encoding/decoding association metadata
  */
-export { buildSignedAssociation } from '@associatedaccounts/erc8092-sdk';
+
+import { encodeAbiParameters, decodeAbiParameters, parseAbiParameters } from 'viem';
 
 /**
- * Encode association metadata (type and description) for on-chain storage
+ * Encode association type and description into bytes for ERC-8092 association data field
  */
-import { encodeAbiParameters, decodeAbiParameters, parseAbiParameters } from 'viem';
-import type { AssocType } from './association-types';
-
 export function encodeAssociationData(params: {
-  assocType: AssocType | number;
+  assocType: number;
   description: string;
 }): `0x${string}` {
-  console.log('[encodeAssociationData] Encoding:', {
-    assocType: params.assocType,
-    descriptionLength: params.description.length,
-  });
-  const result = encodeAbiParameters(
+  return encodeAbiParameters(
     parseAbiParameters('uint8 assocType, string description'),
     [params.assocType, params.description]
   );
-  console.log('[encodeAssociationData] Encoded result:', {
-    length: result.length,
-    preview: result.substring(0, 20) + '...',
-  });
-  return result;
 }
 
+/**
+ * Decode association type and description from ERC-8092 association data field
+ */
 export function decodeAssociationData(data: `0x${string}`): { assocType: number; description: string } | null {
   try {
     const [assocType, description] = decodeAbiParameters(

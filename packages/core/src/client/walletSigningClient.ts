@@ -13,6 +13,7 @@ export {
   createAgentWithWallet,
   updateAgentRegistrationWithWallet,
   giveFeedbackWithWallet,
+  requestAssociationWithWallet,
   requestNameValidationWithWallet,
   requestAccountValidationWithWallet,
   requestAppValidationWithWallet,
@@ -34,6 +35,7 @@ export type {
   UpdateAgentRegistrationWithWalletOptions,
   GiveFeedbackWithWalletOptions,
   RequestValidationWithWalletOptions,
+  RequestAssociationWithWalletOptions,
 } from './walletSigning';
 export type {
   CreateAgentDirectClientInput,

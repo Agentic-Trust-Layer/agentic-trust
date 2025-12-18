@@ -60,7 +60,8 @@
     "@metamask/smart-accounts-kit": "^0.1.0",
     "@thenamespace/mint-manager": "^1.1.0",
     "@thenamespace/indexer": "^1.0.2",
-    "@agentic-trust/8004-sdk": "workspace:*"
+    "@agentic-trust/8004-sdk": "workspace:*",
+    "@associatedaccounts/erc8092-sdk": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=18.0.0"

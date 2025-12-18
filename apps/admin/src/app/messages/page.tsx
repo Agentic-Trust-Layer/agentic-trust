@@ -43,6 +43,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { grayscalePalette as palette } from '@/styles/palette';
 import { type ValidationClaimType, VALIDATION_CLAIM_TYPE_OPTIONS } from '@/models/validation';
+import { AssocType, ASSOC_TYPE_OPTIONS } from '@/lib/association-types';
 import SendIcon from '@mui/icons-material/Send';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -52,9 +53,13 @@ import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { useRouter } from 'next/navigation';
 import { buildDid8004, parseDid8004, getDeployedAccountClientByAgentName } from '@agentic-trust/core';
 import { getChainById, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
-import { requestNameValidationWithWallet, requestAppValidationWithWallet } from '@agentic-trust/core/client';
+import {
+  requestAssociationWithWallet,
+  requestNameValidationWithWallet,
+  requestAppValidationWithWallet,
+} from '@agentic-trust/core/client';
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
-import { keccak256, toHex } from 'viem';
+import { getAddress, keccak256, toHex } from 'viem';
 import type { Chain } from 'viem';
 
 type Message = {
@@ -116,7 +121,7 @@ export default function MessagesPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [selectedMessageType, setSelectedMessageType] = useState<'general' | 'feedback_request' | 'validation_request' | 'give_feedback'>('general');
+  const [selectedMessageType, setSelectedMessageType] = useState<'general' | 'feedback_request' | 'validation_request' | 'association_request' | 'give_feedback'>('general');
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('');
   const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null);
   const [folderSearch, setFolderSearch] = useState('');
@@ -135,6 +140,8 @@ export default function MessagesPage() {
   const [validationRequestKind, setValidationRequestKind] = useState<ValidationClaimType>('compliance');
   const [validationRequestDetails, setValidationRequestDetails] = useState('');
   const [validationRequestDomain, setValidationRequestDomain] = useState('');
+  const [associationRequestType, setAssociationRequestType] = useState<number>(0); // AssocType.Membership
+  const [associationRequestDescription, setAssociationRequestDescription] = useState('');
 
   const [approveOpen, setApproveOpen] = useState(false);
   const [approveExpiryDays, setApproveExpiryDays] = useState<number>(30);
@@ -631,15 +638,19 @@ export default function MessagesPage() {
         ? 'Request Feedback Permission'
         : selectedMessageType === 'validation_request'
           ? 'Request Validation'
-          : selectedMessageType === 'give_feedback'
-            ? 'Give Feedback'
-            : '',
+          : selectedMessageType === 'association_request'
+            ? 'Request Association'
+            : selectedMessageType === 'give_feedback'
+              ? 'Give Feedback'
+              : '',
     );
     setComposeBody('');
     setFeedbackRequestComment('');
     setValidationRequestKind('compliance');
     setValidationRequestDetails('');
     setValidationRequestDomain('');
+    setAssociationRequestType(AssocType.Membership);
+    setAssociationRequestDescription('');
     setComposeOpen(true);
   }, [selectedFolderAgent, selectedMessageType]);
 
@@ -654,13 +665,13 @@ export default function MessagesPage() {
     setComposeToAgentLoading(true);
     (async () => {
       try {
-        // For validation requests, we want to show all agents with Validation or Orchestration capability
-        // We'll fetch all agents and filter client-side, or use a search query
-        const searchQuery = selectedMessageType === 'validation_request' 
-          ? (q || '') // For validation requests, allow empty query to show all matching agents
+        // For validation/association requests, we want to show all agents
+        // For validation requests, filter by Validation/Orchestration capability
+        const searchQuery = (selectedMessageType === 'validation_request' || selectedMessageType === 'association_request')
+          ? (q || '') // Allow empty query to show all agents
           : q; // For other message types, require a query
-        
-        if (!searchQuery && selectedMessageType !== 'validation_request') {
+
+        if (!searchQuery && selectedMessageType !== 'validation_request' && selectedMessageType !== 'association_request') {
           setComposeToAgentOptions([]);
           setComposeToAgentLoading(false);
           return;
@@ -870,12 +881,101 @@ export default function MessagesPage() {
           composeSubject.trim() ||
           (selectedMessageType === 'validation_request'
             ? `Request Validation: ${validationRequestKind}`
-            : selectedMessageType === 'give_feedback'
-              ? 'Give Feedback'
-              : 'Message');
+            : selectedMessageType === 'association_request'
+              ? 'Request Association'
+              : selectedMessageType === 'give_feedback'
+                ? 'Give Feedback'
+                : 'Message');
 
-        // For validation requests, also create an on-chain validation request
-        if (selectedMessageType === 'validation_request') {
+        // For association requests: prepare + execute via client wallet (AA + bundler).
+        // The approver will need to separately sign/approve when they accept.
+        if (selectedMessageType === 'association_request') {
+          try {
+            if (!composeToAgent) {
+              throw new Error('To Agent is required for association requests');
+            }
+
+            const chainId = selectedFolderAgent.chainId;
+            const chain = getChainById(chainId);
+            const bundlerUrl = getClientBundlerUrl(chainId);
+            if (!bundlerUrl) {
+              throw new Error(`Bundler URL not configured for chain ${chainId}`);
+            }
+
+            if (!eip1193Provider || !walletAddress) {
+              throw new Error('Wallet not connected');
+            }
+
+            // Switch to correct chain
+            if (eip1193Provider && typeof eip1193Provider.request === 'function') {
+              const targetHex = `0x${chainId.toString(16)}`;
+              try {
+                await eip1193Provider.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: targetHex }],
+                });
+              } catch (switchErr) {
+                console.warn('Failed to switch chain', switchErr);
+              }
+            }
+
+            const agentName = selectedFolderAgent.agentName || '';
+            if (!agentName) {
+              throw new Error('Agent name is required');
+            }
+
+            const initiatorDid = buildDid8004(chainId, selectedFolderAgent.agentId);
+
+            const agentAccountClient = await getDeployedAccountClientByAgentName(
+              bundlerUrl,
+              agentName,
+              walletAddress as `0x${string}`,
+              {
+                chain: chain as any,
+                ethereumProvider: eip1193Provider as any,
+              },
+            );
+
+            // Fetch "To Agent" account address (approverAddress)
+            const toAgentDid = composeToAgent.did;
+            const toAgentResponse = await fetch(`/api/agents/${encodeURIComponent(toAgentDid)}`);
+            if (!toAgentResponse.ok) {
+              throw new Error('Failed to fetch To Agent details');
+            }
+            const toAgentData = await toAgentResponse.json();
+            const approverAddressRaw = toAgentData?.agentAccount || toAgentData?.account;
+            if (!approverAddressRaw) {
+              throw new Error('To Agent account address not found. The agent must have an account address.');
+            }
+            const approverAddress = getAddress(approverAddressRaw) as `0x${string}`;
+
+            console.log('[Association Request] Creating association:', {
+              initiatorDid,
+              approverAddress,
+              assocType: associationRequestType,
+              description: associationRequestDescription,
+            });
+
+            const associationResult = await requestAssociationWithWallet({
+              requesterDid: initiatorDid,
+              chain: chain as any,
+              requesterAccountClient: agentAccountClient,
+              approverAddress,
+              assocType: associationRequestType,
+              description: associationRequestDescription || '',
+              onStatusUpdate: (msg: string) => console.log('[Association Request]', msg),
+            });
+
+            console.log(
+              '[Association Request] Association created (UserOp hash):',
+              associationResult.txHash,
+            );
+          } catch (assocError: any) {
+            console.error('[Association Request] Failed to create association:', assocError);
+            // Continue with message sending even if association creation fails
+            // The user will still get the message notification
+          }
+        } else if (selectedMessageType === 'validation_request') {
           try {
             const chainId = selectedFolderAgent.chainId;
             const chain = getChainById(chainId);
@@ -1015,7 +1115,9 @@ export default function MessagesPage() {
               timestamp: new Date().toISOString(),
               ...(selectedMessageType === 'validation_request'
                 ? { validationKind: validationRequestKind, validationDetails: validationRequestDetails || undefined }
-                : {}),
+                : selectedMessageType === 'association_request'
+                  ? { associationType: associationRequestType, associationDescription: associationRequestDescription || undefined }
+                  : {}),
             },
           }),
         });
@@ -1046,6 +1148,8 @@ export default function MessagesPage() {
     validationRequestKind,
     validationRequestDetails,
     validationRequestDomain,
+    associationRequestType,
+    associationRequestDescription,
     walletAddress,
     eip1193Provider,
     fetchMessages,
@@ -1065,6 +1169,8 @@ export default function MessagesPage() {
         return 'Request Feedback Permission';
       case 'validation_request':
         return 'Request Validation';
+      case 'association_request':
+        return 'Request Association';
       case 'feedback_request_approved':
         return 'Feedback Request Approved';
       case 'give_feedback':
@@ -1624,6 +1730,7 @@ export default function MessagesPage() {
                 <MenuItem value="general">General Message</MenuItem>
                 <MenuItem value="feedback_request">Request Feedback Permission</MenuItem>
                 <MenuItem value="validation_request">Request Validation</MenuItem>
+                <MenuItem value="association_request">Request Association</MenuItem>
                 <MenuItem value="give_feedback">Give Feedback</MenuItem>
               </Select>
               <FormHelperText>
@@ -1758,6 +1865,44 @@ export default function MessagesPage() {
                   multiline
                   minRows={5}
                   placeholder="What should be validated, and why?"
+                />
+                <TextField
+                  label="Message"
+                  value={composeBody}
+                  onChange={(e) => setComposeBody(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={4}
+                  placeholder="Optional additional context…"
+                />
+              </Stack>
+            ) : selectedMessageType === 'association_request' ? (
+              <Stack spacing={2}>
+                <FormControl fullWidth size="small">
+                  <InputLabel id="association-request-type-label">Association Type</InputLabel>
+                  <Select
+                    id="association-request-type"
+                    labelId="association-request-type-label"
+                    value={associationRequestType}
+                    label="Association Type"
+                    onChange={(e) => setAssociationRequestType(Number(e.target.value))}
+                  >
+                    {ASSOC_TYPE_OPTIONS.map((option) => (
+                      <MenuItem key={option.value} value={option.value}>
+                        {option.label}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                  <FormHelperText>Type of association relationship</FormHelperText>
+                </FormControl>
+                <TextField
+                  label="Description"
+                  value={associationRequestDescription}
+                  onChange={(e) => setAssociationRequestDescription(e.target.value)}
+                  fullWidth
+                  multiline
+                  minRows={3}
+                  placeholder="Describe the association (e.g., Member of ABC Relief Network alliance)"
                 />
                 <TextField
                   label="Message"
