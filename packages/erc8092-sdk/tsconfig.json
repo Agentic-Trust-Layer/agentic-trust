@@ -1,0 +1,14 @@
+{
+  "extends": "../../apps/admin/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "declaration": true,
+    "declarationMap": true,
+    "emitDeclarationOnly": false,
+    "incremental": false
+  },
+  "include": ["src"]
+}
+
+

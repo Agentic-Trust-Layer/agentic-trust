@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/veramo-agent-extension",
-  "version": "1.0.34",
+  "version": "1.0.40",
   "description": "Veramo agent extensions for agent-to-agent and account abstraction support",
   "type": "module",
   "main": "./dist/index.js",

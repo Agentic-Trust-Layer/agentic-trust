@@ -5,6 +5,7 @@
 
 import { createWalletClient, custom, type WalletClient, type Address } from 'viem';
 import { sepolia } from 'viem/chains';
+import { ethers } from 'ethers';
 
 // Wallet client instance
 let walletClient: WalletClient | null = null;
@@ -215,6 +216,42 @@ export async function isWalletConnected(): Promise<boolean> {
  */
 export function getWalletClient(): WalletClient | null {
   return walletClient;
+}
+
+/**
+ * Get Sepolia provider (server-side)
+ */
+export function getSepoliaProvider(): ethers.Provider {
+  const rpcUrl =
+    process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA ||
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA ||
+    process.env.AGENTIC_TRUST_RPC_URL ||
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL;
+
+  if (!rpcUrl) {
+    throw new Error(
+      'RPC URL not found. Set AGENTIC_TRUST_RPC_URL_SEPOLIA or AGENTIC_TRUST_RPC_URL'
+    );
+  }
+
+  return new ethers.JsonRpcProvider(rpcUrl);
+}
+
+/**
+ * Get admin wallet (server-side)
+ */
+export function getAdminWallet(): ethers.Wallet {
+  const key = process.env.AGENTIC_TRUST_ADMIN_PRIVATE_KEY || process.env.ADMIN_PRIVATE_KEY;
+
+  if (!key) {
+    throw new Error(
+      'AGENTIC_TRUST_ADMIN_PRIVATE_KEY or ADMIN_PRIVATE_KEY environment variable is required'
+    );
+  }
+
+  // Normalize to ensure 0x prefix
+  const normalizedKey = key.startsWith('0x') ? key : `0x${key}`;
+  return new ethers.Wallet(normalizedKey);
 }
 
 // Extend Window interface for ethereum

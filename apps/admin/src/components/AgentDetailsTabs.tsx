@@ -49,6 +49,7 @@ const TAB_DEFS = [
   { id: 'registration', label: 'Registration' },
   { id: 'feedback', label: 'Feedback' },
   { id: 'validation', label: 'Validation' },
+  { id: 'associations', label: 'Associations' },
 ] as const;
 
 type TabId = (typeof TAB_DEFS)[number]['id'];
@@ -91,6 +92,27 @@ const AgentDetailsTabs = ({
   const [registrationData, setRegistrationData] = useState<string | null>(null);
   const [registrationLoading, setRegistrationLoading] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  
+  // Associations state
+  const [associationsData, setAssociationsData] = useState<{
+    ok: true;
+    chainId: number;
+    account: string;
+    associations: Array<{
+      associationId: string;
+      initiator: string;
+      approver: string;
+      counterparty: string;
+      validAt: number;
+      validUntil: number;
+      revokedAt: number;
+    }>;
+  } | { ok: false; error: string } | null>(null);
+  const [associationsLoading, setAssociationsLoading] = useState(false);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [revokeTx, setRevokeTx] = useState<string | null>(null);
+  const [revokeReceipt, setRevokeReceipt] = useState<any | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   const feedbackList = useMemo(
     () => (Array.isArray(feedbackItems) ? feedbackItems : []),
@@ -123,6 +145,36 @@ const AgentDetailsTabs = ({
     }
     return value;
   }, []);
+
+  // Load associations when associations tab is selected
+  const refreshAssociations = useCallback(async () => {
+    if (!agent.agentAccount) return;
+    setAssociationsLoading(true);
+    setAssociationsData(null);
+    try {
+      // Include chainId in the request
+      const chainId = agent.chainId || 11155111; // Default to Sepolia if not set
+      const res = await fetch(
+        `/api/associations?account=${encodeURIComponent(agent.agentAccount)}&chainId=${chainId}`,
+        {
+          cache: 'no-store',
+        }
+      );
+      const json = await res.json();
+      setAssociationsData(json);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      setAssociationsData({ ok: false, error: msg });
+    } finally {
+      setAssociationsLoading(false);
+    }
+  }, [agent.agentAccount, agent.chainId]);
+
+  useEffect(() => {
+    if (activeTab === 'associations' && agent.agentAccount && !associationsData && !associationsLoading) {
+      void refreshAssociations();
+    }
+  }, [activeTab, agent.agentAccount, associationsData, associationsLoading, refreshAssociations]);
 
   // Load registration data when registration tab is selected
   useEffect(() => {
@@ -967,6 +1019,256 @@ const AgentDetailsTabs = ({
                     </p>
                   )}
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'associations' && (
+          <div>
+            <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+              Associated accounts for this agent's smart account ({agent.agentAccount ? shorten(agent.agentAccount) : '—'})
+            </p>
+            {!agent.agentAccount ? (
+              <p style={{ color: palette.textSecondary, margin: 0 }}>
+                No agent account address available.
+              </p>
+            ) : associationsLoading ? (
+              <p style={{ color: palette.textSecondary, margin: 0 }}>
+                Loading associations...
+              </p>
+            ) : associationsData?.ok === false ? (
+              <div
+                style={{
+                  borderRadius: '8px',
+                  border: `1px solid ${palette.dangerText}`,
+                  backgroundColor: `${palette.dangerText}20`,
+                  padding: '0.75rem',
+                  color: palette.dangerText,
+                  fontSize: '0.9rem',
+                }}
+              >
+                {associationsData.error}
+              </div>
+            ) : associationsData?.ok === true && associationsData.associations.length === 0 ? (
+              <p style={{ color: palette.textSecondary, margin: 0 }}>
+                No associations found for this account.
+              </p>
+            ) : associationsData?.ok === true ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                {associationsData.associations.map((assoc, index) => {
+                  const active = assoc.revokedAt === 0;
+                  return (
+                    <div
+                      key={`${assoc.initiator}-${assoc.approver}-${index}`}
+                      style={{
+                        border: `1px solid ${palette.border}`,
+                        borderRadius: '8px',
+                        padding: '1rem',
+                        backgroundColor: palette.surfaceMuted,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '1rem',
+                          marginBottom: '0.75rem',
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: '0.85rem',
+                            color: palette.textSecondary,
+                            fontWeight: 600,
+                          }}
+                        >
+                          #{index + 1}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          <span
+                            style={{
+                              borderRadius: '6px',
+                              padding: '0.25rem 0.75rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              backgroundColor: active
+                                ? `${palette.accent}20`
+                                : `${palette.dangerText}20`,
+                              color: active ? palette.accent : palette.dangerText,
+                            }}
+                          >
+                            {active ? 'Active' : 'Revoked'}
+                          </span>
+                          {active && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!agent.agentAccount) return;
+                                setRevokingId(assoc.associationId);
+                                setRevokeTx(null);
+                                setRevokeReceipt(null);
+                                setRevokeError(null);
+                                try {
+                                  const res = await fetch('/api/associations/revoke', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      associationId: assoc.associationId,
+                                      fromAccount: agent.agentAccount,
+                                      revokedAt: 0,
+                                    }),
+                                  });
+                                  const json = await res.json();
+                                  if (!json.ok) throw new Error(json.error ?? 'Failed to revoke');
+                                  setRevokeTx(json.txHash ?? json.userOpHash);
+
+                                  if (json.txHash) {
+                                    for (let k = 0; k < 30; k++) {
+                                      const r = await fetch(`/api/tx/receipt?hash=${json.txHash}`, {
+                                        cache: 'no-store',
+                                      }).then((x) => x.json());
+                                      setRevokeReceipt(r);
+                                      if (r.ok && r.found) break;
+                                      await new Promise((resolve) => setTimeout(resolve, 2000));
+                                    }
+                                  }
+                                  
+                                  // Refresh associations
+                                  await refreshAssociations();
+                                } catch (err: any) {
+                                  setRevokeError(err?.message ?? 'Failed to revoke');
+                                } finally {
+                                  setRevokingId(null);
+                                }
+                              }}
+                              disabled={revokingId === assoc.associationId}
+                              style={{
+                                borderRadius: '6px',
+                                border: `1px solid ${palette.border}`,
+                                padding: '0.25rem 0.75rem',
+                                fontSize: '0.75rem',
+                                backgroundColor: palette.surface,
+                                color: palette.textPrimary,
+                                cursor: revokingId === assoc.associationId ? 'not-allowed' : 'pointer',
+                                opacity: revokingId === assoc.associationId ? 0.6 : 1,
+                              }}
+                            >
+                              {revokingId === assoc.associationId ? 'Revoking...' : 'Revoke'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                          gap: '0.75rem',
+                          fontSize: '0.85rem',
+                        }}
+                      >
+                        <div>
+                          <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                            Initiator
+                          </div>
+                          <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                            {assoc.initiator}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                            Approver
+                          </div>
+                          <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                            {assoc.approver}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                            Counterparty
+                          </div>
+                          <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                            {assoc.counterparty}
+                          </div>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                          <div>
+                            <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                              Valid At
+                            </div>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                              {assoc.validAt}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                              Valid Until
+                            </div>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                              {assoc.validUntil || 'Never'}
+                            </div>
+                          </div>
+                          <div>
+                            <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                              Revoked At
+                            </div>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                              {assoc.revokedAt || '0'}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ gridColumn: '1 / -1' }}>
+                          <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                            Association ID
+                          </div>
+                          <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', fontSize: '0.8rem' }}>
+                            {assoc.associationId}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            
+            {revokeTx && (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  borderRadius: '8px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surfaceMuted,
+                  padding: '0.75rem',
+                  fontSize: '0.85rem',
+                }}
+              >
+                <div style={{ color: palette.textSecondary, marginBottom: '0.25rem' }}>Revoke Transaction:</div>
+                <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                  {revokeTx}
+                </div>
+                {revokeReceipt?.ok && revokeReceipt.found ? (
+                  <div style={{ color: palette.textSecondary, marginTop: '0.5rem', fontSize: '0.8rem' }}>
+                    Status: {String(revokeReceipt.receipt.status)}, Block:{' '}
+                    {String(revokeReceipt.receipt.blockNumber)}
+                  </div>
+                ) : null}
+              </div>
+            )}
+            {revokeError && (
+              <div
+                style={{
+                  marginTop: '1rem',
+                  borderRadius: '8px',
+                  border: `1px solid ${palette.dangerText}`,
+                  backgroundColor: `${palette.dangerText}20`,
+                  padding: '0.75rem',
+                  color: palette.dangerText,
+                  fontSize: '0.85rem',
+                }}
+              >
+                {revokeError}
               </div>
             )}
           </div>
