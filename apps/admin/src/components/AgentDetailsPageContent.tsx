@@ -276,12 +276,17 @@ export default function AgentDetailsPageContent({
         if (response.ok) {
           const data = await response.json();
 
-          if (data.feedbackAuthId === "0x0") {
+          const feedbackAuthId =
+            (data?.feedbackAuthId as string | undefined) ??
+            (data?.feedbackAuth as string | undefined) ??
+            null;
+
+          if (feedbackAuthId === '0x0') {
             setFeedbackAuth(null);
             return;
           }
-          if (data.feedbackAuthId) {
-            setFeedbackAuth(data.feedbackAuthId);
+          if (feedbackAuthId) {
+            setFeedbackAuth(feedbackAuthId);
           } else {
             setFeedbackAuth(null);
           }

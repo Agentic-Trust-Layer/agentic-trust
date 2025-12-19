@@ -608,7 +608,9 @@ export class Agent {
       throw new Error(response?.error || 'Provider rejected feedback auth request');
     }
 
-    const providerPayload = (response.response || {}) as Record<string, unknown>;
+    // Some providers respond with payload fields at the top-level (e.g. { success, feedbackAuthId, ... })
+    // rather than nesting under `response`. Support both shapes.
+    const providerPayload = ((response as any).response || response || {}) as Record<string, unknown>;
     const feedbackAuthId =
       (providerPayload.feedbackAuth as string | undefined) ??
       (providerPayload.feedbackAuthId as string | undefined) ??

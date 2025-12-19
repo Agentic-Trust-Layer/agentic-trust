@@ -677,8 +677,13 @@ export async function prepareAssociationRequestCore(
   // Create SignedAssociationRecord with empty signatures (will be signed client-side via AA)
   const sar: any = {
     revokedAt: 0,
-    initiatorKeyType: '0x8002' as `0x${string}`, // ERC-1271 smart account
-    approverKeyType: '0x8002' as `0x${string}`, // ERC-1271 smart account
+    // IMPORTANT:
+    // Use K1 (0x0001) so the ERC-8092 reference implementation validates signatures via
+    // OpenZeppelin SignatureChecker, which supports both EOAs and standard ERC-1271 smart accounts.
+    // The ERC-8092 POC's ERC1271 keytype uses a bool-returning IERC1271 interface, which is not
+    // compatible with the widely-used bytes4-magic ERC-1271 implementations.
+    initiatorKeyType: '0x0001' as `0x${string}`, // K1 / ECDSA secp256k1
+    approverKeyType: '0x0001' as `0x${string}`, // K1 / ECDSA secp256k1
     initiatorSignature:
       (input.initiatorSignature as `0x${string}` | undefined) ?? ('0x' as `0x${string}`),
     approverSignature:

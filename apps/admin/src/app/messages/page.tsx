@@ -130,27 +130,27 @@ async function signAssociationDigest(params: {
     })) as `0x${string}`;
     return sig;
   };
-  const tryPersonalSign = async () => {
-    const sig = (await provider.request?.({
-      method: 'personal_sign',
-      params: [digest, signerAddress],
-    })) as `0x${string}`;
-    return sig;
-  };
 
-  const order: Array<'eth_sign' | 'personal_sign'> =
-    preferredMethod === 'personal_sign' ? ['personal_sign', 'eth_sign'] : ['eth_sign', 'personal_sign'];
+  // IMPORTANT: For ERC-8092 validation in the on-chain contract, signatures are verified over the raw
+  // EIP-712 hash (bytes32 digest). `personal_sign` prefixes the message and will NOT validate.
+  // So we require `eth_sign` here.
+  const order: Array<'eth_sign'> = ['eth_sign'];
 
   let lastErr: any = null;
   for (const method of order) {
     try {
-      const signature = method === 'eth_sign' ? await tryEthSign() : await tryPersonalSign();
+      const signature = await tryEthSign();
       if (signature && signature !== '0x') return { signature, method };
     } catch (e) {
       lastErr = e;
     }
   }
-  throw lastErr ?? new Error('Failed to sign digest');
+  throw (
+    lastErr ??
+    new Error(
+      'Failed to sign digest via eth_sign. This wallet must support eth_sign for ERC-8092 association approvals.',
+    )
+  );
 }
 
 type AgentSearchOption = {

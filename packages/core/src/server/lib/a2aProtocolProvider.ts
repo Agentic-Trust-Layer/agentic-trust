@@ -250,12 +250,11 @@ export class A2AProtocolProvider {
           console.log('[A2AProtocolProvider.fetchAgentCard] Using A2A endpoint from agent card:', picked);
           this.a2aEndpoint = picked;
         } else {
-          // Construct from providerUrl by appending /api/a2a only if providerUrl doesn't already look like an A2A endpoint.
+          // Use the configured providerUrl directly; do NOT require '/a2a' or '/api/a2a' in the path.
+          // Some providers expose A2A at '/api' (or other paths) and treat it as the message endpoint.
           const urlStr = this.providerUrl.replace(/\/$/, '');
-          const constructedEndpoint =
-            urlStr.endsWith('/a2a') || urlStr.endsWith('/api/a2a') ? urlStr : `${baseOrigin}/api/a2a`;
-          console.log('[A2AProtocolProvider.fetchAgentCard] Constructed A2A endpoint:', constructedEndpoint);
-          this.a2aEndpoint = constructedEndpoint;
+          console.log('[A2AProtocolProvider.fetchAgentCard] Using configured providerUrl as A2A endpoint:', urlStr);
+          this.a2aEndpoint = urlStr;
         }
           
         // Verify the constructed a2aEndpoint is absolute
@@ -265,12 +264,10 @@ export class A2AProtocolProvider {
         
       } else {
         console.warn('[A2AProtocolProvider.fetchAgentCard] No agent card received');
-        // If no card, construct endpoint from providerUrl directly (which should have subdomain)
+        // If no card, use providerUrl directly (which should already have the correct path).
         if (!this.a2aEndpoint) {
-          this.a2aEndpoint = this.providerUrl.endsWith('/api/a2a') 
-            ? this.providerUrl 
-            : `${this.providerUrl.replace(/\/$/, '')}/api/a2a`;
-          console.log('[A2AProtocolProvider.fetchAgentCard] Constructed endpoint from providerUrl (no card):', this.a2aEndpoint);
+          this.a2aEndpoint = this.providerUrl.replace(/\/$/, '');
+          console.log('[A2AProtocolProvider.fetchAgentCard] Using providerUrl as endpoint (no card):', this.a2aEndpoint);
         }
       }
       return card;
@@ -312,19 +309,14 @@ export class A2AProtocolProvider {
       await this.fetchAgentCard();
     }
 
-    // If we still don't have an endpoint, construct it from providerUrl (which should have subdomain)
+    // If we still don't have an endpoint, use the providerUrl directly.
     if (!this.a2aEndpoint) {
-      // Use the providerUrl directly (which should already have the subdomain from constructor)
-      const constructedEndpoint = this.providerUrl.endsWith('/api/a2a') 
-        ? this.providerUrl 
-        : `${this.providerUrl.replace(/\/$/, '')}/api/a2a`;
-      
-      console.log('[A2AProtocolProvider.getA2AEndpoint] Constructing endpoint from providerUrl:', {
+      const endpoint = this.providerUrl.replace(/\/$/, '');
+      console.log('[A2AProtocolProvider.getA2AEndpoint] Using providerUrl as endpoint:', {
         providerUrl: this.providerUrl,
-        constructedEndpoint,
+        endpoint,
       });
-      
-      this.a2aEndpoint = constructedEndpoint;
+      this.a2aEndpoint = endpoint;
     }
 
     if (!this.a2aEndpoint) {
