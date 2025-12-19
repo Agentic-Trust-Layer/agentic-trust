@@ -13,6 +13,10 @@ export async function POST(req: Request) {
       approverAddress?: string; // counterparty account address
       assocType?: number;
       description?: string;
+      validAt?: number;
+      data?: `0x${string}`;
+      initiatorSignature?: `0x${string}`;
+      approverSignature?: `0x${string}`;
       mode?: 'smartAccount' | 'eoa';
 
       // Back-compat fields from the previous server-send implementation:
@@ -54,6 +58,10 @@ export async function POST(req: Request) {
       approverAddress,
       assocType: body.assocType,
       description: body.description,
+      validAt: body.validAt,
+      data: body.data,
+      initiatorSignature: body.initiatorSignature,
+      approverSignature: body.approverSignature,
       mode: body.mode ?? 'smartAccount',
     });
 

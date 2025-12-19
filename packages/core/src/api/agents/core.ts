@@ -622,11 +622,12 @@ export async function prepareAssociationRequestCore(
 
   // Encode association metadata if provided
   const { encodeAssociationData } = await import('../../server/lib/association');
-  let associationData: `0x${string}` = '0x' as `0x${string}`;
-  if (input.assocType !== undefined && input.description) {
+  let associationData: `0x${string}` =
+    (input.data as `0x${string}` | undefined) ?? ('0x' as `0x${string}`);
+  if (!input.data && input.assocType !== undefined && typeof input.description !== 'undefined') {
     associationData = encodeAssociationData({
       assocType: input.assocType,
-      description: input.description,
+      description: input.description ?? '',
     });
   }
 
@@ -634,7 +635,7 @@ export async function prepareAssociationRequestCore(
   // Note: For smart accounts, signatures are handled via ERC-1271
   // The transaction will be signed client-side using the account abstraction
   // We create the record structure here, but the actual signature happens during execution
-  const now = Math.floor(Date.now() / 1000);
+  const now = typeof input.validAt === 'number' ? input.validAt : Math.floor(Date.now() / 1000);
   
   // formatEvmV1: Create ERC-7930 interoperable address format using ethers
   // Format: 0x00010000 || uint8(chainRef.length) || chainRef || uint8(20) || address
@@ -678,8 +679,10 @@ export async function prepareAssociationRequestCore(
     revokedAt: 0,
     initiatorKeyType: '0x8002' as `0x${string}`, // ERC-1271 smart account
     approverKeyType: '0x8002' as `0x${string}`, // ERC-1271 smart account
-    initiatorSignature: '0x' as `0x${string}`, // Will be signed client-side via ERC-1271
-    approverSignature: '0x' as `0x${string}`, // Approver will sign when accepting
+    initiatorSignature:
+      (input.initiatorSignature as `0x${string}` | undefined) ?? ('0x' as `0x${string}`),
+    approverSignature:
+      (input.approverSignature as `0x${string}` | undefined) ?? ('0x' as `0x${string}`),
     record,
   };
 

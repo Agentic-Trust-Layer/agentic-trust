@@ -54,12 +54,12 @@ import { useRouter } from 'next/navigation';
 import { buildDid8004, parseDid8004, getDeployedAccountClientByAgentName } from '@agentic-trust/core';
 import { getChainById, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
 import {
-  requestAssociationWithWallet,
+  finalizeAssociationWithWallet,
   requestNameValidationWithWallet,
   requestAppValidationWithWallet,
 } from '@agentic-trust/core/client';
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
-import { getAddress, keccak256, toHex } from 'viem';
+import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, toHex } from 'viem';
 import type { Chain } from 'viem';
 
 type Message = {
@@ -76,7 +76,82 @@ type Message = {
   toClientAddress: string | null;
   createdAt: number | null;
   readAt: number | null;
+  associationType?: number | null;
+  associationDescription?: string | null;
+  associationPayload?: string | null;
 };
+
+type AssociationRequestPayload = {
+  version: 1;
+  chainId: number;
+  initiatorDid: string;
+  approverDid: string;
+  initiatorAddress: `0x${string}`;
+  approverAddress: `0x${string}`;
+  assocType: number;
+  description: string;
+  validAt: number;
+  validUntil: number;
+  interfaceId: `0x${string}`;
+  data: `0x${string}`;
+  digest: `0x${string}`;
+  initiatorSignature: `0x${string}`;
+  signatureMethod?: 'eth_sign' | 'personal_sign';
+};
+
+const ASSOCIATION_PAYLOAD_MARKER_BEGIN = '---BEGIN ASSOCIATION PAYLOAD---';
+const ASSOCIATION_PAYLOAD_MARKER_END = '---END ASSOCIATION PAYLOAD---';
+
+function extractAssociationPayloadFromBody(body: string): AssociationRequestPayload | null {
+  if (!body) return null;
+  const start = body.indexOf(ASSOCIATION_PAYLOAD_MARKER_BEGIN);
+  const end = body.indexOf(ASSOCIATION_PAYLOAD_MARKER_END);
+  if (start === -1 || end === -1 || end <= start) return null;
+  const json = body.slice(start + ASSOCIATION_PAYLOAD_MARKER_BEGIN.length, end).trim();
+  if (!json) return null;
+  try {
+    return JSON.parse(json) as AssociationRequestPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function signAssociationDigest(params: {
+  provider: any;
+  signerAddress: `0x${string}`;
+  digest: `0x${string}`;
+  preferredMethod?: 'eth_sign' | 'personal_sign';
+}): Promise<{ signature: `0x${string}`; method: 'eth_sign' | 'personal_sign' }> {
+  const { provider, signerAddress, digest, preferredMethod } = params;
+  const tryEthSign = async () => {
+    const sig = (await provider.request?.({
+      method: 'eth_sign',
+      params: [signerAddress, digest],
+    })) as `0x${string}`;
+    return sig;
+  };
+  const tryPersonalSign = async () => {
+    const sig = (await provider.request?.({
+      method: 'personal_sign',
+      params: [digest, signerAddress],
+    })) as `0x${string}`;
+    return sig;
+  };
+
+  const order: Array<'eth_sign' | 'personal_sign'> =
+    preferredMethod === 'personal_sign' ? ['personal_sign', 'eth_sign'] : ['eth_sign', 'personal_sign'];
+
+  let lastErr: any = null;
+  for (const method of order) {
+    try {
+      const signature = method === 'eth_sign' ? await tryEthSign() : await tryPersonalSign();
+      if (signature && signature !== '0x') return { signature, method };
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr ?? new Error('Failed to sign digest');
+}
 
 type AgentSearchOption = {
   key: string; // `${chainId}:${agentId}`
@@ -169,6 +244,12 @@ export default function MessagesPage() {
   const [checkingValidationRequest, setCheckingValidationRequest] = useState(false);
   const [validationResponseScore, setValidationResponseScore] = useState<number>(100);
   const [validationResponseAlreadySubmitted, setValidationResponseAlreadySubmitted] = useState(false);
+
+  const [approveAssociationOpen, setApproveAssociationOpen] = useState(false);
+  const [approveAssociationLoading, setApproveAssociationLoading] = useState(false);
+  const [approveAssociationError, setApproveAssociationError] = useState<string | null>(null);
+  const [approveAssociationPayload, setApproveAssociationPayload] =
+    useState<AssociationRequestPayload | null>(null);
 
   const fetchMessages = useCallback(async (agentKeyOverride?: string) => {
     const key = agentKeyOverride ?? selectedAgentKey;
@@ -876,6 +957,7 @@ export default function MessagesPage() {
         if (!content) {
           throw new Error('Message body is required.');
         }
+        let contentToSend = content;
 
         const subject =
           composeSubject.trim() ||
@@ -888,7 +970,8 @@ export default function MessagesPage() {
                 : 'Message');
 
         // For association requests: prepare + execute via client wallet (AA + bundler).
-        // The approver will need to separately sign/approve when they accept.
+        // If approver is a different agent account, we send a message containing the payload
+        // and the approver signs + submits later from their inbox.
         if (selectedMessageType === 'association_request') {
           try {
             if (!composeToAgent) {
@@ -956,20 +1039,118 @@ export default function MessagesPage() {
               description: associationRequestDescription,
             });
 
-            const associationResult = await requestAssociationWithWallet({
-              requesterDid: initiatorDid,
-              chain: chain as any,
-              requesterAccountClient: agentAccountClient,
+            // Build record + digest + initiator signature (for later approver consent)
+            const initiatorAddress = getAddress(agentAccountClient.address) as `0x${string}`;
+            const validAt = Math.max(0, Math.floor(Date.now() / 1000) - 10);
+            const validUntil = 0;
+            const interfaceId = '0x00000000' as const;
+            const data = encodeAbiParameters(
+              parseAbiParameters('uint8 assocType, string description'),
+              [associationRequestType, associationRequestDescription || ''],
+            ) as `0x${string}`;
+
+            // Compute digest using same scheme as erc8092-sdk (eip712Hash(record))
+            const { ethers } = await import('ethers');
+            const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+              if (n === 0n) return new Uint8Array([0]);
+              let hex = n.toString(16);
+              if (hex.length % 2) hex = `0${hex}`;
+              return ethers.getBytes(`0x${hex}`);
+            };
+            const formatEvmV1 = (chainId: number, address: string): string => {
+              const addr = ethers.getAddress(address);
+              const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+              const head = ethers.getBytes('0x00010000');
+              const out = ethers.concat([
+                head,
+                new Uint8Array([chainRef.length]),
+                chainRef,
+                new Uint8Array([20]),
+                ethers.getBytes(addr),
+              ]);
+              return ethers.hexlify(out);
+            };
+            const initiatorInterop = formatEvmV1(chainId, initiatorAddress);
+            const approverInterop = formatEvmV1(chainId, approverAddress);
+            const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+            const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
+            const NAME_HASH = ethers.id('AssociatedAccounts');
+            const VERSION_HASH = ethers.id('1');
+            const MESSAGE_TYPEHASH = ethers.id(
+              'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+            );
+            const domainSeparator = ethers.keccak256(
+              abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
+            );
+            const hashStruct = ethers.keccak256(
+              abiCoder.encode(
+                ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
+                [
+                  MESSAGE_TYPEHASH,
+                  ethers.keccak256(initiatorInterop),
+                  ethers.keccak256(approverInterop),
+                  validAt,
+                  validUntil,
+                  interfaceId,
+                  ethers.keccak256(data),
+                ],
+              ),
+            );
+            const digest = ethers.keccak256(
+              ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
+            ) as `0x${string}`;
+
+            const ownerAddr = walletAddress as `0x${string}`;
+            const initiatorSig = await signAssociationDigest({
+              provider: eip1193Provider,
+              signerAddress: ownerAddr,
+              digest,
+            });
+            const initiatorSignature = initiatorSig.signature;
+
+            const payload: AssociationRequestPayload = {
+              version: 1,
+              chainId,
+              initiatorDid,
+              approverDid: composeToAgent.did,
+              initiatorAddress,
               approverAddress,
               assocType: associationRequestType,
               description: associationRequestDescription || '',
-              onStatusUpdate: (msg: string) => console.log('[Association Request]', msg),
-            });
+              validAt,
+              validUntil,
+              interfaceId,
+              data,
+              digest,
+              initiatorSignature,
+              signatureMethod: initiatorSig.method,
+            };
 
-            console.log(
-              '[Association Request] Association created (UserOp hash):',
-              associationResult.txHash,
-            );
+            // If initiator == approver (self-association), we can submit immediately.
+            if (initiatorAddress.toLowerCase() === approverAddress.toLowerCase()) {
+              const result = await finalizeAssociationWithWallet({
+                chain: chain as any,
+                submitterAccountClient: agentAccountClient,
+                requesterDid: initiatorDid,
+                approverAddress,
+                assocType: associationRequestType,
+                description: associationRequestDescription || '',
+                validAt,
+                data,
+                initiatorSignature,
+                approverSignature: initiatorSignature,
+                onStatusUpdate: (msg: string) => console.log('[Association Request]', msg),
+              } as any);
+              console.log('[Association Request] Association stored (UserOp hash):', result.txHash);
+            } else {
+              // Otherwise, embed payload into message body (atp-agent does NOT persist arbitrary metadata fields).
+              const payloadBlock = [
+                ASSOCIATION_PAYLOAD_MARKER_BEGIN,
+                JSON.stringify(payload),
+                ASSOCIATION_PAYLOAD_MARKER_END,
+              ].join('\n');
+              contentToSend = `${contentToSend}\n\n${payloadBlock}`;
+            }
           } catch (assocError: any) {
             console.error('[Association Request] Failed to create association:', assocError);
             // Continue with message sending even if association creation fails
@@ -1104,7 +1285,7 @@ export default function MessagesPage() {
           body: JSON.stringify({
             type: selectedMessageType === 'give_feedback' ? 'give_feedback' : selectedMessageType,
             subject,
-            content,
+            content: contentToSend,
             fromClientAddress: walletAddress ?? undefined,
             fromAgentDid: selectedFromAgentDid,
             fromAgentName: selectedFolderAgent.agentName || undefined,
@@ -1116,7 +1297,10 @@ export default function MessagesPage() {
               ...(selectedMessageType === 'validation_request'
                 ? { validationKind: validationRequestKind, validationDetails: validationRequestDetails || undefined }
                 : selectedMessageType === 'association_request'
-                  ? { associationType: associationRequestType, associationDescription: associationRequestDescription || undefined }
+                  ? {
+                      associationType: associationRequestType,
+                      associationDescription: associationRequestDescription || undefined,
+                    }
                   : {}),
             },
           }),
@@ -1126,6 +1310,8 @@ export default function MessagesPage() {
           const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.message || errorData.error || 'Failed to send message');
         }
+
+        // no-op
       }
 
       setComposeOpen(false);
@@ -1610,6 +1796,36 @@ export default function MessagesPage() {
                                 }}
                               >
                                 {checkingValidationRequest ? 'Checking...' : 'Validate'}
+                              </Button>
+                            </Box>
+                          )}
+
+                        {mailboxMode === 'inbox' &&
+                          selectedMessage.contextType === 'association_request' &&
+                          extractAssociationPayloadFromBody(selectedMessage.body) && (
+                            <Box>
+                              <Button
+                                variant="contained"
+                                size="small"
+                                onClick={() => {
+                                  try {
+                                    const parsed = extractAssociationPayloadFromBody(selectedMessage.body);
+                                    if (!parsed) throw new Error('Missing association payload');
+                                    setApproveAssociationPayload(parsed);
+                                    setApproveAssociationError(null);
+                                    setApproveAssociationOpen(true);
+                                  } catch (e) {
+                                    setApproveAssociationError('Invalid association payload in message.');
+                                    setApproveAssociationOpen(true);
+                                  }
+                                }}
+                                sx={{
+                                  mt: 1,
+                                  backgroundColor: palette.accent,
+                                  '&:hover': { backgroundColor: palette.border },
+                                }}
+                              >
+                                Approve Association
                               </Button>
                             </Box>
                           )}
@@ -2301,6 +2517,137 @@ export default function MessagesPage() {
             sx={{ backgroundColor: palette.accent, '&:hover': { backgroundColor: palette.border } }}
           >
             {validationResponseLoading ? 'Submitting...' : 'Submit Response'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Association Approval Dialog */}
+      <Dialog open={approveAssociationOpen} onClose={() => setApproveAssociationOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>Approve Association</DialogTitle>
+        <DialogContent dividers>
+          {approveAssociationError && <Alert severity="error">{approveAssociationError}</Alert>}
+          {approveAssociationPayload ? (
+            <Stack spacing={1}>
+              <Typography variant="body2">
+                <strong>Type:</strong> {approveAssociationPayload.assocType}
+              </Typography>
+              <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                <strong>Description:</strong> {approveAssociationPayload.description || '—'}
+              </Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                initiator: {approveAssociationPayload.initiatorAddress}
+              </Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                approver: {approveAssociationPayload.approverAddress}
+              </Typography>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                digest: {approveAssociationPayload.digest}
+              </Typography>
+            </Stack>
+          ) : (
+            <Typography variant="body2">No association payload found.</Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setApproveAssociationOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={!approveAssociationPayload || approveAssociationLoading}
+            onClick={async () => {
+              if (!approveAssociationPayload || !selectedFolderAgent) return;
+              setApproveAssociationLoading(true);
+              setApproveAssociationError(null);
+              try {
+                const chainId = approveAssociationPayload.chainId;
+                const chain = getChainById(chainId);
+                const bundlerUrl = getClientBundlerUrl(chainId);
+                if (!bundlerUrl) throw new Error(`Bundler URL not configured for chain ${chainId}`);
+                if (!eip1193Provider || !walletAddress) throw new Error('Wallet not connected');
+
+                // Switch chain
+                if (typeof eip1193Provider.request === 'function') {
+                  const targetHex = `0x${chainId.toString(16)}`;
+                  try {
+                    await eip1193Provider.request({
+                      method: 'wallet_switchEthereumChain',
+                      params: [{ chainId: targetHex }],
+                    });
+                  } catch {}
+                }
+
+                // Build AA account client for the approver agent (current folder agent)
+                const approverAgentName = selectedFolderAgent.agentName || '';
+                if (!approverAgentName) throw new Error('Approver agent name is required');
+                const approverAccountClient = await getDeployedAccountClientByAgentName(
+                  bundlerUrl,
+                  approverAgentName,
+                  walletAddress as `0x${string}`,
+                  { chain: chain as any, ethereumProvider: eip1193Provider as any },
+                );
+
+                // Approver signature (prefer matching initiator's signing method)
+                const preferredMethod = approveAssociationPayload.signatureMethod;
+                const approverSig = await signAssociationDigest({
+                  provider: eip1193Provider,
+                  signerAddress: walletAddress as `0x${string}`,
+                  digest: approveAssociationPayload.digest,
+                  preferredMethod,
+                });
+
+                let res: any = null;
+                try {
+                  res = await finalizeAssociationWithWallet({
+                    chain: chain as any,
+                    submitterAccountClient: approverAccountClient,
+                    requesterDid: approveAssociationPayload.initiatorDid,
+                    approverAddress: approveAssociationPayload.approverAddress,
+                    assocType: approveAssociationPayload.assocType,
+                    description: approveAssociationPayload.description,
+                    validAt: approveAssociationPayload.validAt,
+                    data: approveAssociationPayload.data,
+                    initiatorSignature: approveAssociationPayload.initiatorSignature,
+                    approverSignature: approverSig.signature,
+                    onStatusUpdate: (msg: string) => console.log('[Association Approve]', msg),
+                  } as any);
+                } catch (e: any) {
+                  // Back-compat: if payload didn't record initiator method, try the other method once.
+                  if (!preferredMethod) {
+                    const fallbackMethod =
+                      approverSig.method === 'eth_sign' ? 'personal_sign' : 'eth_sign';
+                    const fallbackSig = await signAssociationDigest({
+                      provider: eip1193Provider,
+                      signerAddress: walletAddress as `0x${string}`,
+                      digest: approveAssociationPayload.digest,
+                      preferredMethod: fallbackMethod,
+                    });
+                    res = await finalizeAssociationWithWallet({
+                      chain: chain as any,
+                      submitterAccountClient: approverAccountClient,
+                      requesterDid: approveAssociationPayload.initiatorDid,
+                      approverAddress: approveAssociationPayload.approverAddress,
+                      assocType: approveAssociationPayload.assocType,
+                      description: approveAssociationPayload.description,
+                      validAt: approveAssociationPayload.validAt,
+                      data: approveAssociationPayload.data,
+                      initiatorSignature: approveAssociationPayload.initiatorSignature,
+                      approverSignature: fallbackSig.signature,
+                      onStatusUpdate: (msg: string) => console.log('[Association Approve]', msg),
+                    } as any);
+                  } else {
+                    throw e;
+                  }
+                }
+
+                console.log('[Association Approve] Stored association (UserOp hash):', res.txHash);
+                setApproveAssociationOpen(false);
+              } catch (e: any) {
+                setApproveAssociationError(e?.message || 'Failed to approve association');
+              } finally {
+                setApproveAssociationLoading(false);
+              }
+            }}
+          >
+            {approveAssociationLoading ? 'Approving…' : 'Approve & Store'}
           </Button>
         </DialogActions>
       </Dialog>

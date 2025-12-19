@@ -122,6 +122,26 @@ export interface PrepareAssociationRequestPayload {
   approverAddress: string; // The agent account address that will approve the association
   assocType?: number; // Association type (0=Membership, 1=Delegation, etc.)
   description?: string; // Description of the association
+  /**
+   * Optional: override the validAt used in the association record.
+   * Recommended to use chain time (or a small negative buffer) to avoid clock skew reverts.
+   */
+  validAt?: number;
+  /**
+   * Optional: pass pre-encoded `record.data` bytes (ABI-encoded assocType+description).
+   * If provided, server will use this directly.
+   */
+  data?: `0x${string}`;
+  /**
+   * Optional: initiator signature over eip712Hash(record), typically a personal_sign signature
+   * produced by the initiator's owner wallet. Required by some ERC-8092 store implementations.
+   */
+  initiatorSignature?: `0x${string}`;
+  /**
+   * Optional: approver signature over eip712Hash(record).
+   * If omitted, storeAssociation may revert on-chain depending on the AssociationsStore implementation.
+   */
+  approverSignature?: `0x${string}`;
   mode?: AgentOperationMode;
 }
 

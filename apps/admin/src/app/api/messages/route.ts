@@ -58,6 +58,10 @@ export async function GET(req: NextRequest) {
           toClientAddress: m.toClientAddress || m.to_client_address || null,
           createdAt: m.createdAt ?? m.created_at ?? null,
           readAt: m.readAt ?? m.read_at ?? null,
+          // association_request extras (stored as metadata fields)
+          associationType: m.associationType ?? m.association_type ?? null,
+          associationDescription: m.associationDescription ?? m.association_description ?? null,
+          associationPayload: m.associationPayload ?? m.association_payload ?? null,
         }))
       : [];
     return NextResponse.json({ messages });

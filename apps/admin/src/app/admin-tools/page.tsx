@@ -11,7 +11,7 @@ import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
 import { keccak256, toHex } from "viem";
-import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet, requestAIDValidationWithWallet } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAddress, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet, requestAIDValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
   getSupportedChainIds,
@@ -1185,15 +1185,22 @@ export default function AdminPage() {
           }
         }
 
-        const accountClient = await getDeployedAccountClientByAgentName(
-          bundlerEnv,
-          agentNameForAA,
-          headerAddress as `0x${string}`,
-          {
-            chain,
-            ethereumProvider: eip1193Provider,
-          },
-        );
+        const accountAddress =
+          (queryAgentAddress as `0x${string}` | null) ||
+          (fetchedAgentInfo?.agentAccount as `0x${string}` | undefined) ||
+          null;
+        const accountClient = accountAddress
+          ? await getDeployedAccountClientByAddress(
+              accountAddress,
+              headerAddress as `0x${string}`,
+              { chain, ethereumProvider: eip1193Provider },
+            )
+          : await getDeployedAccountClientByAgentName(
+              bundlerEnv,
+              agentNameForAA,
+              headerAddress as `0x${string}`,
+              { chain, ethereumProvider: eip1193Provider },
+            );
 
         await updateAgentRegistrationWithWallet({
           did8004,
@@ -1269,15 +1276,22 @@ export default function AdminPage() {
         }
       }
 
-      const accountClient = await getDeployedAccountClientByAgentName(
-        bundlerEnv,
-        agentNameForAA,
-        headerAddress as `0x${string}`,
-        {
-          chain,
-          ethereumProvider: eip1193Provider,
-        },
-      );
+      const accountAddress =
+        (queryAgentAddress as `0x${string}` | null) ||
+        (fetchedAgentInfo?.agentAccount as `0x${string}` | undefined) ||
+        null;
+      const accountClient = accountAddress
+        ? await getDeployedAccountClientByAddress(
+            accountAddress,
+            headerAddress as `0x${string}`,
+            { chain, ethereumProvider: eip1193Provider },
+          )
+        : await getDeployedAccountClientByAgentName(
+            bundlerEnv,
+            agentNameForAA,
+            headerAddress as `0x${string}`,
+            { chain, ethereumProvider: eip1193Provider },
+          );
 
       await updateAgentRegistrationWithWallet({
         did8004,

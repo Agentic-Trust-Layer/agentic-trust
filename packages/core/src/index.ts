@@ -116,6 +116,7 @@ export {
   isWalletProviderAvailable,
   getWalletAddress,
   getDeployedAccountClientByAgentName,
+  getDeployedAccountClientByAddress,
   getCounterfactualAccountClientByAgentName,
   getCounterfactualSmartAccountAddressByAgentName,
   getCounterfactualAAAddressByAgentName,

@@ -104,6 +104,49 @@ export async function getCounterfactualAccountClientByAgentName(
   return counterfactualAccountClient;
 }
 
+/**
+ * Build a deployed MetaMask smart account client from a known smart account address.
+ * Prefer this when you already know the correct agent smart account address (agentAccount),
+ * since name-based derivation is case-sensitive.
+ */
+export async function getDeployedAccountClientByAddress(
+  accountAddress: `0x${string}`,
+  eoaAddress: `0x${string}`,
+  options?: GetAAAccountClientOptions,
+): Promise<any> {
+  const chain = options?.chain || sepolia;
+
+  let walletClient: WalletClient;
+  if (options?.walletClient) {
+    walletClient = options.walletClient;
+  } else if (options?.ethereumProvider) {
+    walletClient = createWalletClient({
+      chain: chain as any,
+      transport: custom(options.ethereumProvider),
+      account: eoaAddress as Address,
+    });
+  } else {
+    throw new Error(
+      'No wallet client found. Ensure MetaMask/Web3Auth is available or pass walletClient in options.',
+    );
+  }
+
+  const rpcUrl = getChainRpcUrl(chain.id);
+  const publicClient: PublicClient = options?.publicClient
+    ? options.publicClient
+    : (createPublicClient({
+        chain: chain as any,
+        transport: rpcUrl ? http(rpcUrl) : custom(options?.ethereumProvider),
+      }) as any);
+
+  return await toMetaMaskSmartAccount({
+    client: publicClient as any,
+    implementation: Implementation.Hybrid,
+    signer: { walletClient } as any,
+    address: accountAddress,
+  } as any);
+}
+
 
 export async function getDeployedAccountClientByAgentName(
   bundlerUrl: string,

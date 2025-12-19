@@ -10,10 +10,12 @@ import {
   custom,
   createPublicClient,
   getAddress,
+  toBytes,
   type Address,
   type Chain,
   type Hex,
 } from 'viem';
+import { http, isAddressEqual } from 'viem';
 import {
   getChainById,
   DEFAULT_CHAIN_ID,
@@ -38,8 +40,10 @@ import {
   type UpdateAgentRegistrationClientResult,
 } from '../api/agents/client';
 import type { AgentOperationPlan } from '../api/agents/types';
+import { parseDid8004 } from '../shared/did8004';
 export {
   getDeployedAccountClientByAgentName,
+  getDeployedAccountClientByAddress,
   getCounterfactualAccountClientByAgentName,
   getCounterfactualSmartAccountAddressByAgentName,
   getCounterfactualAAAddressByAgentName,
@@ -1231,6 +1235,92 @@ export async function updateAgentRegistrationWithWallet(
     throw new Error('Registration update response missing bundlerUrl or calls');
   }
 
+  // Preflight authorization check to avoid opaque bundler simulation reverts ("Not authorized").
+  // The IdentityRegistry setAgentUri requires msg.sender to be owner or approved operator for the agentId.
+  try {
+    const identityRegistry = prepared.identityRegistry as `0x${string}` | undefined;
+    const rpcUrl = getChainRpcUrl(chain.id) || chain.rpcUrls?.default?.http?.[0];
+    if (identityRegistry && rpcUrl) {
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(rpcUrl),
+      }) as any;
+
+      const { agentId } = parseDid8004(did8004);
+      const tokenId = BigInt(agentId);
+      const sender = getAddress(accountClient.address) as `0x${string}`;
+
+      const ERC721_ABI = [
+        {
+          type: 'function',
+          name: 'ownerOf',
+          stateMutability: 'view',
+          inputs: [{ name: 'tokenId', type: 'uint256' }],
+          outputs: [{ name: 'owner', type: 'address' }],
+        },
+        {
+          type: 'function',
+          name: 'getApproved',
+          stateMutability: 'view',
+          inputs: [{ name: 'tokenId', type: 'uint256' }],
+          outputs: [{ name: 'operator', type: 'address' }],
+        },
+        {
+          type: 'function',
+          name: 'isApprovedForAll',
+          stateMutability: 'view',
+          inputs: [
+            { name: 'owner', type: 'address' },
+            { name: 'operator', type: 'address' },
+          ],
+          outputs: [{ name: 'approved', type: 'bool' }],
+        },
+      ] as const;
+
+      const owner = (await publicClient.readContract({
+        address: identityRegistry,
+        abi: ERC721_ABI,
+        functionName: 'ownerOf',
+        args: [tokenId],
+      })) as `0x${string}`;
+
+      // If owner is sender, OK.
+      const ownerNorm = getAddress(owner);
+      if (ownerNorm !== sender) {
+        const approved = (await publicClient.readContract({
+          address: identityRegistry,
+          abi: ERC721_ABI,
+          functionName: 'getApproved',
+          args: [tokenId],
+        })) as `0x${string}`;
+        const approvedNorm = approved ? getAddress(approved) : ('0x0000000000000000000000000000000000000000' as const);
+        const approvedForAll = (await publicClient.readContract({
+          address: identityRegistry,
+          abi: ERC721_ABI,
+          functionName: 'isApprovedForAll',
+          args: [ownerNorm, sender],
+        })) as boolean;
+
+        const isAuthorized =
+          approvedNorm === sender || approvedForAll === true;
+
+        if (!isAuthorized) {
+          throw new Error(
+            `Not authorized to update agent registration. ` +
+              `Agent NFT owner=${ownerNorm}, sender=${sender}. ` +
+              `Grant approval (approve or setApprovalForAll) or use the owning account.`,
+          );
+        }
+      }
+    }
+  } catch (preflightErr: any) {
+    // If we can definitively detect authorization mismatch, surface it.
+    const msg = preflightErr?.message || String(preflightErr);
+    if (msg.includes('Not authorized to update agent registration')) {
+      throw preflightErr;
+    }
+  }
+
   const updateCalls = rawCalls.map((call) => ({
     to: call.to as `0x${string}`,
     data: call.data as `0x${string}`,
@@ -1446,55 +1536,198 @@ export interface RequestAssociationWithWalletOptions {
   onStatusUpdate?: (status: string) => void;
 }
 
-export async function requestAssociationWithWallet(
-  options: RequestAssociationWithWalletOptions,
-): Promise<{ txHash: string; requiresClientSigning: true }> {
+export async function finalizeAssociationWithWallet(options: {
+  chain: Chain;
+  submitterAccountClient: any; // AA account client of whoever submits (typically approver agent)
+  requesterDid: string; // initiator did:8004
+  approverAddress: `0x${string}`;
+  assocType?: number;
+  description?: string;
+  validAt: number;
+  data: `0x${string}`;
+  initiatorSignature: `0x${string}`;
+  approverSignature: `0x${string}`;
+  onStatusUpdate?: (status: string) => void;
+}): Promise<{ txHash: string; requiresClientSigning: true }> {
   const {
-    requesterDid,
     chain,
-    requesterAccountClient,
+    submitterAccountClient,
+    requesterDid,
     approverAddress,
     assocType,
     description,
+    validAt,
+    data,
+    initiatorSignature,
+    approverSignature,
     onStatusUpdate,
   } = options;
 
-  const approverAddressChecksum = getAddress(approverAddress) as `0x${string}`;
+  // Preflight: best-effort ERC-1271 signature validation to avoid opaque bundler "reason: 0x".
+  // This checks whether the initiator/approver smart accounts would accept the provided signatures
+  // for the association digest we are about to submit.
+  try {
+    const rpcUrl = getChainRpcUrl(chain.id) || chain.rpcUrls?.default?.http?.[0];
+    if (rpcUrl) {
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(rpcUrl),
+      }) as any;
 
-  onStatusUpdate?.('Preparing association request on server...');
+      // Fetch initiator smart account address from DID (server already does this, but we need it to compute digest)
+      const initiatorResp = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}`);
+      const initiatorJson = initiatorResp.ok ? await initiatorResp.json().catch(() => ({})) : {};
+      const initiatorAddrRaw = initiatorJson?.agentAccount || initiatorJson?.account;
+      if (initiatorAddrRaw) {
+        const initiatorAddress = getAddress(initiatorAddrRaw) as `0x${string}`;
+        const approver = getAddress(approverAddress) as `0x${string}`;
+
+        // Recompute digest using the erc8092 scheme (same as packages/erc8092-sdk eip712Hash)
+        const { ethers } = await import('ethers');
+        const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+          if (n === 0n) return new Uint8Array([0]);
+          let hex = n.toString(16);
+          if (hex.length % 2) hex = `0${hex}`;
+          return ethers.getBytes(`0x${hex}`);
+        };
+        const formatEvmV1 = (chainId: number, address: string): string => {
+          const addr = ethers.getAddress(address);
+          const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+          const head = ethers.getBytes('0x00010000');
+          const out = ethers.concat([
+            head,
+            new Uint8Array([chainRef.length]),
+            chainRef,
+            new Uint8Array([20]),
+            ethers.getBytes(addr),
+          ]);
+          return ethers.hexlify(out);
+        };
+        const initiatorInterop = formatEvmV1(chain.id, initiatorAddress);
+        const approverInterop = formatEvmV1(chain.id, approver);
+        const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+        const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
+        const NAME_HASH = ethers.id('AssociatedAccounts');
+        const VERSION_HASH = ethers.id('1');
+        const MESSAGE_TYPEHASH = ethers.id(
+          'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+        );
+        const domainSeparator = ethers.keccak256(
+          abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
+        );
+        const interfaceId = '0x00000000';
+        const validUntil = 0;
+        const hashStruct = ethers.keccak256(
+          abiCoder.encode(
+            ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
+            [
+              MESSAGE_TYPEHASH,
+              ethers.keccak256(initiatorInterop),
+              ethers.keccak256(approverInterop),
+              validAt,
+              validUntil,
+              interfaceId,
+              ethers.keccak256(data),
+            ],
+          ),
+        );
+        const digest = ethers.keccak256(
+          ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
+        ) as `0x${string}`;
+
+        const ERC1271_MAGIC = '0x1626ba7e' as const;
+        const ERC1271_ABI = [
+          {
+            type: 'function',
+            name: 'isValidSignature',
+            stateMutability: 'view',
+            inputs: [
+              { name: 'hash', type: 'bytes32' },
+              { name: 'signature', type: 'bytes' },
+            ],
+            outputs: [{ name: 'magicValue', type: 'bytes4' }],
+          },
+        ] as const;
+
+        const check1271 = async (account: `0x${string}`, sig: `0x${string}`) => {
+          const code = await publicClient.getBytecode({ address: account });
+          if (!code || code === '0x') return { ok: false as const, reason: 'not_a_contract' as const };
+          try {
+            const magic = (await publicClient.readContract({
+              address: account,
+              abi: ERC1271_ABI,
+              functionName: 'isValidSignature',
+              args: [digest, sig],
+            })) as `0x${string}`;
+            return { ok: magic.toLowerCase() === ERC1271_MAGIC, magic };
+          } catch (e: any) {
+            return { ok: false as const, reason: 'reverted', error: e?.message || String(e) };
+          }
+        };
+
+        const initiatorCheck = await check1271(initiatorAddress, initiatorSignature);
+        if (!initiatorCheck.ok) {
+          throw new Error(
+            `Initiator smart account rejected signature (ERC-1271). initiator=${initiatorAddress} digest=${digest}`,
+          );
+        }
+
+        const approverCheck = await check1271(approver, approverSignature);
+        if (!approverCheck.ok) {
+          throw new Error(
+            `Approver smart account rejected signature (ERC-1271). approver=${approver} digest=${digest}`,
+          );
+        }
+
+        // Extra sanity: ensure we're submitting from the approver account we think we are.
+        const submitter = getAddress(submitterAccountClient.address) as `0x${string}`;
+        if (!isAddressEqual(submitter, approver)) {
+          console.warn(
+            '[finalizeAssociationWithWallet] submitterAccountClient.address does not match approverAddress',
+            { submitter, approver },
+          );
+        }
+      }
+    }
+  } catch (preflightErr: any) {
+    // If we can detect invalid signatures, surface it; otherwise continue to let bundler give more info.
+    // (This block is best-effort and should not block in environments without RPC.)
+    const msg = preflightErr?.message || String(preflightErr);
+    if (msg.includes('rejected signature') || msg.includes('ERC-1271')) {
+      throw preflightErr;
+    }
+  }
+
+  onStatusUpdate?.('Preparing association store transaction on server...');
 
   let prepared: AgentOperationPlan;
-  try {
-    const response = await fetch('/api/associate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        did8004: requesterDid,
-        approverAddress: approverAddressChecksum,
-        assocType,
-        description,
-        mode: 'smartAccount',
-      }),
-    });
+  const response = await fetch('/api/associate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      did8004: requesterDid,
+      approverAddress: getAddress(approverAddress),
+      assocType,
+      description,
+      validAt,
+      data,
+      initiatorSignature,
+      approverSignature,
+      mode: 'smartAccount',
+    }),
+  });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || errorData.message || 'Failed to prepare association request');
-    }
-
-    prepared = (await response.json()) as AgentOperationPlan;
-  } catch (error) {
-    throw new Error(
-      error instanceof Error ? error.message : 'Failed to prepare association request',
-    );
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || errorData.message || 'Failed to prepare association store');
   }
+  prepared = (await response.json()) as AgentOperationPlan;
 
   const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
     Array.isArray(prepared.calls) ? prepared.calls : [];
-
   if (!bundlerUrl || rawCalls.length === 0) {
-    throw new Error('Association request response missing bundlerUrl or calls');
+    throw new Error('Association store response missing bundlerUrl or calls');
   }
 
   const calls = rawCalls.map((call) => ({
@@ -1503,17 +1736,13 @@ export async function requestAssociationWithWallet(
     value: BigInt(call.value ?? '0'),
   }));
 
-  onStatusUpdate?.('Sending association request via bundler...');
+  onStatusUpdate?.('Submitting association via bundler...');
   const userOpHash = await sendSponsoredUserOperation({
     bundlerUrl,
     chain: chain as any,
-    accountClient: requesterAccountClient,
+    accountClient: submitterAccountClient,
     calls,
   });
-
-  onStatusUpdate?.(
-    `Association request sent! UserOperation hash: ${userOpHash}. Waiting for confirmation...`,
-  );
 
   await waitForUserOperationReceipt({
     bundlerUrl,
@@ -1521,10 +1750,7 @@ export async function requestAssociationWithWallet(
     hash: userOpHash,
   });
 
-  return {
-    txHash: userOpHash,
-    requiresClientSigning: true as const,
-  };
+  return { txHash: userOpHash, requiresClientSigning: true as const };
 }
 
 export async function requestNameValidationWithWallet(
