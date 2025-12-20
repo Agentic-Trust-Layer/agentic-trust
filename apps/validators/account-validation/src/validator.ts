@@ -54,10 +54,9 @@ import {
   getChainBundlerUrl,
   getChainById,
   requireChainEnvVar,
-  getCounterfactualSmartAccountAddressByAgentName,
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
-import type { Chain } from 'viem';
+import { createPublicClient, http, type Chain } from 'viem';
 
 type ValidationClaim = { type: 'compliance'; text: string };
 type ValidationCriteria = {
@@ -134,9 +133,9 @@ function buildCommonResult(params: {
     criteria: [
       {
         id: 'c1',
-        name: 'Smart account matches counterfactual address for agentName',
-        method: 'getCounterfactualSmartAccountAddressByAgentName',
-        passCondition: 'computed AA address equals agent.agentAccount',
+        name: 'Agent account is a deployed contract',
+        method: 'publicClient.getBytecode',
+        passCondition: 'bytecode != 0x',
       },
       {
         id: 'c2',
@@ -349,14 +348,19 @@ export async function processValidationRequests(
 
       console.log(`[Validator] Agent Info: name="${agentName}", account="${agentAccount}"`);
 
-      // Validate smart account is correct for this agent name (counterfactual)
-      const expectedAccount = await getCounterfactualSmartAccountAddressByAgentName(
-        agentName,
-        chainId,
-      );
-      if (expectedAccount.toLowerCase() !== agentAccount.toLowerCase()) {
+      // Validate agentAccount is a deployed contract (basic smart-account sanity check)
+      const chain = getChainById(chainId) as Chain;
+      const rpcUrl = requireChainEnvVar('AGENTIC_TRUST_RPC_URL', chainId);
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(rpcUrl),
+      });
+      const bytecode = await publicClient.getBytecode({
+        address: agentAccount as `0x${string}`,
+      });
+      if (!bytecode || bytecode === '0x') {
         errorCount++;
-        const error = `Smart account mismatch: computed ${expectedAccount}, agent has ${agentAccount}`;
+        const error = `Agent account ${agentAccount} is not deployed (no bytecode)`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
           ...buildCommonResult({
@@ -394,7 +398,6 @@ export async function processValidationRequests(
       if (!bundlerUrl) {
         throw new Error(`Bundler URL not configured for chain ${chainId}. Set ${bundlerEnvVar} environment variable.`);
       }
-      const chain = getChainById(chainId) as Chain;
       console.log(`[Validator] Bundler URL: ${bundlerUrl}`);
 
       // Send validation response via bundler using validator account abstraction

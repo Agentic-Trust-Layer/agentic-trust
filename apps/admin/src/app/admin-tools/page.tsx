@@ -10,7 +10,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
-import { keccak256, toHex } from "viem";
+import { keccak256, toHex, getAddress } from "viem";
 import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAddress, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet, requestAIDValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
@@ -1983,14 +1983,13 @@ export default function AdminPage() {
       }
 
       // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAgentName(
-        bundlerUrl,
-        agentName,
+      const agentAccountClient = await getDeployedAccountClientByAddress(
+        getAddress(displayAgentAddress as `0x${string}`),
         eoaAddress as `0x${string}`,
         {
           chain: chain as any,
           ethereumProvider: eip1193Provider as any,
-        }
+        },
       );
 
       // Build did8004 for the validation request
@@ -2077,14 +2076,13 @@ export default function AdminPage() {
       }
 
       // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAgentName(
-        bundlerUrl,
-        agentName,
+      const agentAccountClient = await getDeployedAccountClientByAddress(
+        getAddress(displayAgentAddress as `0x${string}`),
         eoaAddress as `0x${string}`,
         {
           chain: chain as any,
           ethereumProvider: eip1193Provider as any,
-        }
+        },
       );
 
       // Build did8004 for the validation request
@@ -2171,14 +2169,13 @@ export default function AdminPage() {
       }
 
       // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAgentName(
-        bundlerUrl,
-        agentName,
+      const agentAccountClient = await getDeployedAccountClientByAddress(
+        getAddress(displayAgentAddress as `0x${string}`),
         eoaAddress as `0x${string}`,
         {
           chain: chain as any,
           ethereumProvider: eip1193Provider as any,
-        }
+        },
       );
 
       // Build did8004 for the validation request
@@ -2265,14 +2262,13 @@ export default function AdminPage() {
       }
 
       // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAgentName(
-        bundlerUrl,
-        agentName,
+      const agentAccountClient = await getDeployedAccountClientByAddress(
+        getAddress(displayAgentAddress as `0x${string}`),
         eoaAddress as `0x${string}`,
         {
           chain: chain as any,
           ethereumProvider: eip1193Provider as any,
-        }
+        },
       );
 
       // Build did8004 for the validation request

@@ -1768,6 +1768,102 @@ export async function requestNameValidationWithWallet(
   onStatusUpdate?.('Preparing validation request on server...');
 
   const validatorName = 'name-validator';
+  const chainIdFromDid = (() => {
+    const m = requesterDid.match(/^did:8004:(\d+):/);
+    if (!m) return undefined;
+    const parsed = Number(m[1]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  })();
+
+  async function resolveValidatorAddressByName(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    const urlParams = new URLSearchParams({
+      query: params.validatorName,
+      page: '1',
+      pageSize: '10',
+    });
+
+    const response = await fetch(`/api/agents/search?${urlParams.toString()}`);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to resolve validator "${params.validatorName}" via discovery (status ${response.status})`,
+      );
+    }
+
+    const data = (await response.json().catch(() => ({}))) as any;
+    const agents: any[] = Array.isArray(data?.agents) ? data.agents : [];
+
+    const normalizedName = params.validatorName.trim().toLowerCase();
+    const byExactName = agents.find((a) => {
+      const name = typeof a?.agentName === 'string' ? a.agentName.trim().toLowerCase() : '';
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk && name === normalizedName;
+    });
+
+    const fallback = agents.find((a) => {
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk;
+    });
+
+    const agentAccount = (byExactName?.agentAccount ?? fallback?.agentAccount) as string | undefined;
+    if (!agentAccount) {
+      throw new Error(
+        `Validator "${params.validatorName}" not found in discovery (chainId=${params.chainId ?? 'any'})`,
+      );
+    }
+
+    return getAddress(agentAccount) as `0x${string}`;
+  }
+
+  async function resolveValidatorAddress(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    try {
+      return await resolveValidatorAddressByName(params);
+    } catch (_discoveryErr) {
+      const chainId =
+        typeof params.chainId === 'number'
+          ? params.chainId
+          : typeof (chain as any)?.id === 'number'
+            ? ((chain as any).id as number)
+            : undefined;
+
+      if (!chainId) {
+        throw _discoveryErr;
+      }
+
+      const resp = await fetch(
+        `/api/validator-address?validatorName=${encodeURIComponent(params.validatorName)}&chainId=${encodeURIComponent(
+          String(chainId),
+        )}`,
+      );
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const msg =
+          errData?.error ||
+          errData?.message ||
+          `Failed to resolve validator "${params.validatorName}" via /api/validator-address (status ${resp.status})`;
+        throw new Error(msg);
+      }
+
+      const data = (await resp.json().catch(() => ({}))) as any;
+      const addr = typeof data?.validatorAddress === 'string' ? data.validatorAddress : '';
+      if (!addr || !addr.startsWith('0x')) {
+        throw new Error(
+          `Validator "${params.validatorName}" address not returned by /api/validator-address`,
+        );
+      }
+      return getAddress(addr) as `0x${string}`;
+    }
+  }
 
   let prepared: AgentOperationPlan;
   try {
@@ -1777,12 +1873,14 @@ export async function requestNameValidationWithWallet(
       mode: 'smartAccount',
     };
     
-    // If validatorAddress is provided, use it directly; otherwise use validatorName
-    if (options.validatorAddress) {
-      requestBody.validatorAddress = options.validatorAddress;
-    } else {
-      requestBody.validatorName = validatorName;
-    }
+    // Server requires validatorAddress; resolve validatorName -> address client-side if needed.
+    requestBody.validatorAddress =
+      (options.validatorAddress
+        ? (getAddress(options.validatorAddress) as `0x${string}`)
+        : await resolveValidatorAddress({
+            validatorName,
+            chainId: chainIdFromDid,
+          })) as `0x${string}`;
 
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
@@ -1838,7 +1936,10 @@ export async function requestNameValidationWithWallet(
     hash: userOpHash,
   });
 
-  const validatorAddress = (prepared.metadata as any)?.validatorAddress || '';
+  const validatorAddress =
+    ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+    (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+    '';
   const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
 
   return {
@@ -1864,6 +1965,102 @@ export async function requestAccountValidationWithWallet(
   onStatusUpdate?.('Preparing validation request on server...');
 
   const validatorName = 'account-validator';
+  const chainIdFromDid = (() => {
+    const m = requesterDid.match(/^did:8004:(\d+):/);
+    if (!m) return undefined;
+    const parsed = Number(m[1]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  })();
+
+  async function resolveValidatorAddressByName(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    const urlParams = new URLSearchParams({
+      query: params.validatorName,
+      page: '1',
+      pageSize: '10',
+    });
+
+    const response = await fetch(`/api/agents/search?${urlParams.toString()}`);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to resolve validator "${params.validatorName}" via discovery (status ${response.status})`,
+      );
+    }
+
+    const data = (await response.json().catch(() => ({}))) as any;
+    const agents: any[] = Array.isArray(data?.agents) ? data.agents : [];
+
+    const normalizedName = params.validatorName.trim().toLowerCase();
+    const byExactName = agents.find((a) => {
+      const name = typeof a?.agentName === 'string' ? a.agentName.trim().toLowerCase() : '';
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk && name === normalizedName;
+    });
+
+    const fallback = agents.find((a) => {
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk;
+    });
+
+    const agentAccount = (byExactName?.agentAccount ?? fallback?.agentAccount) as string | undefined;
+    if (!agentAccount) {
+      throw new Error(
+        `Validator "${params.validatorName}" not found in discovery (chainId=${params.chainId ?? 'any'})`,
+      );
+    }
+
+    return getAddress(agentAccount) as `0x${string}`;
+  }
+
+  async function resolveValidatorAddress(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    try {
+      return await resolveValidatorAddressByName(params);
+    } catch (_discoveryErr) {
+      const chainId =
+        typeof params.chainId === 'number'
+          ? params.chainId
+          : typeof (chain as any)?.id === 'number'
+            ? ((chain as any).id as number)
+            : undefined;
+
+      if (!chainId) {
+        throw _discoveryErr;
+      }
+
+      const resp = await fetch(
+        `/api/validator-address?validatorName=${encodeURIComponent(params.validatorName)}&chainId=${encodeURIComponent(
+          String(chainId),
+        )}`,
+      );
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const msg =
+          errData?.error ||
+          errData?.message ||
+          `Failed to resolve validator "${params.validatorName}" via /api/validator-address (status ${resp.status})`;
+        throw new Error(msg);
+      }
+
+      const data = (await resp.json().catch(() => ({}))) as any;
+      const addr = typeof data?.validatorAddress === 'string' ? data.validatorAddress : '';
+      if (!addr || !addr.startsWith('0x')) {
+        throw new Error(
+          `Validator "${params.validatorName}" address not returned by /api/validator-address`,
+        );
+      }
+      return getAddress(addr) as `0x${string}`;
+    }
+  }
 
   let prepared: AgentOperationPlan;
   try {
@@ -1873,12 +2070,14 @@ export async function requestAccountValidationWithWallet(
       mode: 'smartAccount',
     };
     
-    // If validatorAddress is provided, use it directly; otherwise use validatorName
-    if (options.validatorAddress) {
-      requestBody.validatorAddress = options.validatorAddress;
-    } else {
-      requestBody.validatorName = validatorName;
-    }
+    // Server requires validatorAddress; resolve validatorName -> address client-side if needed.
+    requestBody.validatorAddress =
+      (options.validatorAddress
+        ? (getAddress(options.validatorAddress) as `0x${string}`)
+        : await resolveValidatorAddress({
+            validatorName,
+            chainId: chainIdFromDid,
+          })) as `0x${string}`;
 
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
@@ -1934,7 +2133,10 @@ export async function requestAccountValidationWithWallet(
     hash: userOpHash,
   });
 
-  const validatorAddress = (prepared.metadata as any)?.validatorAddress || '';
+  const validatorAddress =
+    ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+    (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+    '';
   const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
 
   return {
@@ -1960,6 +2162,102 @@ export async function requestAppValidationWithWallet(
   onStatusUpdate?.('Preparing validation request on server...');
 
   const validatorName = 'app-validator';
+  const chainIdFromDid = (() => {
+    const m = requesterDid.match(/^did:8004:(\d+):/);
+    if (!m) return undefined;
+    const parsed = Number(m[1]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  })();
+
+  async function resolveValidatorAddressByName(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    const urlParams = new URLSearchParams({
+      query: params.validatorName,
+      page: '1',
+      pageSize: '10',
+    });
+
+    const response = await fetch(`/api/agents/search?${urlParams.toString()}`);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to resolve validator "${params.validatorName}" via discovery (status ${response.status})`,
+      );
+    }
+
+    const data = (await response.json().catch(() => ({}))) as any;
+    const agents: any[] = Array.isArray(data?.agents) ? data.agents : [];
+
+    const normalizedName = params.validatorName.trim().toLowerCase();
+    const byExactName = agents.find((a) => {
+      const name = typeof a?.agentName === 'string' ? a.agentName.trim().toLowerCase() : '';
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk && name === normalizedName;
+    });
+
+    const fallback = agents.find((a) => {
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk;
+    });
+
+    const agentAccount = (byExactName?.agentAccount ?? fallback?.agentAccount) as string | undefined;
+    if (!agentAccount) {
+      throw new Error(
+        `Validator "${params.validatorName}" not found in discovery (chainId=${params.chainId ?? 'any'})`,
+      );
+    }
+
+    return getAddress(agentAccount) as `0x${string}`;
+  }
+
+  async function resolveValidatorAddress(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    try {
+      return await resolveValidatorAddressByName(params);
+    } catch (_discoveryErr) {
+      const chainId =
+        typeof params.chainId === 'number'
+          ? params.chainId
+          : typeof (chain as any)?.id === 'number'
+            ? ((chain as any).id as number)
+            : undefined;
+
+      if (!chainId) {
+        throw _discoveryErr;
+      }
+
+      const resp = await fetch(
+        `/api/validator-address?validatorName=${encodeURIComponent(params.validatorName)}&chainId=${encodeURIComponent(
+          String(chainId),
+        )}`,
+      );
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const msg =
+          errData?.error ||
+          errData?.message ||
+          `Failed to resolve validator "${params.validatorName}" via /api/validator-address (status ${resp.status})`;
+        throw new Error(msg);
+      }
+
+      const data = (await resp.json().catch(() => ({}))) as any;
+      const addr = typeof data?.validatorAddress === 'string' ? data.validatorAddress : '';
+      if (!addr || !addr.startsWith('0x')) {
+        throw new Error(
+          `Validator "${params.validatorName}" address not returned by /api/validator-address`,
+        );
+      }
+      return getAddress(addr) as `0x${string}`;
+    }
+  }
 
   let prepared: AgentOperationPlan;
   try {
@@ -1969,12 +2267,13 @@ export async function requestAppValidationWithWallet(
       mode: 'smartAccount',
     };
     
-    // If validatorAddress is provided, use it directly; otherwise use validatorName
-    if (options.validatorAddress) {
-      requestBody.validatorAddress = options.validatorAddress;
-    } else {
-      requestBody.validatorName = validatorName;
-    }
+    requestBody.validatorAddress =
+      (options.validatorAddress
+        ? (getAddress(options.validatorAddress) as `0x${string}`)
+        : await resolveValidatorAddress({
+            validatorName,
+            chainId: chainIdFromDid,
+          })) as `0x${string}`;
 
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
@@ -2030,7 +2329,10 @@ export async function requestAppValidationWithWallet(
     hash: userOpHash,
   });
 
-  const validatorAddress = (prepared.metadata as any)?.validatorAddress || '';
+  const validatorAddress =
+    ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+    (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+    '';
   const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
 
   return {
@@ -2056,6 +2358,102 @@ export async function requestAIDValidationWithWallet(
   onStatusUpdate?.('Preparing validation request on server...');
 
   const validatorName = 'aid-validator';
+  const chainIdFromDid = (() => {
+    const m = requesterDid.match(/^did:8004:(\d+):/);
+    if (!m) return undefined;
+    const parsed = Number(m[1]);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  })();
+
+  async function resolveValidatorAddressByName(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    const urlParams = new URLSearchParams({
+      query: params.validatorName,
+      page: '1',
+      pageSize: '10',
+    });
+
+    const response = await fetch(`/api/agents/search?${urlParams.toString()}`);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to resolve validator "${params.validatorName}" via discovery (status ${response.status})`,
+      );
+    }
+
+    const data = (await response.json().catch(() => ({}))) as any;
+    const agents: any[] = Array.isArray(data?.agents) ? data.agents : [];
+
+    const normalizedName = params.validatorName.trim().toLowerCase();
+    const byExactName = agents.find((a) => {
+      const name = typeof a?.agentName === 'string' ? a.agentName.trim().toLowerCase() : '';
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk && name === normalizedName;
+    });
+
+    const fallback = agents.find((a) => {
+      const chainIdOk =
+        typeof params.chainId === 'number' ? Number(a?.chainId) === params.chainId : true;
+      const acctOk = typeof a?.agentAccount === 'string' && a.agentAccount.startsWith('0x');
+      return chainIdOk && acctOk;
+    });
+
+    const agentAccount = (byExactName?.agentAccount ?? fallback?.agentAccount) as string | undefined;
+    if (!agentAccount) {
+      throw new Error(
+        `Validator "${params.validatorName}" not found in discovery (chainId=${params.chainId ?? 'any'})`,
+      );
+    }
+
+    return getAddress(agentAccount) as `0x${string}`;
+  }
+
+  async function resolveValidatorAddress(params: {
+    validatorName: string;
+    chainId?: number;
+  }): Promise<`0x${string}`> {
+    try {
+      return await resolveValidatorAddressByName(params);
+    } catch (_discoveryErr) {
+      const chainId =
+        typeof params.chainId === 'number'
+          ? params.chainId
+          : typeof (chain as any)?.id === 'number'
+            ? ((chain as any).id as number)
+            : undefined;
+
+      if (!chainId) {
+        throw _discoveryErr;
+      }
+
+      const resp = await fetch(
+        `/api/validator-address?validatorName=${encodeURIComponent(params.validatorName)}&chainId=${encodeURIComponent(
+          String(chainId),
+        )}`,
+      );
+
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        const msg =
+          errData?.error ||
+          errData?.message ||
+          `Failed to resolve validator "${params.validatorName}" via /api/validator-address (status ${resp.status})`;
+        throw new Error(msg);
+      }
+
+      const data = (await resp.json().catch(() => ({}))) as any;
+      const addr = typeof data?.validatorAddress === 'string' ? data.validatorAddress : '';
+      if (!addr || !addr.startsWith('0x')) {
+        throw new Error(
+          `Validator "${params.validatorName}" address not returned by /api/validator-address`,
+        );
+      }
+      return getAddress(addr) as `0x${string}`;
+    }
+  }
 
   let prepared: AgentOperationPlan;
   try {
@@ -2065,12 +2463,13 @@ export async function requestAIDValidationWithWallet(
       mode: 'smartAccount',
     };
     
-    // If validatorAddress is provided, use it directly; otherwise use validatorName
-    if (options.validatorAddress) {
-      requestBody.validatorAddress = options.validatorAddress;
-    } else {
-      requestBody.validatorName = validatorName;
-    }
+    requestBody.validatorAddress =
+      (options.validatorAddress
+        ? (getAddress(options.validatorAddress) as `0x${string}`)
+        : await resolveValidatorAddress({
+            validatorName,
+            chainId: chainIdFromDid,
+          })) as `0x${string}`;
 
     const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
@@ -2126,7 +2525,10 @@ export async function requestAIDValidationWithWallet(
     hash: userOpHash,
   });
 
-  const validatorAddress = (prepared.metadata as any)?.validatorAddress || '';
+  const validatorAddress =
+    ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+    (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+    '';
   const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
 
   return {

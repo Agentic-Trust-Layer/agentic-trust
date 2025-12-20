@@ -479,15 +479,6 @@ export async function prepareValidationRequestCore(
   const { getValidationRegistryClient } = await import('../../server/singletons/validationClient');
   const validationClient = await getValidationRegistryClient(parsed.chainId);
 
-  const { createValidatorAccountAbstraction } = await import('../../server/lib/validations');
-  const validatorPrivateKey = process.env.AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY;
-  if (!validatorPrivateKey) {
-    throw new AgentApiError(
-      'AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY environment variable is not set',
-      500,
-    );
-  }
-
   if (!input.validatorAddress?.trim()) {
     throw new AgentApiError('validatorAddress parameter is required', 400);
   }

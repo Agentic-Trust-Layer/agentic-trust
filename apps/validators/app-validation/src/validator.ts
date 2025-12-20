@@ -49,6 +49,7 @@ import {
   getValidatorApp,
   createValidatorAccountAbstraction,
   getRegistration,
+  fetchA2AAgentCard,
   DEFAULT_CHAIN_ID,
   type ValidationStatus,
   getChainBundlerUrl,
@@ -147,55 +148,25 @@ function buildCommonResult(params: {
   };
 }
 
-function buildA2AProbeUrls(endpoint: string): string[] {
-  const raw = String(endpoint || '').trim();
-  if (!raw) return [];
-  const normalized = raw.replace(/\/+$/, '');
-  const urls = new Set<string>();
-  urls.add(normalized);
-  if (normalized.endsWith('/a2a')) {
-    urls.add(normalized.replace(/\/a2a$/, '/api/a2a'));
-  } else if (normalized.endsWith('/api/a2a')) {
-    urls.add(normalized.replace(/\/api\/a2a$/, '/a2a'));
-  } else {
-    urls.add(`${normalized}/a2a`);
-    urls.add(`${normalized}/api/a2a`);
-  }
-  return Array.from(urls);
-}
-
 async function probeA2A(endpoint: string): Promise<{ ok: boolean; status: number; body?: any }> {
-  const urls = buildA2AProbeUrls(endpoint);
-  let lastErr: unknown = null;
-  for (const url of urls) {
-    const controller = new AbortController();
-    const t = setTimeout(() => controller.abort(), 5000);
-    try {
-      const resp = await fetch(url, { method: 'GET', signal: controller.signal });
-      const status = resp.status;
-      const text = await resp.text().catch(() => '');
-      const json = (() => {
-        try {
-          return text ? JSON.parse(text) : null;
-        } catch {
-          return null;
-        }
-      })();
-      if (resp.ok) {
-        const looksOk =
-          (json && (json.status === 'ok' || json.ok === true)) ||
-          (json && typeof json.v === 'string' && json.v.startsWith('a2a/')) ||
-          (!json && text.length >= 0); // any 200 response is "alive" for now
-        if (looksOk) return { ok: true, status, body: json ?? text };
-      }
-      lastErr = new Error(`GET ${url} => ${status}`);
-    } catch (e) {
-      lastErr = e;
-    } finally {
-      clearTimeout(t);
+  // Do not guess /a2a paths; validate the agent by fetching its agent card.
+  // fetchA2AAgentCard normalizes to `${origin}/.well-known/agent.json` even if `endpoint` includes `/api`.
+  try {
+    const card = await fetchA2AAgentCard(endpoint);
+    if (!card) {
+      return { ok: false, status: 0, body: `agent.json not reachable for ${endpoint}` };
     }
+    const skills = Array.isArray((card as any).skills) ? (card as any).skills : [];
+    const endpoints = Array.isArray((card as any).endpoints) ? (card as any).endpoints : [];
+    const ok = skills.length > 0 || endpoints.length > 0;
+    return {
+      ok,
+      status: ok ? 200 : 0,
+      body: ok ? 'agent.json ok' : 'agent.json missing skills/endpoints',
+    };
+  } catch (e) {
+    return { ok: false, status: 0, body: e instanceof Error ? e.message : String(e) };
   }
-  return { ok: false, status: 0, body: lastErr instanceof Error ? lastErr.message : String(lastErr) };
 }
 
 /**
