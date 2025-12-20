@@ -282,22 +282,8 @@ export class Agent {
     // Get Veramo agent from the client
     const veramoAgent = this.client.veramo.getAgent();
 
-    // Construct A2A endpoint with agent name as subdomain if agent name is available
-    let a2aEndpointUrl = this.data.a2aEndpoint;
-    if (this.data.agentName && typeof this.data.agentName === 'string' && this.data.agentName.trim().length > 0) {
-      try {
-        const baseUrl = new URL(this.data.a2aEndpoint);
-        // If the hostname is like "8004-agent.io" or "*.8004-agent.io", add agent name as subdomain
-        if (baseUrl.hostname === '8004-agent.io' || baseUrl.hostname.endsWith('.8004-agent.io')) {
-          const agentName = this.data.agentName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-          baseUrl.hostname = `${agentName}.8004-agent.io`;
-          a2aEndpointUrl = baseUrl.toString();
-          console.log('[Agent.initialize] Constructed A2A endpoint with subdomain:', a2aEndpointUrl);
-        }
-      } catch (urlError) {
-        console.warn('[Agent.initialize] Failed to construct subdomain URL, using original:', urlError);
-      }
-    }
+    // Use the explicitly-defined A2A endpoint (no hostname/path rewriting).
+    const a2aEndpointUrl = this.data.a2aEndpoint;
 
     // Create A2A Protocol Provider for this agent
     // This does NOT fetch the agent card - card is fetched lazily when needed

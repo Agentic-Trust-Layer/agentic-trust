@@ -7,6 +7,7 @@
 
 import { AIAgentAssociationClient } from '@agentic-trust/8004-ext-sdk';
 import type { AccountProvider } from '@agentic-trust/8004-sdk';
+import { ethers } from 'ethers';
 import { getChainEnvVar, requireChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 import { DomainClient } from './domainClient';
 import {
@@ -24,8 +25,13 @@ function getAssociationsProxyAddress(): string {
   if (!addr.startsWith('0x') || addr.length !== 42) {
     throw new Error(`Invalid ASSOCIATIONS_STORE_PROXY: ${addr}`);
   }
-  
-  return addr;
+
+  // Accept non-checksummed mixed-case env values by normalizing.
+  try {
+    return ethers.getAddress(addr);
+  } catch {
+    return ethers.getAddress(addr.toLowerCase());
+  }
 }
 
 interface AssociationInitArg {

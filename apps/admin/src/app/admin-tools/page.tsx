@@ -275,9 +275,8 @@ export default function AdminPage() {
     }
   }, [isEditMode, finalAgentId, finalChainId, queryAgentAddress, searchParams]);
 
-  // Normalize agent name for consistency (database lookups are case-insensitive but we want to be safe)
-  const rawAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
-  const displayAgentName = rawAgentName === '...' ? '...' : rawAgentName.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+  // Use the explicitly-provided agent name (no normalization/slugification).
+  const displayAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
   const displayAgentAddress = queryAgentAddress ?? fetchedAgentInfo?.agentAccount ?? null;
 
   const [activeManagementTab, setActiveManagementTab] = useState<
@@ -576,17 +575,13 @@ export default function AdminPage() {
           try {
             const { syncAgentToATP } = await import('@/lib/a2a-client');
             const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
-            // Normalize agent identifiers for ATP database:
-            // - agent_name should be the base label (no .8004-agent.eth suffix), lowercased
-            // - ens_name should be lowercase full ENS (with suffix)
-            const baseAgentName = String(displayAgentName || '')
-              .replace(/\.8004-agent\.eth$/i, '')
-              .trim()
-              .toLowerCase();
-            const ensName = `${baseAgentName}.8004-agent.eth`;
+            // Use explicit values (do not derive/normalize names).
+            const agentNameForATP = displayAgentName === '...' ? '' : String(displayAgentName || '');
+            const ensName =
+              typeof fetchedAgentInfo?.didName === 'string' ? (fetchedAgentInfo.didName as string) : undefined;
             
             console.log(`[Session Package] Sending sync to ATP with:`, {
-              agentName: baseAgentName,
+              agentName: agentNameForATP,
               agentAccount: displayAgentAddress,
               ensName,
               chainId: parsedChainId,
@@ -597,7 +592,7 @@ export default function AdminPage() {
             });
 
             const syncResult = await syncAgentToATP(
-              baseAgentName,
+              agentNameForATP,
               displayAgentAddress as string,
               pkg,
               {

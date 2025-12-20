@@ -74,6 +74,19 @@ export class AIAgentAssociationClient {
   }
 
   /**
+   * Get the full SignedAssociationRecords (SARs) for an account (read-only).
+   * This exposes initiator/approver key types, signatures, interfaceId, and data.
+   */
+  async getSignedAssociationsForEvmAccount(params: {
+    chainId: number;
+    accountAddress: string;
+  }): Promise<{ account: string; chainId: number; sars: any[] }> {
+    const client = await this.getBaseClient();
+    // Method is provided by @associatedaccounts/erc8092-sdk AssociationsStoreClient
+    return (client as any).getSignedAssociationsForEvmAccount(params);
+  }
+
+  /**
    * Prepare the storeAssociation transaction data without sending it.
    * This encodes the transaction that can be sent via a bundler using account abstraction.
    */

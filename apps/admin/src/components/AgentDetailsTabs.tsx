@@ -3,6 +3,8 @@
 import { useMemo, useState, useEffect, useCallback } from 'react';
 import type { AgentsPageAgent } from './AgentsPage';
 import { grayscalePalette as palette } from '@/styles/palette';
+import { ASSOC_TYPE_OPTIONS } from '@/lib/association-types';
+import { decodeAssociationData } from '@/lib/association';
 
 type FeedbackSummary = {
   count?: number | string;
@@ -100,12 +102,33 @@ const AgentDetailsTabs = ({
     account: string;
     associations: Array<{
       associationId: string;
-      initiator: string;
-      approver: string;
-      counterparty: string;
-      validAt: number;
-      validUntil: number;
+      initiator?: string;
+      approver?: string;
+      counterparty?: string;
+      validAt?: number;
+      validUntil?: number;
       revokedAt: number;
+      initiatorKeyType?: string;
+      approverKeyType?: string;
+      initiatorSignature?: string;
+      approverSignature?: string;
+      initiatorAddress?: string;
+      approverAddress?: string;
+      counterpartyAddress?: string;
+      record?: {
+        initiator: string;
+        approver: string;
+        validAt: number;
+        validUntil: number;
+        interfaceId: string;
+        data: string;
+      };
+      verification?: {
+        digest: string;
+        recordHashMatches: boolean;
+        initiator: { ok: boolean; method: string; reason?: string };
+        approver: { ok: boolean; method: string; reason?: string };
+      };
     }>;
   } | { ok: false; error: string } | null>(null);
   const [associationsLoading, setAssociationsLoading] = useState(false);
@@ -186,9 +209,9 @@ const AgentDetailsTabs = ({
     const centerAddr = agent.agentAccount?.toLowerCase();
     
     for (const a of associationsData.associations) {
-      const initiator = a.initiator?.toLowerCase?.();
-      const approver = a.approver?.toLowerCase?.();
-      const counterparty = a.counterparty?.toLowerCase?.();
+      const initiator = (a.initiator ?? a.initiatorAddress)?.toLowerCase?.();
+      const approver = (a.approver ?? a.approverAddress)?.toLowerCase?.();
+      const counterparty = (a.counterparty ?? a.counterpartyAddress)?.toLowerCase?.();
       
       if (initiator && initiator !== centerAddr) addressesToLookup.add(initiator);
       if (approver && approver !== centerAddr) addressesToLookup.add(approver);
@@ -1156,9 +1179,27 @@ const AgentDetailsTabs = ({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {associationsData.associations.map((assoc, index) => {
                   const active = assoc.revokedAt === 0;
+                  const initiatorAddr = assoc.initiator ?? assoc.initiatorAddress ?? '—';
+                  const approverAddr = assoc.approver ?? assoc.approverAddress ?? '—';
+                  const counterpartyAddr = assoc.counterparty ?? assoc.counterpartyAddress ?? '—';
+                  const validAtValue =
+                    (typeof assoc.validAt === 'number' ? assoc.validAt : assoc.record?.validAt) ?? 0;
+                  const validUntilValue =
+                    (typeof assoc.validUntil === 'number' ? assoc.validUntil : assoc.record?.validUntil) ?? 0;
+                  const decoded =
+                    assoc.record?.data && assoc.record.data.startsWith('0x')
+                      ? decodeAssociationData(assoc.record.data as `0x${string}`)
+                      : null;
+                  const assocTypeLabel =
+                    decoded
+                      ? ASSOC_TYPE_OPTIONS.find((o) => o.value === decoded.assocType)?.label ??
+                        `Type ${decoded.assocType}`
+                      : null;
+                  const verification = assoc.verification;
+
                   return (
                     <div
-                      key={`${assoc.initiator}-${assoc.approver}-${index}`}
+                      key={`${assoc.associationId}-${index}`}
                       style={{
                         border: `1px solid ${palette.border}`,
                         borderRadius: '8px',
@@ -1199,6 +1240,59 @@ const AgentDetailsTabs = ({
                           >
                             {active ? 'Active' : 'Revoked'}
                           </span>
+                          {verification && (
+                            <>
+                              <span
+                                style={{
+                                  borderRadius: '6px',
+                                  padding: '0.25rem 0.75rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  backgroundColor: verification.recordHashMatches
+                                    ? `${palette.accent}20`
+                                    : `${palette.dangerText}20`,
+                                  color: verification.recordHashMatches ? palette.accent : palette.dangerText,
+                                }}
+                                title={
+                                  verification.recordHashMatches
+                                    ? 'associationId matches EIP-712 digest(record)'
+                                    : 'associationId does not match digest(record)'
+                                }
+                              >
+                                {verification.recordHashMatches ? 'Digest OK' : 'Digest Mismatch'}
+                              </span>
+                              <span
+                                style={{
+                                  borderRadius: '6px',
+                                  padding: '0.25rem 0.75rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  backgroundColor: verification.initiator.ok
+                                    ? `${palette.accent}20`
+                                    : `${palette.dangerText}20`,
+                                  color: verification.initiator.ok ? palette.accent : palette.dangerText,
+                                }}
+                                title={verification.initiator.reason || verification.initiator.method}
+                              >
+                                {verification.initiator.ok ? 'Initiator Sig OK' : 'Initiator Sig ❌'}
+                              </span>
+                              <span
+                                style={{
+                                  borderRadius: '6px',
+                                  padding: '0.25rem 0.75rem',
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  backgroundColor: verification.approver.ok
+                                    ? `${palette.accent}20`
+                                    : `${palette.dangerText}20`,
+                                  color: verification.approver.ok ? palette.accent : palette.dangerText,
+                                }}
+                                title={verification.approver.reason || verification.approver.method}
+                              >
+                                {verification.approver.ok ? 'Approver Sig OK' : 'Approver Sig ❌'}
+                              </span>
+                            </>
+                          )}
                           {active && (
                             <button
                               type="button"
@@ -1260,7 +1354,7 @@ const AgentDetailsTabs = ({
                       </div>
                       {(() => {
                         // Determine which address is the counterparty (the associated agent)
-                        const counterparty = assoc.counterparty;
+                        const counterparty = counterpartyAddr;
                         const counterpartyInfo = getAgentInfoForAddress(counterparty);
                         
                         return (
@@ -1304,7 +1398,7 @@ const AgentDetailsTabs = ({
                             Initiator
                           </div>
                           <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
-                            {assoc.initiator}
+                            {initiatorAddr}
                           </div>
                         </div>
                         <div>
@@ -1312,7 +1406,7 @@ const AgentDetailsTabs = ({
                             Approver
                           </div>
                           <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
-                            {assoc.approver}
+                            {approverAddr}
                           </div>
                         </div>
                         <div>
@@ -1320,7 +1414,7 @@ const AgentDetailsTabs = ({
                             Counterparty
                           </div>
                           <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
-                            {assoc.counterparty}
+                            {counterpartyAddr}
                           </div>
                         </div>
                         <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
@@ -1329,7 +1423,7 @@ const AgentDetailsTabs = ({
                               Valid At
                             </div>
                             <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
-                              {assoc.validAt}
+                              {validAtValue}
                             </div>
                           </div>
                           <div>
@@ -1337,7 +1431,7 @@ const AgentDetailsTabs = ({
                               Valid Until
                             </div>
                             <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
-                              {assoc.validUntil || 'Never'}
+                              {validUntilValue || 'Never'}
                             </div>
                           </div>
                           <div>
@@ -1349,6 +1443,81 @@ const AgentDetailsTabs = ({
                             </div>
                           </div>
                         </div>
+                        {(decoded || assoc.record || assoc.initiatorKeyType || assoc.approverKeyType) && (
+                          <div
+                            style={{
+                              gridColumn: '1 / -1',
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                              gap: '0.75rem',
+                            }}
+                          >
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                Assoc Type
+                              </div>
+                              <div style={{ color: palette.textPrimary }}>
+                                {assocTypeLabel ?? '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                Description
+                              </div>
+                              <div style={{ color: palette.textPrimary, wordBreak: 'break-word' }}>
+                                {decoded?.description ?? '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                interfaceId
+                              </div>
+                              <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                                {assoc.record?.interfaceId ?? '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                initiatorKeyType
+                              </div>
+                              <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                                {assoc.initiatorKeyType ?? '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                approverKeyType
+                              </div>
+                              <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                                {assoc.approverKeyType ?? '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                initiatorSignature
+                              </div>
+                              <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                                {assoc.initiatorSignature ? shorten(assoc.initiatorSignature) : '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                approverSignature
+                              </div>
+                              <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                                {assoc.approverSignature ? shorten(assoc.approverSignature) : '—'}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
+                                record.data
+                              </div>
+                              <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                                {assoc.record?.data ? shorten(assoc.record.data) : '—'}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div style={{ gridColumn: '1 / -1' }}>
                           <div style={{ color: palette.textSecondary, marginBottom: '0.25rem', fontSize: '0.75rem' }}>
                             Association ID

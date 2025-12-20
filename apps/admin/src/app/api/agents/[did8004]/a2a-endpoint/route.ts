@@ -74,7 +74,7 @@ export async function GET(
     const ipfsData = await ipfsResponse.json();
 
     // Extract A2A endpoint from IPFS data
-    // The endpoint is in the endpoints array with name 'A2A'
+    // Only use explicitly-declared endpoints; do not synthesize/append paths.
     let a2aEndpoint: string | null = null;
     if (ipfsData.endpoints && Array.isArray(ipfsData.endpoints)) {
       const a2aEndpointEntry = ipfsData.endpoints.find(
@@ -85,27 +85,8 @@ export async function GET(
         console.log('[API] Found A2A endpoint in endpoints array:', a2aEndpoint);
       }
     }
-    
-    // Fallback: try provider.url if endpoints array doesn't have A2A
-    if (!a2aEndpoint && ipfsData.provider?.url) {
-      // Construct A2A endpoint from provider URL
-      const providerUrl = ipfsData.provider.url;
-      a2aEndpoint = providerUrl.endsWith('/api/a2a') 
-        ? providerUrl 
-        : `${providerUrl.replace(/\/$/, '')}/api/a2a`;
-      console.log('[API] Constructed A2A endpoint from provider.url:', a2aEndpoint);
-    }
-    
-    // Ensure we're returning the actual A2A endpoint, not the agent.json URL
-    // If somehow we got the agent.json URL, extract the base URL and construct /api/a2a
-    /*
-    if (a2aEndpoint && a2aEndpoint.includes('agent.json')) {
-      console.warn('[API] A2A endpoint appears to be agent.json URL, correcting...');
-      const baseUrl = a2aEndpoint.replace(/\/\.well-known\/agent\.json$/, '').replace(/\/api\/a2a$/, '');
-      a2aEndpoint = `${baseUrl.replace(/\/$/, '')}/api/a2a`;
-      console.log('[API] Corrected A2A endpoint to:', a2aEndpoint);
-    }
-    */
+    // Note: We intentionally do NOT fall back to provider.url or try to "fix" agent.json URLs here.
+    // Callers must publish explicit endpoints in the registration JSON.
     
     console.log('[API] Final A2A endpoint being returned:', a2aEndpoint);
 

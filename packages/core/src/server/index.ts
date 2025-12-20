@@ -98,6 +98,11 @@ export type {
 } from './lib/agentFeedback';
 
 export {
+  encodeAssociationData,
+  decodeAssociationData,
+} from './lib/association';
+
+export {
   uploadRegistration,
   getRegistration,
   createRegistrationJSON,
@@ -152,6 +157,12 @@ export {
   isDiscoveryClientInitialized,
   resetDiscoveryClient,
 } from './singletons/discoveryClient';
+
+export {
+  getAssociationsClient,
+  isAssociationsClientInitialized,
+  resetAssociationsClient,
+} from './singletons/associationClient';
 
 export {
   getENSClient,
