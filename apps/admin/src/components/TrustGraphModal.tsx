@@ -71,6 +71,10 @@ function shortAddr(a: string): string {
   return a.length > 10 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 }
 
+function safeLower(value: unknown): string {
+  return typeof value === 'string' ? value.toLowerCase() : '';
+}
+
 export default function TrustGraphModal({
   open,
   onClose,
@@ -125,11 +129,11 @@ export default function TrustGraphModal({
     if (!open || !agent.agentAccount) return;
     if (!associationsData || associationsData.ok === false) return;
     
-    const rootAddr = agent.agentAccount.toLowerCase();
+    const rootAddr = safeLower(agent.agentAccount);
     const firstHops = Array.from(
       new Set(
         (associationsData.associations ?? [])
-          .map((a) => a.counterparty?.toLowerCase?.() ?? '')
+          .map((a) => safeLower(a?.counterparty))
           .filter((a) => a && a !== rootAddr)
       )
     ).slice(0, 12); // Keep it bounded
@@ -340,7 +344,7 @@ export default function TrustGraphModal({
     const associationEdges: Array<{ id: string; source: string; target: string; assoc: Assoc }> = [];
     
     if (associationsData && associationsData.ok && agent.agentAccount) {
-      const centerAddr = agent.agentAccount.toLowerCase();
+      const centerAddr = safeLower(agent.agentAccount);
       const associations = associationsData.associations || [];
 
       // Collect first-hop counterpart addresses with counts
@@ -399,8 +403,12 @@ export default function TrustGraphModal({
 
       // Create edges from associations (already deduplicated)
       for (const a of allAssocs) {
-        const s = a.initiator.toLowerCase();
-        const t = a.approver.toLowerCase();
+        const s = safeLower(a?.initiator);
+        const t = safeLower(a?.approver);
+        if (!s || !t) {
+          // Skip malformed association records to keep the graph rendering stable.
+          continue;
+        }
         const sourceId = s === centerAddr ? 'agent' : `assoc-${s}`;
         const targetId = t === centerAddr ? 'agent' : `assoc-${t}`;
         

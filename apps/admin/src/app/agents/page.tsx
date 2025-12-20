@@ -30,6 +30,7 @@ type DiscoverParams = {
   mcp?: boolean;
   minFeedbackCount?: number;
   minValidationCompletedCount?: number;
+  minAssociations?: number;
   minFeedbackAverageScore?: number;
   createdWithinDays?: number;
   only8004Agents?: boolean;
@@ -48,6 +49,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   path: '',
   minReviews: '',
   minValidations: '',
+  minAssociations: '',
   minAvgRating: '',
   createdWithinDays: '',
 };
@@ -157,6 +159,11 @@ export default function AgentsRoute() {
     const minValidations = Number.parseInt((source?.minValidations || '').trim(), 10);
     if (Number.isFinite(minValidations) && minValidations > 0) {
       params.minValidationCompletedCount = minValidations;
+    }
+
+    const minAssociations = Number.parseInt((source?.minAssociations || '').trim(), 10);
+    if (Number.isFinite(minAssociations) && minAssociations > 0) {
+      params.minAssociations = minAssociations;
     }
 
     const minAvgRating = Number.parseFloat((source?.minAvgRating || '').trim());
@@ -298,6 +305,7 @@ export default function AgentsRoute() {
       path: '',
       minReviews: '',
       minValidations: '',
+      minAssociations: '',
       minAvgRating: '',
       createdWithinDays: '',
     };

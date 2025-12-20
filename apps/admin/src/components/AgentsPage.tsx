@@ -44,6 +44,8 @@ export type AgentsPageAgent = {
   validationPendingCount?: number | null;
   validationCompletedCount?: number | null;
   validationRequestedCount?: number | null;
+  initiatedAssociationCount?: number | null;
+  approvedAssociationCount?: number | null;
 };
 
 type Agent = AgentsPageAgent;
@@ -64,6 +66,7 @@ export type AgentsPageFilters = {
   path: string;
   minReviews: string;
   minValidations: string;
+  minAssociations: string;
   minAvgRating: string;
   createdWithinDays: string;
 };
@@ -140,6 +143,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   path: '',
   minReviews: '',
   minValidations: '',
+  minAssociations: '',
   minAvgRating: '',
   createdWithinDays: '',
 };
@@ -3273,6 +3277,47 @@ export function AgentsPage({
                     }}
                   />
                 </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '140px' : '120px',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Min associations
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={filters.minAssociations}
+                    onChange={event => onFilterChange('minAssociations', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="e.g. 10"
+                    aria-label="Minimum associations"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -3347,6 +3392,18 @@ export function AgentsPage({
               agent.validationRequestedCount >= 0
                 ? agent.validationRequestedCount
                 : 0;
+            const initiatedAssociationsCount =
+              typeof agent.initiatedAssociationCount === 'number' &&
+              Number.isFinite(agent.initiatedAssociationCount) &&
+              agent.initiatedAssociationCount >= 0
+                ? agent.initiatedAssociationCount
+                : null;
+            const approvedAssociationsCount =
+              typeof agent.approvedAssociationCount === 'number' &&
+              Number.isFinite(agent.approvedAssociationCount) &&
+              agent.approvedAssociationCount >= 0
+                ? agent.approvedAssociationCount
+                : null;
             const averageRating =
               typeof agent.feedbackAverageScore === 'number' &&
               Number.isFinite(agent.feedbackAverageScore)
@@ -3890,6 +3947,13 @@ export function AgentsPage({
                         validations ({validationsCount} / {validationsPendingCount})
                       </button>
                     )}
+                    <span
+                      title={`Indexer counts — initiated: ${
+                        initiatedAssociationsCount ?? '—'
+                      }, approved: ${approvedAssociationsCount ?? '—'}`}
+                    >
+                      associations ({initiatedAssociationsCount ?? '—'} / {approvedAssociationsCount ?? '—'})
+                    </span>
                   </div>
                 </div>
               </article>

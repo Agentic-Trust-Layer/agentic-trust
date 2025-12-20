@@ -43,6 +43,12 @@ export interface AgentInfo {
   validationPendingCount?: number | null;
   validationCompletedCount?: number | null;
   validationRequestedCount?: number | null;
+
+  /**
+   * Aggregated association metrics from the indexer.
+   */
+  initiatedAssociationCount?: number | null;
+  approvedAssociationCount?: number | null;
 }
 
 

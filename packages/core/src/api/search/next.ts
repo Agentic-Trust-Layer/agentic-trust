@@ -89,6 +89,11 @@ async function executeSearch(options: DiscoverRequest): Promise<SearchResultPayl
         completed: sample.validationCompletedCount,
         requested: sample.validationRequestedCount
       });
+      console.log('[AgenticTrust][Search] First agent result association stats:', {
+        id: sample.agentId,
+        initiated: (sample as any).initiatedAssociationCount,
+        approved: (sample as any).approvedAssociationCount,
+      });
     }
   }
   
@@ -112,16 +117,48 @@ export function searchAgentsGetRouteHandler() {
           ? (orderDirectionRaw as 'ASC' | 'DESC')
           : undefined;
 
+      const requestedPage = page ?? 1;
+      const requestedPageSize = pageSize;
+
+      const minAssociations =
+        params && typeof (params as any).minAssociations === 'number' && Number.isFinite((params as any).minAssociations)
+          ? (params as any).minAssociations
+          : undefined;
+
+      const needsAssocFilter = typeof minAssociations === 'number' && minAssociations > 0;
+
       const response = await executeSearch({
-        page,
-        pageSize,
+        page: needsAssocFilter ? 1 : requestedPage,
+        pageSize: needsAssocFilter ? Math.max(2000, requestedPageSize) : requestedPageSize,
         query: query && query.length > 0 ? query : undefined,
         params,
         orderBy,
         orderDirection,
       });
 
-      return jsonResponse(mapAgentsResponse(response));
+      if (!needsAssocFilter) {
+        return jsonResponse(mapAgentsResponse(response));
+      }
+
+      const agents = Array.isArray(response.agents) ? response.agents : [];
+      const filtered = agents.filter((a: any) => {
+        const initiated = typeof a?.initiatedAssociationCount === 'number' ? a.initiatedAssociationCount : 0;
+        const approved = typeof a?.approvedAssociationCount === 'number' ? a.approvedAssociationCount : 0;
+        return initiated + approved >= (minAssociations as number);
+      });
+
+      const start = Math.max(0, (requestedPage - 1) * requestedPageSize);
+      const end = start + requestedPageSize;
+      const paged = filtered.slice(start, end);
+
+      return jsonResponse({
+        success: true,
+        agents: paged,
+        total: filtered.length,
+        page: requestedPage,
+        pageSize: requestedPageSize,
+        totalPages: Math.max(1, Math.ceil(filtered.length / Math.max(1, requestedPageSize))),
+      });
     } catch (error) {
       return handleError(error);
     }
@@ -162,16 +199,47 @@ export function searchAgentsPostRouteHandler() {
           ? (orderDirectionRaw as 'ASC' | 'DESC')
           : undefined;
 
+      const requestedPage = page ?? 1;
+      const requestedPageSize = pageSize;
+
+      const minAssociations =
+        params && typeof (params as any).minAssociations === 'number' && Number.isFinite((params as any).minAssociations)
+          ? (params as any).minAssociations
+          : undefined;
+      const needsAssocFilter = typeof minAssociations === 'number' && minAssociations > 0;
+
       const response = await executeSearch({
-        page,
-        pageSize,
+        page: needsAssocFilter ? 1 : requestedPage,
+        pageSize: needsAssocFilter ? Math.max(2000, requestedPageSize) : requestedPageSize,
         query,
         params,
         orderBy,
         orderDirection,
       });
 
-      return jsonResponse(mapAgentsResponse(response));
+      if (!needsAssocFilter) {
+        return jsonResponse(mapAgentsResponse(response));
+      }
+
+      const agents = Array.isArray(response.agents) ? response.agents : [];
+      const filtered = agents.filter((a: any) => {
+        const initiated = typeof a?.initiatedAssociationCount === 'number' ? a.initiatedAssociationCount : 0;
+        const approved = typeof a?.approvedAssociationCount === 'number' ? a.approvedAssociationCount : 0;
+        return initiated + approved >= (minAssociations as number);
+      });
+
+      const start = Math.max(0, (requestedPage - 1) * requestedPageSize);
+      const end = start + requestedPageSize;
+      const paged = filtered.slice(start, end);
+
+      return jsonResponse({
+        success: true,
+        agents: paged,
+        total: filtered.length,
+        page: requestedPage,
+        pageSize: requestedPageSize,
+        totalPages: Math.max(1, Math.ceil(filtered.length / Math.max(1, requestedPageSize))),
+      });
     } catch (error) {
       return handleError(error);
     }

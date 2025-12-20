@@ -178,6 +178,10 @@ export async function discoverAgents(
         validationPendingCount: numeric(raw?.validationPendingCount, 0),
         validationCompletedCount: numeric(raw?.validationCompletedCount, 0),
         validationRequestedCount: numeric(raw?.validationRequestedCount, 0),
+        // Association counts come from the discovery indexer. Keep missing values as null
+        // (do not default to 0) so callers can distinguish "unknown" from "zero".
+        initiatedAssociationCount: numeric(raw?.initiatedAssociationCount, null),
+        approvedAssociationCount: numeric(raw?.approvedAssociationCount, null),
       };
     }),
     total,

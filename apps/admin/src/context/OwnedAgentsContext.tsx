@@ -35,6 +35,8 @@ function mapOwnedAgentToAgentsPageAgent(agent: any): AgentsPageAgent {
     validationPendingCount: agent?.validationPendingCount ?? null,
     validationCompletedCount: agent?.validationCompletedCount ?? null,
     validationRequestedCount: agent?.validationRequestedCount ?? null,
+    initiatedAssociationCount: agent?.initiatedAssociationCount ?? null,
+    approvedAssociationCount: agent?.approvedAssociationCount ?? null,
   };
 }
 

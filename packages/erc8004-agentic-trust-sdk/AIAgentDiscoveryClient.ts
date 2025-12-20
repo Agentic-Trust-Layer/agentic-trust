@@ -42,6 +42,8 @@ export interface AgentData {
   validationPendingCount?: number | null;
   validationCompletedCount?: number | null;
   validationRequestedCount?: number | null;
+  initiatedAssociationCount?: number | null;
+  approvedAssociationCount?: number | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -500,6 +502,16 @@ export class AIAgentDiscoveryClient {
       normalized.validationRequestedCount = validationRequestedCount;
     }
 
+    const initiatedAssociationCount = toOptionalNumberOrNull(record.initiatedAssociationCount);
+    if (initiatedAssociationCount !== undefined) {
+      normalized.initiatedAssociationCount = initiatedAssociationCount;
+    }
+
+    const approvedAssociationCount = toOptionalNumberOrNull(record.approvedAssociationCount);
+    if (approvedAssociationCount !== undefined) {
+      normalized.approvedAssociationCount = approvedAssociationCount;
+    }
+
     const description = toOptionalStringOrNull(record.description);
     if (description !== undefined) {
       normalized.description = description;
@@ -737,6 +749,8 @@ export class AIAgentDiscoveryClient {
               validationPendingCount
               validationCompletedCount
               validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
               metadata {
                 key
                 valueText
@@ -1292,6 +1306,8 @@ export class AIAgentDiscoveryClient {
             validationPendingCount
             validationCompletedCount
             validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
           }
           total
           hasMore
@@ -1750,6 +1766,13 @@ export class AIAgentDiscoveryClient {
             active
             supportedTrust
             rawJson
+            feedbackCount
+            feedbackAverageScore
+            validationPendingCount
+            validationCompletedCount
+            validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
 ${metadataSelection}
           }
         }
@@ -2283,6 +2306,8 @@ ${metadataSelection}
             validationPendingCount
             validationCompletedCount
             validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
           }
           total
           hasMore

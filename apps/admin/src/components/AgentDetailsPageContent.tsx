@@ -128,6 +128,18 @@ export default function AgentDetailsPageContent({
       ? parseInt(feedbackSummary.count, 10)
       : feedbackSummary?.count ?? 0;
   const feedbackAverage = feedbackSummary?.averageScore ?? null;
+  const initiatedAssociationsCount =
+    typeof (agent as any).initiatedAssociationCount === 'number' &&
+    Number.isFinite((agent as any).initiatedAssociationCount) &&
+    (agent as any).initiatedAssociationCount >= 0
+      ? (agent as any).initiatedAssociationCount
+      : 0;
+  const approvedAssociationsCount =
+    typeof (agent as any).approvedAssociationCount === 'number' &&
+    Number.isFinite((agent as any).approvedAssociationCount) &&
+    (agent as any).approvedAssociationCount >= 0
+      ? (agent as any).approvedAssociationCount
+      : 0;
 
   // Check if wallet owns the agent account using the isOwner API
   const checkOwnership = useCallback(async () => {
@@ -708,6 +720,13 @@ export default function AgentDetailsPageContent({
                       ? `${feedbackCount} reviews · ${feedbackAverage}`
                       : `${feedbackCount} reviews`
                   }
+                />
+              )}
+              {!isMobile && (
+                <StatPill
+                  icon={<AutoGraphIcon fontSize="small" />}
+                  label="Associations"
+                  value={`${initiatedAssociationsCount} initiated · ${approvedAssociationsCount} approved`}
                 />
               )}
             </Stack>

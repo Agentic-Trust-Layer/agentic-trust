@@ -144,6 +144,13 @@ export interface DiscoverParams {
   minFeedbackAverageScore?: number;
 
   /**
+   * Minimum total associations (initiated + approved).
+   * Note: this is applied as a post-filter in the search route handler to avoid relying on
+   * indexer-specific AgentWhereInput fields.
+   */
+  minAssociations?: number;
+
+  /**
    * Restrict results to agents created within the last N days.
    * Maps to createdAtTime_gte in the indexer.
    */

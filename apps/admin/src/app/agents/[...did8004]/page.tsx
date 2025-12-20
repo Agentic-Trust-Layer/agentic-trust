@@ -4,6 +4,7 @@ import {
   getAgenticTrustClient,
   getAgentValidationsSummary,
   getRegistration,
+  getAssociationsClient,
   type AgentValidationsSummary,
 } from '@agentic-trust/core/server';
 import { getIdentityRegistryClient } from '@agentic-trust/core/server/singletons/identityClient';
@@ -215,7 +216,49 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     validationPendingCount: (agent as any).validationPendingCount ?? null,
     validationCompletedCount: (agent as any).validationCompletedCount ?? null,
     validationRequestedCount: (agent as any).validationRequestedCount ?? null,
+    initiatedAssociationCount:
+      (agent as any).initiatedAssociationCount ??
+      (agentDetail as any).initiatedAssociationCount ??
+      null,
+    approvedAssociationCount:
+      (agent as any).approvedAssociationCount ??
+      (agentDetail as any).approvedAssociationCount ??
+      null,
   };
+
+  // Fallback: if GraphQL counts are missing/zero, derive initiated/approved counts from on-chain associations
+  // so the header stats match the Associations tab.
+  try {
+    const hasGraphCounts =
+      typeof serializedAgent.initiatedAssociationCount === 'number' ||
+      typeof serializedAgent.approvedAssociationCount === 'number';
+    const maybeBothZero =
+      (serializedAgent.initiatedAssociationCount ?? 0) === 0 &&
+      (serializedAgent.approvedAssociationCount ?? 0) === 0;
+    const canCompute = typeof serializedAgent.agentAccount === 'string' && serializedAgent.agentAccount.startsWith('0x');
+
+    if ((!hasGraphCounts || maybeBothZero) && canCompute) {
+      const associationsClient = await getAssociationsClient(chainId);
+      const assocResp = await associationsClient.getAssociationsForEvmAccount({
+        chainId,
+        accountAddress: serializedAgent.agentAccount,
+      });
+      const centerLower = serializedAgent.agentAccount.toLowerCase();
+      const list = Array.isArray((assocResp as any)?.associations) ? ((assocResp as any).associations as any[]) : [];
+      let initiated = 0;
+      let approved = 0;
+      for (const a of list) {
+        const initiator = typeof a?.initiator === 'string' ? a.initiator.toLowerCase() : '';
+        const approver = typeof a?.approver === 'string' ? a.approver.toLowerCase() : '';
+        if (initiator && initiator === centerLower) initiated += 1;
+        if (approver && approver === centerLower) approved += 1;
+      }
+      serializedAgent.initiatedAssociationCount = initiated;
+      serializedAgent.approvedAssociationCount = approved;
+    }
+  } catch (e) {
+    console.warn('[AgentDetailsPage] Failed to derive association counts; leaving GraphQL values:', e);
+  }
 
   const serializedFeedback = JSON.parse(
     JSON.stringify(Array.isArray(feedbackItems) ? feedbackItems : []),
