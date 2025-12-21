@@ -785,15 +785,28 @@ export default function AgentDetailsPageContent({
                 />
               )}
             </Stack>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => setTrustGraphModalOpen(true)}
-              startIcon={<AutoGraphIcon />}
-              sx={{ alignSelf: { xs: 'flex-start', md: 'center' }, textTransform: 'none', fontWeight: 600 }}
-            >
-              Open Trust Graph Explorer
-            </Button>
+            <Stack spacing={0.75} alignItems={{ xs: 'flex-start', md: 'flex-end' }}>
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={() => setTrustGraphModalOpen(true)}
+                startIcon={<AutoGraphIcon />}
+                sx={{ textTransform: 'none', fontWeight: 600 }}
+              >
+                Open Trust Graph Explorer
+              </Button>
+              {typeof (agent as any).atiOverallScore === 'number' &&
+                Number.isFinite((agent as any).atiOverallScore) && (
+                  <Typography
+                    variant="body2"
+                    color="text.secondary"
+                    sx={{ lineHeight: 1.2 }}
+                    title={`ATI overall score${typeof (agent as any).atiOverallConfidence === 'number' ? ` · confidence: ${(agent as any).atiOverallConfidence}` : ''}${typeof (agent as any).atiVersion === 'string' && (agent as any).atiVersion ? ` · version: ${(agent as any).atiVersion}` : ''}`}
+                  >
+                    ATI score: {(agent as any).atiOverallScore}
+                  </Typography>
+                )}
+            </Stack>
           </Stack>
         </Box>
 

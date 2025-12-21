@@ -44,6 +44,11 @@ export interface AgentData {
   validationRequestedCount?: number | null;
   initiatedAssociationCount?: number | null;
   approvedAssociationCount?: number | null;
+  atiOverallScore?: number | null;
+  atiOverallConfidence?: number | null;
+  atiVersion?: string | null;
+  atiComputedAt?: number | null;
+  atiBundleJson?: string | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -512,6 +517,31 @@ export class AIAgentDiscoveryClient {
       normalized.approvedAssociationCount = approvedAssociationCount;
     }
 
+    const atiOverallScore = toOptionalNumberOrNull(record.atiOverallScore);
+    if (atiOverallScore !== undefined) {
+      normalized.atiOverallScore = atiOverallScore;
+    }
+
+    const atiOverallConfidence = toOptionalNumberOrNull(record.atiOverallConfidence);
+    if (atiOverallConfidence !== undefined) {
+      normalized.atiOverallConfidence = atiOverallConfidence;
+    }
+
+    const atiVersion = toOptionalStringOrNull(record.atiVersion);
+    if (atiVersion !== undefined) {
+      normalized.atiVersion = atiVersion;
+    }
+
+    const atiComputedAt = toOptionalNumberOrNull(record.atiComputedAt);
+    if (atiComputedAt !== undefined) {
+      normalized.atiComputedAt = atiComputedAt;
+    }
+
+    const atiBundleJson = toOptionalStringOrNull(record.atiBundleJson);
+    if (atiBundleJson !== undefined) {
+      normalized.atiBundleJson = atiBundleJson;
+    }
+
     const description = toOptionalStringOrNull(record.description);
     if (description !== undefined) {
       normalized.description = description;
@@ -751,6 +781,11 @@ export class AIAgentDiscoveryClient {
               validationRequestedCount
             initiatedAssociationCount
             approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
               metadata {
                 key
                 valueText
@@ -1308,6 +1343,11 @@ export class AIAgentDiscoveryClient {
             validationRequestedCount
             initiatedAssociationCount
             approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
           }
           total
           hasMore
@@ -1773,6 +1813,11 @@ export class AIAgentDiscoveryClient {
             validationRequestedCount
             initiatedAssociationCount
             approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
 ${metadataSelection}
           }
         }
@@ -1881,6 +1926,11 @@ ${metadataSelection}
           active
           supportedTrust
           rawJson
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
         }
       }
     `;
@@ -1932,6 +1982,11 @@ ${metadataSelection}
           active
           supportedTrust
           rawJson
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
         }
       }
     `;
@@ -1989,6 +2044,11 @@ ${metadataSelection}
           active
           supportedTrust
           rawJson
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
         }
       }
     `;
@@ -2308,6 +2368,11 @@ ${metadataSelection}
             validationRequestedCount
             initiatedAssociationCount
             approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
           }
           total
           hasMore

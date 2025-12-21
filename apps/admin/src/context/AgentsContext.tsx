@@ -31,6 +31,8 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   path: '',
   minReviews: '',
   minValidations: '',
+  minAssociations: '',
+  minAtiOverallScore: '',
   minAvgRating: '',
   createdWithinDays: '',
 };

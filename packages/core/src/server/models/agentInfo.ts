@@ -49,6 +49,15 @@ export interface AgentInfo {
    */
   initiatedAssociationCount?: number | null;
   approvedAssociationCount?: number | null;
+
+  /**
+   * Agentic Trust Index (ATI) metrics from the indexer.
+   */
+  atiOverallScore?: number | null;
+  atiOverallConfidence?: number | null;
+  atiVersion?: string | null;
+  atiComputedAt?: number | null;
+  atiBundleJson?: string | null;
 }
 
 

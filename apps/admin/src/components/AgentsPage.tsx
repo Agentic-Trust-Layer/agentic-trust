@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import ShadowAgentImage from '../../../../docs/8004ShadowAgent.png';
 import { grayscalePalette as palette } from '@/styles/palette';
+import { AGENT_CATEGORY_OPTIONS } from '@/models/agentRegistration';
 import {
   generateSessionPackage,
   buildDid8004,
@@ -46,6 +47,11 @@ export type AgentsPageAgent = {
   validationRequestedCount?: number | null;
   initiatedAssociationCount?: number | null;
   approvedAssociationCount?: number | null;
+  atiOverallScore?: number | null;
+  atiOverallConfidence?: number | null;
+  atiVersion?: string | null;
+  atiComputedAt?: number | null;
+  atiBundleJson?: string | null;
 };
 
 type Agent = AgentsPageAgent;
@@ -67,6 +73,7 @@ export type AgentsPageFilters = {
   minReviews: string;
   minValidations: string;
   minAssociations: string;
+  minAtiOverallScore: string;
   minAvgRating: string;
   createdWithinDays: string;
 };
@@ -77,6 +84,7 @@ type AgentsPageProps = {
   chainOptions: ChainOption[];
   loading: boolean;
   hideFilters?: boolean;
+  hideLeaderboard?: boolean;
   ownedMap?: Record<string, boolean>;
   isConnected?: boolean;
   provider?: any;
@@ -144,6 +152,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   minReviews: '',
   minValidations: '',
   minAssociations: '',
+  minAtiOverallScore: '',
   minAvgRating: '',
   createdWithinDays: '',
 };
@@ -154,6 +163,7 @@ export function AgentsPage({
   chainOptions,
   loading,
   hideFilters = false,
+  hideLeaderboard = false,
   ownedMap = {},
   isConnected = false,
   provider,
@@ -168,8 +178,9 @@ export function AgentsPage({
 }: AgentsPageProps) {
 
 
-  // Ensure filters is never undefined
-  const filters = filtersProp || DEFAULT_FILTERS;
+  // Ensure filters is always fully-populated so all inputs remain controlled.
+  // (If a new filter field is added, older callers may pass a partial object.)
+  const filters: AgentsPageFilters = { ...DEFAULT_FILTERS, ...(filtersProp ?? {}) };
 
   // If user disconnects, force "My agents" off (it depends on ownedMap from an active session)
   useEffect(() => {
@@ -194,6 +205,22 @@ export function AgentsPage({
   const [registrationEditSaving, setRegistrationEditSaving] = useState(false);
   const registrationEditRef = useRef<HTMLTextAreaElement | null>(null);
   const [latestTokenUri, setLatestTokenUri] = useState<string | null>(null);
+
+  const [atiLeaderboardCategory, setAtiLeaderboardCategory] = useState<string>('');
+  const [atiLeaderboardTimeWindow, setAtiLeaderboardTimeWindow] = useState<'all' | '10d' | '30d' | '180d'>('all');
+  const [atiLeaderboardChainId, setAtiLeaderboardChainId] = useState<string>('all');
+  const [atiLeaderboard, setAtiLeaderboard] = useState<
+    Array<{
+      agentId: string;
+      chainId: number;
+      agentName: string;
+      atiOverallScore: number;
+      agentCategory?: string | null;
+      image?: string | null;
+    }>
+  >([]);
+  const [atiLeaderboardLoading, setAtiLeaderboardLoading] = useState(false);
+  const [atiLeaderboardError, setAtiLeaderboardError] = useState<string | null>(null);
   const router = useRouter();
   const [tokenUriLoading, setTokenUriLoading] = useState(false);
   const [navigatingToAgent, setNavigatingToAgent] = useState<string | null>(null);
@@ -201,12 +228,20 @@ export function AgentsPage({
     key: string | null;
     loading: boolean;
     error: string | null;
-    text: string | null;
+    messageEndpointUrl: string | null;
+    agentJsonUrl: string | null;
+    agentCardUrl: string | null;
+    agentJsonText: string | null;
+    agentCardText: string | null;
   }>({
     key: null,
     loading: false,
     error: null,
-    text: null,
+    messageEndpointUrl: null,
+    agentJsonUrl: null,
+    agentCardUrl: null,
+    agentJsonText: null,
+    agentCardText: null,
   });
   const [sessionPreview, setSessionPreview] = useState<{
     key: string | null;
@@ -449,6 +484,86 @@ export function AgentsPage({
     setActiveDialog({ agent, action });
   };
 
+  // ATI leaderboard (single query, sorted client-side)
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        setAtiLeaderboardLoading(true);
+        setAtiLeaderboardError(null);
+
+        const params: Record<string, unknown> = {};
+        const chainForLeaderboard = atiLeaderboardChainId && atiLeaderboardChainId !== 'all' ? atiLeaderboardChainId : 'all';
+        if (chainForLeaderboard !== 'all') {
+          const parsed = Number(chainForLeaderboard);
+          if (Number.isFinite(parsed)) {
+            params.chains = [parsed];
+          }
+        }
+        const category = (atiLeaderboardCategory || '').trim();
+        if (category) {
+          params.agentCategory = category;
+        }
+        if (atiLeaderboardTimeWindow === '10d') params.atiComputedWithinDays = 10;
+        if (atiLeaderboardTimeWindow === '30d') params.atiComputedWithinDays = 30;
+        if (atiLeaderboardTimeWindow === '180d') params.atiComputedWithinDays = 180;
+
+        const url =
+          `/api/agents/search?page=1&pageSize=2000` +
+          `&orderBy=createdAtTime&orderDirection=DESC` +
+          `&params=${encodeURIComponent(JSON.stringify(params))}` +
+          `&source=ati-leaderboard`;
+        const res = await fetch(url, { cache: 'no-store' });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error || body?.message || `Failed to load ATI leaderboard (${res.status})`);
+        }
+        const body = await res.json().catch(() => ({} as any));
+        const list = Array.isArray(body?.agents) ? (body.agents as any[]) : [];
+
+        const top = list
+          .map((a) => {
+            const scoreRaw = a?.atiOverallScore;
+            const score = typeof scoreRaw === 'number' ? scoreRaw : Number(scoreRaw);
+            if (!Number.isFinite(score)) return null;
+            const agentId = typeof a?.agentId === 'string' ? a.agentId : String(a?.agentId ?? '');
+            const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId ?? 0);
+            const agentName = typeof a?.agentName === 'string' && a.agentName.trim() ? a.agentName.trim() : `Agent #${agentId || '—'}`;
+            const agentCategory =
+              typeof a?.agentCategory === 'string' && a.agentCategory.trim().length > 0 ? a.agentCategory.trim() : null;
+            const image =
+              typeof a?.image === 'string' && a.image.trim().length > 0 ? a.image.trim() : null;
+            if (!agentId || !Number.isFinite(chainId) || chainId <= 0) return null;
+            return { agentId, chainId, agentName, atiOverallScore: score, agentCategory, image };
+          })
+          .filter(Boolean) as Array<{
+          agentId: string;
+          chainId: number;
+          agentName: string;
+          atiOverallScore: number;
+          agentCategory?: string | null;
+          image?: string | null;
+        }>;
+
+        top.sort((a, b) => b.atiOverallScore - a.atiOverallScore);
+
+        if (cancelled) return;
+        setAtiLeaderboard(top.slice(0, 10));
+      } catch (e: any) {
+        if (cancelled) return;
+        setAtiLeaderboard([]);
+        setAtiLeaderboardError(e?.message || 'Failed to load ATI leaderboard');
+      } finally {
+        if (!cancelled) setAtiLeaderboardLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [atiLeaderboardCategory, atiLeaderboardTimeWindow, atiLeaderboardChainId]);
+
   const closeDialog = () => {
     setActiveDialog(null);
     setLatestTokenUri(null);
@@ -599,7 +714,8 @@ export function AgentsPage({
         setFeedbackSkillsError(null);
         (async () => {
           try {
-            const text = await loadAgentCardContent(agent.a2aEndpoint as string);
+            const { agentJsonUrl } = deriveA2ADiscoveryUrls(agent.a2aEndpoint as string);
+            const text = agentJsonUrl ? await loadAgentCardContent(agentJsonUrl) : await loadAgentCardContent(agent.a2aEndpoint as string);
             let skills: AgentSkill[] = [];
             try {
               const parsed = JSON.parse(text);
@@ -730,27 +846,43 @@ export function AgentsPage({
       setA2APreview({
         key,
         loading: false,
-        error: 'No Agent Card endpoint configured for this agent.',
-        text: null,
+        error: 'No agent.json endpoint configured for this agent.',
+        messageEndpointUrl: null,
+        agentJsonUrl: null,
+        agentCardUrl: null,
+        agentJsonText: null,
+        agentCardText: null,
       });
       return;
     }
+    const derived = deriveA2ADiscoveryUrls(endpoint);
     let cancelled = false;
     setA2APreview({
       key,
       loading: true,
       error: null,
-      text: null,
+      messageEndpointUrl: derived.messageEndpointUrl ?? endpoint,
+      agentJsonUrl: derived.agentJsonUrl,
+      agentCardUrl: derived.agentCardUrl,
+      agentJsonText: null,
+      agentCardText: null,
     });
     (async () => {
       try {
-        const text = await loadAgentCardContent(endpoint);
+        const [agentJsonResult, agentCardResult] = await Promise.allSettled([
+          derived.agentJsonUrl ? loadAgentCardContent(derived.agentJsonUrl) : Promise.resolve(null),
+          derived.agentCardUrl ? loadAgentCardContent(derived.agentCardUrl) : Promise.resolve(null),
+        ]);
         if (cancelled) return;
         setA2APreview({
           key,
           loading: false,
           error: null,
-          text,
+          messageEndpointUrl: derived.messageEndpointUrl ?? endpoint,
+          agentJsonUrl: derived.agentJsonUrl,
+          agentCardUrl: derived.agentCardUrl,
+          agentJsonText: agentJsonResult.status === 'fulfilled' ? agentJsonResult.value : null,
+          agentCardText: agentCardResult.status === 'fulfilled' ? agentCardResult.value : null,
         });
       } catch (error: any) {
         if (cancelled) return;
@@ -758,7 +890,11 @@ export function AgentsPage({
           key,
           loading: false,
           error: error?.message ?? 'Unable to load agent card JSON.',
-          text: null,
+          messageEndpointUrl: derived.messageEndpointUrl ?? endpoint,
+          agentJsonUrl: derived.agentJsonUrl,
+          agentCardUrl: derived.agentCardUrl,
+          agentJsonText: null,
+          agentCardText: null,
         });
       }
     })();
@@ -1353,20 +1489,21 @@ export function AgentsPage({
         return (
           <>
             <p style={{ marginTop: 0 }}>
-              A2A endpoints surface JSON capabilities for client-to-agent discovery.
+              A2A uses an <strong>agent.json</strong> document for discovery.
             </p>
-            {agent.a2aEndpoint ? (
+            {a2aPreview.messageEndpointUrl ? (
               <a
-                href={agent.a2aEndpoint}
+                href={a2aPreview.messageEndpointUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
-                {agent.a2aEndpoint}
+                {a2aPreview.messageEndpointUrl}
               </a>
             ) : (
-              <p style={{ color: palette.dangerText }}>No A2A endpoint is available for this agent.</p>
+              <p style={{ color: palette.dangerText }}>No A2A message endpoint is available for this agent.</p>
             )}
+
             <div
               style={{
                 marginTop: '1rem',
@@ -1382,16 +1519,23 @@ export function AgentsPage({
                 wordBreak: 'break-word',
               }}
             >
-              {!agent.a2aEndpoint ? (
-                <span style={{ color: palette.textSecondary }}>No endpoint to preview.</span>
+              {!a2aPreview.agentJsonUrl ? (
+                <span style={{ color: palette.textSecondary }}>No discovery URL to preview.</span>
               ) : !a2aMatchesAgent || a2aPreview.loading ? (
-                <span style={{ color: palette.textSecondary }}>Loading agent card…</span>
+                <span style={{ color: palette.textSecondary }}>Loading agent.json…</span>
               ) : a2aPreview.error ? (
                 <span style={{ color: palette.dangerText }}>{a2aPreview.error}</span>
-              ) : a2aPreview.text ? (
-                a2aPreview.text
               ) : (
-                <span style={{ color: palette.textSecondary }}>No JSON preview available.</span>
+                <>
+                  <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>agent.json</div>
+                  <div style={{ marginBottom: '0.9rem' }}>
+                    {a2aPreview.agentJsonText ? formatJsonIfPossible(a2aPreview.agentJsonText) : '—'}
+                  </div>
+                  <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>agent-card.json</div>
+                  <div>
+                    {a2aPreview.agentCardText ? formatJsonIfPossible(a2aPreview.agentCardText) : '—'}
+                  </div>
+                </>
               )}
             </div>
           </>
@@ -2566,10 +2710,27 @@ export function AgentsPage({
         }
       `}</style>
       <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        <div
+          style={{
+            display: isMobile ? 'block' : 'flex',
+            gap: '1.5rem',
+            alignItems: 'flex-start',
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2rem' }}>
 
       {!hideFilters && (
       <div
         style={{
+          display: isMobile ? 'block' : 'flex',
+          gap: '1.5rem',
+          alignItems: 'flex-start',
+        }}
+      >
+      <div
+        style={{
+          flex: '1 1 auto',
+          minWidth: 0,
           backgroundColor: palette.surface,
           padding: '1.5rem',
           borderRadius: '12px',
@@ -3318,16 +3479,65 @@ export function AgentsPage({
                     }}
                   />
                 </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '0.25rem',
+                    width: 'auto',
+                    minWidth: isMobile ? '140px' : '120px',
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      color: palette.textSecondary,
+                    }}
+                  >
+                    Min ATI score
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={filters.minAtiOverallScore}
+                    onChange={event => onFilterChange('minAtiOverallScore', event.target.value)}
+                    onKeyDown={event => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onSearch();
+                      }
+                    }}
+                    placeholder="e.g. 80"
+                    aria-label="Minimum ATI overall score"
+                    style={{
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.85rem',
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-
-
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '1.5rem',
+        }}
+      >
         <div
           style={{
             display: 'grid',
@@ -3410,6 +3620,26 @@ export function AgentsPage({
               typeof agent.feedbackAverageScore === 'number' &&
               Number.isFinite(agent.feedbackAverageScore)
                 ? agent.feedbackAverageScore
+                : null;
+
+            const atiOverallScore =
+              typeof (agent as any).atiOverallScore === 'number' &&
+              Number.isFinite((agent as any).atiOverallScore) &&
+              (agent as any).atiOverallScore >= 0
+                ? ((agent as any).atiOverallScore as number)
+                : null;
+            const atiOverallConfidence =
+              typeof (agent as any).atiOverallConfidence === 'number' &&
+              Number.isFinite((agent as any).atiOverallConfidence)
+                ? ((agent as any).atiOverallConfidence as number)
+                : null;
+            const atiVersion =
+              typeof (agent as any).atiVersion === 'string' && (agent as any).atiVersion.trim().length > 0
+                ? ((agent as any).atiVersion as string).trim()
+                : null;
+            const atiComputedAt =
+              typeof (agent as any).atiComputedAt === 'number' && Number.isFinite((agent as any).atiComputedAt)
+                ? ((agent as any).atiComputedAt as number)
                 : null;
 
             const createdAtTimeSeconds =
@@ -3620,7 +3850,7 @@ export function AgentsPage({
 
                     return (
                       <>
-                        <h4 style={{ margin: 0, fontSize: '1.3rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '1.15rem' }}>
                           {ensLink && isEnsName ? (
                             <a
                               data-agent-card-link
@@ -3676,21 +3906,29 @@ export function AgentsPage({
                     );
                   })()}
                 </div>
-                <p
-                  style={{
-                    margin: 0,
-                    color: palette.textSecondary,
-                    minHeight: '3.5rem',
-                  }}
-                >
-                  {(() => {
-                    const desc = agent.description || 'No description provided.';
-                    if (desc.length > 500) {
-                      return `${desc.slice(0, 500)}...`;
-                    }
-                    return desc;
-                  })()}
-                </p>
+                {(() => {
+                  const descRaw =
+                    typeof agent.description === 'string' && agent.description.trim().length > 0
+                      ? agent.description.trim()
+                      : 'No description provided.';
+                  return (
+                    <p
+                      style={{
+                        margin: 0,
+                        color: palette.textSecondary,
+                        fontSize: '0.85rem',
+                        lineHeight: 1.35,
+                        display: '-webkit-box',
+                        WebkitLineClamp: 3,
+                        WebkitBoxOrient: 'vertical',
+                        overflow: 'hidden',
+                      }}
+                      title={descRaw}
+                    >
+                      {descRaw}
+                    </p>
+                  );
+                })()}
                 <div
                   style={{
                     marginTop: '0.75rem',
@@ -3726,38 +3964,7 @@ export function AgentsPage({
                         <span>{ownerDisplay}</span>
                       </div>
                     )}
-                    {agent.a2aEndpoint && (
-                      <div
-                        style={{
-                          fontSize: '0.75rem',
-                          color: palette.textSecondary,
-                          maxWidth: '100%',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                        title={agent.a2aEndpoint}
-                      >
-                        <strong style={{ fontWeight: 600 }}>A2A:</strong>{' '}
-                        <span>{agent.a2aEndpoint}</span>
-                      </div>
-                    )}
-                    {agent.mcpEndpoint && (
-                      <div
-                        style={{
-                          fontSize: '0.75rem',
-                          color: palette.textSecondary,
-                          maxWidth: '100%',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}
-                        title={agent.mcpEndpoint}
-                      >
-                        <strong style={{ fontWeight: 600 }}>MCP:</strong>{' '}
-                        <span>{agent.mcpEndpoint}</span>
-                      </div>
-                    )}
+                    {/* Endpoint URLs are available via the action buttons (A2A/MCP) and agent details. */}
                     {/* Agent account address link removed per design; still available in data if needed */}
                   </div>
                   <div
@@ -3956,6 +4163,13 @@ export function AgentsPage({
                         associations ({initiatedAssociationsCount ?? 0} / {approvedAssociationsCount ?? 0})
                       </span>
                     )}
+                    {atiOverallScore !== null && (
+                      <span
+                        title={`ATI overall score from discovery indexer${atiOverallConfidence !== null ? ` · confidence: ${atiOverallConfidence}` : ''}${atiVersion ? ` · version: ${atiVersion}` : ''}${atiComputedAt ? ` · computedAt: ${atiComputedAt}` : ''}`}
+                      >
+                        ATI ({atiOverallScore})
+                      </span>
+                    )}
                   </div>
                 </div>
               </article>
@@ -4012,7 +4226,211 @@ export function AgentsPage({
           </div>
         )}
       </div>
-    </section>
+
+          </div>
+
+          {!isMobile && !hideLeaderboard && (
+            <aside
+              style={{
+                width: 340,
+                flex: '0 0 340px',
+                borderRadius: '16px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surface,
+                padding: '1.25rem',
+                position: 'sticky',
+                top: '1rem',
+                boxShadow: '0 4px 12px rgba(15,23,42,0.06)',
+                alignSelf: 'flex-start',
+              }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: palette.textPrimary }}>
+                    ATI Leaderboard
+                  </h3>
+                  <span style={{ fontSize: '0.75rem', color: palette.textSecondary }}>Top by score</span>
+                </div>
+
+                {/* compact filters (match "VIEW: All Time / All Mountains" style) */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', color: palette.textSecondary }}>
+                    VIEW:
+                  </span>
+                  <select
+                    value={atiLeaderboardTimeWindow}
+                    onChange={(e) => setAtiLeaderboardTimeWindow(e.target.value as any)}
+                    aria-label="ATI leaderboard time window"
+                    style={{
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '8px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.75rem',
+                      height: 28,
+                    }}
+                  >
+                    <option value="all">All Time</option>
+                    <option value="10d">Past 10 days</option>
+                    <option value="30d">Past Month</option>
+                    <option value="180d">Past 6 months</option>
+                  </select>
+
+                  <select
+                    value={atiLeaderboardChainId}
+                    onChange={(e) => setAtiLeaderboardChainId(e.target.value)}
+                    aria-label="ATI leaderboard chain filter"
+                    style={{
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '8px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.75rem',
+                      height: 28,
+                    }}
+                  >
+                    <option value="all">All Chains</option>
+                    {chainOptions
+                      .filter((c) => c.value !== 'all')
+                      .map((c) => (
+                        <option key={c.value} value={c.value}>
+                          {c.label}
+                        </option>
+                      ))}
+                  </select>
+
+                  <select
+                    value={atiLeaderboardCategory}
+                    onChange={(e) => setAtiLeaderboardCategory(e.target.value)}
+                    aria-label="ATI leaderboard agent category"
+                    style={{
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: '8px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surfaceMuted,
+                      color: palette.textPrimary,
+                      fontSize: '0.75rem',
+                      height: 28,
+                      minWidth: 160,
+                      flex: '1 1 160px',
+                    }}
+                  >
+                    {/* same category list as registration */}
+                    {AGENT_CATEGORY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {opt.value === '' ? 'All categories' : opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {atiLeaderboardLoading && (
+                  <div style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Loading…</div>
+                )}
+                {atiLeaderboardError && (
+                  <div style={{ fontSize: '0.85rem', color: '#b91c1c' }}>{atiLeaderboardError}</div>
+                )}
+
+                {!atiLeaderboardLoading && !atiLeaderboardError && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                    {atiLeaderboard.length === 0 ? (
+                      <div style={{ fontSize: '0.85rem', color: palette.textSecondary }}>
+                        No ATI-scored agents found.
+                      </div>
+                    ) : (
+                      atiLeaderboard.map((row, idx) => (
+                        <button
+                          key={`${row.chainId}:${row.agentId}`}
+                          type="button"
+                          onClick={() => {
+                            const did8004 = buildDid8004(row.chainId, Number(row.agentId));
+                            router.push(`/agents/${encodeURIComponent(did8004)}`);
+                          }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '0.75rem',
+                            padding: '0.65rem 0.75rem',
+                            borderRadius: '12px',
+                            border: `1px solid ${palette.border}`,
+                            background: palette.surfaceMuted,
+                            cursor: 'pointer',
+                            textAlign: 'left',
+                          }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
+                            <div
+                              style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 999,
+                                backgroundColor: '#0f172a',
+                                color: 'white',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                flex: '0 0 auto',
+                              }}
+                            >
+                              {idx + 1}
+                            </div>
+                            <img
+                              src={row.image && row.image.trim() ? row.image.trim() : shadowAgentSrc}
+                              alt={row.agentName}
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 999,
+                                objectFit: 'cover',
+                                border: `1px solid ${palette.border}`,
+                                flex: '0 0 auto',
+                                backgroundColor: palette.surface,
+                              }}
+                              onError={(e) => {
+                                const target = e.target as HTMLImageElement;
+                                if (!target.src.includes(shadowAgentSrc)) {
+                                  target.src = shadowAgentSrc;
+                                }
+                              }}
+                            />
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: '0.85rem',
+                                  fontWeight: 700,
+                                  color: palette.textPrimary,
+                                  whiteSpace: 'nowrap',
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  maxWidth: 220,
+                                }}
+                                title={row.agentName}
+                              >
+                                {row.agentName}
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: palette.textSecondary }}>
+                                #{row.agentId}
+                              </div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: '0.9rem', fontWeight: 800, color: palette.accent }}>
+                            {Math.round(row.atiOverallScore)}
+                          </div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </aside>
+          )}
+        </div>
+      </section>
     {activeDialog && dialogContent && (() => {
       const { agent, action } = activeDialog;
       return (
@@ -4174,6 +4592,39 @@ async function loadRegistrationContent(uri: string): Promise<string> {
 
 async function loadAgentCardContent(uri: string): Promise<string> {
   return loadRegistrationContent(uri);
+}
+
+function deriveA2ADiscoveryUrls(endpoint: string): {
+  messageEndpointUrl: string | null;
+  agentJsonUrl: string | null;
+  agentCardUrl: string | null;
+} {
+  if (!endpoint || typeof endpoint !== 'string') {
+    return { messageEndpointUrl: null, agentJsonUrl: null, agentCardUrl: null };
+  }
+  try {
+    const url = new URL(endpoint);
+    const origin = url.origin;
+    const path = url.pathname || '';
+
+    const agentJsonUrl = `${origin}/.well-known/agent.json`;
+    const agentCardUrl = `${origin}/.well-known/agent-card.json`;
+
+    // If user already provided a well-known agent.json URL, keep it verbatim.
+    const looksLikeAgentJson = path.endsWith('/.well-known/agent.json') || path.endsWith('/.well-known/agent.json/');
+    const explicitAgentJsonUrl = looksLikeAgentJson ? url.toString() : agentJsonUrl;
+
+    // If the provided endpoint is actually agent.json, we don't know the message endpoint.
+    // If it's /api/a2a, treat it as the message endpoint.
+    const looksLikeMessageEndpoint = path.endsWith('/api/a2a') || path.endsWith('/api/a2a/');
+    return {
+      messageEndpointUrl: looksLikeMessageEndpoint ? url.toString() : null,
+      agentJsonUrl: explicitAgentJsonUrl,
+      agentCardUrl,
+    };
+  } catch {
+    return { messageEndpointUrl: null, agentJsonUrl: null, agentCardUrl: null };
+  }
 }
 
 

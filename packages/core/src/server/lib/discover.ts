@@ -182,6 +182,13 @@ export async function discoverAgents(
         // (do not default to 0) so callers can distinguish "unknown" from "zero".
         initiatedAssociationCount: numeric(raw?.initiatedAssociationCount, null),
         approvedAssociationCount: numeric(raw?.approvedAssociationCount, null),
+
+        // ATI metrics (keep missing as null)
+        atiOverallScore: numeric(raw?.atiOverallScore, null),
+        atiOverallConfidence: numeric(raw?.atiOverallConfidence, null),
+        atiVersion: stringOrNull(raw?.atiVersion) ?? undefined,
+        atiComputedAt: numeric(raw?.atiComputedAt, null),
+        atiBundleJson: stringOrNull(raw?.atiBundleJson) ?? undefined,
       };
     }),
     total,

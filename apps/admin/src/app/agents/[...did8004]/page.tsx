@@ -224,6 +224,27 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
       (agent as any).approvedAssociationCount ??
       (agentDetail as any).approvedAssociationCount ??
       null,
+
+    atiOverallScore:
+      (agent as any).atiOverallScore ??
+      (agentDetail as any).atiOverallScore ??
+      null,
+    atiOverallConfidence:
+      (agent as any).atiOverallConfidence ??
+      (agentDetail as any).atiOverallConfidence ??
+      null,
+    atiVersion:
+      (agent as any).atiVersion ??
+      (agentDetail as any).atiVersion ??
+      null,
+    atiComputedAt:
+      (agent as any).atiComputedAt ??
+      (agentDetail as any).atiComputedAt ??
+      null,
+    atiBundleJson:
+      (agent as any).atiBundleJson ??
+      (agentDetail as any).atiBundleJson ??
+      null,
   };
 
   // Fallback: if GraphQL counts are missing/zero, derive initiated/approved counts from on-chain associations

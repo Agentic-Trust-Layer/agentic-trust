@@ -105,6 +105,11 @@ export interface DiscoverParams {
   agentName?: string;
 
   /**
+   * Agent category filter (maps to agentCategory_* in the indexer).
+   */
+  agentCategory?: string;
+
+  /**
    * Exact agentId (string form).
    * Used to build AgentWhereInput.agentId / agentId_in filters.
    */
@@ -149,6 +154,17 @@ export interface DiscoverParams {
    * indexer-specific AgentWhereInput fields.
    */
   minAssociations?: number;
+
+  /**
+   * Minimum ATI overall score (maps to atiOverallScore_gte in the indexer).
+   */
+  minAtiOverallScore?: number;
+
+  /**
+   * Restrict ATI results to those computed within the last N days.
+   * Maps to atiComputedAt_gte in the indexer (seconds since epoch).
+   */
+  atiComputedWithinDays?: number;
 
   /**
    * Restrict results to agents created within the last N days.
@@ -1141,6 +1157,11 @@ export class AgentsAPI {
       where.agentName_contains_nocase = params.agentName.trim();
     }
 
+    if (params.agentCategory?.trim()) {
+      // Best-effort; indexer schemas generally support *_contains_nocase for string fields.
+      (where as any).agentCategory_contains_nocase = params.agentCategory.trim();
+    }
+
     if (params.agentId?.trim()) {
       // Exact match on agentId; you could also expose agentId_in if you later
       // support multiple IDs.
@@ -1226,6 +1247,19 @@ export class AgentsAPI {
       params.minFeedbackAverageScore > 0
     ) {
       (where as any).feedbackAverageScore_gte = params.minFeedbackAverageScore;
+    }
+
+    if (typeof params.minAtiOverallScore === 'number' && params.minAtiOverallScore > 0) {
+      (where as any).atiOverallScore_gte = params.minAtiOverallScore;
+    }
+
+    if (typeof params.atiComputedWithinDays === 'number' && params.atiComputedWithinDays > 0) {
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const windowSeconds = Math.floor(params.atiComputedWithinDays * 24 * 60 * 60);
+      const threshold = nowSeconds - windowSeconds;
+      if (threshold > 0) {
+        (where as any).atiComputedAt_gte = threshold;
+      }
     }
 
     if (typeof params.createdWithinDays === 'number' && params.createdWithinDays > 0) {
@@ -1348,6 +1382,14 @@ export class AgentsAPI {
     if (params.agentName) {
       const name = agent.agentName ?? '';
       if (!name.toLowerCase().includes(params.agentName.trim().toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (params.agentCategory) {
+      const cat = (agent as any).agentCategory ?? '';
+      const catStr = typeof cat === 'string' ? cat : String(cat ?? '');
+      if (!catStr.toLowerCase().includes(params.agentCategory.trim().toLowerCase())) {
         return false;
       }
     }
@@ -1493,6 +1535,28 @@ export class AgentsAPI {
         (Array.isArray(metadata?.protocols) &&
           metadata.protocols.map((p: string) => p.toLowerCase()).includes('x402'));
       if (params.x402support !== support) {
+        return false;
+      }
+    }
+
+    if (typeof params.minAtiOverallScore === 'number' && params.minAtiOverallScore > 0) {
+      const scoreRaw = (agent as any).atiOverallScore;
+      const score = typeof scoreRaw === 'number' ? scoreRaw : Number(scoreRaw);
+      if (!Number.isFinite(score) || score < params.minAtiOverallScore) {
+        return false;
+      }
+    }
+
+    if (typeof params.atiComputedWithinDays === 'number' && params.atiComputedWithinDays > 0) {
+      const computedRaw = (agent as any).atiComputedAt;
+      const computedAt = typeof computedRaw === 'number' ? computedRaw : Number(computedRaw);
+      if (!Number.isFinite(computedAt) || computedAt <= 0) {
+        return false;
+      }
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const windowSeconds = Math.floor(params.atiComputedWithinDays * 24 * 60 * 60);
+      const threshold = nowSeconds - windowSeconds;
+      if (computedAt < threshold) {
         return false;
       }
     }

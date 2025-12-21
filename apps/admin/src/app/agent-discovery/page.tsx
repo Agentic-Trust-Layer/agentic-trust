@@ -549,6 +549,7 @@ export default function AgentDiscoveryRoute() {
           agents={pageAgents}
           loading={loadingAgents}
           hideFilters
+          hideLeaderboard
           filters={{
             chainId: 'all',
             address: '',
@@ -560,6 +561,8 @@ export default function AgentDiscoveryRoute() {
             path: '',
             minReviews: '',
             minValidations: '',
+            minAssociations: '',
+            minAtiOverallScore: '',
             minAvgRating: '',
             createdWithinDays: '',
           }}

@@ -32,6 +32,7 @@ type DiscoverParams = {
   minValidationCompletedCount?: number;
   minAssociations?: number;
   minFeedbackAverageScore?: number;
+  minAtiOverallScore?: number;
   createdWithinDays?: number;
   only8004Agents?: boolean;
 };
@@ -50,6 +51,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   minReviews: '',
   minValidations: '',
   minAssociations: '',
+  minAtiOverallScore: '',
   minAvgRating: '',
   createdWithinDays: '',
 };
@@ -169,6 +171,11 @@ export default function AgentsRoute() {
     const minAvgRating = Number.parseFloat((source?.minAvgRating || '').trim());
     if (Number.isFinite(minAvgRating) && minAvgRating > 0) {
       params.minFeedbackAverageScore = minAvgRating;
+    }
+
+    const minAtiOverallScore = Number.parseInt((source?.minAtiOverallScore || '').trim(), 10);
+    if (Number.isFinite(minAtiOverallScore) && minAtiOverallScore > 0) {
+      params.minAtiOverallScore = minAtiOverallScore;
     }
 
     const createdWithinDays = Number.parseInt((source?.createdWithinDays || '').trim(), 10);
@@ -430,9 +437,12 @@ export default function AgentsRoute() {
         disableConnect={loading || auth.loading}
       />
       <Container
-        maxWidth="lg"
+        maxWidth={false}
+        disableGutters
         sx={{
-          py: { xs: 4, md: 6 },
+          py: { xs: 3, md: 4 },
+          px: { xs: 2, md: 4 },
+          width: '100%',
         }}
       >
         {error && (
