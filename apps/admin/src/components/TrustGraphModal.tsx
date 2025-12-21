@@ -25,6 +25,8 @@ import '@xyflow/react/dist/style.css';
 import type { AgentsPageAgent } from './AgentsPage';
 import type { AgentDetailsFeedbackSummary, AgentDetailsValidationsSummary } from './AgentDetailsTabs';
 import { grayscalePalette as palette } from '@/styles/palette';
+import { decodeAssociationData } from '@/lib/association';
+import { ASSOC_TYPE_OPTIONS } from '@/lib/association-types';
 
 type TrustGraphModalProps = {
   open: boolean;
@@ -49,9 +51,12 @@ type GraphNode = {
 
 type Assoc = {
   associationId: string;
-  initiator: string;
-  approver: string;
-  counterparty: string;
+  initiator?: string;
+  approver?: string;
+  counterparty?: string;
+  initiatorAddress?: string;
+  approverAddress?: string;
+  counterpartyAddress?: string;
   validAt: number;
   validUntil: number;
   revokedAt: number;
@@ -73,6 +78,18 @@ function shortAddr(a: string): string {
 
 function safeLower(value: unknown): string {
   return typeof value === 'string' ? value.toLowerCase() : '';
+}
+
+function safeAddrLower(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const s = value.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(s)) return '';
+  return s.toLowerCase();
+}
+
+function assocTypeLabel(value: number): string {
+  const entry = ASSOC_TYPE_OPTIONS.find((opt) => opt.value === value);
+  return entry ? entry.label : String(value);
 }
 
 export default function TrustGraphModal({
@@ -173,77 +190,100 @@ export default function TrustGraphModal({
     };
   }, [open, agent.agentAccount, agent.chainId, associationsData]);
 
-  // Fetch agent info for association addresses
+  // Fetch agent info for association addresses AND validator addresses
+  // Use the same lookup approach as AgentDetailsTabs (Associations tab)
   useEffect(() => {
-    if (!open || !associationsData || !associationsData.ok) return;
+    if (!open) return;
     
-    // Collect all unique addresses from associations
+    // Collect all unique addresses from associations AND validations
     const addressesToLookup = new Set<string>();
     const centerAddr = agent.agentAccount?.toLowerCase();
-    
-    for (const a of associationsData.associations || []) {
-      const initiator = a.initiator?.toLowerCase?.();
-      const approver = a.approver?.toLowerCase?.();
-      const counterparty = a.counterparty?.toLowerCase?.();
+
+    // Collect from associations (same as Associations tab)
+    if (associationsData && associationsData.ok) {
+      const extractAddrsForLookup = (a: any): { initiator: string; approver: string; counterparty: string } => {
+        const initiator =
+          safeAddrLower(a?.initiator) ||
+          safeAddrLower(a?.initiatorAddress) ||
+          safeAddrLower(a?.record?.initiator);
+        const approver =
+          safeAddrLower(a?.approver) ||
+          safeAddrLower(a?.approverAddress) ||
+          safeAddrLower(a?.record?.approver);
+        const counterparty =
+          safeAddrLower(a?.counterparty) ||
+          safeAddrLower(a?.counterpartyAddress) ||
+          (initiator && initiator === centerAddr ? approver : approver && approver === centerAddr ? initiator : approver);
+        return { initiator, approver, counterparty };
+      };
       
-      if (initiator && initiator !== centerAddr) addressesToLookup.add(initiator);
-      if (approver && approver !== centerAddr) addressesToLookup.add(approver);
-      if (counterparty && counterparty !== centerAddr) addressesToLookup.add(counterparty);
-    }
-    
-    // Also check expanded associations
-    for (const resp of Object.values(expandedAssociations)) {
-      if (!resp || !resp.ok) continue;
-      for (const a of resp.associations || []) {
-        const initiator = a.initiator?.toLowerCase?.();
-        const approver = a.approver?.toLowerCase?.();
-        const counterparty = a.counterparty?.toLowerCase?.();
+      for (const a of associationsData.associations || []) {
+        const { initiator, approver, counterparty } = extractAddrsForLookup(a);
         
         if (initiator && initiator !== centerAddr) addressesToLookup.add(initiator);
         if (approver && approver !== centerAddr) addressesToLookup.add(approver);
         if (counterparty && counterparty !== centerAddr) addressesToLookup.add(counterparty);
       }
+      
+      // Also check expanded associations
+      for (const resp of Object.values(expandedAssociations)) {
+        if (!resp || !resp.ok) continue;
+        for (const a of resp.associations || []) {
+          const { initiator, approver, counterparty } = extractAddrsForLookup(a);
+          
+          if (initiator && initiator !== centerAddr) addressesToLookup.add(initiator);
+          if (approver && approver !== centerAddr) addressesToLookup.add(approver);
+          if (counterparty && counterparty !== centerAddr) addressesToLookup.add(counterparty);
+        }
+      }
+    }
+
+    // Collect from validations (same data source as Validators tab)
+    for (const v of validations?.completed ?? []) {
+      const validator = safeAddrLower(v?.validatorAddress);
+      if (validator && validator !== centerAddr) addressesToLookup.add(validator);
+    }
+    for (const v of validations?.pending ?? []) {
+      const validator = safeAddrLower(v?.validatorAddress);
+      if (validator && validator !== centerAddr) addressesToLookup.add(validator);
     }
     
     if (addressesToLookup.size === 0) return;
     
     let cancelled = false;
     
-    // Fetch agent info for each address by searching for agents with matching agentAccount
+    // Fetch agent info for each address using the EXACT same approach as AgentDetailsTabs:
+    // /api/agents/search?query=<address> → find exact match by agentAccount
     (async () => {
-      const chainId = agent.chainId || 11155111;
+      const cachedKeys = new Set<string>(Array.from(agentInfoByAddress.keys()));
       const results = await Promise.allSettled(
-        Array.from(addressesToLookup).map(async (addr) => {
+        Array.from(addressesToLookup)
+          .map((addr) => addr.toLowerCase())
+          .filter((addrLower) => !cachedKeys.has(addrLower))
+          .map(async (addrLower) => {
           try {
-            // Search for agents with this account address using query parameter
-            const searchParams = new URLSearchParams({
-              query: addr,
-              pageSize: '10',
-            });
-            const res = await fetch(`/api/agents/search?${searchParams.toString()}`, {
-              cache: 'no-store',
-            });
-            if (!res.ok) return [addr, null] as const;
-            const data = await res.json();
-            const agents = data?.agents || [];
-            // Find exact match by agentAccount
-            const matchingAgent = agents.find((a: any) => {
-              const agentAccount = a.agentAccount || (a.data && a.data.agentAccount);
-              return agentAccount?.toLowerCase() === addr;
-            });
-            
-            if (matchingAgent) {
-              const agentData = matchingAgent.data || matchingAgent;
-              return [addr, {
-                agentId: (agentData.agentId || matchingAgent.agentId)?.toString(),
-                agentName: agentData.agentName || matchingAgent.agentName || undefined,
-                agentAccount: agentData.agentAccount || matchingAgent.agentAccount || addr,
-              }] as const;
+            // Use /api/agents/by-account for exact address lookup (same detailed path as tabs)
+            // This uses getAgentByAccount which directly queries by agentAccount
+            const chainId = agent.chainId || 11155111;
+            const didEthr = `did:ethr:${chainId}:${addrLower}`;
+            const res = await fetch(
+              `/api/agents/by-account/${encodeURIComponent(didEthr)}`,
+              { cache: 'no-store' },
+            );
+            if (!res.ok) {
+              // 404 is expected for addresses that aren't registered agents (EOAs, validator addresses, etc.)
+              return [addrLower, null] as const;
             }
-            return [addr, null] as const;
+            const detail = await res.json().catch(() => null);
+            if (!detail || !detail.agentId) return [addrLower, null] as const;
+            return [addrLower, {
+              agentId: detail.agentId ? String(detail.agentId) : undefined,
+              agentName: typeof detail.agentName === 'string' ? detail.agentName : undefined,
+              agentAccount: typeof detail.agentAccount === 'string' ? detail.agentAccount : addrLower,
+            }] as const;
           } catch (e) {
-            console.warn(`[TrustGraph] Failed to lookup agent for address ${addr}:`, e);
-            return [addr, null] as const;
+            // Errors are expected for non-agent addresses
+            return [addrLower, null] as const;
           }
         })
       );
@@ -255,7 +295,8 @@ export default function TrustGraphModal({
         for (const r of results) {
           if (r.status === 'fulfilled') {
             const [addr, info] = r.value;
-            if (info) {
+            if (info && info.agentId) {
+              // Only store if we have agentId (actual agent info, not just address)
               next.set(addr.toLowerCase(), info);
             }
           }
@@ -267,7 +308,7 @@ export default function TrustGraphModal({
     return () => {
       cancelled = true;
     };
-  }, [open, associationsData, expandedAssociations, agent.agentAccount, agent.chainId]);
+  }, [open, associationsData, expandedAssociations, validations, agent.agentAccount, agent.chainId]);
 
   // Helper to get agent info for an address (for node labels)
   const getAgentInfoForAddress = useCallback((addr: string): AgentInfo | null => {
@@ -290,10 +331,10 @@ export default function TrustGraphModal({
   const nodes = useMemo<{ nodes: GraphNode[]; associationEdges: Array<{ id: string; source: string; target: string; assoc: Assoc }> }>(() => {
     const reviewNode: GraphNode = {
       id: 'reviews',
-      label: `Reviews (${feedbackCount})`,
+      label: `#${agent.agentId} Reviews (${feedbackCount})`,
       x: 0,
       y: 0,
-      color: '#2563eb',
+      color: '#2563eb', // blue
       type: 'reviews',
     };
 
@@ -308,31 +349,47 @@ export default function TrustGraphModal({
 
     const completedValidationNodes: GraphNode[] = (validations?.completed || [])
       .slice(0, 25)
-      .map((v, idx) => ({
+      .map((v, idx) => {
+        const addr = v.validatorAddress || '';
+        const addrLower = safeAddrLower(addr);
+        const known = addrLower ? getAgentInfoForAddress(addrLower) : null;
+        const label = addr
+          ? known
+            ? `#${known.agentId} ${known.agentName || 'Agent'}\n${shortAddr(addr)}`
+            : `Validator\n${shortAddr(addr)}`
+          : 'Validator';
+        return {
         id: `val-completed-${idx}`,
-        label: v.validatorAddress
-          ? `${v.validatorAddress.slice(0, 6)}…${v.validatorAddress.slice(-4)}`
-          : 'Validator',
+        label,
         x: 0,
         y: 0,
-        color: '#16a34a',
+        color: '#16a34a', // green (validator agents)
         type: 'validation',
-        data: { ...v, status: 'completed' as const },
-      }));
+        data: { ...v, status: 'completed' as const, agentInfo: known, address: addr },
+        } as GraphNode;
+      });
 
     const pendingValidationNodes: GraphNode[] = (validations?.pending || [])
       .slice(0, 25)
-      .map((v, idx) => ({
+      .map((v, idx) => {
+        const addr = v.validatorAddress || '';
+        const addrLower = safeAddrLower(addr);
+        const known = addrLower ? getAgentInfoForAddress(addrLower) : null;
+        const label = addr
+          ? known
+            ? `#${known.agentId} ${known.agentName || 'Agent'}\n${shortAddr(addr)}`
+            : `Validator\n${shortAddr(addr)}`
+          : 'Validator';
+        return {
         id: `val-pending-${idx}`,
-        label: v.validatorAddress
-          ? `${v.validatorAddress.slice(0, 6)}…${v.validatorAddress.slice(-4)}`
-          : 'Validator',
+        label,
         x: 0,
         y: 0,
-        color: '#f59e0b',
+        color: '#16a34a', // green (validator agents)
         type: 'validation',
-        data: { ...v, status: 'pending' as const },
-      }));
+        data: { ...v, status: 'pending' as const, agentInfo: known, address: addr },
+        } as GraphNode;
+      });
 
     const validationNodes: GraphNode[] = [...completedValidationNodes, ...pendingValidationNodes];
 
@@ -345,12 +402,29 @@ export default function TrustGraphModal({
     
     if (associationsData && associationsData.ok && agent.agentAccount) {
       const centerAddr = safeLower(agent.agentAccount);
-      const associations = associationsData.associations || [];
+      const associations = (associationsData.associations || []) as Assoc[];
+
+      const extractAddrs = (a: Assoc): { initiator: string; approver: string; counterparty: string } => {
+        const initiator =
+          safeAddrLower((a as any).initiator) ||
+          safeAddrLower((a as any).initiatorAddress) ||
+          safeAddrLower((a as any).record?.initiator);
+        const approver =
+          safeAddrLower((a as any).approver) ||
+          safeAddrLower((a as any).approverAddress) ||
+          safeAddrLower((a as any).record?.approver);
+        const counterparty =
+          safeAddrLower((a as any).counterparty) ||
+          safeAddrLower((a as any).counterpartyAddress) ||
+          (initiator && initiator === centerAddr ? approver : approver && approver === centerAddr ? initiator : approver);
+        return { initiator, approver, counterparty };
+      };
 
       // Collect first-hop counterpart addresses with counts
       const counterparts = new Map<string, { count: number; activeCount: number }>();
       for (const a of associations) {
-        const other = a.counterparty?.toLowerCase?.() ?? null;
+        const { counterparty } = extractAddrs(a);
+        const other = counterparty || null;
         if (!other) continue;
         const prev = counterparts.get(other) ?? { count: 0, activeCount: 0 };
         prev.count += 1;
@@ -364,14 +438,14 @@ export default function TrustGraphModal({
         const known = getAgentInfoForAddress(addr);
         const label = known
           ? `#${known.agentId} ${known.agentName || 'Agent'}\n${shortAddr(addr)}\n${meta.activeCount}/${meta.count} active`
-          : `Agent\n${shortAddr(addr)}\n${meta.activeCount}/${meta.count} active`;
+          : `#— Unknown\n${shortAddr(addr)}\n${meta.activeCount}/${meta.count} active`;
         
         associationNodes.push({
           id: `assoc-${addr}`,
           label,
           x: 0,
           y: 0,
-          color: '#6366f1',
+          color: '#f97316', // orange (association agents)
           type: 'association',
           data: { address: addr, agentInfo: known, ...meta },
         });
@@ -403,8 +477,7 @@ export default function TrustGraphModal({
 
       // Create edges from associations (already deduplicated)
       for (const a of allAssocs) {
-        const s = safeLower(a?.initiator);
-        const t = safeLower(a?.approver);
+        const { initiator: s, approver: t } = extractAddrs(a);
         if (!s || !t) {
           // Skip malformed association records to keep the graph rendering stable.
           continue;
@@ -428,13 +501,13 @@ export default function TrustGraphModal({
             const known = getAgentInfoForAddress(addrLower);
             const label = known
               ? `#${known.agentId} ${known.agentName || 'Agent'}\n${shortAddr(addrLower)}`
-              : `Agent\n${shortAddr(addrLower)}`;
+              : `#— Unknown\n${shortAddr(addrLower)}`;
             associationNodes.push({
               id: nodeId,
               label,
               x: 0,
               y: 0,
-              color: '#a5b4fc',
+              color: '#f97316', // orange
               type: 'association',
               data: { address: addrLower, agentInfo: known },
             });
@@ -448,7 +521,7 @@ export default function TrustGraphModal({
         const parentId = `assoc-${parentAddr.toLowerCase()}`;
         const seconds = new Set<string>();
         for (const a of resp.associations ?? []) {
-          const other = a.counterparty?.toLowerCase?.() ?? '';
+          const { counterparty: other } = extractAddrs(a as any);
           if (!other || other === centerAddr) continue;
           if (!associationNodes.find((n) => n.id === `assoc-${other}`)) {
             seconds.add(other);
@@ -458,13 +531,13 @@ export default function TrustGraphModal({
           const known = getAgentInfoForAddress(addr);
           const label = known
             ? `#${known.agentId} ${known.agentName || 'Agent'}\n${shortAddr(addr)}`
-            : `Agent\n${shortAddr(addr)}`;
+            : `#— Unknown\n${shortAddr(addr)}`;
           associationNodes.push({
             id: `assoc-${addr}`,
             label,
             x: 0,
             y: 0,
-            color: '#c7d2fe',
+            color: '#f97316', // orange
             type: 'association',
             data: { address: addr, agentInfo: known },
           });
@@ -472,14 +545,14 @@ export default function TrustGraphModal({
       }
     }
 
-    // Update agent node label to include account address
-    agentNode.label = `${agentName}\n${agent.agentAccount ? shortAddr(agent.agentAccount) : ''}`;
+    // Update agent node label to include agentId + account address
+    agentNode.label = `#${agent.agentId} ${agentName}\n${agent.agentAccount ? shortAddr(agent.agentAccount) : ''}`;
 
     return {
       nodes: [agentNode, reviewNode, ...validationNodes, ...allianceNodes, ...associationNodes],
       associationEdges,
     };
-  }, [agentName, feedbackCount, validations, associationsData, expandedAssociations, agent.agentAccount, agent.agentId, getAgentInfoForAddress]);
+  }, [agentName, feedbackCount, validations, associationsData, expandedAssociations, agent.agentAccount, agent.agentId, getAgentInfoForAddress, agentInfoByAddress]);
 
   const allNodes = useMemo(() => nodes.nodes || [], [nodes]);
   const assocEdges = useMemo(() => nodes.associationEdges || [], [nodes]);
@@ -518,13 +591,11 @@ export default function TrustGraphModal({
         x = centerX - 200;
         y = topY + 140;
       } else if (n.type === 'validation') {
-        // Validators in a grid below-right of agent
+        // Validators in a right-side column
         const validationStartIdx = allNodes.findIndex((node) => node.type === 'validation');
         const validationIdx = idx - validationStartIdx;
-        const col = validationIdx % 3;
-        const row = Math.floor(validationIdx / 3);
-        x = centerX + 120 + col * 90;
-        y = topY + 140 + row * 70;
+        x = centerX + 360;
+        y = topY + 60 + validationIdx * 70;
       } else if (n.type === 'alliance') {
         // Alliance agents in a row further below, centered
         const allianceStartIdx = allNodes.findIndex((node: GraphNode) => node.type === 'alliance');
@@ -532,15 +603,13 @@ export default function TrustGraphModal({
         x = centerX - 150 + allianceIdx * 90;
         y = topY + 260;
       } else if (n.type === 'association') {
-        // Association nodes: positioned below the selected agent on the right side
+        // Association nodes: directly under the selected agent
         const associationStartIdx = allNodes.findIndex((node: GraphNode) => node.type === 'association');
         const associationIdx = idx - associationStartIdx;
         
-        // Position associations in a column on the right side
-        const spacingY = 100; // Vertical spacing between association nodes
-        const offsetX = 350; // Horizontal offset to the right
-        x = centerX + offsetX;
-        y = topY + 150 + associationIdx * spacingY; // Start below the center agent
+        const spacingY = 95;
+        x = centerX;
+        y = topY + 170 + associationIdx * spacingY;
       }
 
       return {
@@ -550,16 +619,34 @@ export default function TrustGraphModal({
         style: {
           borderRadius: 12,
           padding: 10,
-          border: `1px solid ${n.type === 'agent' ? 'rgba(255,255,255,0.15)' : n.type === 'association' ? 'rgba(255,255,255,0.12)' : n.color}`,
-          background: n.type === 'agent' ? '#0f172a' : n.type === 'association' ? '#1e293b' : '#ffffff',
-          color: n.type === 'agent' || n.type === 'association' ? 'white' : '#0f172a',
+          border: `1px solid ${
+            n.type === 'agent'
+              ? 'rgba(255,255,255,0.15)'
+              : n.type === 'association'
+                ? '#f97316'
+                : n.type === 'validation'
+                  ? '#16a34a'
+                  : n.color
+          }`,
+          background:
+            n.type === 'agent'
+              ? '#0f172a'
+              : n.type === 'association'
+                ? '#fff7ed'
+                : n.type === 'validation'
+                  ? '#f0fdf4'
+                  : '#ffffff',
+          color: n.type === 'agent' ? 'white' : '#0f172a',
           fontSize: 12,
           fontWeight: 600,
           width: 240,
           minHeight: 60,
           textAlign: 'center',
           whiteSpace: 'pre-line',
-          boxShadow: n.type === 'association' ? '0 2px 8px rgba(0,0,0,0.2)' : undefined,
+          boxShadow:
+            n.type === 'association' || n.type === 'validation'
+              ? '0 2px 8px rgba(0,0,0,0.12)'
+              : undefined,
         },
       } satisfies RFNode;
     });
@@ -604,7 +691,6 @@ export default function TrustGraphModal({
       setSelectedEns(null);
 
       if (node.type === 'reviews') {
-        onOpenReviews();
         return;
       }
 
@@ -710,11 +796,54 @@ export default function TrustGraphModal({
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
               Label: {selectedNode.label}
             </Typography>
+            {selectedNode.type === 'agent' && agent.agentAccount && (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Agent ID: {agent.agentId}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Address: <span style={{ fontFamily: 'monospace' }}>{agent.agentAccount}</span>
+                </Typography>
+              </>
+            )}
+            {selectedNode.type === 'reviews' && (
+              <>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Reviews: {feedbackCount}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                  Average score: {feedbackSummary?.averageScore ?? '—'}
+                </Typography>
+                <Button
+                  variant="outlined"
+                  onClick={onOpenReviews}
+                  sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 600, mt: 1 }}
+                >
+                  Open Reviews
+                </Button>
+              </>
+            )}
             {selectedNode.type === 'validation' && selectedNode.data?.validatorAddress && (
               <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                  Validator: {selectedEns || selectedNode.data.validatorAddress}
+                  Agent: {selectedEns || selectedNode.data.validatorAddress}
                 </Typography>
+                {selectedNode.data.agentInfo?.agentId && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Agent ID: {selectedNode.data.agentInfo.agentId}
+                  </Typography>
+                )}
+                {selectedNode.data.agentInfo?.agentName && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Agent Name: {selectedNode.data.agentInfo.agentName}
+                  </Typography>
+                )}
+                {selectedNode.data.agentInfo?.agentAccount && (
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    Address:{' '}
+                    <span style={{ fontFamily: 'monospace' }}>{selectedNode.data.agentInfo.agentAccount}</span>
+                  </Typography>
+                )}
                 {selectedNode.data.status && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                     Status: {selectedNode.data.status === 'completed' ? 'Completed' : 'Pending'}
@@ -742,6 +871,36 @@ export default function TrustGraphModal({
                   >
                     Tx Hash: {selectedNode.data.txHash}
                   </Typography>
+                )}
+                {selectedNode.data.requestJson && (
+                  <Box sx={{ mt: 1, mb: 1 }}>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                      Request JSON:
+                    </Typography>
+                    <Box
+                      component="pre"
+                      sx={{
+                        margin: 0,
+                        padding: '0.5rem',
+                        backgroundColor: palette.background,
+                        borderRadius: '4px',
+                        fontSize: '0.75rem',
+                        overflow: 'auto',
+                        maxHeight: '200px',
+                        fontFamily: 'ui-monospace, monospace',
+                        border: `1px solid ${palette.border}`,
+                      }}
+                    >
+                      {(() => {
+                        try {
+                          const parsed = JSON.parse(selectedNode.data.requestJson);
+                          return JSON.stringify(parsed, null, 2);
+                        } catch {
+                          return selectedNode.data.requestJson;
+                        }
+                      })()}
+                    </Box>
+                  </Box>
                 )}
               </>
             )}
@@ -777,6 +936,110 @@ export default function TrustGraphModal({
                     Agent Name: {selectedNode.data.agentInfo.agentName}
                   </Typography>
                 )}
+                {(() => {
+                  const addrLower = safeAddrLower(selectedNode.data.address);
+                  if (!addrLower || !associationsData || !associationsData.ok || !agent.agentAccount) return null;
+
+                  // Merge root + expanded associations (dedupe by associationId)
+                  const seen = new Set<string>();
+                  const all: any[] = [];
+                  for (const a of (associationsData.associations ?? []) as any[]) {
+                    if (!a?.associationId || seen.has(String(a.associationId))) continue;
+                    seen.add(String(a.associationId));
+                    all.push(a);
+                  }
+                  for (const resp of Object.values(expandedAssociations)) {
+                    if (!resp || (resp as any).ok === false) continue;
+                    for (const a of ((resp as any).associations ?? []) as any[]) {
+                      if (!a?.associationId || seen.has(String(a.associationId))) continue;
+                      seen.add(String(a.associationId));
+                      all.push(a);
+                    }
+                  }
+
+                  const centerLower = safeAddrLower(agent.agentAccount);
+                  const matches = all.filter((a) => {
+                    const initiator =
+                      safeAddrLower(a?.initiator) ||
+                      safeAddrLower(a?.initiatorAddress) ||
+                      safeAddrLower(a?.record?.initiator);
+                    const approver =
+                      safeAddrLower(a?.approver) ||
+                      safeAddrLower(a?.approverAddress) ||
+                      safeAddrLower(a?.record?.approver);
+                    if (!initiator || !approver) return false;
+                    const isBetween =
+                      (initiator === centerLower && approver === addrLower) ||
+                      (approver === centerLower && initiator === addrLower);
+                    return isBetween;
+                  });
+
+                  if (matches.length === 0) return null;
+
+                  return (
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                        Associations ({matches.length})
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        {matches.slice(0, 10).map((a) => {
+                          const verification = a?.verification || {};
+                          const active = Number(a?.revokedAt ?? 0) === 0;
+                          const decoded = a?.record?.data ? decodeAssociationData(a.record.data) : null;
+                          const typeLabel =
+                            decoded && typeof decoded.assocType === 'number'
+                              ? assocTypeLabel(decoded.assocType)
+                              : '—';
+                          const desc = decoded?.description ?? '—';
+                          const initiatorAddr =
+                            safeAddrLower(a?.initiatorAddress) ||
+                            safeAddrLower(a?.initiator) ||
+                            safeAddrLower(a?.record?.initiator);
+                          const approverAddr =
+                            safeAddrLower(a?.approverAddress) ||
+                            safeAddrLower(a?.approver) ||
+                            safeAddrLower(a?.record?.approver);
+                          const interfaceId = String(a?.record?.interfaceId ?? '—');
+
+                          return (
+                            <Box
+                              key={String(a.associationId)}
+                              sx={{
+                                border: `1px solid ${palette.border}`,
+                                borderRadius: 2,
+                                p: 1.25,
+                                backgroundColor: palette.surface,
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                #{String(a?.associationId).slice(0, 10)}… {active ? 'Active' : 'Revoked'}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                {typeLabel} · {desc}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                interfaceId: <span style={{ fontFamily: 'monospace' }}>{interfaceId}</span>
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                Initiator: <span style={{ fontFamily: 'monospace' }}>{initiatorAddr || '—'}</span>
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                Approver: <span style={{ fontFamily: 'monospace' }}>{approverAddr || '—'}</span>
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                Digest OK: {verification?.recordHashMatches ? 'OK' : '—'}
+                                {' · '}
+                                Initiator Sig: {verification?.initiator?.ok ? 'OK' : '—'}
+                                {' · '}
+                                Approver Sig: {verification?.approver?.ok ? 'OK' : '—'}
+                              </Typography>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  );
+                })()}
                 {selectedNode.data.count !== undefined && (
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                     Associations: {selectedNode.data.activeCount || 0}/{selectedNode.data.count || 0} active

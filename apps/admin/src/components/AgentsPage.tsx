@@ -3404,6 +3404,8 @@ export function AgentsPage({
               agent.approvedAssociationCount >= 0
                 ? agent.approvedAssociationCount
                 : null;
+            const totalAssociationsForDisplay =
+              (initiatedAssociationsCount ?? 0) + (approvedAssociationsCount ?? 0);
             const averageRating =
               typeof agent.feedbackAverageScore === 'number' &&
               Number.isFinite(agent.feedbackAverageScore)
@@ -3947,13 +3949,13 @@ export function AgentsPage({
                         validations ({validationsCount} / {validationsPendingCount})
                       </button>
                     )}
-                    <span
-                      title={`Indexer counts — initiated: ${
-                        initiatedAssociationsCount ?? '—'
-                      }, approved: ${approvedAssociationsCount ?? '—'}`}
-                    >
-                      associations ({initiatedAssociationsCount ?? '—'} / {approvedAssociationsCount ?? '—'})
-                    </span>
+                    {totalAssociationsForDisplay > 0 && (
+                      <span
+                        title={`Discovery (GraphQL) counts — initiated: ${initiatedAssociationsCount ?? '—'}, approved: ${approvedAssociationsCount ?? '—'}`}
+                      >
+                        associations ({initiatedAssociationsCount ?? 0} / {approvedAssociationsCount ?? 0})
+                      </span>
+                    )}
                   </div>
                 </div>
               </article>

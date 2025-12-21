@@ -128,18 +128,66 @@ export default function AgentDetailsPageContent({
       ? parseInt(feedbackSummary.count, 10)
       : feedbackSummary?.count ?? 0;
   const feedbackAverage = feedbackSummary?.averageScore ?? null;
-  const initiatedAssociationsCount =
+  const indexerInitiatedAssociationsCount =
     typeof (agent as any).initiatedAssociationCount === 'number' &&
     Number.isFinite((agent as any).initiatedAssociationCount) &&
     (agent as any).initiatedAssociationCount >= 0
       ? (agent as any).initiatedAssociationCount
-      : 0;
-  const approvedAssociationsCount =
+      : null;
+  const indexerApprovedAssociationsCount =
     typeof (agent as any).approvedAssociationCount === 'number' &&
     Number.isFinite((agent as any).approvedAssociationCount) &&
     (agent as any).approvedAssociationCount >= 0
       ? (agent as any).approvedAssociationCount
-      : 0;
+      : null;
+
+  const [derivedAssociationCounts, setDerivedAssociationCounts] = useState<{
+    initiated: number;
+    approved: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!agent.agentAccount) {
+      setDerivedAssociationCounts(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/associations?account=${encodeURIComponent(agent.agentAccount)}&chainId=${chainId}`,
+          { cache: 'no-store' },
+        );
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!json || json.ok === false || !Array.isArray(json.associations)) {
+          setDerivedAssociationCounts(null);
+          return;
+        }
+        const centerLower = agent.agentAccount.toLowerCase();
+        let initiated = 0;
+        let approved = 0;
+        for (const a of json.associations as any[]) {
+          const initiator = typeof (a?.initiator ?? a?.initiatorAddress) === 'string'
+            ? String(a.initiator ?? a.initiatorAddress).toLowerCase()
+            : '';
+          const approver = typeof (a?.approver ?? a?.approverAddress) === 'string'
+            ? String(a.approver ?? a.approverAddress).toLowerCase()
+            : '';
+          if (initiator && initiator === centerLower) initiated += 1;
+          if (approver && approver === centerLower) approved += 1;
+        }
+        setDerivedAssociationCounts({ initiated, approved });
+      } catch {
+        if (!cancelled) setDerivedAssociationCounts(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.agentAccount, chainId]);
 
   // Check if wallet owns the agent account using the isOwner API
   const checkOwnership = useCallback(async () => {
@@ -726,7 +774,14 @@ export default function AgentDetailsPageContent({
                 <StatPill
                   icon={<AutoGraphIcon fontSize="small" />}
                   label="Associations"
-                  value={`${initiatedAssociationsCount} initiated · ${approvedAssociationsCount} approved`}
+                  value={`${(derivedAssociationCounts?.initiated ?? indexerInitiatedAssociationsCount ?? '—').toString()} initiated · ${(derivedAssociationCounts?.approved ?? indexerApprovedAssociationsCount ?? '—').toString()} approved`}
+                  title={`Derived from /api/associations: ${
+                    derivedAssociationCounts
+                      ? `${derivedAssociationCounts.initiated}/${derivedAssociationCounts.approved}`
+                      : '—'
+                  } · Indexer fields: ${
+                    indexerInitiatedAssociationsCount ?? '—'
+                  }/${indexerApprovedAssociationsCount ?? '—'}`}
                 />
               )}
             </Stack>
@@ -1290,11 +1345,13 @@ type StatPillProps = {
   icon: React.ReactNode;
   label: string;
   value: string;
+  title?: string;
 };
 
-function StatPill({ icon, label, value }: StatPillProps) {
+function StatPill({ icon, label, value, title }: StatPillProps) {
   return (
     <Box
+      title={title}
       sx={{
         display: 'flex',
         alignItems: 'center',
