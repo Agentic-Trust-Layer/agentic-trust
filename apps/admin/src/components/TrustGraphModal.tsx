@@ -17,7 +17,6 @@ import {
   ReactFlow,
   Background as ReactFlowBackground,
   Controls as ReactFlowControls,
-  MiniMap as ReactFlowMiniMap,
   type Node as RFNode,
   type Edge as RFEdge,
 } from '@xyflow/react';
@@ -671,7 +670,7 @@ export default function TrustGraphModal({
         const validationStartIdx = allNodes.findIndex((node) => node.type === 'validation');
         const validationIdx = idx - validationStartIdx;
         x = centerX + 360;
-        y = topY + 60 + validationIdx * 70;
+        y = topY + 60 + validationIdx * 120; // Increased from 70 to 120 to accommodate icon and details
       } else if (n.type === 'alliance') {
         // Alliance agents in a row further below, centered
         const allianceStartIdx = allNodes.findIndex((node: GraphNode) => node.type === 'alliance');
@@ -683,7 +682,7 @@ export default function TrustGraphModal({
         const associationStartIdx = allNodes.findIndex((node: GraphNode) => node.type === 'association');
         const associationIdx = idx - associationStartIdx;
         
-        const spacingY = 95;
+        const spacingY = 120; // Increased from 95 to 120 to accommodate icon and details
         x = centerX;
         y = topY + 170 + associationIdx * spacingY;
       }
@@ -830,7 +829,8 @@ export default function TrustGraphModal({
           sx={{
             border: `1px solid ${palette.border}`,
             borderRadius: 2,
-            height: 520,
+            height: 'calc(90vh - 280px)', // Fit window, accounting for dialog header, padding, and node details
+            minHeight: 600,
             overflow: 'hidden',
             backgroundColor: '#f8fafc',
           }}
@@ -852,7 +852,6 @@ export default function TrustGraphModal({
             }}
           >
             <ReactFlowBackground />
-            <ReactFlowMiniMap pannable zoomable />
             <ReactFlowControls showInteractive={false} />
           </ReactFlow>
         </Box>
