@@ -1,0 +1,163 @@
+# Badge Generation Rules for Agent Trust Application
+
+## Global Goals
+
+- Output should feel like gamification achievement badges, not "UI icons."
+- Must be instantly readable at small sizes (16–24px), and look great at 64–128px.
+- Style must be original (no copying existing badge art).
+
+## Badge Structure (Mandatory)
+
+Every badge uses the same 3-layer anatomy:
+
+### Outer Ring (Category Ring)
+- Thick ring (≈ 12–18% of badge diameter)
+- Solid fill, high saturation
+- Optional subtle inner stroke to add "enamel edge"
+
+### Inner Field (Scene Backdrop)
+- Flat fill, slightly lighter/darker than ring
+- Optional subtle texture (very low contrast): stripes, radial rays, grid, brackets
+- No busy patterns
+
+### Primary Emblem (Hero Symbol)
+- Single bold silhouette
+- Large (≈ 45–60% of badge diameter)
+- No thin lines, no tiny details
+- 1–2 colors max
+
+### Validation Mark (Integrated)
+- A checkmark that is integrated (stamp, inset, or corner notch), not floating randomly
+- Should read as "verified" even without color
+
+## Category Conventions
+
+Validation badges all share the same "family look": circular medal + thick ring + integrated checkmark.
+
+Reserve associations for later by switching color family or ring treatment (don't mix now).
+
+## Color Rules (Locked Palette)
+
+Use these exact hex values unless you're intentionally creating tier variants.
+
+### Name Validation (Blue)
+- Ring: `#2563EB`
+- Field: `#60A5FA`
+
+### Account Validation (Cyan/Teal)
+- Ring: `#06B6D4`
+- Field: `#67E8F9`
+
+### App Validation (Indigo/Violet)
+- Ring: `#6366F1`
+- Field: `#A5B4FC`
+
+### Neutrals
+- Emblem primary (light): `#FFFFFF`
+- Emblem secondary (dark): `#0F172A`
+- Accent stroke: `rgba(255,255,255,0.35)` or `rgba(15,23,42,0.2)`
+
+## Texture Rules (Subtle Only)
+
+Textures must be barely visible (5–10% contrast) and must match the badge meaning:
+
+- **Name**: horizontal stripes / faint "text lines"
+- **Account**: radial rays / concentric permission ring
+- **App**: subtle grid / corner brackets (container/runtime vibe)
+
+## Emblem Semantics (What Each MUST Contain)
+
+### Name Validation
+- **Emblem**: bold nameplate / tag / banner
+- **Integrated check**: embedded in plate corner or wax-stamp overlay
+
+### Account Validation
+- **Emblem**: bold key + optional "control ring" behind it
+- **Integrated check**: small inset in the ring or key bow
+
+### App Validation
+- **Emblem**: bold module/cube/app tile + subtle container cue (brackets/frame)
+- **Integrated check**: corner notch or stamp on tile
+
+## Line + Shape Constraints
+
+- Minimum stroke thickness (if using strokes): ≥ 2px at 64px artboard (scale accordingly)
+- Prefer filled shapes over outlines.
+- No text inside badges.
+- No gradients unless extremely subtle (if used: single linear gradient only, not glossy).
+
+## Output Requirements
+
+Generate:
+- **SVG** (primary source of truth)
+- Optional PNG exports at: 16, 24, 32, 64, 128, 256
+- Transparent background
+- Artboard: 512x512 for source SVG
+- Safe margin: keep emblem inside 80% of diameter
+
+## File Naming
+
+- `badge-validation-name.svg`
+- `badge-validation-account.svg`
+- `badge-validation-app.svg`
+
+## Cursor Prompts
+
+### Prompt A — Create the SVGs (Best "One Shot")
+
+Use this in Cursor Chat:
+
+```
+Create 3 original gamified achievement badge SVGs (512x512, transparent background) following this style system:
+
+STYLE:
+- Circular medal badge with thick outer ring + inner field + single bold emblem + integrated checkmark stamp.
+- High contrast, collectible "achievement" feel (EpicMix-like concept), but 100% original art.
+- Flat fills, minimal strokes, no text, no busy detail, readable at 24px.
+- Use subtle low-contrast textures in the inner field (5–10% contrast).
+
+COLORS (locked):
+- Name Validation: ring #2563EB, field #60A5FA
+- Account Validation: ring #06B6D4, field #67E8F9
+- App Validation: ring #6366F1, field #A5B4FC
+Neutrals: emblem white #FFFFFF with small dark accents #0F172A if needed.
+
+EMBLEMS (must be obvious):
+1) Name Validation: a bold nameplate/tag/banner as the hero symbol, with integrated checkmark stamp embedded into the plate.
+   Inner field texture: faint horizontal "text lines".
+2) Account Validation: a bold key as the hero symbol, optionally with a control ring behind it, with integrated checkmark inset into the ring or key head.
+   Inner field texture: subtle radial rays or concentric rings.
+3) App Validation: a bold cube/module/app tile as the hero symbol, with subtle container brackets/frame, with integrated checkmark as a corner notch or stamp on the tile.
+   Inner field texture: subtle grid or bracket motif.
+
+DELIVERABLES:
+- Provide three separate SVG files:
+  - badge-validation-name.svg
+  - badge-validation-account.svg
+  - badge-validation-app.svg
+No external assets. Use simple <path>, <circle>, <rect>. Keep shapes clean and scalable.
+```
+
+### Prompt B — Improve Readability at Small Sizes (Iteration Loop)
+
+```
+Review these three SVG badges for legibility at 24px and 16px. Simplify any shapes that will blur when scaled down. Ensure:
+- One dominant emblem silhouette
+- Checkmark remains readable
+- Textures remain subtle and do not create noise
+Output updated SVGs with the same filenames.
+```
+
+### Prompt C — Add Tier Variants (Optional, Future)
+
+```
+Create tier variants for each badge: bronze, silver, gold. Keep the inner field and emblem identical; only modify the OUTER RING with metallic-like flat colors (no glossy gradients) and add a small top star notch for gold only. Output 9 SVGs named badge-validation-<type>-<tier>.svg.
+```
+
+## Practical Cursor Workflow
+
+1. Create folder: `apps/admin/public/badges/`
+2. Add this doc: `.cursor/rules/badge-generation.mdc` (this file)
+3. Ask Cursor using Prompt A to generate the three SVG files.
+4. Use Prompt B if any emblem doesn't read at 24px.
+5. Export PNGs via your build pipeline (SVGO + sharp) later.

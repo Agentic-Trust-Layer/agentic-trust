@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- App Validation Badge (512x512, transparent) -->
+  <defs>
+    <clipPath id="clip-inner">
+      <circle cx="256" cy="256" r="176"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer ring -->
+  <circle cx="256" cy="256" r="248" fill="#6366F1"/>
+  <!-- Enamel edge -->
+  <circle cx="256" cy="256" r="206" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="6"/>
+
+  <!-- Inner field -->
+  <circle cx="256" cy="256" r="176" fill="#A5B4FC"/>
+
+  <!-- Subtle inner texture: grid / bracket motif -->
+  <g clip-path="url(#clip-inner)" opacity="0.12">
+    <!-- Grid lines -->
+    <g stroke="#FFFFFF" stroke-width="8" stroke-linecap="round" opacity="0.7">
+      <path d="M160 180H352"/>
+      <path d="M160 226H352"/>
+      <path d="M160 272H352"/>
+      <path d="M160 318H352"/>
+      <path d="M190 160V352"/>
+      <path d="M246 160V352"/>
+      <path d="M302 160V352"/>
+    </g>
+    <!-- Corner brackets (container vibe) -->
+    <g stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" opacity="0.45">
+      <path d="M140 160H180"/>
+      <path d="M140 160V200"/>
+      <path d="M372 160H332"/>
+      <path d="M372 160V200"/>
+      <path d="M140 352H180"/>
+      <path d="M140 352V312"/>
+      <path d="M372 352H332"/>
+      <path d="M372 352V312"/>
+    </g>
+  </g>
+
+  <!-- Hero emblem: app tile/module with container brackets + integrated check -->
+  <g>
+    <!-- Tile shadow -->
+    <rect x="154" y="170" width="220" height="220" rx="28" fill="rgba(15,23,42,0.12)"/>
+    <!-- Tile -->
+    <rect x="146" y="162" width="236" height="236" rx="30" fill="#FFFFFF"/>
+
+    <!-- Inner module cut (bold) -->
+    <rect x="186" y="202" width="156" height="156" rx="20" fill="rgba(15,23,42,0.2)"/>
+
+    <!-- Container brackets on tile (dark accents) -->
+    <g fill="#0F172A" opacity="0.95">
+      <rect x="170" y="190" width="18" height="70" rx="9"/>
+      <rect x="170" y="190" width="70" height="18" rx="9"/>
+      <rect x="324" y="190" width="18" height="70" rx="9"/>
+      <rect x="272" y="190" width="70" height="18" rx="9"/>
+      <rect x="170" y="352" width="70" height="18" rx="9"/>
+      <rect x="170" y="300" width="18" height="70" rx="9"/>
+      <rect x="272" y="352" width="70" height="18" rx="9"/>
+      <rect x="324" y="300" width="18" height="70" rx="9"/>
+    </g>
+
+    <!-- Integrated checkmark stamp on tile corner -->
+    <g>
+      <circle cx="342" cy="342" r="38" fill="#0F172A" opacity="0.95"/>
+      <circle cx="342" cy="342" r="38" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="4"/>
+      <path
+        d="M326 342L337 353L360 330"
+        fill="none"
+        stroke="#FFFFFF"
+        stroke-width="14"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </g>
+  </g>
+</svg>
+
