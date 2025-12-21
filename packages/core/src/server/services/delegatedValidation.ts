@@ -26,6 +26,8 @@ import {
   waitForUserOperationReceipt,
 } from '../../client/accountClient';
 
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as const;
+
 export interface ValidationResult {
   requestHash: string;
   agentId: string;
@@ -100,6 +102,7 @@ export async function processValidationRequestsWithSessionPackage(params: {
   responseScore?: number;
   responseUri?: string;
   responseTag?: string;
+  validatorValidated?: boolean; // true if validator has explicitly validated, undefined if no validator or not checked
 }): Promise<ValidationResult[]> {
   const {
     sessionPackage,
@@ -109,6 +112,7 @@ export async function processValidationRequestsWithSessionPackage(params: {
     responseScore = 100,
     responseUri,
     responseTag = 'agent-validation',
+    validatorValidated,
   } = params;
 
   const results: ValidationResult[] = [];
@@ -178,7 +182,35 @@ export async function processValidationRequestsWithSessionPackage(params: {
         continue;
       }
 
-      console.log('[delegatedValidation] ✅ Validator address matches - proceeding with validation response');
+      console.log('[delegatedValidation] ✅ Validator address matches');
+
+      // Check if validator is defined (not zero address)
+      const hasValidator = status.validatorAddress.toLowerCase() !== ZERO_ADDRESS.toLowerCase();
+      
+      if (hasValidator) {
+        console.log('[delegatedValidation] Validator is defined for this request, checking if validator has returned "validated"');
+        
+        // Check if validator has explicitly validated
+        // The validatorValidated parameter comes from the validator class (e.g., ens-validator)
+        // It must be true for the on-chain response to be created
+        if (validatorValidated !== true) {
+          console.log('[delegatedValidation] ❌ Skipping: Validator has not returned "validated: true"');
+          console.log('[delegatedValidation]   Validator must explicitly return "validated: true" before on-chain response can be created');
+          console.log('[delegatedValidation]   Current validatorValidated value:', validatorValidated);
+          results.push({
+            requestHash,
+            agentId: status.agentId?.toString() || 'unknown',
+            chainId,
+            success: false,
+            error: 'Validator must return "validated: true" before validation response can be created on-chain',
+          });
+          continue;
+        }
+
+        console.log('[delegatedValidation] ✅ Validator has returned "validated: true" - proceeding with validation response');
+      } else {
+        console.log('[delegatedValidation] No validator defined for this request - proceeding with validation response');
+      }
 
       const agentId = status.agentId.toString();
       currentAgentId = agentId;

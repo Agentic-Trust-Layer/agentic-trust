@@ -925,6 +925,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
       skillId === 'agent.validation.respond'
     ) {
       // Process validation response using session package
+      console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
       try {
         responseContent.skill = skillId;
         
@@ -935,37 +936,177 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         const responseUriParam = (payload as any)?.responseUri;
         const responseTag = (payload as any)?.tag ?? 'agent-validation';
 
-        if (!agentIdParam) {
-          responseContent.error = 'agentId is required in payload for validation.respond skill';
-          responseContent.success = false;
-          return c.json({
-            success: false,
-            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-            response: responseContent,
-          }, 400);
+        console.log('[ATP Agent] Validation.respond params:', {
+          agentIdParam,
+          chainIdParam,
+          requestHashParam,
+          subdomain,
+          subdomainEqualsEnsValidator: subdomain === 'smart-name-validator',
+        });
+
+        // Declare sessionPackage at function scope so it can be reused
+        let sessionPackage: SessionPackage | null = null;
+
+        // Special handling for ens-validator subdomain
+        if (subdomain === 'smart-name-validator') {
+          console.log('[ATP Agent] ✅ ENS Validator subdomain detected, running ENS-specific validation logic');
+          console.log('[ATP Agent] Subdomain:', subdomain, 'agentIdParam:', agentIdParam);
+          
+          if (!agentIdParam) {
+            responseContent.error = 'agentId is required in payload for validation.respond skill';
+            responseContent.success = false;
+            return c.json({
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            }, 400);
+          }
+
+          const resolvedAgentId = String(agentIdParam);
+          const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
+
+          // Load session package first (needed for validator logic)
+          const validatorSubdomain = subdomain === 'smart-name-validator' || subdomain === 'smart-account-validator' || subdomain === 'smart-app-validator';
+          if (validatorSubdomain) {
+            console.log('[ATP Agent] Attempting to load session package for validator subdomain:', subdomain);
+          }
+          if (subdomain) {
+            try {
+              const db = c.env?.DB || getD1Database(c.env);
+              let baseAgentName = subdomain.trim();
+              baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
+              const agentName = `${baseAgentName}.8004-agent.eth`;
+              const baseAgentNameLower = baseAgentName.toLowerCase();
+              const ensName = agentName.toLowerCase();
+              const ensNameDup = agentName; // Keep original case for one of the checks
+
+              console.log('[ATP Agent] Looking up session package for validator:', {
+                subdomain,
+                baseAgentName,
+                baseAgentNameLower,
+                agentName,
+                ensName,
+              });
+
+              // Try direct lookup by agent_name first (most reliable match)
+              let agentRecord = await db
+                .prepare('SELECT id, ens_name, agent_name, session_package, updated_at FROM agents WHERE LOWER(agent_name) = LOWER(?)')
+                .bind(baseAgentNameLower)
+                .first<{ id: number; ens_name: string; agent_name: string; session_package: string | null; updated_at: number }>();
+
+              // If not found, try the broader lookup pattern
+              if (!agentRecord) {
+                console.log('[ATP Agent] Direct agent_name lookup failed, trying broader pattern');
+                agentRecord = await db.prepare(
+                  `SELECT id, ens_name, agent_name, session_package, updated_at
+                   FROM agents
+                   WHERE ens_name = ? COLLATE NOCASE
+                      OR ens_name = ? COLLATE NOCASE
+                      OR ens_name = ? COLLATE NOCASE
+                      OR agent_name = ? COLLATE NOCASE
+                      OR agent_name = ? COLLATE NOCASE
+                   ORDER BY (session_package IS NOT NULL) DESC, updated_at DESC
+                   LIMIT 1`
+                )
+                  .bind(ensName, ensNameDup, '8004-agent.eth', baseAgentNameLower, ensName)
+                  .first<{ id: number; ens_name: string; agent_name: string; session_package: string | null; updated_at: number }>();
+              }
+
+              console.log('[ATP Agent] Session package lookup result:', {
+                found: !!agentRecord,
+                id: agentRecord?.id,
+                ens_name: agentRecord?.ens_name,
+                agent_name: agentRecord?.agent_name,
+                hasSessionPackage: !!agentRecord?.session_package,
+              });
+
+              if (agentRecord?.session_package) {
+                try {
+                  sessionPackage = JSON.parse(agentRecord.session_package) as SessionPackage;
+                  console.log('[ATP Agent] ✅ Successfully loaded SessionPackage from database (validator):', {
+                    subdomain,
+                    id: agentRecord.id,
+                    ens_name: agentRecord.ens_name,
+                    agent_name: agentRecord.agent_name,
+                  });
+                } catch (parseError) {
+                  console.error('[ATP Agent] Failed to parse session package (validator):', parseError);
+                }
+              } else if (agentRecord) {
+                console.warn('[ATP Agent] Agent record found for validator, but session_package is NULL:', {
+                  subdomain,
+                  id: agentRecord.id,
+                  ens_name: agentRecord.ens_name,
+                  agent_name: agentRecord.agent_name,
+                });
+              } else {
+                console.warn('[ATP Agent] No agent record found for validator subdomain:', subdomain);
+                // Try a simpler direct lookup by agent_name as fallback
+                try {
+                  const fallbackRecord = await db
+                    .prepare('SELECT id, ens_name, agent_name, session_package FROM agents WHERE LOWER(agent_name) = LOWER(?)')
+                    .bind(baseAgentNameLower)
+                    .first<{ id: number; ens_name: string; agent_name: string; session_package: string | null }>();
+                  if (fallbackRecord?.session_package) {
+                    sessionPackage = JSON.parse(fallbackRecord.session_package) as SessionPackage;
+                    console.log('[ATP Agent] ✅ Successfully loaded SessionPackage from fallback lookup:', {
+                      id: fallbackRecord.id,
+                      ens_name: fallbackRecord.ens_name,
+                      agent_name: fallbackRecord.agent_name,
+                    });
+                  } else if (fallbackRecord) {
+                    console.warn('[ATP Agent] Fallback lookup found record but session_package is NULL:', fallbackRecord);
+                  }
+                } catch (fallbackError) {
+                  console.error('[ATP Agent] Fallback lookup failed:', fallbackError);
+                }
+              }
+            } catch (dbError) {
+              console.error('[ATP Agent] Error loading session package (ens-validator):', dbError);
+              console.error('[ATP Agent] Database error details:', {
+                message: dbError instanceof Error ? dbError.message : String(dbError),
+                stack: dbError instanceof Error ? dbError.stack : undefined,
+              });
+            }
+          } else {
+            console.warn('[ATP Agent] No subdomain provided for validator session package lookup');
+          }
+          
+          console.log('[ATP Agent] Session package loaded for validator:', !!sessionPackage);
         }
 
+        // Resolve agent ID and chain ID (used both in ens-validator logic and standard validation)
         const resolvedAgentId = String(agentIdParam);
         const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
 
-        // Load session package from database
-        let sessionPackage: SessionPackage | null = null;
-        if (subdomain) {
+        // Load session package from database (reuse if already loaded for ens-validator)
+        // Only load if not already loaded by ens-validator logic above
+        if (!sessionPackage && subdomain) {
           try {
             const db = c.env?.DB || getD1Database(c.env);
             let baseAgentName = subdomain.trim();
             baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
             const agentName = `${baseAgentName}.8004-agent.eth`;
+            const baseAgentNameLower = baseAgentName.toLowerCase();
+            const ensName = agentName.toLowerCase();
+            const ensNameDup = agentName; // Keep original case for one of the checks
 
-            const agentRecord =
-              (await db
-                .prepare('SELECT session_package FROM agents WHERE agent_name = ?')
-                .bind(agentName)
-                .first<{ session_package: string | null }>()) ??
-              (await db
-                .prepare('SELECT session_package FROM agents WHERE ens_name = ? OR ens_name = ?')
-                .bind(agentName, `${agentName}.8004-agent.eth`)
-                .first<{ session_package: string | null }>());
+            // Use same lookup pattern as other session package lookups (matches database structure)
+            // Database may have ens_name as just domain ('8004-agent.eth') or full name ('ens-validator.8004-agent.eth')
+            // and agent_name as base name ('smart-name-validator') or full name
+            const agentRecord = await db.prepare(
+              `SELECT id, ens_name, agent_name, session_package, updated_at
+               FROM agents
+               WHERE ens_name = ? COLLATE NOCASE
+                  OR ens_name = ? COLLATE NOCASE
+                  OR ens_name = ? COLLATE NOCASE
+                  OR agent_name = ? COLLATE NOCASE
+                  OR agent_name = ? COLLATE NOCASE
+               ORDER BY (session_package IS NOT NULL) DESC, updated_at DESC
+               LIMIT 1`
+            )
+              .bind(ensName, ensNameDup, '8004-agent.eth', baseAgentNameLower, ensName)
+              .first<{ id: number; ens_name: string; agent_name: string; session_package: string | null; updated_at: number }>();
 
             if (agentRecord?.session_package) {
               try {
@@ -994,13 +1135,127 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         }
 
         if (!sessionPackage) {
-          responseContent.error = 'Session package is required for validation.respond. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+          const validatorSubdomain = subdomain === 'smart-name-validator' || subdomain === 'smart-account-validator' || subdomain === 'smart-app-validator';
+          responseContent.error = validatorSubdomain
+            ? `Session package is required for ${subdomain}. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.`
+            : 'Session package is required for validation.respond. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
           responseContent.success = false;
           return c.json({
             success: false,
             messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
             response: responseContent,
           }, 400);
+        }
+
+        // Track validator validation status
+        let validatorValidated: boolean | undefined = undefined;
+
+        // Special handling for ens-validator subdomain
+        if (subdomain === 'smart-name-validator') {
+          console.log('[ATP Agent] ENS Validator subdomain detected, running ENS-specific validation logic');
+          
+          const { processEnsValidatorLogic } = await import('./validators/ens-validator');
+          const ensValidatorResult = await processEnsValidatorLogic({
+            sessionPackage,
+            agentId: resolvedAgentId,
+            chainId: resolvedChainId,
+            requestHash: requestHashParam,
+            payload,
+          });
+
+          if (!ensValidatorResult.shouldProceed) {
+            responseContent.error = ensValidatorResult.error || 'ENS validation checks failed';
+            responseContent.success = false;
+            responseContent.ensValidatorResult = ensValidatorResult;
+            return c.json({
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            }, 400);
+          }
+
+          // Store the validated status from the validator
+          validatorValidated = ensValidatorResult.validated;
+          console.log('[ATP Agent] Validator returned validated status:', validatorValidated);
+
+          // Store ENS validator metadata in response
+          if (ensValidatorResult.metadata) {
+            responseContent.ensValidatorMetadata = ensValidatorResult.metadata;
+          }
+
+          console.log('[ATP Agent] ✅ ENS validator logic passed, proceeding with standard validation response');
+        }
+
+        // Special handling for smart-account-validator subdomain
+        if (subdomain === 'smart-account-validator') {
+          console.log('[ATP Agent] Smart Account Validator subdomain detected, running smart account-specific validation logic');
+          
+          const { processSmartAccountValidatorLogic } = await import('./validators/smart-account-validator');
+          const smartAccountValidatorResult = await processSmartAccountValidatorLogic({
+            sessionPackage,
+            agentId: resolvedAgentId,
+            chainId: resolvedChainId,
+            requestHash: requestHashParam,
+            payload,
+          });
+
+          if (!smartAccountValidatorResult.shouldProceed) {
+            responseContent.error = smartAccountValidatorResult.error || 'Smart account validation checks failed';
+            responseContent.success = false;
+            responseContent.smartAccountValidatorResult = smartAccountValidatorResult;
+            return c.json({
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            }, 400);
+          }
+
+          // Store the validated status from the validator
+          validatorValidated = smartAccountValidatorResult.validated;
+          console.log('[ATP Agent] Validator returned validated status:', validatorValidated);
+
+          // Store smart account validator metadata in response
+          if (smartAccountValidatorResult.metadata) {
+            responseContent.smartAccountValidatorMetadata = smartAccountValidatorResult.metadata;
+          }
+
+          console.log('[ATP Agent] ✅ Smart account validator logic passed, proceeding with standard validation response');
+        }
+
+        // Special handling for smart-app-validator subdomain
+        if (subdomain === 'smart-app-validator') {
+          console.log('[ATP Agent] Smart App Validator subdomain detected, running smart app-specific validation logic');
+          
+          const { processSmartAppValidatorLogic } = await import('./validators/smart-app-validator');
+          const smartAppValidatorResult = await processSmartAppValidatorLogic({
+            sessionPackage,
+            agentId: resolvedAgentId,
+            chainId: resolvedChainId,
+            requestHash: requestHashParam,
+            payload,
+          });
+
+          if (!smartAppValidatorResult.shouldProceed) {
+            responseContent.error = smartAppValidatorResult.error || 'Smart app validation checks failed';
+            responseContent.success = false;
+            responseContent.smartAppValidatorResult = smartAppValidatorResult;
+            return c.json({
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            }, 400);
+          }
+
+          // Store the validated status from the validator
+          validatorValidated = smartAppValidatorResult.validated;
+          console.log('[ATP Agent] Validator returned validated status:', validatorValidated);
+
+          // Store smart app validator metadata in response
+          if (smartAppValidatorResult.metadata) {
+            responseContent.smartAppValidatorMetadata = smartAppValidatorResult.metadata;
+          }
+
+          console.log('[ATP Agent] ✅ Smart app validator logic passed, proceeding with standard validation response');
         }
 
         // Dynamically import and call processValidationRequestsWithSessionPackage
@@ -1012,6 +1267,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           responseScore,
           responseUri: responseUriParam,
           responseTag,
+          validatorValidated,
         });
 
         const coreModule = await import('@agentic-trust/core/server');
@@ -1023,6 +1279,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
           responseScore,
           responseUri: responseUriParam,
           responseTag,
+          validatorValidated, // Pass the validated status from the validator
         } as any);
 
         console.log('[ATP Agent] Validation results received:', {

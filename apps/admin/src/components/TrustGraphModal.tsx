@@ -27,6 +27,8 @@ import type { AgentDetailsFeedbackSummary, AgentDetailsValidationsSummary } from
 import { grayscalePalette as palette } from '@/styles/palette';
 import { decodeAssociationData } from '@/lib/association';
 import { ASSOC_TYPE_OPTIONS } from '@/lib/association-types';
+import ShadowAgentImage from '../../../../docs/8004ShadowAgent.png';
+import { Handle, Position } from '@xyflow/react';
 
 type TrustGraphModalProps = {
   open: boolean;
@@ -70,6 +72,7 @@ type AgentInfo = {
   agentId?: string;
   agentName?: string;
   agentAccount?: string;
+  image?: string | null;
 };
 
 function shortAddr(a: string): string {
@@ -90,6 +93,77 @@ function safeAddrLower(value: unknown): string {
 function assocTypeLabel(value: number): string {
   const entry = ASSOC_TYPE_OPTIONS.find((opt) => opt.value === value);
   return entry ? entry.label : String(value);
+}
+
+// Custom node component with agent icon
+function AgentNodeWithIcon({ data }: { data: any }) {
+  const graphNode = data.graphNode as GraphNode;
+  const agentInfo = graphNode.data?.agentInfo as AgentInfo | undefined;
+  const shadowAgentSrc = (ShadowAgentImage as unknown as { src?: string }).src ?? '/8004ShadowAgent.png';
+  const imageSrc = agentInfo?.image && agentInfo.image.trim() ? agentInfo.image.trim() : shadowAgentSrc;
+  
+  return (
+    <div
+      style={{
+        borderRadius: 12,
+        padding: 10,
+        border: `1px solid ${
+          graphNode.type === 'association'
+            ? '#f97316'
+            : graphNode.type === 'validation'
+              ? '#16a34a'
+              : graphNode.color
+        }`,
+        background:
+          graphNode.type === 'association'
+            ? '#fff7ed'
+            : graphNode.type === 'validation'
+              ? '#f0fdf4'
+              : '#ffffff',
+        color: '#0f172a',
+        fontSize: 12,
+        fontWeight: 600,
+        width: 240,
+        minHeight: 60,
+        textAlign: 'center',
+        whiteSpace: 'pre-line',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 8,
+      }}
+    >
+      {agentInfo && (
+        <img
+          src={imageSrc}
+          alt={agentInfo.agentName || 'Agent'}
+          style={{
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            objectFit: 'cover',
+            border: `2px solid ${
+              graphNode.type === 'association'
+                ? '#f97316'
+                : graphNode.type === 'validation'
+                  ? '#16a34a'
+                  : '#94a3b8'
+            }`,
+          }}
+          onError={(e) => {
+            const target = e.target as HTMLImageElement;
+            if (!target.src.includes(shadowAgentSrc)) {
+              target.src = shadowAgentSrc;
+            }
+          }}
+        />
+      )}
+      <div>{data.label}</div>
+      <Handle type="target" position={Position.Top} />
+      <Handle type="source" position={Position.Bottom} />
+    </div>
+  );
 }
 
 export default function TrustGraphModal({
@@ -280,6 +354,7 @@ export default function TrustGraphModal({
               agentId: detail.agentId ? String(detail.agentId) : undefined,
               agentName: typeof detail.agentName === 'string' ? detail.agentName : undefined,
               agentAccount: typeof detail.agentAccount === 'string' ? detail.agentAccount : addrLower,
+              image: typeof detail.image === 'string' ? detail.image : null,
             }] as const;
           } catch (e) {
             // Errors are expected for non-agent addresses
@@ -320,6 +395,7 @@ export default function TrustGraphModal({
         agentId: agent.agentId,
         agentName: agent.agentName || undefined,
         agentAccount: agent.agentAccount,
+        image: agent.image || null,
       };
     }
     // Check cached agent info
@@ -612,11 +688,15 @@ export default function TrustGraphModal({
         y = topY + 170 + associationIdx * spacingY;
       }
 
+      // Use custom node type for association and validation nodes that have agent info
+      const useCustomNode = (n.type === 'association' || n.type === 'validation') && n.data?.agentInfo;
+      
       return {
         id: n.id,
         position: { x, y },
+        type: useCustomNode ? 'agent-node' : 'default',
         data: { label: n.label, graphNode: n },
-        style: {
+        style: useCustomNode ? undefined : {
           borderRadius: 12,
           padding: 10,
           border: `1px solid ${
@@ -759,6 +839,7 @@ export default function TrustGraphModal({
             key={flowKey}
             nodes={rfNodes}
             edges={rfEdges}
+            nodeTypes={{ 'agent-node': AgentNodeWithIcon }}
             fitView
             nodesDraggable={false}
             nodesConnectable={false}
