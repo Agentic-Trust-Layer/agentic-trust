@@ -12,6 +12,8 @@ Place generated badge SVGs in this directory:
 - `badge-validation-name.svg`
 - `badge-validation-account.svg`
 - `badge-validation-app.svg`
+- `badge-association-movie-alliance.svg`
+- `badge-agent-movie-reviewer.svg`
 
 ## Usage
 

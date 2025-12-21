@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- Movie Alliance Association Badge (512x512, transparent) -->
+  <defs>
+    <clipPath id="clip-inner">
+      <circle cx="256" cy="256" r="176"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer ring (Association family: Orange) -->
+  <circle cx="256" cy="256" r="248" fill="#F97316"/>
+  <circle cx="256" cy="256" r="206" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="6"/>
+
+  <!-- Inner field -->
+  <circle cx="256" cy="256" r="176" fill="#FDBA74"/>
+
+  <!-- Subtle inner texture: link pattern (very low contrast) -->
+  <g clip-path="url(#clip-inner)" opacity="0.10" fill="#FFFFFF">
+    <g transform="translate(150 160) rotate(-15)">
+      <rect x="0" y="0" width="72" height="20" rx="10"/>
+      <rect x="44" y="30" width="72" height="20" rx="10"/>
+      <rect x="88" y="60" width="72" height="20" rx="10"/>
+      <rect x="0" y="90" width="72" height="20" rx="10"/>
+      <rect x="44" y="120" width="72" height="20" rx="10"/>
+      <rect x="88" y="150" width="72" height="20" rx="10"/>
+    </g>
+  </g>
+
+  <!-- Hero emblem: film reel + interlock (alliance) -->
+  <g>
+    <!-- Film reel base -->
+    <circle cx="236" cy="250" r="96" fill="#FFFFFF"/>
+    <circle cx="236" cy="250" r="84" fill="none" stroke="rgba(15,23,42,0.2)" stroke-width="20"/>
+
+    <!-- Reel holes (bold) -->
+    <circle cx="236" cy="250" r="18" fill="#0F172A" opacity="0.95"/>
+    <circle cx="206" cy="220" r="14" fill="#0F172A" opacity="0.95"/>
+    <circle cx="266" cy="220" r="14" fill="#0F172A" opacity="0.95"/>
+    <circle cx="206" cy="280" r="14" fill="#0F172A" opacity="0.95"/>
+    <circle cx="266" cy="280" r="14" fill="#0F172A" opacity="0.95"/>
+
+    <!-- Interlocking alliance links (bold silhouette) -->
+    <g fill="#0F172A" opacity="0.95">
+      <path d="M308 304c-20 0-36-16-36-36 0-20 16-36 36-36h38c20 0 36 16 36 36 0 20-16 36-36 36h-38Zm38-52h-38c-9 0-16 7-16 16s7 16 16 16h38c9 0 16-7 16-16s-7-16-16-16Z"/>
+      <path d="M300 268c0-20 16-36 36-36h38c20 0 36 16 36 36 0 20-16 36-36 36h-6v-20h6c9 0 16-7 16-16s-7-16-16-16h-38c-9 0-16 7-16 16v6h-20v-6Z"/>
+    </g>
+
+    <!-- Integrated association mark: clasp dot + notch (reads as "joined") -->
+    <g>
+      <circle cx="356" cy="256" r="28" fill="#FFFFFF"/>
+      <circle cx="356" cy="256" r="28" fill="none" stroke="rgba(15,23,42,0.2)" stroke-width="6"/>
+      <circle cx="356" cy="256" r="10" fill="#0F172A" opacity="0.95"/>
+    </g>
+  </g>
+</svg>
+

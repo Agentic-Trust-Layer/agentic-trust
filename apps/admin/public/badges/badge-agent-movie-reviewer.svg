@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- Movie Reviewer Agent Badge (512x512, transparent) -->
+  <defs>
+    <clipPath id="clip-inner">
+      <circle cx="256" cy="256" r="176"/>
+    </clipPath>
+  </defs>
+
+  <!-- Outer ring (Agent-type family: Gold) -->
+  <circle cx="256" cy="256" r="248" fill="#F59E0B"/>
+  <circle cx="256" cy="256" r="206" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="6"/>
+
+  <!-- Inner field -->
+  <circle cx="256" cy="256" r="176" fill="#FDE68A"/>
+
+  <!-- Subtle inner texture: scan/dot pattern (very low contrast) -->
+  <g clip-path="url(#clip-inner)" opacity="0.10" fill="#FFFFFF">
+    <circle cx="172" cy="188" r="6"/>
+    <circle cx="212" cy="188" r="6"/>
+    <circle cx="252" cy="188" r="6"/>
+    <circle cx="292" cy="188" r="6"/>
+    <circle cx="332" cy="188" r="6"/>
+    <circle cx="172" cy="232" r="6"/>
+    <circle cx="212" cy="232" r="6"/>
+    <circle cx="252" cy="232" r="6"/>
+    <circle cx="292" cy="232" r="6"/>
+    <circle cx="332" cy="232" r="6"/>
+    <circle cx="172" cy="276" r="6"/>
+    <circle cx="212" cy="276" r="6"/>
+    <circle cx="252" cy="276" r="6"/>
+    <circle cx="292" cy="276" r="6"/>
+    <circle cx="332" cy="276" r="6"/>
+    <circle cx="172" cy="320" r="6"/>
+    <circle cx="212" cy="320" r="6"/>
+    <circle cx="252" cy="320" r="6"/>
+    <circle cx="292" cy="320" r="6"/>
+    <circle cx="332" cy="320" r="6"/>
+  </g>
+
+  <!-- Hero emblem: agent head + clapperboard -->
+  <g>
+    <!-- Agent head silhouette -->
+    <path
+      d="M256 166c-56 0-102 40-102 90v18c0 28 16 52 40 66v18c0 14 12 26 26 26h72c14 0 26-12 26-26v-18c24-14 40-38 40-66v-18c0-50-46-90-102-90Z"
+      fill="#FFFFFF"
+    />
+    <!-- Eyes (bold) -->
+    <rect x="206" y="246" width="30" height="18" rx="9" fill="#0F172A" opacity="0.95"/>
+    <rect x="276" y="246" width="30" height="18" rx="9" fill="#0F172A" opacity="0.95"/>
+
+    <!-- Antenna -->
+    <rect x="248" y="128" width="16" height="48" rx="8" fill="#FFFFFF"/>
+    <circle cx="256" cy="120" r="14" fill="#FFFFFF"/>
+    <circle cx="256" cy="120" r="14" fill="none" stroke="rgba(15,23,42,0.2)" stroke-width="4"/>
+
+    <!-- Clapperboard (movie reviewer cue) -->
+    <rect x="168" y="310" width="240" height="86" rx="18" fill="#0F172A" opacity="0.95"/>
+    <rect x="168" y="294" width="240" height="34" rx="14" fill="#FFFFFF"/>
+    <!-- Stripes on top (no thin lines) -->
+    <g fill="rgba(15,23,42,0.2)">
+      <path d="M188 294h36l-18 34h-36l18-34Z"/>
+      <path d="M236 294h36l-18 34h-36l18-34Z"/>
+      <path d="M284 294h36l-18 34h-36l18-34Z"/>
+      <path d="M332 294h36l-18 34h-36l18-34Z"/>
+    </g>
+
+    <!-- Agent mark (agent-type): star notch medallion (integrated, not validation check) -->
+    <g>
+      <circle cx="372" cy="340" r="30" fill="#FFFFFF"/>
+      <circle cx="372" cy="340" r="30" fill="none" stroke="rgba(15,23,42,0.2)" stroke-width="6"/>
+      <path
+        d="M372 322l6 12 14 2-10 10 2 14-12-6-12 6 2-14-10-10 14-2 6-12Z"
+        fill="#0F172A"
+        opacity="0.95"
+      />
+    </g>
+  </g>
+</svg>
+

@@ -34,7 +34,9 @@ Every badge uses the same 3-layer anatomy:
 
 Validation badges all share the same "family look": circular medal + thick ring + integrated checkmark.
 
-Reserve associations for later by switching color family or ring treatment (don't mix now).
+Associations and agent-type badges are separate families:
+- **Association badges**: keep the circular medal, but use an **association color family** and an integrated **link/join mark** (not a checkmark).
+- **Agent-type badges**: keep the circular medal, but use an **agent color family** and an integrated **agent mark** (star/medal notch), not a checkmark.
 
 ## Color Rules (Locked Palette)
 
@@ -52,6 +54,14 @@ Use these exact hex values unless you're intentionally creating tier variants.
 - Ring: `#6366F1`
 - Field: `#A5B4FC`
 
+### Movie Alliance Association (Orange)
+- Ring: `#F97316`
+- Field: `#FDBA74`
+
+### Movie Reviewer Agent (Gold)
+- Ring: `#F59E0B`
+- Field: `#FDE68A`
+
 ### Neutrals
 - Emblem primary (light): `#FFFFFF`
 - Emblem secondary (dark): `#0F172A`
@@ -64,6 +74,8 @@ Textures must be barely visible (5–10% contrast) and must match the badge mean
 - **Name**: horizontal stripes / faint "text lines"
 - **Account**: radial rays / concentric permission ring
 - **App**: subtle grid / corner brackets (container/runtime vibe)
+- **Association (Alliance)**: subtle chain/link pattern (very low contrast)
+- **Agent-type (Movie Reviewer)**: subtle dots/scanlines (very low contrast)
 
 ## Emblem Semantics (What Each MUST Contain)
 
@@ -78,6 +90,16 @@ Textures must be barely visible (5–10% contrast) and must match the badge mean
 ### App Validation
 - **Emblem**: bold module/cube/app tile + subtle container cue (brackets/frame)
 - **Integrated check**: corner notch or stamp on tile
+
+### Association — Movie Alliance (Association Type Badge)
+- **Emblem**: bold **film** cue (film reel or clapper) + bold **alliance** cue (interlocking links / handshake silhouette)
+- **Integrated mark**: a **join/link** mark (clasp dot, link inset, or corner notch) — **NOT** a checkmark
+- **No text**
+
+### Agent-Type — Movie Reviewer Agent (Agent Type Badge)
+- **Emblem**: bold **agent** silhouette (robot head / badge) + bold **movie** cue (clapperboard / reel)
+- **Integrated mark**: a distinctive **agent mark** (star medallion / notch) — **NOT** a checkmark
+- **No text**
 
 ## Line + Shape Constraints
 
@@ -100,6 +122,8 @@ Generate:
 - `badge-validation-name.svg`
 - `badge-validation-account.svg`
 - `badge-validation-app.svg`
+- `badge-association-movie-alliance.svg`
+- `badge-agent-movie-reviewer.svg`
 
 ## Cursor Prompts
 
@@ -136,6 +160,36 @@ DELIVERABLES:
   - badge-validation-account.svg
   - badge-validation-app.svg
 No external assets. Use simple <path>, <circle>, <rect>. Keep shapes clean and scalable.
+```
+
+### Prompt D — Create Association + Agent-Type Badges
+
+```
+Create 2 original gamified achievement badge SVGs (512x512, transparent background) following this style system:
+
+GLOBAL STYLE:
+- Circular medal badge with thick outer ring + inner field + single bold emblem.
+- Flat fills, minimal strokes, no text, readable at 24px.
+- Use subtle low-contrast textures in the inner field (5–10% contrast).
+
+BADGE 1 — Movie Alliance Association (Association Type)
+- Filename: badge-association-movie-alliance.svg
+- COLORS: ring #F97316, field #FDBA74
+- EMBLEM: film reel (or clapper) + interlocking links/handshake (must read as “alliance”)
+- INTEGRATED MARK: join/link mark (clasp dot/link inset/corner notch). NOT a checkmark.
+- Texture: subtle chain/link pattern
+
+BADGE 2 — Movie Reviewer Agent (Agent Type)
+- Filename: badge-agent-movie-reviewer.svg
+- COLORS: ring #F59E0B, field #FDE68A
+- EMBLEM: agent/robot silhouette + movie cue (clapperboard/reel)
+- INTEGRATED MARK: agent mark (star medallion / notch). NOT a checkmark.
+- Texture: subtle dots/scanlines
+
+Constraints:
+- No external assets.
+- Use simple <path>, <circle>, <rect>.
+- Keep emblem inside 80% safe area.
 ```
 
 ### Prompt B — Improve Readability at Small Sizes (Iteration Loop)
