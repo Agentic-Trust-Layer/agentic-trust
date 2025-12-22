@@ -58,6 +58,14 @@ export interface AgentInfo {
   atiVersion?: string | null;
   atiComputedAt?: number | null;
   atiBundleJson?: string | null;
+
+  /**
+   * Trust Ledger ranking metrics from the indexer.
+   */
+  trustLedgerScore?: number | null;
+  trustLedgerBadgeCount?: number | null;
+  trustLedgerOverallRank?: number | null;
+  trustLedgerCapabilityRank?: number | null;
 }
 
 

@@ -189,6 +189,12 @@ export async function discoverAgents(
         atiVersion: stringOrNull(raw?.atiVersion) ?? undefined,
         atiComputedAt: numeric(raw?.atiComputedAt, null),
         atiBundleJson: stringOrNull(raw?.atiBundleJson) ?? undefined,
+
+        // Trust Ledger metrics (keep missing as null)
+        trustLedgerScore: numeric(raw?.trustLedgerScore, null),
+        trustLedgerBadgeCount: numeric(raw?.trustLedgerBadgeCount, null),
+        trustLedgerOverallRank: numeric(raw?.trustLedgerOverallRank, null),
+        trustLedgerCapabilityRank: numeric(raw?.trustLedgerCapabilityRank, null),
       };
     }),
     total,

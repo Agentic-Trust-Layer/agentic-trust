@@ -37,6 +37,15 @@ function mapOwnedAgentToAgentsPageAgent(agent: any): AgentsPageAgent {
     validationRequestedCount: agent?.validationRequestedCount ?? null,
     initiatedAssociationCount: agent?.initiatedAssociationCount ?? null,
     approvedAssociationCount: agent?.approvedAssociationCount ?? null,
+    atiOverallScore: agent?.atiOverallScore ?? null,
+    atiOverallConfidence: agent?.atiOverallConfidence ?? null,
+    atiVersion: agent?.atiVersion ?? null,
+    atiComputedAt: agent?.atiComputedAt ?? null,
+    atiBundleJson: agent?.atiBundleJson ?? null,
+    trustLedgerScore: agent?.trustLedgerScore ?? null,
+    trustLedgerBadgeCount: agent?.trustLedgerBadgeCount ?? null,
+    trustLedgerOverallRank: agent?.trustLedgerOverallRank ?? null,
+    trustLedgerCapabilityRank: agent?.trustLedgerCapabilityRank ?? null,
   };
 }
 

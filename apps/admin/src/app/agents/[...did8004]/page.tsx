@@ -245,6 +245,23 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
       (agent as any).atiBundleJson ??
       (agentDetail as any).atiBundleJson ??
       null,
+
+    trustLedgerScore:
+      (agent as any).trustLedgerScore ??
+      (agentDetail as any).trustLedgerScore ??
+      null,
+    trustLedgerBadgeCount:
+      (agent as any).trustLedgerBadgeCount ??
+      (agentDetail as any).trustLedgerBadgeCount ??
+      null,
+    trustLedgerOverallRank:
+      (agent as any).trustLedgerOverallRank ??
+      (agentDetail as any).trustLedgerOverallRank ??
+      null,
+    trustLedgerCapabilityRank:
+      (agent as any).trustLedgerCapabilityRank ??
+      (agentDetail as any).trustLedgerCapabilityRank ??
+      null,
   };
 
   // Fallback: if GraphQL counts are missing/zero, derive initiated/approved counts from on-chain associations

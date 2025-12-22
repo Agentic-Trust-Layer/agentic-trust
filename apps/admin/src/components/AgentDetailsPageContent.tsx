@@ -795,15 +795,18 @@ export default function AgentDetailsPageContent({
               >
                 Open Trust Graph Explorer
               </Button>
-              {typeof (agent as any).atiOverallScore === 'number' &&
-                Number.isFinite((agent as any).atiOverallScore) && (
+              {typeof (agent as any).trustLedgerScore === 'number' &&
+                Number.isFinite((agent as any).trustLedgerScore) &&
+                typeof (agent as any).trustLedgerOverallRank === 'number' &&
+                Number.isFinite((agent as any).trustLedgerOverallRank) &&
+                (agent as any).trustLedgerOverallRank > 0 && (
                   <Typography
                     variant="body2"
                     color="text.secondary"
                     sx={{ lineHeight: 1.2 }}
-                    title={`ATI overall score${typeof (agent as any).atiOverallConfidence === 'number' ? ` · confidence: ${(agent as any).atiOverallConfidence}` : ''}${typeof (agent as any).atiVersion === 'string' && (agent as any).atiVersion ? ` · version: ${(agent as any).atiVersion}` : ''}`}
+                    title={`Trust Ledger${typeof (agent as any).trustLedgerBadgeCount === 'number' ? ` · badges: ${(agent as any).trustLedgerBadgeCount}` : ''}`}
                   >
-                    ATI score: {(agent as any).atiOverallScore}
+                    score: {Math.round((agent as any).trustLedgerScore)} · rank: #{(agent as any).trustLedgerOverallRank}
                   </Typography>
                 )}
             </Stack>

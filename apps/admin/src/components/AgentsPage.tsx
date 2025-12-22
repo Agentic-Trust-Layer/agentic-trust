@@ -52,6 +52,10 @@ export type AgentsPageAgent = {
   atiVersion?: string | null;
   atiComputedAt?: number | null;
   atiBundleJson?: string | null;
+  trustLedgerScore?: number | null;
+  trustLedgerBadgeCount?: number | null;
+  trustLedgerOverallRank?: number | null;
+  trustLedgerCapabilityRank?: number | null;
 };
 
 type Agent = AgentsPageAgent;
@@ -214,7 +218,9 @@ export function AgentsPage({
       agentId: string;
       chainId: number;
       agentName: string;
-      atiOverallScore: number;
+      trustLedgerScore: number;
+      trustLedgerOverallRank: number;
+      trustLedgerBadgeCount?: number | null;
       agentCategory?: string | null;
       image?: string | null;
     }>
@@ -484,7 +490,7 @@ export function AgentsPage({
     setActiveDialog({ agent, action });
   };
 
-  // ATI leaderboard (single query, sorted client-side)
+  // Leaderboard (single discovery query, sorted client-side)
   useEffect(() => {
     let cancelled = false;
 
@@ -505,28 +511,31 @@ export function AgentsPage({
         if (category) {
           params.agentCategory = category;
         }
-        if (atiLeaderboardTimeWindow === '10d') params.atiComputedWithinDays = 10;
-        if (atiLeaderboardTimeWindow === '30d') params.atiComputedWithinDays = 30;
-        if (atiLeaderboardTimeWindow === '180d') params.atiComputedWithinDays = 180;
+        // Time window applies to agent creation time for leaderboard views.
+        if (atiLeaderboardTimeWindow === '10d') params.createdWithinDays = 10;
+        if (atiLeaderboardTimeWindow === '30d') params.createdWithinDays = 30;
+        if (atiLeaderboardTimeWindow === '180d') params.createdWithinDays = 180;
 
         const url =
           `/api/agents/search?page=1&pageSize=2000` +
           `&orderBy=createdAtTime&orderDirection=DESC` +
           `&params=${encodeURIComponent(JSON.stringify(params))}` +
-          `&source=ati-leaderboard`;
+          `&source=leaderboard`;
         const res = await fetch(url, { cache: 'no-store' });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
-          throw new Error(body?.error || body?.message || `Failed to load ATI leaderboard (${res.status})`);
+          throw new Error(body?.error || body?.message || `Failed to load leaderboard (${res.status})`);
         }
         const body = await res.json().catch(() => ({} as any));
         const list = Array.isArray(body?.agents) ? (body.agents as any[]) : [];
 
         const top = list
           .map((a) => {
-            const scoreRaw = a?.atiOverallScore;
+            const scoreRaw = a?.trustLedgerScore;
             const score = typeof scoreRaw === 'number' ? scoreRaw : Number(scoreRaw);
-            if (!Number.isFinite(score)) return null;
+            const rankRaw = a?.trustLedgerOverallRank;
+            const rank = typeof rankRaw === 'number' ? rankRaw : Number(rankRaw);
+            if (!Number.isFinite(score) || !Number.isFinite(rank) || rank <= 0) return null;
             const agentId = typeof a?.agentId === 'string' ? a.agentId : String(a?.agentId ?? '');
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId ?? 0);
             const agentName = typeof a?.agentName === 'string' && a.agentName.trim() ? a.agentName.trim() : `Agent #${agentId || '—'}`;
@@ -534,26 +543,45 @@ export function AgentsPage({
               typeof a?.agentCategory === 'string' && a.agentCategory.trim().length > 0 ? a.agentCategory.trim() : null;
             const image =
               typeof a?.image === 'string' && a.image.trim().length > 0 ? a.image.trim() : null;
+            const badgeRaw = a?.trustLedgerBadgeCount;
+            const badgeCount =
+              typeof badgeRaw === 'number'
+                ? badgeRaw
+                : badgeRaw === null || badgeRaw === undefined
+                  ? null
+                  : Number(badgeRaw);
+            const trustLedgerBadgeCount = Number.isFinite(badgeCount as number) ? (badgeCount as number) : null;
             if (!agentId || !Number.isFinite(chainId) || chainId <= 0) return null;
-            return { agentId, chainId, agentName, atiOverallScore: score, agentCategory, image };
+            return {
+              agentId,
+              chainId,
+              agentName,
+              trustLedgerScore: score,
+              trustLedgerOverallRank: rank,
+              trustLedgerBadgeCount,
+              agentCategory,
+              image,
+            };
           })
           .filter(Boolean) as Array<{
           agentId: string;
           chainId: number;
           agentName: string;
-          atiOverallScore: number;
+          trustLedgerScore: number;
+          trustLedgerOverallRank: number;
+          trustLedgerBadgeCount?: number | null;
           agentCategory?: string | null;
           image?: string | null;
         }>;
 
-        top.sort((a, b) => b.atiOverallScore - a.atiOverallScore);
+        top.sort((a, b) => a.trustLedgerOverallRank - b.trustLedgerOverallRank);
 
         if (cancelled) return;
         setAtiLeaderboard(top.slice(0, 10));
       } catch (e: any) {
         if (cancelled) return;
         setAtiLeaderboard([]);
-        setAtiLeaderboardError(e?.message || 'Failed to load ATI leaderboard');
+        setAtiLeaderboardError(e?.message || 'Failed to load leaderboard');
       } finally {
         if (!cancelled) setAtiLeaderboardLoading(false);
       }
@@ -3622,24 +3650,23 @@ export function AgentsPage({
                 ? agent.feedbackAverageScore
                 : null;
 
-            const atiOverallScore =
-              typeof (agent as any).atiOverallScore === 'number' &&
-              Number.isFinite((agent as any).atiOverallScore) &&
-              (agent as any).atiOverallScore >= 0
-                ? ((agent as any).atiOverallScore as number)
+            const trustLedgerScore =
+              typeof (agent as any).trustLedgerScore === 'number' &&
+              Number.isFinite((agent as any).trustLedgerScore) &&
+              (agent as any).trustLedgerScore >= 0
+                ? ((agent as any).trustLedgerScore as number)
                 : null;
-            const atiOverallConfidence =
-              typeof (agent as any).atiOverallConfidence === 'number' &&
-              Number.isFinite((agent as any).atiOverallConfidence)
-                ? ((agent as any).atiOverallConfidence as number)
+            const trustLedgerOverallRank =
+              typeof (agent as any).trustLedgerOverallRank === 'number' &&
+              Number.isFinite((agent as any).trustLedgerOverallRank) &&
+              (agent as any).trustLedgerOverallRank > 0
+                ? ((agent as any).trustLedgerOverallRank as number)
                 : null;
-            const atiVersion =
-              typeof (agent as any).atiVersion === 'string' && (agent as any).atiVersion.trim().length > 0
-                ? ((agent as any).atiVersion as string).trim()
-                : null;
-            const atiComputedAt =
-              typeof (agent as any).atiComputedAt === 'number' && Number.isFinite((agent as any).atiComputedAt)
-                ? ((agent as any).atiComputedAt as number)
+            const trustLedgerBadgeCount =
+              typeof (agent as any).trustLedgerBadgeCount === 'number' &&
+              Number.isFinite((agent as any).trustLedgerBadgeCount) &&
+              (agent as any).trustLedgerBadgeCount >= 0
+                ? ((agent as any).trustLedgerBadgeCount as number)
                 : null;
 
             const createdAtTimeSeconds =
@@ -4163,11 +4190,11 @@ export function AgentsPage({
                         associations ({initiatedAssociationsCount ?? 0} / {approvedAssociationsCount ?? 0})
                       </span>
                     )}
-                    {atiOverallScore !== null && (
+                    {trustLedgerScore !== null && trustLedgerOverallRank !== null && (
                       <span
-                        title={`ATI overall score from discovery indexer${atiOverallConfidence !== null ? ` · confidence: ${atiOverallConfidence}` : ''}${atiVersion ? ` · version: ${atiVersion}` : ''}${atiComputedAt ? ` · computedAt: ${atiComputedAt}` : ''}`}
+                        title={`Trust Ledger · score: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`}
                       >
-                        ATI ({atiOverallScore})
+                        score {Math.round(trustLedgerScore)} · rank #{trustLedgerOverallRank}
                       </span>
                     )}
                   </div>
@@ -4247,9 +4274,9 @@ export function AgentsPage({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: palette.textPrimary }}>
-                    ATI Leaderboard
+                    Agent Ranking
                   </h3>
-                  <span style={{ fontSize: '0.75rem', color: palette.textSecondary }}>Top by score</span>
+                  <span style={{ fontSize: '0.75rem', color: palette.textSecondary }}>Top by rank</span>
                 </div>
 
                 {/* compact filters (match "VIEW: All Time / All Mountains" style) */}
@@ -4337,7 +4364,7 @@ export function AgentsPage({
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                     {atiLeaderboard.length === 0 ? (
                       <div style={{ fontSize: '0.85rem', color: palette.textSecondary }}>
-                        No ATI-scored agents found.
+                        No ranked agents found.
                       </div>
                     ) : (
                       atiLeaderboard.map((row, idx) => (
@@ -4411,15 +4438,18 @@ export function AgentsPage({
                                 }}
                                 title={row.agentName}
                               >
-                                {row.agentName}
+                                #{row.trustLedgerOverallRank} {row.agentName}
                               </div>
                               <div style={{ fontSize: '0.75rem', color: palette.textSecondary }}>
                                 #{row.agentId}
                               </div>
                             </div>
                           </div>
-                          <div style={{ fontSize: '0.9rem', fontWeight: 800, color: palette.accent }}>
-                            {Math.round(row.atiOverallScore)}
+                          <div
+                            title={`Trust Ledger score${typeof row.trustLedgerBadgeCount === 'number' ? ` · badges: ${row.trustLedgerBadgeCount}` : ''}`}
+                            style={{ fontSize: '0.9rem', fontWeight: 800, color: palette.accent }}
+                          >
+                            {Math.round(row.trustLedgerScore)}
                           </div>
                         </button>
                       ))

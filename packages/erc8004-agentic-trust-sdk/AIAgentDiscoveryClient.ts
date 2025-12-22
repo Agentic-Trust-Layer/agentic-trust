@@ -49,6 +49,10 @@ export interface AgentData {
   atiVersion?: string | null;
   atiComputedAt?: number | null;
   atiBundleJson?: string | null;
+  trustLedgerScore?: number | null;
+  trustLedgerBadgeCount?: number | null;
+  trustLedgerOverallRank?: number | null;
+  trustLedgerCapabilityRank?: number | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -542,6 +546,26 @@ export class AIAgentDiscoveryClient {
       normalized.atiBundleJson = atiBundleJson;
     }
 
+    const trustLedgerScore = toOptionalNumberOrNull(record.trustLedgerScore);
+    if (trustLedgerScore !== undefined) {
+      normalized.trustLedgerScore = trustLedgerScore;
+    }
+
+    const trustLedgerBadgeCount = toOptionalNumberOrNull(record.trustLedgerBadgeCount);
+    if (trustLedgerBadgeCount !== undefined) {
+      normalized.trustLedgerBadgeCount = trustLedgerBadgeCount;
+    }
+
+    const trustLedgerOverallRank = toOptionalNumberOrNull(record.trustLedgerOverallRank);
+    if (trustLedgerOverallRank !== undefined) {
+      normalized.trustLedgerOverallRank = trustLedgerOverallRank;
+    }
+
+    const trustLedgerCapabilityRank = toOptionalNumberOrNull(record.trustLedgerCapabilityRank);
+    if (trustLedgerCapabilityRank !== undefined) {
+      normalized.trustLedgerCapabilityRank = trustLedgerCapabilityRank;
+    }
+
     const description = toOptionalStringOrNull(record.description);
     if (description !== undefined) {
       normalized.description = description;
@@ -786,6 +810,10 @@ export class AIAgentDiscoveryClient {
             atiVersion
             atiComputedAt
             atiBundleJson
+              trustLedgerScore
+              trustLedgerBadgeCount
+              trustLedgerOverallRank
+              trustLedgerCapabilityRank
               metadata {
                 key
                 valueText
@@ -1348,6 +1376,10 @@ export class AIAgentDiscoveryClient {
             atiVersion
             atiComputedAt
             atiBundleJson
+            trustLedgerScore
+            trustLedgerBadgeCount
+            trustLedgerOverallRank
+            trustLedgerCapabilityRank
           }
           total
           hasMore
@@ -1818,6 +1850,10 @@ export class AIAgentDiscoveryClient {
             atiVersion
             atiComputedAt
             atiBundleJson
+            trustLedgerScore
+            trustLedgerBadgeCount
+            trustLedgerOverallRank
+            trustLedgerCapabilityRank
 ${metadataSelection}
           }
         }
@@ -1931,6 +1967,10 @@ ${metadataSelection}
           atiVersion
           atiComputedAt
           atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -1987,6 +2027,10 @@ ${metadataSelection}
           atiVersion
           atiComputedAt
           atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -2049,6 +2093,10 @@ ${metadataSelection}
           atiVersion
           atiComputedAt
           atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -2373,6 +2421,10 @@ ${metadataSelection}
             atiVersion
             atiComputedAt
             atiBundleJson
+            trustLedgerScore
+            trustLedgerBadgeCount
+            trustLedgerOverallRank
+            trustLedgerCapabilityRank
           }
           total
           hasMore
