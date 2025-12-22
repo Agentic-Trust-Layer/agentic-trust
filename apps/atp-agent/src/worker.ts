@@ -243,8 +243,10 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
   const env = c.env || {};
   const agentName = env.AGENT_NAME || 'ATP Agent';
   const agentDescription = env.AGENT_DESCRIPTION || 'An ATP agent for A2A communication';
-  
-  const providerUrl = env.PROVIDER_BASE_URL || '';
+
+  // Use request origin so subdomains advertise the correct host.
+  const origin = new URL(c.req.url).origin.replace(/\/$/, '');
+  const messageEndpoint = `${origin}/api/a2a`;
   
   const agentId = parseInt(env.AGENT_ID || '0', 10);
   const agentAddress = env.AGENT_ADDRESS || '';
@@ -253,11 +255,13 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
   const agentCard = {
     name: subdomain ? `${agentName} (${subdomain})` : agentName,
     description: agentDescription,
-    url: providerUrl,
+    url: origin,
     provider: {
       organization: env.PROVIDER_ORGANIZATION || 'ATP',
-      url: env.PROVIDER_BASE_URL,
+      // A2A message endpoint (explicit, do not rely on clients guessing paths)
+      url: messageEndpoint,
     },
+    endpoints: [{ name: 'A2A', endpoint: messageEndpoint, version: '0.3.0' }],
     version: env.AGENT_VERSION || '0.1.0',
     capabilities: {
       streaming: env.CAPABILITY_STREAMING === 'true',
@@ -454,7 +458,7 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
     let authenticatedClientAddress: string | null = null;
     if (auth) {
       const atClient = await getAgenticTrustClient();
-      const providerUrl = c.env?.PROVIDER_BASE_URL || '';
+      const providerUrl = new URL(c.req.url).origin.replace(/\/$/, '');
 
       const verification = await atClient.verifyChallenge(auth, providerUrl);
 

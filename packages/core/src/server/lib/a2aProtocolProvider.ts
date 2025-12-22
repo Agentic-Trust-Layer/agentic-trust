@@ -215,8 +215,7 @@ export class A2AProtocolProvider {
    */
   async fetchAgentCard(): Promise<A2AAgentCard | null> {
     try {
-      const cardUrl = `${this.providerUrl.replace(/\/$/, '')}/.well-known/agent.json`;
-      console.log('[A2AProtocolProvider.fetchAgentCard] Fetching agent card from:', cardUrl);
+      console.log('[A2AProtocolProvider.fetchAgentCard] Fetching agent card using providerUrl:', this.providerUrl);
       console.log('[A2AProtocolProvider.fetchAgentCard] Base providerUrl:', this.providerUrl);
       
       const card = await fetchA2AAgentCard(this.providerUrl);
@@ -251,7 +250,17 @@ export class A2AProtocolProvider {
         const normalizeEndpoint = (raw: unknown): string | null => {
           const s = String(raw || '').trim();
           if (!s) return null;
-          if (s.startsWith('http://') || s.startsWith('https://')) return s.replace(/\/$/, '');
+          if (s.startsWith('http://') || s.startsWith('https://')) {
+            try {
+              const u = new URL(s);
+              // If provider.url is just a bare origin ("/"), treat it as not an explicit message endpoint.
+              // Agents should publish an explicit message endpoint (e.g. /api/a2a) in agent.json.
+              if (!u.pathname || u.pathname === '/' || u.pathname === '') return null;
+            } catch {
+              // Fall through and still return the string trimmed.
+            }
+            return s.replace(/\/$/, '');
+          }
           if (s.startsWith('/')) return `${baseOrigin}${s}`;
           return `${baseOrigin}/${s.replace(/^\/+/, '')}`;
         };

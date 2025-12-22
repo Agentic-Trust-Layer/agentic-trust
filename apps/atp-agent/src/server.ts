@@ -247,8 +247,12 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
   const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const agentName = process.env.AGENT_NAME || 'ATP Agent';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'An ATP agent for A2A communication';
-  
-  const providerUrl = process.env.PROVIDER_BASE_URL || '';
+
+  // Use request origin so subdomains advertise the correct host.
+  const protoHeader = (req.headers['x-forwarded-proto'] as string | undefined) || req.protocol || 'https';
+  const hostHeader = (req.headers['x-forwarded-host'] as string | undefined) || req.get('host') || req.hostname;
+  const origin = `${protoHeader}://${hostHeader}`.replace(/\/$/, '');
+  const messageEndpoint = `${origin}/api/a2a`;
   
   const agentId = parseInt(process.env.AGENT_ID || '0', 10);
   const agentAddress = process.env.AGENT_ADDRESS || '';
@@ -257,11 +261,14 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
   const agentCard = {
     name: subdomain ? `${agentName} (${subdomain})` : agentName,
     description: agentDescription,
-    url: providerUrl,
+    url: origin,
     provider: {
       organization: process.env.PROVIDER_ORGANIZATION || 'ATP',
-      url: process.env.PROVIDER_BASE_URL,
+      // A2A message endpoint (explicit, do not rely on clients guessing paths)
+      url: messageEndpoint,
     },
+    // Explicit endpoints list (common shape for agent.json consumers)
+    endpoints: [{ name: 'A2A', endpoint: messageEndpoint, version: '0.3.0' }],
     version: process.env.AGENT_VERSION || '0.1.0',
     capabilities: {
       streaming: process.env.CAPABILITY_STREAMING === 'true',
@@ -448,7 +455,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
     let authenticatedClientAddress: string | null = null;
     if (auth) {
       const atClient = await getAgenticTrustClient();
-      const providerUrl = process.env.PROVIDER_BASE_URL || '';
+      const protoHeader = (req.headers['x-forwarded-proto'] as string | undefined) || req.protocol || 'https';
+      const hostHeader = (req.headers['x-forwarded-host'] as string | undefined) || req.get('host') || req.hostname;
+      const providerUrl = `${protoHeader}://${hostHeader}`.replace(/\/$/, '');
 
       const verification = await atClient.verifyChallenge(auth, providerUrl);
 
