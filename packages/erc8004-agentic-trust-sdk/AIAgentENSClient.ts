@@ -456,7 +456,7 @@ export class AIAgentENSClient {
       const isZero =
         !addrStr || addrStr === '0x0000000000000000000000000000000000000000';
 
-      console.log('[AIAgentENSClient.getAgentAccountByName] resolved addr:', addrStr);
+      console.log('[AIAgentENSClient.getAgentAccountByName] return resolved addr:', addrStr);
 
       return isZero ? null : addrStr;
     } catch (error) {

@@ -242,6 +242,18 @@ export class A2AProtocolProvider {
           }
         })();
 
+        const endpointFromSupportedInterfaces = (() => {
+          const supportedInterfaces = Array.isArray((card as any)?.supportedInterfaces)
+            ? ((card as any).supportedInterfaces as Array<{ url?: string; protocolBinding?: string }>)
+            : [];
+
+          const pick = (binding: string): string | undefined =>
+            supportedInterfaces.find((x) => String(x?.protocolBinding || '') === binding)?.url;
+
+          // Prefer JSON-RPC if advertised; fall back to HTTP+JSON.
+          return pick('JSONRPC') ?? pick('HTTP+JSON') ?? undefined;
+        })();
+
         const endpointFromProviderUrl =
           typeof (card as any)?.provider?.url === 'string' ? (card as any).provider.url : undefined;
 
@@ -278,6 +290,7 @@ export class A2AProtocolProvider {
         };
 
         const picked =
+          normalizeEndpoint(endpointFromSupportedInterfaces) ??
           normalizeEndpoint(endpointFromProviderUrl) ??
           normalizeEndpoint(endpointFromEndpointsArray) ??
           normalizeEndpoint(endpointFromEndpointsObject);

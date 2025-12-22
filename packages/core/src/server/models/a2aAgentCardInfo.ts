@@ -23,6 +23,12 @@ export interface AgentProvider {
   url: string;
 }
 
+export interface SupportedInterface {
+  url: string;
+  protocolBinding: string;
+  [key: string]: unknown;
+}
+
 export interface AgentCapabilities {
   streaming?: boolean;
   pushNotifications?: boolean;
@@ -31,11 +37,13 @@ export interface AgentCapabilities {
 }
 
 export interface A2AAgentCard {
+  protocolVersion?: string;
   name: string;
   description?: string;
-  url: string;
+  url?: string;
   provider?: AgentProvider;
   version?: string;
+  supportedInterfaces?: SupportedInterface[];
   capabilities?: AgentCapabilities;
   defaultInputModes?: string[];
   defaultOutputModes?: string[];
@@ -43,6 +51,7 @@ export interface A2AAgentCard {
   registrations?: AgentRegistration[];
   trustModels?: string[];
   supportsAuthenticatedExtendedCard?: boolean;
+  supportsExtendedAgentCard?: boolean;
   feedbackDataURI?: string;
   [key: string]: unknown; // Allow for additional fields
 }

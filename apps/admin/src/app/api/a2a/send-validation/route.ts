@@ -39,10 +39,28 @@ export async function POST(request: NextRequest) {
       const normalize = (raw: any): string | null => {
         const s = typeof raw === 'string' ? raw.trim() : '';
         if (!s) return null;
-        if (s.startsWith('http://') || s.startsWith('https://')) return s.replace(/\/$/, '');
+        if (s.startsWith('http://') || s.startsWith('https://')) {
+          try {
+            const u = new URL(s);
+            // If the URL is just a bare origin ("/"), treat it as not an explicit message endpoint.
+            if (!u.pathname || u.pathname === '/' || u.pathname === '') return null;
+          } catch {
+            // If parsing fails, fall through and still normalize by trimming.
+          }
+          return s.replace(/\/$/, '');
+        }
         if (s.startsWith('/')) return `${baseOrigin}${s}`.replace(/\/$/, '');
         return `${baseOrigin}/${s.replace(/^\/+/, '')}`.replace(/\/$/, '');
       };
+
+      // Prefer v1.0 supportedInterfaces (JSON-RPC first, then HTTP+JSON)
+      if (Array.isArray(agentJson?.supportedInterfaces)) {
+        const interfaces = agentJson.supportedInterfaces as any[];
+        const pick = (binding: string) =>
+          interfaces.find((x: any) => String(x?.protocolBinding || '') === binding)?.url;
+        const fromInterfaces = normalize(pick('JSONRPC') ?? pick('HTTP+JSON'));
+        if (fromInterfaces) return fromInterfaces;
+      }
 
       // Prefer explicit provider.url (common A2A agent.json shape)
       const fromProviderUrl = normalize(agentJson?.provider?.url);
