@@ -1217,7 +1217,7 @@ function templateRegistrationJson(opts: {
   const baseUrl = (opts.agentUrl || '').trim().replace(/\/$/, '');
   const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
   if (baseUrl) {
-    endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/a2a`, version: '0.3.0' });
+    endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/.well-known/agent.json`, version: '0.3.0' });
     endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/mcp`, version: '2025-06-18' });
   }
 
@@ -1296,7 +1296,7 @@ async function main() {
   const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
   if (agentUrl) {
     const base = agentUrl.replace(/\\/$/, '');
-    endpoints.push({ name: 'A2A', endpoint: \`\${base}/a2a\`, version: '0.3.0' });
+    endpoints.push({ name: 'A2A', endpoint: \`\${base}/.well-known/agent.json\`, version: '0.3.0' });
     if (enableMcp) endpoints.push({ name: 'MCP', endpoint: \`\${base}/mcp\`, version: '2025-06-18' });
   }
 
@@ -1747,7 +1747,7 @@ async function performOnChainRegistration(params: {
     const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
     if (reg.agentUrl) {
       const base = reg.agentUrl.replace(/\/$/, '');
-      endpoints.push({ name: 'A2A', endpoint: `${base}/a2a`, version: '0.3.0' });
+      endpoints.push({ name: 'A2A', endpoint: `${base}/.well-known/agent.json`, version: '0.3.0' });
       endpoints.push({ name: 'MCP', endpoint: `${base}/mcp`, version: '2025-06-18' });
     }
 

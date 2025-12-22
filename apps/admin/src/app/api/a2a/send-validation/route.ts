@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     if (!a2aEndpoint) {
       return NextResponse.json(
-        { error: 'A2A endpoint is required' },
+        { error: 'A2A agent card URL (agent.json) is required' },
         { status: 400 }
       );
     }
@@ -25,13 +25,105 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Normalize localhost to 127.0.0.1 for better Node.js compatibility
-    let normalizedEndpoint = a2aEndpoint;
-    if (a2aEndpoint.includes('localhost')) {
-      normalizedEndpoint = a2aEndpoint.replace(/localhost/g, '127.0.0.1');
+    const toAgentJsonUrl = (input: string): string => {
+      const url = new URL(input);
+      const origin = url.origin;
+      const path = url.pathname || '';
+      // If already an agent.json URL, keep verbatim. Otherwise, use canonical well-known path.
+      if (/\/agent\.json\/?$/i.test(path)) return url.toString();
+      return `${origin}/.well-known/agent.json`;
+    };
+
+    const extractA2AMessageEndpoint = (agentJson: any, agentJsonUrl: string): string | null => {
+      const baseOrigin = new URL(agentJsonUrl).origin.replace(/\/$/, '');
+      const normalize = (raw: any): string | null => {
+        const s = typeof raw === 'string' ? raw.trim() : '';
+        if (!s) return null;
+        if (s.startsWith('http://') || s.startsWith('https://')) return s.replace(/\/$/, '');
+        if (s.startsWith('/')) return `${baseOrigin}${s}`.replace(/\/$/, '');
+        return `${baseOrigin}/${s.replace(/^\/+/, '')}`.replace(/\/$/, '');
+      };
+
+      // Prefer explicit provider.url (common A2A agent.json shape)
+      const fromProviderUrl = normalize(agentJson?.provider?.url);
+      if (fromProviderUrl) return fromProviderUrl;
+
+      // Alternate shapes supported for robustness
+      if (Array.isArray(agentJson?.endpoints)) {
+        const entry = agentJson.endpoints.find(
+          (e: any) => String(e?.name || '').toLowerCase() === 'a2a',
+        );
+        const fromArray = normalize(entry?.endpoint);
+        if (fromArray) return fromArray;
+      }
+      const fromObject = normalize(agentJson?.endpoints?.a2a);
+      if (fromObject) return fromObject;
+
+      return null;
+    };
+
+    // Load agent.json (agent card) first, then send the message to the declared A2A message endpoint.
+    const agentJsonUrlRaw = toAgentJsonUrl(String(a2aEndpoint));
+    const agentJsonUrl =
+      agentJsonUrlRaw.includes('localhost')
+        ? agentJsonUrlRaw.replace(/localhost/g, '127.0.0.1')
+        : agentJsonUrlRaw;
+
+    console.log('[API] Loading agent.json for A2A proxy:', agentJsonUrl);
+
+    // Use native http/https for agent.json too (avoids fetch issues with blocked ports / localhost)
+    const agentJsonUrlObj = new URL(agentJsonUrl);
+    const agentJsonIsHttps = agentJsonUrlObj.protocol === 'https:';
+    const agentJsonHttpModule = agentJsonIsHttps ? await import('https') : await import('http');
+    const agentJson = await new Promise<any>((resolve, reject) => {
+      const options = {
+        hostname: agentJsonUrlObj.hostname,
+        port: agentJsonUrlObj.port || (agentJsonIsHttps ? 443 : 80),
+        path: agentJsonUrlObj.pathname + agentJsonUrlObj.search,
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      };
+      const req = agentJsonHttpModule.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => {
+          data += chunk;
+        });
+        res.on('end', () => {
+          if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
+            return reject(
+              new Error(
+                `Failed to fetch agent.json (HTTP ${res.statusCode} ${res.statusMessage || ''})`,
+              ),
+            );
+          }
+          try {
+            resolve(data ? JSON.parse(data) : {});
+          } catch (e: any) {
+            reject(new Error(`Failed to parse agent.json: ${e?.message || 'unknown error'}`));
+          }
+        });
+      });
+      req.on('error', (error) => reject(new Error(`HTTP request failed: ${error.message}`)));
+      req.end();
+    });
+
+    const messageEndpoint = extractA2AMessageEndpoint(agentJson, agentJsonUrl);
+    if (!messageEndpoint) {
+      return NextResponse.json(
+        { error: 'agent.json did not declare an A2A message endpoint (provider.url or endpoints.a2a).' },
+        { status: 400 },
+      );
     }
 
-    console.log('[API] Proxying A2A validation request to:', normalizedEndpoint);
+    // Normalize localhost to 127.0.0.1 for better Node.js compatibility
+    let normalizedEndpoint = messageEndpoint;
+    if (messageEndpoint.includes('localhost')) {
+      normalizedEndpoint = messageEndpoint.replace(/localhost/g, '127.0.0.1');
+    }
+
+    console.log('[API] Proxying A2A validation request to message endpoint:', normalizedEndpoint);
 
     // Use native http/https modules to avoid fetch issues with localhost ports
     const url = new URL(normalizedEndpoint);

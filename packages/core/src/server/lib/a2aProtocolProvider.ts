@@ -154,6 +154,8 @@ export class A2AProtocolProviderAPI {
  * Handles direct A2A communication with an agent provider
  */
 export class A2AProtocolProvider {
+  // The URL provided by the caller. Interpreted as an agent-card URL (agent.json)
+  // or any URL on the same origin (we will bootstrap to /.well-known/agent.json).
   private providerUrl: string;
   private agentCard: A2AAgentCard | null = null;
   private a2aEndpoint: string | null = null;
@@ -188,8 +190,9 @@ export class A2AProtocolProvider {
   }
 
   /**
-   * Construct an A2A Protocol Provider for a specific agent
-   * @param a2aEndpoint - The base URL from the agent's a2aEndpoint field (must be absolute)
+   * Construct an A2A Protocol Provider for a specific agent.
+   *
+   * @param a2aEndpoint - The agent's A2A discovery URL (agent.json), or any URL on the agent's origin.
    * @param veramoAgent - Veramo agent for authentication
    */
   constructor(a2aEndpoint: string, veramoAgent: VeramoAgent) {
@@ -221,8 +224,8 @@ export class A2AProtocolProvider {
       
       if (card) {
         this.agentCard = card;
-        // Prefer explicit A2A endpoint from agent card (supports /a2a and /api/a2a styles).
-        // Fall back to constructing from providerUrl if missing.
+        // Prefer explicit message endpoint from agent card.
+        // This must be explicitly declared by the agent card; we do not guess.
         const baseOrigin = (() => {
           try {
             return new URL(this.providerUrl).origin.replace(/\/$/, '');
@@ -231,11 +234,19 @@ export class A2AProtocolProvider {
           }
         })();
 
-        const endpointFromCard = Array.isArray((card as any).endpoints)
-          ? ((card as any).endpoints as Array<{ name?: string; endpoint?: string }>).find((e) =>
-              String(e?.name || '').toLowerCase() === 'a2a',
+        const endpointFromProviderUrl =
+          typeof (card as any)?.provider?.url === 'string' ? (card as any).provider.url : undefined;
+
+        const endpointFromEndpointsArray = Array.isArray((card as any).endpoints)
+          ? ((card as any).endpoints as Array<{ name?: string; endpoint?: string }>).find(
+              (e) => String(e?.name || '').toLowerCase() === 'a2a',
             )?.endpoint
           : undefined;
+
+        const endpointFromEndpointsObject =
+          (card as any)?.endpoints && typeof (card as any).endpoints === 'object' && !Array.isArray((card as any).endpoints)
+            ? (card as any).endpoints.a2a
+            : undefined;
 
         const normalizeEndpoint = (raw: unknown): string | null => {
           const s = String(raw || '').trim();
@@ -245,30 +256,26 @@ export class A2AProtocolProvider {
           return `${baseOrigin}/${s.replace(/^\/+/, '')}`;
         };
 
-        const picked = normalizeEndpoint(endpointFromCard);
+        const picked =
+          normalizeEndpoint(endpointFromProviderUrl) ??
+          normalizeEndpoint(endpointFromEndpointsArray) ??
+          normalizeEndpoint(endpointFromEndpointsObject);
         if (picked) {
           console.log('[A2AProtocolProvider.fetchAgentCard] Using A2A endpoint from agent card:', picked);
           this.a2aEndpoint = picked;
         } else {
-          // Use the configured providerUrl directly; do NOT require '/a2a' or '/api/a2a' in the path.
-          // Some providers expose A2A at '/api' (or other paths) and treat it as the message endpoint.
-          const urlStr = this.providerUrl.replace(/\/$/, '');
-          console.log('[A2AProtocolProvider.fetchAgentCard] Using configured providerUrl as A2A endpoint:', urlStr);
-          this.a2aEndpoint = urlStr;
+          console.warn('[A2AProtocolProvider.fetchAgentCard] Agent card did not declare an A2A message endpoint.');
+          this.a2aEndpoint = null;
         }
           
         // Verify the constructed a2aEndpoint is absolute
-        if (!this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
+        if (this.a2aEndpoint && !this.a2aEndpoint.startsWith('http://') && !this.a2aEndpoint.startsWith('https://')) {
           console.warn('[A2AProtocolProvider.fetchAgentCard] Warning: A2A endpoint should be an absolute URL (starting with http:// or https://), got:', this.a2aEndpoint);
         }
         
       } else {
         console.warn('[A2AProtocolProvider.fetchAgentCard] No agent card received');
-        // If no card, use providerUrl directly (which should already have the correct path).
-        if (!this.a2aEndpoint) {
-          this.a2aEndpoint = this.providerUrl.replace(/\/$/, '');
-          console.log('[A2AProtocolProvider.fetchAgentCard] Using providerUrl as endpoint (no card):', this.a2aEndpoint);
-        }
+        this.a2aEndpoint = null;
       }
       return card;
     } catch (error) {
@@ -307,16 +314,6 @@ export class A2AProtocolProvider {
     // Lazy load agent card if not already fetched
     if (!this.agentCard) {
       await this.fetchAgentCard();
-    }
-
-    // If we still don't have an endpoint, use the providerUrl directly.
-    if (!this.a2aEndpoint) {
-      const endpoint = this.providerUrl.replace(/\/$/, '');
-      console.log('[A2AProtocolProvider.getA2AEndpoint] Using providerUrl as endpoint:', {
-        providerUrl: this.providerUrl,
-        endpoint,
-      });
-      this.a2aEndpoint = endpoint;
     }
 
     if (!this.a2aEndpoint) {

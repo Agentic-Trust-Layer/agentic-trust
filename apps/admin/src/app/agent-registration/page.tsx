@@ -774,7 +774,7 @@ export default function AgentRegistrationPage() {
           return { valid: false, message: 'Enable at least one protocol (A2A or MCP).' };
         }
         if (protocolSettings.publishA2A && !((protocolSettings.a2aEndpoint || '').trim() || baseUrl)) {
-          return { valid: false, message: 'Provide an A2A protocol endpoint URL.' };
+          return { valid: false, message: 'Provide an A2A agent card URL (agent.json).' };
         }
         if (protocolSettings.publishMcp && !((protocolSettings.mcpEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an MCP protocol endpoint URL.' };
@@ -859,7 +859,7 @@ export default function AgentRegistrationPage() {
       const baseUrl = resolveAgentBaseUrl();
       const resolvedA2A =
         protocolSettings.publishA2A &&
-        (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/api/a2a` : ''));
+        (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/.well-known/agent.json` : ''));
       const resolvedMcp =
         protocolSettings.publishMcp &&
         (protocolSettings.mcpEndpoint.trim() || (baseUrl ? `${baseUrl}/api/mcp` : ''));
@@ -1200,9 +1200,8 @@ export default function AgentRegistrationPage() {
     const defaultUrl = buildDefaultAgentUrl(createForm.agentName);
     setCreateForm(prev => ({ ...prev, agentUrl: defaultUrl }));
   }, [createForm.agentName]);
-  // Default A2A endpoint to /api/a2a and MCP to /api/mcp
-  // .well-known/agent.json is always at the base domain, not at the A2A endpoint path
-  const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/a2a` : '';
+  // Default A2A endpoint to the canonical agent card URL (/.well-known/agent.json) and MCP to /api/mcp
+  const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent.json` : '';
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
 
@@ -1606,7 +1605,7 @@ export default function AgentRegistrationPage() {
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
               <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
-                This base URL seeds the default A2A (`/api/a2a`) and MCP (`/api/mcp`) endpoints below. The agent descriptor is always at the base domain's `/.well-known/agent.json`.
+                This base URL seeds the default A2A agent card (`/.well-known/agent.json`) and MCP (`/api/mcp`) endpoints below.
               </p>
             </div>
             <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>

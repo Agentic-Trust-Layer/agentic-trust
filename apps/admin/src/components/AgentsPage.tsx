@@ -874,7 +874,7 @@ export function AgentsPage({
       setA2APreview({
         key,
         loading: false,
-        error: 'No agent.json endpoint configured for this agent.',
+        error: 'No agent card (agent.json) URL configured for this agent.',
         messageEndpointUrl: null,
         agentJsonUrl: null,
         agentCardUrl: null,
@@ -1519,17 +1519,17 @@ export function AgentsPage({
             <p style={{ marginTop: 0 }}>
               A2A uses an <strong>agent.json</strong> document for discovery.
             </p>
-            {a2aPreview.messageEndpointUrl ? (
+            {a2aPreview.agentJsonUrl ? (
               <a
-                href={a2aPreview.messageEndpointUrl}
+                href={a2aPreview.agentJsonUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
-                {a2aPreview.messageEndpointUrl}
+                {a2aPreview.agentJsonUrl}
               </a>
             ) : (
-              <p style={{ color: palette.dangerText }}>No A2A message endpoint is available for this agent.</p>
+              <p style={{ color: palette.dangerText }}>No agent card URL is available for this agent.</p>
             )}
 
             <div
@@ -4319,13 +4319,11 @@ export function AgentsPage({
                     }}
                   >
                     <option value="all">All Chains</option>
-                    {chainOptions
-                      .filter((c) => c.value !== 'all')
-                      .map((c) => (
-                        <option key={c.value} value={c.value}>
-                          {c.label}
-                        </option>
-                      ))}
+                    {chainOptions.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.label}
+                      </option>
+                    ))}
                   </select>
 
                   <select
@@ -4640,15 +4638,18 @@ function deriveA2ADiscoveryUrls(endpoint: string): {
     const agentJsonUrl = `${origin}/.well-known/agent.json`;
     const agentCardUrl = `${origin}/.well-known/agent-card.json`;
 
-    // If user already provided a well-known agent.json URL, keep it verbatim.
-    const looksLikeAgentJson = path.endsWith('/.well-known/agent.json') || path.endsWith('/.well-known/agent.json/');
+    // `a2aEndpoint` is expected to point to the agent card (agent.json).
+    // Keep it verbatim if it already looks like an agent.json URL.
+    const looksLikeAgentJson =
+      /\/agent\.json\/?$/i.test(path) || path.endsWith('/.well-known/agent.json') || path.endsWith('/.well-known/agent.json/');
     const explicitAgentJsonUrl = looksLikeAgentJson ? url.toString() : agentJsonUrl;
 
-    // If the provided endpoint is actually agent.json, we don't know the message endpoint.
-    // If it's /api/a2a, treat it as the message endpoint.
-    const looksLikeMessageEndpoint = path.endsWith('/api/a2a') || path.endsWith('/api/a2a/');
+    // Back-compat: if we are given a historical message endpoint like /api/a2a,
+    // expose it as messageEndpointUrl and still derive agent.json from origin.
+    const looksLikeMessageEndpoint = /\/api\/a2a\/?$/i.test(path);
     return {
-      messageEndpointUrl: looksLikeMessageEndpoint ? url.toString() : null,
+      // For UI, we want a stable link. Prefer the agent card URL if present.
+      messageEndpointUrl: looksLikeAgentJson ? url.toString() : looksLikeMessageEndpoint ? url.toString() : null,
       agentJsonUrl: explicitAgentJsonUrl,
       agentCardUrl,
     };
