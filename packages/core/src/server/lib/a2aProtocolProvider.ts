@@ -45,7 +45,16 @@ export interface A2AResponse {
 
 export interface ProviderEndpoint {
   providerId: string;
-  endpoint: string;
+  /**
+   * Message URL to POST A2A skill calls to.
+   * Prefer `url` (new) over `endpoint` (legacy).
+   */
+  url: string;
+  /**
+   * Legacy alias for `url`.
+   * Kept for backward compatibility in internal callers.
+   */
+  endpoint?: string;
   method?: string;
 }
 
@@ -237,7 +246,10 @@ export class A2AProtocolProvider {
           typeof (card as any)?.provider?.url === 'string' ? (card as any).provider.url : undefined;
 
         const endpointFromEndpointsArray = Array.isArray((card as any).endpoints)
-          ? ((card as any).endpoints as Array<{ name?: string; endpoint?: string }>).find(
+          ? ((card as any).endpoints as Array<{ name?: string; url?: string; endpoint?: string }>).find(
+              (e) => String(e?.name || '').toLowerCase() === 'a2a',
+            )?.url ??
+            ((card as any).endpoints as Array<{ name?: string; url?: string; endpoint?: string }>).find(
               (e) => String(e?.name || '').toLowerCase() === 'a2a',
             )?.endpoint
           : undefined;
@@ -315,6 +327,7 @@ export class A2AProtocolProvider {
       console.log('[A2AProtocolProvider.getA2AEndpoint] Using cached endpoint:', this.a2aEndpoint);
       return {
         providerId: this.agentCard?.name || 'unknown',
+        url: this.a2aEndpoint,
         endpoint: this.a2aEndpoint,
         method: 'POST',
       };
@@ -340,6 +353,7 @@ export class A2AProtocolProvider {
 
     return {
       providerId: this.agentCard?.name || 'unknown',
+      url: this.a2aEndpoint,
       endpoint: this.a2aEndpoint,
       method: 'POST',
     };
@@ -510,14 +524,14 @@ export class A2AProtocolProvider {
       throw new Error('A2A endpoint not available. Fetch agent card first.');
     }
 
-    console.log('[A2AProtocolProvider.sendMessage] Constructed endpoint:', endpointInfo.endpoint);
+    console.log('[A2AProtocolProvider.sendMessage] Constructed url:', endpointInfo.url);
     console.log('[A2AProtocolProvider.sendMessage] Endpoint method:', endpointInfo.method || 'POST');
 
     // Validate endpoint is not a placeholder
-    if (A2AProtocolProvider.isPlaceholderUrl(endpointInfo.endpoint)) {
+    if (A2AProtocolProvider.isPlaceholderUrl(endpointInfo.url)) {
       console.error('[A2AProtocolProvider.sendMessage] Endpoint is a placeholder URL');
       throw new Error(
-        `Invalid A2A endpoint: The agent's A2A endpoint appears to be a placeholder URL (${endpointInfo.endpoint}). ` +
+        `Invalid A2A url: The agent's A2A url appears to be a placeholder URL (${endpointInfo.url}). ` +
         `Please update the agent's endpoint to a valid, accessible URL. ` +
         `The endpoint should point to a real agent provider that can handle A2A protocol messages.`
       );
@@ -557,11 +571,11 @@ export class A2AProtocolProvider {
       ...(authChallenge && { auth: authChallenge }),
     };
 
-    console.log('[A2AProtocolProvider.sendMessage] Sending request to:', endpointInfo.endpoint);
+    console.log('[A2AProtocolProvider.sendMessage] Sending request to:', endpointInfo.url);
     console.log('[A2AProtocolProvider.sendMessage] Request payload:', JSON.stringify(authenticatedRequest, null, 2));
 
     try {
-      const response = await fetch(endpointInfo.endpoint, {
+      const response = await fetch(endpointInfo.url, {
         method: endpointInfo.method || 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -602,7 +616,7 @@ export class A2AProtocolProvider {
         console.warn('[A2AProtocolProvider.sendMessage] Request failed (returning error response):', {
           status: response.status,
           statusText: response.statusText,
-          url: endpointInfo.endpoint,
+          url: endpointInfo.url,
           errorMessage,
         });
         
@@ -629,7 +643,7 @@ export class A2AProtocolProvider {
       console.error('[A2AProtocolProvider.sendMessage] Error details:', {
         message: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
-        endpoint: endpointInfo.endpoint,
+        url: endpointInfo.url,
         providerUrl: this.providerUrl,
       });
       throw error;

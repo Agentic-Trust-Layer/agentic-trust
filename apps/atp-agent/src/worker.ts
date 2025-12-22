@@ -261,7 +261,7 @@ app.get('/.well-known/agent.json', (c: HonoContext) => {
       // A2A message endpoint (explicit, do not rely on clients guessing paths)
       url: messageEndpoint,
     },
-    endpoints: [{ name: 'A2A', endpoint: messageEndpoint, version: '0.3.0' }],
+    endpoints: [{ name: 'A2A', url: messageEndpoint, version: '0.3.0' }],
     version: env.AGENT_VERSION || '0.1.0',
     capabilities: {
       streaming: env.CAPABILITY_STREAMING === 'true',
@@ -433,7 +433,7 @@ app.options('/.well-known/agent.json', (c: HonoContext) => {
 });
 
 // A2A endpoint
-app.post('/api/a2a', waitForClientInit, async (c) => {
+const handleA2A = async (c: HonoContext) => {
   const subdomain = c.get('providerSubdomain');
   console.log('========================================');
   console.log('[ATP Agent A2A] POST request received at', new Date().toISOString());
@@ -500,7 +500,34 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
       ...(payload && { receivedPayload: payload }),
     };
 
-    console.log('[ATP Agent] Routing skill:', skillId, 'subdomain:', subdomain);
+    const handledSkillIdsForDebug = [
+      'atp.ens.isNameAvailable',
+      'agent.feedback.requestAuth',
+      'atp.validation.respond',
+      'agent.validation.respond',
+      'atp.feedback.requestLegacy',
+      'atp.account.addOrUpdate',
+      'atp.agent.createOrUpdate',
+      'atp.feedback.request',
+      'atp.feedback.getRequests',
+      'atp.feedback.getRequestsByAgent',
+      'atp.feedback.markGiven',
+      'atp.feedback.requestapproved',
+      'atp.inbox.sendMessage',
+      'atp.inbox.listClientMessages',
+      'atp.inbox.listAgentMessages',
+      'atp.inbox.markRead',
+      'atp.stats.trends',
+      'atp.stats.sdkApps',
+    ];
+
+    console.log('[ATP Agent] Routing skill:', {
+      skillId,
+      subdomain,
+      host: new URL(c.req.url).hostname,
+      hasPayload: Boolean(payload),
+      hasAuth: Boolean(auth),
+    });
 
     if (skillId === 'atp.ens.isNameAvailable') {
       responseContent.skill = skillId;
@@ -620,6 +647,13 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
             .first<any>();
 
           if (!requestRecord) {
+            console.warn('[ATP Agent] 404 Feedback request not found', {
+              skillId,
+              subdomain,
+              feedbackRequestId,
+              agentIdParam: (payload as any)?.agentId,
+              chainId: (payload as any)?.chainId,
+            });
             responseContent.error = 'Feedback request not found';
             responseContent.skill = skillId;
             return c.json(
@@ -1293,7 +1327,14 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
 
         const result = validationResults[0];
         if (!result) {
-          console.warn('[ATP Agent] No matching validation result found. Results:', validationResults);
+          console.warn('[ATP Agent] 404 No matching pending validation request found', {
+            skillId,
+            subdomain,
+            resolvedAgentId,
+            resolvedChainId,
+            requestHash: requestHashParam,
+            resultsCount: validationResults?.length || 0,
+          });
           responseContent.error = 'No matching pending validation request found';
           responseContent.success = false;
           return c.json({
@@ -2891,7 +2932,13 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
         responseContent.success = false;
       }
     } else if (skillId) {
-      console.warn('[ATP Agent] Skill not handled, falling through to generic handler:', skillId);
+      console.warn('[ATP Agent] Skill not handled. Request will fall through to generic handler.', {
+        skillId,
+        subdomain,
+        host: new URL(c.req.url).hostname,
+        hasPayload: Boolean(payload),
+        knownHandledSkills: handledSkillIdsForDebug,
+      });
       responseContent.response = `Received request for skill: ${skillId}. This skill is not yet implemented.`;
       responseContent.skill = skillId;
     } else {
@@ -2919,7 +2966,11 @@ app.post('/api/a2a', waitForClientInit, async (c) => {
       error: error instanceof Error ? error.message : 'Unknown error',
     }, 500);
   }
-});
+};
+
+// Accept both /api/a2a and /api/a2a/ (Cloudflare/Hono can treat these as distinct).
+app.post('/api/a2a', waitForClientInit, handleA2A);
+app.post('/api/a2a/', waitForClientInit, handleA2A);
 
 // OPTIONS preflight for A2A
 app.options('/api/a2a', (c: HonoContext) => {
@@ -2927,6 +2978,29 @@ app.options('/api/a2a', (c: HonoContext) => {
     status: 204,
     headers: getCorsHeaders(),
   });
+});
+
+// Accept both /api/a2a and /api/a2a/ for preflight too.
+app.options('/api/a2a/', (c: HonoContext) => {
+  return new Response(null, {
+    status: 204,
+    headers: getCorsHeaders(),
+  });
+});
+
+// Log unmatched routes (helps diagnose 404s caused by path mismatch like trailing slashes).
+app.notFound((c: HonoContext) => {
+  try {
+    const url = new URL(c.req.url);
+    console.warn('[ATP Agent] 404 Not Found (no route match)', {
+      method: c.req.method,
+      path: url.pathname,
+      host: url.hostname,
+    });
+  } catch {
+    console.warn('[ATP Agent] 404 Not Found (no route match)');
+  }
+  return c.text('Not Found', 404);
 });
 
 // Health check endpoint

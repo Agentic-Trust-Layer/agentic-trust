@@ -94,7 +94,7 @@ export type AgentData = DiscoveryAgentData;
 export class Agent {
   private a2aProvider: A2AProtocolProvider | null = null;
   private agentCard: AgentCard | null = null;
-  private endpoint: { providerId: string; endpoint: string; method?: string } | null = null;
+  private endpoint: { providerId: string; url: string; method?: string } | null = null;
   private initialized: boolean = false;
   private sessionPackage: SessionPackage | null = null;
 
@@ -337,7 +337,7 @@ export class Agent {
   }
 
 
-  async getEndpoint(): Promise<{ providerId: string; endpoint: string; method?: string } | null> {
+  async getEndpoint(): Promise<{ providerId: string; url: string; method?: string } | null> {
     if (!this.a2aProvider) {
       throw new Error('Agent not initialized. Call initialize(client) first.');
     }
@@ -347,7 +347,7 @@ export class Agent {
       if (endpointInfo) {
         this.endpoint = {
           providerId: endpointInfo.providerId,
-          endpoint: endpointInfo.endpoint,
+          url: endpointInfo.url,
           method: endpointInfo.method,
         };
       }

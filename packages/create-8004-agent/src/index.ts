@@ -654,8 +654,8 @@ app.get('/.well-known/agent.json', (c) => {
     name,
     description,
     endpoints: [
-      { name: 'A2A', endpoint: \`\${origin}/a2a\`, version: '0.3.0' },
-      { name: 'MCP', endpoint: \`\${origin}/mcp\`, version: '2025-06-18' },
+      { name: 'A2A', url: \`\${origin}/a2a\`, version: '0.3.0' },
+      { name: 'MCP', url: \`\${origin}/mcp\`, version: '2025-06-18' },
     ],
     skills: [
       {
@@ -1009,8 +1009,8 @@ function templateAgentJson(opts: { agentName: string; description: string; port:
       name: opts.agentName,
       description: opts.description,
       endpoints: [
-        { name: 'A2A', endpoint: `http://localhost:${opts.port}/a2a`, version: '0.3.0' },
-        { name: 'MCP', endpoint: `http://localhost:${opts.port}/mcp`, version: '2025-06-18' },
+        { name: 'A2A', url: `http://localhost:${opts.port}/a2a`, version: '0.3.0' },
+        { name: 'MCP', url: `http://localhost:${opts.port}/mcp`, version: '2025-06-18' },
       ],
       skills: [
         {

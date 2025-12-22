@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
         const entry = agentJson.endpoints.find(
           (e: any) => String(e?.name || '').toLowerCase() === 'a2a',
         );
-        const fromArray = normalize(entry?.endpoint);
+        const fromArray = normalize(entry?.url ?? entry?.endpoint);
         if (fromArray) return fromArray;
       }
       const fromObject = normalize(agentJson?.endpoints?.a2a);

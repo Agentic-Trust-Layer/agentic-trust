@@ -906,7 +906,7 @@ export default function AgentDetailsPageContent({
           {agent.a2aEndpoint && (
             <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
-                A2A Endpoint
+                A2A Agent Card:
               </Typography>
               <Typography
                 variant="body2"

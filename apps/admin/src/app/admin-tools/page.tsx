@@ -2591,7 +2591,7 @@ export default function AdminPage() {
                       {agentInfoTab === 'protocols' && (
                         <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
                           <TextField
-                            label="A2A Endpoint"
+                            label="A2A Agent Card"
                             fullWidth
                             value={registrationA2aEndpoint}
                             onChange={(e) => {
@@ -3137,7 +3137,7 @@ export default function AdminPage() {
                                     <>
                                       <Paper variant="outlined" sx={{ mb: 1.5, p: 1.5, bgcolor: 'primary.50', borderColor: 'primary.200' }}>
                                         <Typography variant="subtitle2" fontWeight={600} gutterBottom>
-                                          Current Agent A2A Endpoint
+                                          Current A2A Agent Card
                                         </Typography>
                                         {a2aEndpointData.loading ? (
                                           <Typography variant="body2" fontStyle="italic" color="text.secondary">Loading A2A endpoint data...</Typography>
@@ -3154,7 +3154,7 @@ export default function AdminPage() {
                                               )}
                                             </Typography>
                                             <Typography variant="body2">
-                                              <strong>A2A Endpoint:</strong>{' '}
+                                              <strong>A2A Agent Card:</strong>{' '}
                                               {a2aEndpointData.a2aEndpoint ? (
                                                 <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{a2aEndpointData.a2aEndpoint}</Box>
                                               ) : (

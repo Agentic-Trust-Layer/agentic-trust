@@ -267,8 +267,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
       // A2A message endpoint (explicit, do not rely on clients guessing paths)
       url: messageEndpoint,
     },
-    // Explicit endpoints list (common shape for agent.json consumers)
-    endpoints: [{ name: 'A2A', endpoint: messageEndpoint, version: '0.3.0' }],
+    // Explicit endpoints list (agent.json; use `url` for message call targets)
+    endpoints: [{ name: 'A2A', url: messageEndpoint, version: '0.3.0' }],
     version: process.env.AGENT_VERSION || '0.1.0',
     capabilities: {
       streaming: process.env.CAPABILITY_STREAMING === 'true',
@@ -500,6 +500,15 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
       ...(payload && { receivedPayload: payload }),
     };
 
+    // Always log skill routing so we can debug 404s / mismatches in prod (Cloudflare logs).
+    console.log('[ATP Agent] Routing skill:', {
+      skillId,
+      subdomain,
+      host: req.hostname,
+      hasPayload: Boolean(payload),
+      hasAuth: Boolean(auth),
+    });
+
     if (skillId === 'atp.ens.isNameAvailable') {
       responseContent.skill = skillId;
       if (subdomain !== 'agents-atp') {
@@ -602,6 +611,13 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             .first<any>();
 
           if (!requestRecord) {
+            console.warn('[ATP Agent] 404 Feedback request not found', {
+              skillId,
+              subdomain,
+              feedbackRequestId,
+              agentIdParam: (payload as any)?.agentId,
+              chainId: (payload as any)?.chainId,
+            });
             responseContent.error = 'Feedback request not found';
             responseContent.skill = skillId;
             res.set(getCorsHeaders());
@@ -1316,7 +1332,14 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
         const result = validationResults[0];
         if (!result) {
-          console.warn('[ATP Agent] No matching validation result found. Results:', validationResults);
+          console.warn('[ATP Agent] 404 No matching pending validation request found', {
+            skillId,
+            subdomain,
+            resolvedAgentId,
+            resolvedChainId,
+            requestHash: requestHashParam,
+            resultsCount: validationResults?.length || 0,
+          });
           responseContent.error = 'No matching pending validation request found';
           responseContent.success = false;
           res.set(getCorsHeaders());
