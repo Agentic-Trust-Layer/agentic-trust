@@ -235,15 +235,174 @@ app.get('/', (req: Request, res: Response) => {
     message: 'ATP Agent is running',
     host: req.hostname,
     subdomain: subdomain || null,
-    note: 'Try /.well-known/agent.json or /api/a2a for agent endpoints.',
+    note: 'Try /.well-known/agent-card.json or /api/a2a for agent endpoints.',
   });
 });
 
 /**
- * Agent endpoint (/.well-known/agent.json)
- * A2A standard endpoint for agent discovery
+ * Agent card endpoints
+ * Primary: /.well-known/agent-card.json (v1.0)
+ * Legacy:  /.well-known/agent.json (alias)
  */
-app.get('/.well-known/agent.json', (req: Request, res: Response) => {
+const normalizeModes = (modes: unknown): string[] => {
+  if (!Array.isArray(modes)) return [];
+  return modes
+    .map((m) => {
+      if (m === 'text') return 'text/plain';
+      if (m === 'json') return 'application/json';
+      if (m === 'task-status') return 'application/json';
+      return String(m);
+    })
+    .filter(Boolean);
+};
+
+const buildSkills = (subdomain: string | null | undefined) => {
+  const baseSkills = [
+    {
+      id: 'agent.feedback.requestAuth',
+      name: 'agent.feedback.requestAuth',
+      tags: ['erc8004', 'feedback', 'auth', 'a2a'],
+      examples: ['Client requests feedbackAuth after receiving results'],
+      inputModes: ['text'],
+      outputModes: ['text', 'json'],
+      description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
+    },
+    {
+      id: 'atp.account.addOrUpdate',
+      name: 'atp.account.addOrUpdate',
+      tags: ['atp', 'account', 'database', 'a2a'],
+      examples: ['Add or update user account in ATP database'],
+      inputModes: ['text'],
+      outputModes: ['text'],
+      description: 'Add or update an account in the ATP accounts table',
+    },
+  ];
+
+  // Only add admin/inbox skills for agents-atp subdomain
+  if (subdomain === 'agents-atp') {
+    return [
+      ...baseSkills,
+      {
+        id: 'atp.ens.isNameAvailable',
+        name: 'atp.ens.isNameAvailable',
+        tags: ['ens', 'availability', 'a2a', 'admin'],
+        examples: ['Check ENS availability for <label>.8004-agent.eth'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description: 'Check if an ENS name is available. Payload: { ensName, chainId }',
+      },
+      {
+        id: 'atp.feedback.request',
+        name: 'atp.feedback.request',
+        tags: ['erc8004', 'feedback', 'request', 'a2a', 'admin'],
+        examples: ['Request to give feedback to an agent', 'Submit a feedback request for an agent'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description:
+          'Request to give feedback to an agent. Requires clientAddress (EOA), targetAgentId (agent ID to give feedback to), and comment (reason for feedback) in payload.',
+      },
+      {
+        id: 'atp.feedback.getRequests',
+        name: 'atp.feedback.getRequests',
+        tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
+        examples: ['Get all feedback requests for a wallet address', 'Query feedback requests by client address'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description: 'Get all feedback requests associated with a wallet address. Requires clientAddress (EOA) in payload.',
+      },
+      {
+        id: 'atp.feedback.getRequestsByAgent',
+        name: 'atp.feedback.getRequestsByAgent',
+        tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
+        examples: ['Get all feedback requests for a specific agent', 'Query feedback requests by target agent ID'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description: 'Get all feedback requests for a specific agent. Requires targetAgentId (agent ID) in payload.',
+      },
+      {
+        id: 'atp.feedback.markGiven',
+        name: 'atp.feedback.markGiven',
+        tags: ['erc8004', 'feedback', 'update', 'a2a', 'admin'],
+        examples: ['Mark a feedback request as having feedback given'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description:
+          'Mark a feedback request as having feedback given, storing the tx hash. Requires feedbackRequestId and txHash in payload.',
+      },
+      {
+        id: 'atp.feedback.requestapproved',
+        name: 'atp.feedback.requestapproved',
+        tags: ['atp', 'feedback', 'approval', 'database', 'a2a', 'admin'],
+        examples: ['Approve a feedback request and notify requester'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description:
+          'Approve a feedback request (no on-chain auth). Requires feedbackRequestId, fromAgentDid, toAgentDid, approvedForDays.',
+      },
+      {
+        id: 'atp.inbox.sendMessage',
+        name: 'atp.inbox.sendMessage',
+        tags: ['erc8004', 'inbox', 'message', 'a2a'],
+        examples: ['Send a message via the inbox system'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description:
+          'Send a message via the inbox system. Requires body, and at least one destination (toClientAddress, toAgentDid, or toAgentName).',
+      },
+      {
+        id: 'atp.inbox.listClientMessages',
+        name: 'atp.inbox.listClientMessages',
+        tags: ['erc8004', 'inbox', 'query', 'a2a'],
+        examples: ['List messages for a client address', 'Get all messages for a wallet'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description:
+          'List messages for a client address (both sent and received). Requires clientAddress (EOA) in payload.',
+      },
+      {
+        id: 'atp.inbox.listAgentMessages',
+        name: 'atp.inbox.listAgentMessages',
+        tags: ['erc8004', 'inbox', 'query', 'a2a'],
+        examples: ['List messages for an agent DID', 'Get all messages for an agent'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description:
+          'List messages for an agent DID (both sent and received). Requires agentDid in payload.',
+      },
+      {
+        id: 'atp.inbox.markRead',
+        name: 'atp.inbox.markRead',
+        tags: ['erc8004', 'inbox', 'query', 'a2a'],
+        examples: ['Mark a message as read'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description: 'Mark a message as read. Requires messageId in payload.',
+      },
+      {
+        id: 'atp.stats.trends',
+        name: 'atp.stats.trends',
+        tags: ['atp', 'stats', 'query', 'a2a', 'admin'],
+        examples: ['Get feedback/validation trends'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description: 'Get stats trends. Optional payload: { daysBack }.',
+      },
+      {
+        id: 'atp.stats.sdkApps',
+        name: 'atp.stats.sdkApps',
+        tags: ['atp', 'stats', 'query', 'a2a', 'admin'],
+        examples: ['Get SDK app stats'],
+        inputModes: ['text', 'json'],
+        outputModes: ['text', 'json'],
+        description: 'Get stats for SDK apps.',
+      },
+    ];
+  }
+
+  return baseSkills;
+};
+
+const serveAgentCard = (req: Request, res: Response) => {
   const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const agentName = process.env.AGENT_NAME || 'ATP Agent';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'An ATP agent for A2A communication';
@@ -253,169 +412,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
   const hostHeader = (req.headers['x-forwarded-host'] as string | undefined) || req.get('host') || req.hostname;
   const origin = `${protoHeader}://${hostHeader}`.replace(/\/$/, '');
   const messageEndpoint = `${origin}/api/a2a`;
-  
-  const agentId = parseInt(process.env.AGENT_ID || '0', 10);
-  const agentAddress = process.env.AGENT_ADDRESS || '';
-  const agentSignature = process.env.AGENT_SIGNATURE || '';
 
-  const normalizeModes = (modes: unknown): string[] => {
-    if (!Array.isArray(modes)) return [];
-    return modes
-      .map((m) => {
-        if (m === 'text') return 'text/plain';
-        if (m === 'json') return 'application/json';
-        if (m === 'task-status') return 'application/json';
-        return String(m);
-      })
-      .filter(Boolean);
-  };
-
-  const rawSkills = (() => {
-    const baseSkills = [
-      {
-        id: 'agent.feedback.requestAuth',
-        name: 'agent.feedback.requestAuth',
-        tags: ['erc8004', 'feedback', 'auth', 'a2a'],
-        examples: ['Client requests feedbackAuth after receiving results'],
-        inputModes: ['text'],
-        outputModes: ['text'],
-        description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
-      },
-      {
-        id: 'atp.account.addOrUpdate',
-        name: 'atp.account.addOrUpdate',
-        tags: ['atp', 'account', 'database', 'a2a'],
-        examples: ['Add or update user account in ATP database'],
-        inputModes: ['text'],
-        outputModes: ['text'],
-        description: 'Add or update an account in the ATP accounts table',
-      },
-    ];
-
-    // Only add admin/inbox skills for agents-atp subdomain
-    if (subdomain === 'agents-atp') {
-      return [
-        ...baseSkills,
-        {
-          id: 'atp.ens.isNameAvailable',
-          name: 'atp.ens.isNameAvailable',
-          tags: ['ens', 'availability', 'a2a', 'admin'],
-          examples: ['Check ENS availability for <label>.8004-agent.eth'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description: 'Check if an ENS name is available. Payload: { ensName, chainId }',
-        },
-        {
-          id: 'atp.feedback.request',
-          name: 'atp.feedback.request',
-          tags: ['erc8004', 'feedback', 'request', 'a2a', 'admin'],
-          examples: ['Request to give feedback to an agent', 'Submit a feedback request for an agent'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description:
-            'Request to give feedback to an agent. Requires clientAddress (EOA), targetAgentId (agent ID to give feedback to), and comment (reason for feedback) in payload.',
-        },
-        {
-          id: 'atp.feedback.getRequests',
-          name: 'atp.feedback.getRequests',
-          tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
-          examples: ['Get all feedback requests for a wallet address', 'Query feedback requests by client address'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description: 'Get all feedback requests associated with a wallet address. Requires clientAddress (EOA) in payload.',
-        },
-        {
-          id: 'atp.feedback.getRequestsByAgent',
-          name: 'atp.feedback.getRequestsByAgent',
-          tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
-          examples: ['Get all feedback requests for a specific agent', 'Query feedback requests by target agent ID'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description: 'Get all feedback requests for a specific agent. Requires targetAgentId (agent ID) in payload.',
-        },
-        {
-          id: 'atp.feedback.markGiven',
-          name: 'atp.feedback.markGiven',
-          tags: ['erc8004', 'feedback', 'update', 'a2a', 'admin'],
-          examples: ['Mark a feedback request as having feedback given'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description:
-            'Mark a feedback request as having feedback given, storing the tx hash. Requires feedbackRequestId and txHash in payload.',
-        },
-        {
-          id: 'atp.feedback.requestapproved',
-          name: 'atp.feedback.requestapproved',
-          tags: ['atp', 'feedback', 'approval', 'database', 'a2a', 'admin'],
-          examples: ['Approve a feedback request and notify requester'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description:
-            'Approve a feedback request (no on-chain auth). Requires feedbackRequestId, fromAgentDid, toAgentDid, approvedForDays.',
-        },
-        {
-          id: 'atp.inbox.sendMessage',
-          name: 'atp.inbox.sendMessage',
-          tags: ['erc8004', 'inbox', 'message', 'a2a'],
-          examples: ['Send a message via the inbox system'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description:
-            'Send a message via the inbox system. Requires body, and at least one destination (toClientAddress, toAgentDid, or toAgentName).',
-        },
-        {
-          id: 'atp.inbox.listClientMessages',
-          name: 'atp.inbox.listClientMessages',
-          tags: ['erc8004', 'inbox', 'query', 'a2a'],
-          examples: ['List messages for a client address', 'Get all messages for a wallet'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description:
-            'List messages for a client address (both sent and received). Requires clientAddress (EOA) in payload.',
-        },
-        {
-          id: 'atp.inbox.listAgentMessages',
-          name: 'atp.inbox.listAgentMessages',
-          tags: ['erc8004', 'inbox', 'query', 'a2a'],
-          examples: ['List messages for an agent DID', 'Get all messages for an agent'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description:
-            'List messages for an agent DID (both sent and received). Requires agentDid in payload.',
-        },
-        {
-          id: 'atp.inbox.markRead',
-          name: 'atp.inbox.markRead',
-          tags: ['erc8004', 'inbox', 'query', 'a2a'],
-          examples: ['Mark a message as read'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description: 'Mark a message as read. Requires messageId in payload.',
-        },
-        {
-          id: 'atp.stats.trends',
-          name: 'atp.stats.trends',
-          tags: ['atp', 'stats', 'query', 'a2a', 'admin'],
-          examples: ['Get feedback/validation trends'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description: 'Get stats trends. Optional payload: { daysBack }.',
-        },
-        {
-          id: 'atp.stats.sdkApps',
-          name: 'atp.stats.sdkApps',
-          tags: ['atp', 'stats', 'query', 'a2a', 'admin'],
-          examples: ['Get SDK app stats'],
-          inputModes: ['text', 'json'],
-          outputModes: ['text', 'json'],
-          description: 'Get stats for SDK apps.',
-        },
-      ];
-    }
-
-    return baseSkills;
-  })();
-
+  const rawSkills = buildSkills(subdomain);
   const skills = (rawSkills as any[]).map((s: any) => ({
     ...s,
     inputModes: normalizeModes(s.inputModes),
@@ -427,11 +425,7 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
     name: subdomain ? `${agentName} (${subdomain})` : agentName,
     description: agentDescription,
     version: process.env.AGENT_VERSION || '0.1.0',
-    url: origin,
-    supportedInterfaces: [
-      { url: messageEndpoint, protocolBinding: 'JSONRPC' },
-      { url: messageEndpoint, protocolBinding: 'HTTP+JSON' },
-    ],
+    supportedInterfaces: [{ url: messageEndpoint, protocolBinding: 'JSONRPC' }],
     provider: {
       organization: process.env.PROVIDER_ORGANIZATION || 'ATP',
       url: origin,
@@ -448,13 +442,6 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
           params: {
             trustModels: ['feedback'],
             feedbackDataURI: '',
-            registrations: [
-              {
-                agentId,
-                agentAddress,
-                signature: agentSignature,
-              },
-            ],
           },
         },
       ],
@@ -470,11 +457,19 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
     ...getCorsHeaders(),
   });
   res.json(agentCard);
-});
+};
+
+app.get('/.well-known/agent-card.json', serveAgentCard);
+app.get('/.well-known/agent.json', serveAgentCard);
 
 /**
- * Handle OPTIONS preflight for agent-card
+ * Handle OPTIONS preflight for agent cards
  */
+app.options('/.well-known/agent-card.json', (req: Request, res: Response) => {
+  res.set(getCorsHeaders());
+  res.status(204).send();
+});
+
 app.options('/.well-known/agent.json', (req: Request, res: Response) => {
   res.set(getCorsHeaders());
   res.status(204).send();
@@ -2319,6 +2314,6 @@ app.get('/health', (req: Request, res: Response) => {
 app.listen(PORT, () => {
   console.log(`[ATP Agent Server] Server running on port ${PORT}`);
   console.log(`[ATP Agent Server] A2A endpoint: http://localhost:${PORT}/api/a2a`);
-  console.log(`[ATP Agent Server] Agent: http://localhost:${PORT}/.well-known/agent.json`);
+  console.log(`[ATP Agent Server] Agent card: http://localhost:${PORT}/.well-known/agent-card.json`);
 });
 

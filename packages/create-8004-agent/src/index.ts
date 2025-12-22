@@ -611,7 +611,7 @@ AGENTIC_TRUST_RPC_URL_SEPOLIA = "https://rpc.sepolia.org"
 AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA = "${DEFAULT_IDENTITY_REGISTRY_ADDRESS}"
 AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA = "0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E"
 
-# Optional: these are also embedded in /.well-known/agent.json
+# Optional: these are also embedded in /.well-known/agent-card.json
 AGENT_NAME = "${opts.appName}"
 AGENT_DESCRIPTION = "A simple Agentic Trust agent."
 `;
@@ -646,29 +646,72 @@ app.get('/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
 // Compatibility: some clients probe /api/a2a
 app.get('/api/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
 
-app.get('/.well-known/agent.json', (c) => {
+app.get('/.well-known/agent-card.json', (c) => {
   const origin = new URL(c.req.url).origin.replace(/\\/$/, '');
   const name = c.env?.AGENT_NAME || 'agent';
   const description = c.env?.AGENT_DESCRIPTION || 'A simple Agentic Trust agent.';
   return c.json({
+    protocolVersion: '1.0',
     name,
     description,
-    endpoints: [
-      { name: 'A2A', url: \`\${origin}/a2a\`, version: '0.3.0' },
-      { name: 'MCP', url: \`\${origin}/mcp\`, version: '2025-06-18' },
-    ],
+    version: '0.1.0',
+    supportedInterfaces: [{ url: \`\${origin}/a2a\`, protocolBinding: 'HTTP+JSON' }],
+    provider: { organization: 'Example', url: origin },
+    capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+    defaultInputModes: ['text/plain'],
+    defaultOutputModes: ['text/plain', 'application/json'],
     skills: [
       {
         id: 'demo.echo',
         name: 'Echo',
         description: 'Echoes input back. Useful for wiring and testing.',
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
       },
       {
         id: 'agent.feedback.requestAuth',
         name: 'agent.feedback.requestAuth',
         description: 'Issue feedbackAuth for a client (requires SessionPackage configuration).',
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
       },
     ],
+    supportsExtendedAgentCard: false,
+  });
+});
+
+// Legacy alias
+app.get('/.well-known/agent.json', (c) => {
+  const origin = new URL(c.req.url).origin.replace(/\\/$/, '');
+  const name = c.env?.AGENT_NAME || 'agent';
+  const description = c.env?.AGENT_DESCRIPTION || 'A simple Agentic Trust agent.';
+  return c.json({
+    protocolVersion: '1.0',
+    name,
+    description,
+    version: '0.1.0',
+    supportedInterfaces: [{ url: \`\${origin}/a2a\`, protocolBinding: 'HTTP+JSON' }],
+    provider: { organization: 'Example', url: origin },
+    capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+    defaultInputModes: ['text/plain'],
+    defaultOutputModes: ['text/plain', 'application/json'],
+    skills: [
+      {
+        id: 'demo.echo',
+        name: 'Echo',
+        description: 'Echoes input back. Useful for wiring and testing.',
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
+      },
+      {
+        id: 'agent.feedback.requestAuth',
+        name: 'agent.feedback.requestAuth',
+        description: 'Issue feedbackAuth for a client (requires SessionPackage configuration).',
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
+      },
+    ],
+    supportsExtendedAgentCard: false,
   });
 });
 
@@ -1006,19 +1049,25 @@ secret.sessionpackage.json
 function templateAgentJson(opts: { agentName: string; description: string; port: number }): string {
   return JSON.stringify(
     {
+      protocolVersion: '1.0',
       name: opts.agentName,
       description: opts.description,
-      endpoints: [
-        { name: 'A2A', url: `http://localhost:${opts.port}/a2a`, version: '0.3.0' },
-        { name: 'MCP', url: `http://localhost:${opts.port}/mcp`, version: '2025-06-18' },
-      ],
+      version: '0.1.0',
+      supportedInterfaces: [{ url: `http://localhost:${opts.port}/a2a`, protocolBinding: 'HTTP+JSON' }],
+      provider: { organization: 'Example', url: `http://localhost:${opts.port}` },
+      capabilities: { streaming: false, pushNotifications: false, stateTransitionHistory: false },
+      defaultInputModes: ['text/plain'],
+      defaultOutputModes: ['text/plain', 'application/json'],
       skills: [
         {
           id: 'demo.echo',
           name: 'Echo',
           description: 'Echoes input back. Useful for wiring and testing.',
+          inputModes: ['text/plain'],
+          outputModes: ['text/plain', 'application/json'],
         },
       ],
+      supportsExtendedAgentCard: false,
     },
     null,
     2,
@@ -1049,9 +1098,13 @@ app.get('/api/a2a', (_req, res) => {
   res.json({ v: 'a2a/1', id: 'health', status: 'ok' });
 });
 
-app.get('/.well-known/agent.json', (_req, res) => {
+app.get('/.well-known/agent-card.json', (_req, res) => {
   // Served from disk so you can edit it without touching code.
-  res.sendFile(fileURLToPath(new URL('../.well-known/agent.json', import.meta.url)));
+  res.sendFile(fileURLToPath(new URL('../.well-known/agent-card.json', import.meta.url)));
+});
+// Legacy alias
+app.get('/.well-known/agent.json', (_req, res) => {
+  res.sendFile(fileURLToPath(new URL('../.well-known/agent-card.json', import.meta.url)));
 });
 
 app.post('/a2a', async (req, res) => {
@@ -1110,9 +1163,15 @@ app.get('/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
 // Compatibility: some clients probe /api/a2a
 app.get('/api/a2a', (c) => c.json({ v: 'a2a/1', id: 'health', status: 'ok' }));
 
-app.get('/.well-known/agent.json', async (c) => {
+app.get('/.well-known/agent-card.json', async (c) => {
   // Served from disk so you can edit it without touching code.
-  const url = new URL('../.well-known/agent.json', import.meta.url);
+  const url = new URL('../.well-known/agent-card.json', import.meta.url);
+  const file = await fetch(url).then((r) => r.text());
+  return c.text(file, 200, { 'content-type': 'application/json' });
+});
+// Legacy alias
+app.get('/.well-known/agent.json', async (c) => {
+  const url = new URL('../.well-known/agent-card.json', import.meta.url);
   const file = await fetch(url).then((r) => r.text());
   return c.text(file, 200, { 'content-type': 'application/json' });
 });
@@ -1159,8 +1218,15 @@ app.get('/a2a', async () => ({ v: 'a2a/1', id: 'health', status: 'ok' }));
 // Compatibility: some clients probe /api/a2a
 app.get('/api/a2a', async () => ({ v: 'a2a/1', id: 'health', status: 'ok' }));
 
+app.get('/.well-known/agent-card.json', async (_req, reply) => {
+  const url = new URL('../.well-known/agent-card.json', import.meta.url);
+  const text = await fetch(url).then((r) => r.text());
+  reply.header('content-type', 'application/json');
+  return text;
+});
+// Legacy alias
 app.get('/.well-known/agent.json', async (_req, reply) => {
-  const url = new URL('../.well-known/agent.json', import.meta.url);
+  const url = new URL('../.well-known/agent-card.json', import.meta.url);
   const text = await fetch(url).then((r) => r.text());
   reply.header('content-type', 'application/json');
   return text;
@@ -1217,7 +1283,7 @@ function templateRegistrationJson(opts: {
   const baseUrl = (opts.agentUrl || '').trim().replace(/\/$/, '');
   const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
   if (baseUrl) {
-    endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/.well-known/agent.json`, version: '0.3.0' });
+    endpoints.push({ name: 'A2A', endpoint: `${baseUrl}/.well-known/agent-card.json`, version: '1.0' });
     endpoints.push({ name: 'MCP', endpoint: `${baseUrl}/mcp`, version: '2025-06-18' });
   }
 
@@ -1296,7 +1362,7 @@ async function main() {
   const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
   if (agentUrl) {
     const base = agentUrl.replace(/\\/$/, '');
-    endpoints.push({ name: 'A2A', endpoint: \`\${base}/.well-known/agent.json\`, version: '0.3.0' });
+    endpoints.push({ name: 'A2A', endpoint: \`\${base}/.well-known/agent-card.json\`, version: '1.0' });
     if (enableMcp) endpoints.push({ name: 'MCP', endpoint: \`\${base}/mcp\`, version: '2025-06-18' });
   }
 
@@ -1449,7 +1515,7 @@ pnpm -C ${rel}/${opts.appDirName} dev
 ## Endpoints
 
 - \`GET /health\`
-- \`GET /.well-known/agent.json\`
+- \`GET /.well-known/agent-card.json\`
 - \`POST /a2a\` (skill: \`demo.echo\`)
 - \`POST /mcp\` (stub)
  
@@ -1747,7 +1813,7 @@ async function performOnChainRegistration(params: {
     const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
     if (reg.agentUrl) {
       const base = reg.agentUrl.replace(/\/$/, '');
-      endpoints.push({ name: 'A2A', endpoint: `${base}/.well-known/agent.json`, version: '0.3.0' });
+      endpoints.push({ name: 'A2A', endpoint: `${base}/.well-known/agent-card.json`, version: '1.0' });
       endpoints.push({ name: 'MCP', endpoint: `${base}/mcp`, version: '2025-06-18' });
     }
 
@@ -1912,6 +1978,11 @@ async function main() {
       await writeFileIfMissing(path.join(outDir, 'src', 'worker.ts'), templateWorkerTs());
     } else {
       await writeFileIfMissing(
+        path.join(outDir, '.well-known', 'agent-card.json'),
+        templateAgentJson({ agentName: answers.agentName, description: answers.description, port: answers.port }),
+      );
+      // Backwards compatible alias (same content)
+      await writeFileIfMissing(
         path.join(outDir, '.well-known', 'agent.json'),
         templateAgentJson({ agentName: answers.agentName, description: answers.description, port: answers.port }),
       );
@@ -1962,13 +2033,13 @@ async function main() {
     console.log(`[Setup] Deployed worker URL: ${deployedWorkerUrl}`);
 
     // eslint-disable-next-line no-console
-    console.log(`[Setup] Deployed agent card: ${deployedWorkerUrl}/.well-known/agent.json`);
+    console.log(`[Setup] Deployed agent card: ${deployedWorkerUrl}/.well-known/agent-card.json`);
     // eslint-disable-next-line no-console
     console.log(`[Setup] Deployed A2A endpoint: ${deployedWorkerUrl}/a2a`);
 
     // Best-effort: open the deployed worker in the browser.
     try {
-      await openInBrowser(`${deployedWorkerUrl}/.well-known/agent.json`);
+      await openInBrowser(`${deployedWorkerUrl}/.well-known/agent-card.json`);
     } catch {
       // ignore
     }
@@ -2224,7 +2295,7 @@ async function main() {
         // eslint-disable-next-line no-console
         console.log(`- Deployed Worker: ${deployedWorkerUrl}`);
         // eslint-disable-next-line no-console
-        console.log(`- Agent card: ${deployedWorkerUrl}/.well-known/agent.json`);
+        console.log(`- Agent card: ${deployedWorkerUrl}/.well-known/agent-card.json`);
         // eslint-disable-next-line no-console
         console.log(`- A2A endpoint: ${deployedWorkerUrl}/a2a`);
       } else if (reg.agentUrl) {
@@ -2232,7 +2303,7 @@ async function main() {
         // eslint-disable-next-line no-console
         console.log(`- Agent URL: ${base}`);
         // eslint-disable-next-line no-console
-        console.log(`- Agent card: ${base}/.well-known/agent.json`);
+        console.log(`- Agent card: ${base}/.well-known/agent-card.json`);
         // eslint-disable-next-line no-console
         console.log(`- A2A endpoint: ${base}/a2a`);
       }

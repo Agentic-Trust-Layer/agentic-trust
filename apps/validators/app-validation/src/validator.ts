@@ -150,11 +150,11 @@ function buildCommonResult(params: {
 
 async function probeA2A(endpoint: string): Promise<{ ok: boolean; status: number; body?: any }> {
   // Do not guess /a2a paths; validate the agent by fetching its agent card.
-  // fetchA2AAgentCard normalizes to `${origin}/.well-known/agent.json` even if `endpoint` includes `/api`.
+  // fetchA2AAgentCard normalizes to `${origin}/.well-known/agent-card.json` even if `endpoint` includes `/api`.
   try {
     const card = await fetchA2AAgentCard(endpoint);
     if (!card) {
-      return { ok: false, status: 0, body: `agent.json not reachable for ${endpoint}` };
+      return { ok: false, status: 0, body: `agent card not reachable for ${endpoint}` };
     }
     const skills = Array.isArray((card as any).skills) ? (card as any).skills : [];
     const endpoints = Array.isArray((card as any).endpoints) ? (card as any).endpoints : [];
@@ -162,7 +162,7 @@ async function probeA2A(endpoint: string): Promise<{ ok: boolean; status: number
     return {
       ok,
       status: ok ? 200 : 0,
-      body: ok ? 'agent.json ok' : 'agent.json missing skills/endpoints',
+      body: ok ? 'agent card ok' : 'agent card missing skills/endpoints',
     };
   } catch (e) {
     return { ok: false, status: 0, body: e instanceof Error ? e.message : String(e) };

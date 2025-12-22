@@ -859,7 +859,7 @@ export default function AgentRegistrationPage() {
       const baseUrl = resolveAgentBaseUrl();
       const resolvedA2A =
         protocolSettings.publishA2A &&
-        (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/.well-known/agent.json` : ''));
+        (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/.well-known/agent-card.json` : ''));
       const resolvedMcp =
         protocolSettings.publishMcp &&
         (protocolSettings.mcpEndpoint.trim() || (baseUrl ? `${baseUrl}/api/mcp` : ''));
@@ -1200,8 +1200,8 @@ export default function AgentRegistrationPage() {
     const defaultUrl = buildDefaultAgentUrl(createForm.agentName);
     setCreateForm(prev => ({ ...prev, agentUrl: defaultUrl }));
   }, [createForm.agentName]);
-  // Default A2A endpoint to the canonical agent card URL (/.well-known/agent.json) and MCP to /api/mcp
-  const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent.json` : '';
+  // Default A2A endpoint to the canonical agent card URL (/.well-known/agent-card.json) and MCP to /api/mcp
+  const defaultA2AEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/.well-known/agent-card.json` : '';
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
 
@@ -1605,7 +1605,7 @@ export default function AgentRegistrationPage() {
                 style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px' }}
               />
               <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#666666' }}>
-                This base URL seeds the default A2A agent card (`/.well-known/agent.json`) and MCP (`/api/mcp`) endpoints below.
+                This base URL seeds the default A2A agent card (`/.well-known/agent-card.json`) and MCP (`/api/mcp`) endpoints below.
               </p>
             </div>
             <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
@@ -1652,7 +1652,7 @@ export default function AgentRegistrationPage() {
                       const urlToUse = protocolSettings.a2aEndpoint || defaultA2AEndpoint || normalizedAgentBaseUrl;
                       if (urlToUse) {
                         const url = new URL(urlToUse);
-                        agentCardPath = `${url.origin}/.well-known/agent.json`;
+                        agentCardPath = `${url.origin}/.well-known/agent-card.json`;
                       }
                     } catch (e) {
                       // Invalid URL, skip display

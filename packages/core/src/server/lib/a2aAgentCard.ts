@@ -3,8 +3,8 @@ import { request } from 'http';
 import { request as httpsRequest } from 'https';
 
 /**
- * Fetch agent.json from a URL
- * Supports both direct URLs and base URLs (will append /.well-known/agent.json)
+ * Fetch an A2A agent card from a URL
+ * Supports both direct URLs and base URLs (will append /.well-known/agent-card.json)
  */
 export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard | null> {
   try {
@@ -37,14 +37,16 @@ export async function fetchA2AAgentCard(cardUrl: string): Promise<A2AAgentCard |
       urlObj.hostname = '127.0.0.1';
     }
 
-    // Agent descriptor is always at the base domain's /.well-known/agent.json
+    // Agent card is always at the base domain's /.well-known/agent-card.json (v1.0)
     // Extract the origin (protocol + hostname + port) and use that as the base
     // This ensures that even if the input is an A2A endpoint like /api/a2a,
-    // we construct the agent.json from the base domain
-    if (!urlObj.pathname.includes('agent.json')) {
-      // Use the origin (base domain) and set path to /.well-known/agent.json
+    // we construct the agent card from the base domain
+    const isWellKnownAgentJson = /\/agent\.json\/?$/i.test(urlObj.pathname);
+    const isWellKnownAgentCardJson = /\/agent-card\.json\/?$/i.test(urlObj.pathname);
+    if (!isWellKnownAgentJson && !isWellKnownAgentCardJson) {
+      // Use the origin (base domain) and set path to /.well-known/agent-card.json
       // This works for both base URLs and protocol endpoint URLs (e.g., /api/a2a)
-      urlObj.pathname = '/.well-known/agent.json';
+      urlObj.pathname = '/.well-known/agent-card.json';
     }
 
     const finalUrl = urlObj.toString();

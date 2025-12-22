@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
       const url = new URL(input);
       const origin = url.origin;
       const path = url.pathname || '';
-      // If already an agent.json URL, keep verbatim. Otherwise, use canonical well-known path.
-      if (/\/agent\.json\/?$/i.test(path)) return url.toString();
-      return `${origin}/.well-known/agent.json`;
+      // If already an agent.json / agent-card.json URL, keep verbatim. Otherwise, use canonical well-known path.
+      if (/\/agent-card\.json\/?$/i.test(path) || /\/agent\.json\/?$/i.test(path)) return url.toString();
+      return `${origin}/.well-known/agent-card.json`;
     };
 
     const extractA2AMessageEndpoint = (agentJson: any, agentJsonUrl: string): string | null => {

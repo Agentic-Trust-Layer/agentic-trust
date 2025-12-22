@@ -113,8 +113,8 @@ export function createRegistrationJSON(params: {
     
     // Upsert A2A endpoint (always align to agentUrl so provider base URLs or other defaults
     // don't accidentally become the registered A2A endpoint).
-    // Default to the canonical A2A discovery document location (agent.json).
-    const a2aEndpoint = `${baseUrl}/.well-known/agent.json`;
+    // Default to the canonical A2A agent card location (agent-card.json).
+    const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
     const existingA2A = endpoints.find(e => e.name === 'A2A');
     if (existingA2A) {
       if (existingA2A.endpoint !== a2aEndpoint) {

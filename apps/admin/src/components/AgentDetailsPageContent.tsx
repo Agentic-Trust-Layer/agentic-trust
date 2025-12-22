@@ -283,15 +283,15 @@ export default function AgentDetailsPageContent({
     if (dialogState.type === 'give-feedback' && agent.a2aEndpoint && !agentCard) {
       const fetchAgentCard = async (a2aEndpoint: string) => {
         try {
-          // Extract base domain from A2A endpoint and construct agent.json URL
-          // Agent descriptor is always at base domain/.well-known/agent.json
+          // Extract base domain from A2A endpoint and construct the agent card URL
+          // Agent card is always at base domain/.well-known/agent-card.json (we also accept legacy agent.json)
           let cardUrl: string;
-          if (a2aEndpoint.includes('agent.json')) {
+          if (a2aEndpoint.includes('agent-card.json') || a2aEndpoint.includes('agent.json')) {
             cardUrl = a2aEndpoint;
           } else {
             // Extract origin (base domain) from the A2A endpoint URL
             const url = new URL(a2aEndpoint);
-            cardUrl = `${url.origin}/.well-known/agent.json`;
+            cardUrl = `${url.origin}/.well-known/agent-card.json`;
           }
           const response = await fetch(cardUrl);
           if (response.ok) {

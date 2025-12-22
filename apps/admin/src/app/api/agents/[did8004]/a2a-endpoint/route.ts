@@ -90,7 +90,7 @@ export async function GET(
     
     console.log('[API] Final A2A endpoint being returned:', a2aEndpoint);
 
-    // Validate A2A endpoint by fetching agent.json
+    // Validate A2A endpoint by fetching the agent card (agent-card.json)
     let validationResult: {
       verified: boolean;
       hasSkill: boolean;
@@ -100,8 +100,7 @@ export async function GET(
 
     if (a2aEndpoint) {
       try {
-        // fetchA2AAgentCard automatically appends .well-known/agent.json if needed
-        // A2A endpoint stored in registration is now just the base URL (per spec)
+        // fetchA2AAgentCard automatically appends .well-known/agent-card.json if needed
         console.log('[API] Fetching agent card from A2A endpoint:', a2aEndpoint);
         const agentCard = await fetchA2AAgentCard(a2aEndpoint);
         

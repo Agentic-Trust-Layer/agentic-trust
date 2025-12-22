@@ -215,7 +215,7 @@ app.get('/', (req: Request, res: Response) => {
     message: 'Agent Provider is running',
     host: req.hostname,
     subdomain: subdomain || null,
-    note: 'Try /.well-known/agent.json or /api/a2a for agent endpoints.',
+    note: 'Try /.well-known/agent-card.json or /api/a2a for agent endpoints.',
   });
 });
 
@@ -234,28 +234,33 @@ async function waitForClientInit(req: Request, res: Response, next: NextFunction
 }
 
 /**
- * Agent endpoint (/.well-known/agent.json)
- * A2A standard endpoint for agent discovery
+ * Agent card endpoints
+ * Primary: /.well-known/agent-card.json (v1.0)
+ * Legacy:  /.well-known/agent.json (alias)
  */
-app.get('/.well-known/agent.json', (req: Request, res: Response) => {
+const serveAgentCard = (req: Request, res: Response) => {
   const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const agentName = process.env.AGENT_NAME || 'Agent Provider';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'A sample agent provider for A2A communication';
   
-  const providerUrl = process.env.PROVIDER_BASE_URL || '';
+  const protoHeader = (req.headers['x-forwarded-proto'] as string | undefined) || req.protocol || 'https';
+  const hostHeader = (req.headers['x-forwarded-host'] as string | undefined) || req.get('host') || req.hostname;
+  const origin = `${protoHeader}://${hostHeader}`.replace(/\/$/, '');
+  const messageEndpoint = `${origin}/api/a2a`;
   
   const agentId = parseInt(process.env.AGENT_ID || '0', 10);
   const agentAddress = process.env.AGENT_ADDRESS || '';
   const agentSignature = process.env.AGENT_SIGNATURE || '';
 
   const agentCard = {
+    protocolVersion: '1.0',
     // Optionally include subdomain in the name so different wildcard hosts can be distinguished
     name: subdomain ? `${agentName} (${subdomain})` : agentName,
     description: agentDescription,
-    url: providerUrl,
+    supportedInterfaces: [{ url: messageEndpoint, protocolBinding: 'HTTP+JSON' }],
     provider: {
       organization: process.env.PROVIDER_ORGANIZATION || 'A2A Samples',
-      url: process.env.PROVIDER_BASE_URL,
+      url: origin,
     },
     version: process.env.AGENT_VERSION || '0.0.2',
     capabilities: {
@@ -263,8 +268,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
       pushNotifications: process.env.CAPABILITY_PUSH_NOTIFICATIONS === 'true',
       stateTransitionHistory: process.env.CAPABILITY_STATE_HISTORY === 'true',
     },
-    defaultInputModes: ['text'],
-    defaultOutputModes: ['text', 'task-status'],
+    defaultInputModes: ['text/plain'],
+    defaultOutputModes: ['text/plain', 'application/json'],
     skills: [
       {
         id: 'general_movie_chat',
@@ -279,16 +284,16 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
           'Find action movies starring Keanu Reeves',
           'Which came out first, Jurassic Park or Terminator 2?',
         ],
-        inputModes: ['text'],
-        outputModes: ['text', 'task-status'],
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
       },
       {
         id: 'agent.feedback.requestAuth',
         name: 'agent.feedback.requestAuth',
         tags: ['erc8004', 'feedback', 'auth', 'a2a'],
         examples: ['Client requests feedbackAuth after receiving results'],
-        inputModes: ['text'],
-        outputModes: ['text'],
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
         description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
       },
       {
@@ -296,8 +301,8 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
         name: 'atp.validation.respond',
         tags: ['erc8004', 'validation', 'ens', 'a2a'],
         examples: ['Process ENS validation requests for agents'],
-        inputModes: ['text'],
-        outputModes: ['text'],
+        inputModes: ['text/plain'],
+        outputModes: ['text/plain', 'application/json'],
         description: 'Process validation requests by validating ENS names and submitting validation responses',
       },
     ],
@@ -318,11 +323,19 @@ app.get('/.well-known/agent.json', (req: Request, res: Response) => {
     ...getCorsHeaders(),
   });
   res.json(agentCard);
-});
+};
+
+app.get('/.well-known/agent-card.json', serveAgentCard);
+app.get('/.well-known/agent.json', serveAgentCard);
 
 /**
- * Handle OPTIONS preflight for agent-card
+ * Handle OPTIONS preflight for agent cards
  */
+app.options('/.well-known/agent-card.json', (req: Request, res: Response) => {
+  res.set(getCorsHeaders());
+  res.status(204).send();
+});
+
 app.options('/.well-known/agent.json', (req: Request, res: Response) => {
   res.set(getCorsHeaders());
   res.status(204).send();
@@ -673,6 +686,6 @@ app.get('/health', (req: Request, res: Response) => {
 app.listen(PORT, () => {
   console.log(`[Provider Server] Server running on port ${PORT}`);
   console.log(`[Provider Server] A2A endpoint: http://localhost:${PORT}/api/a2a`);
-  console.log(`[Provider Server] Agent: http://localhost:${PORT}/.well-known/agent.json`);
+  console.log(`[Provider Server] Agent card: http://localhost:${PORT}/.well-known/agent-card.json`);
 });
 

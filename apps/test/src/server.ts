@@ -13,9 +13,13 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/.well-known/agent.json', (_req, res) => {
+app.get('/.well-known/agent-card.json', (_req, res) => {
   // Served from disk so you can edit it without touching code.
-  res.sendFile(fileURLToPath(new URL('../.well-known/agent.json', import.meta.url)));
+  res.sendFile(fileURLToPath(new URL('../.well-known/agent-card.json', import.meta.url)));
+});
+// Legacy alias
+app.get('/.well-known/agent.json', (_req, res) => {
+  res.sendFile(fileURLToPath(new URL('../.well-known/agent-card.json', import.meta.url)));
 });
 
 app.post('/a2a', async (req, res) => {
