@@ -107,7 +107,6 @@ export async function POST(req: NextRequest) {
     const typeStr = typeof type === 'string' ? type : undefined;
     const shouldAutoTask =
       typeStr === 'feedback_request' ||
-      typeStr === 'give_feedback' ||
       typeStr === 'validation_request' ||
       typeStr === 'association_request';
     const resolvedTaskId =

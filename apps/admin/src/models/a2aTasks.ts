@@ -1,7 +1,6 @@
 export type InboxTaskType =
   | 'general'
-  | 'feedback_request'
-  | 'give_feedback'
+  | 'feedback_auth_request'
   | 'validation_request'
   | 'association_request';
 
@@ -23,28 +22,22 @@ export type InboxTaskTypeOption = {
 export const INBOX_TASK_TYPE_OPTIONS: InboxTaskTypeOption[] = [
   { value: 'general', label: 'General Message' },
   {
-    value: 'feedback_request',
+    value: 'feedback_auth_request',
     label: 'Request Feedback Permission',
     requiredOsafSkills: ['trust.feedback.authorization'],
-    requiredToAgentSkills: ['agent.feedback.requestAuth'],
+    requiredToAgentSkills: ['osaf:trust.feedback.authorization'],
   },
   {
     value: 'validation_request',
     label: 'Request Validation',
     requiredOsafSkills: ['trust.validation.attestation'],
-    requiredToAgentSkills: ['atp.validation.respond'],
+    requiredToAgentSkills: ['osaf:trust.validation.attestation'],
   },
   {
     value: 'association_request',
     label: 'Request Association',
-    requiredOsafSkills: ['relationship.association.authorization'],
-  },
-  {
-    value: 'give_feedback',
-    label: 'Give Feedback',
-    requiredOsafSkills: ['trust.feedback.authorization'],
-    requiredToAgentSkills: ['agent.feedback.requestAuth'],
-  },
+    requiredOsafSkills: ['trust.association.attestation'],
+  }
 ];
 
 

@@ -288,8 +288,8 @@ const serveAgentCard = (req: Request, res: Response) => {
         outputModes: ['text/plain', 'application/json'],
       },
       {
-        id: 'agent.feedback.requestAuth',
-        name: 'agent.feedback.requestAuth',
+        id: 'osaf:trust.feedback.authorization',
+        name: 'osaf:trust.feedback.authorization',
         tags: ['erc8004', 'feedback', 'auth', 'a2a'],
         examples: ['Client requests feedbackAuth after receiving results'],
         inputModes: ['text/plain'],
@@ -297,8 +297,8 @@ const serveAgentCard = (req: Request, res: Response) => {
         description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
       },
       {
-        id: 'atp.validation.respond',
-        name: 'atp.validation.respond',
+        id: 'osaf:trust.validation.attestation',
+        name: 'osaf:trust.validation.attestation',
         tags: ['erc8004', 'validation', 'ens', 'a2a'],
         examples: ['Process ENS validation requests for agents'],
         inputModes: ['text/plain'],
@@ -365,7 +365,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
     const { fromAgentId, toAgentId, message, payload, metadata, skillId, auth } = body;
 
     // Validate required fields
-    // For skill-based requests (like agent.feedback.requestAuth), fromAgentId and toAgentId are not required
+    // For skill-based requests (like osaf:trust.feedback.authorization), fromAgentId and toAgentId are not required
     if (!skillId && (!fromAgentId || !toAgentId)) {
       res.set(getCorsHeaders());
       return res.status(400).json({
@@ -440,7 +440,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.response = `I'd be happy to help with movie questions! Try asking about specific movies, actors, directors, or request recommendations. For example: "Tell me about Inception" or "Recommend a good sci-fi movie."`;
         responseContent.skill = 'general_movie_chat';
       }
-    } else if (skillId === 'agent.feedback.requestAuth') {
+    } else if (skillId === 'osaf:trust.feedback.authorization') {
       // Feedback request auth skill handler
       try {
         const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA;
@@ -478,7 +478,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const { agentId: agentIdParam, expirySeconds } = payload || {};
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
+          responseContent.error = 'clientAddress is required in payload for osaf:trust.feedback.authorization skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -529,7 +529,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             agent.setSessionPackage(sessionPackage);
           }
 
-        console.info("agent.feedback.requestAuth: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
+        console.info("osaf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 
         const feedbackAuthResponse = await agent.requestAuth({
             clientAddress,
@@ -552,7 +552,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'atp.validation.respond') {
+    } else if (skillId === 'osaf:trust.validation.attestation') {
       responseContent.skill = skillId;
       const agentIdParam =
         payload?.agentId ??
@@ -561,7 +561,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         metadata?.agentID ??
         null;
       if (!agentIdParam) {
-        responseContent.error = 'agentId is required in payload for atp.validation.respond skill';
+        responseContent.error = 'agentId is required in payload for osaf:trust.validation.attestation skill';
       } else {
         const agentId = String(agentIdParam);
         const chainId =

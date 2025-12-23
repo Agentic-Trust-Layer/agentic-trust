@@ -573,7 +573,7 @@ export class Agent {
       payload.expirySeconds = params.expirySeconds;
     }
 
-    const skillId = params.skillId ?? 'agent.feedback.requestAuth';
+    const skillId = params.skillId ?? 'osaf:trust.feedback.authorization';
     const message = params.message ?? 'Request feedback authorization';
     const metadata: Record<string, unknown> = {
       ...(params.metadata || {}),
@@ -722,7 +722,7 @@ export class Agent {
       feedbackAuth,
       agentId: agentId.toString(),
       clientAddress,
-      skill: params.skillId || 'agent.feedback.requestAuth',
+      skill: params.skillId || 'osaf:trust.feedback.authorization',
     };
   }
 

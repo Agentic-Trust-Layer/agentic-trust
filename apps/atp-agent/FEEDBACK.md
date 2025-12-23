@@ -69,7 +69,7 @@ These are the core modes we need to support and speak about consistently across 
 **How this maps to `atp-agent` (current conceptual mapping)**
 - **Request record**: `agent_feedback_requests`
 - **Approval**: `atp.feedback.requestapproved` marks request approved (DB + message)
-- **Authorization issuance**: `agent.feedback.requestAuth` (from the subject agent’s A2A endpoint) returns `feedbackAuth`
+- **Authorization issuance**: `osaf:trust.feedback.authorization` (from the subject agent’s A2A endpoint) returns `feedbackAuth`
 - **Submission**: the reviewer submits feedback using the issued `feedbackAuth`
 
 ---
@@ -166,7 +166,7 @@ They govern:
 
 - **Inbox / messaging** (`messages` table): notification + workflow coordination
 - **Feedback request state** (`agent_feedback_requests` table): approval gating and linkage to agents
-- **Auth issuance** (`agent.feedback.requestAuth`): subject agent issues `feedbackAuth` to the reviewer
+- **Auth issuance** (`osaf:trust.feedback.authorization`): subject agent issues `feedbackAuth` to the reviewer
 
 This enables a clean separation:
 

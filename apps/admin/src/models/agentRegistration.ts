@@ -155,7 +155,9 @@ export type AgentSkillId =
   | 'trust.identity.validation'
   | 'trust.feedback.authorization'
   | 'trust.validation.attestation'
-  | 'relationship.association.authorization'
+  | 'trust.association.attestation'
+  | 'trust.membership.attestation'
+  | 'trust.delegation.attestation'
   | 'relationship.association.revocation'
   | 'delegation.request.authorization'
   | 'delegation.payload.verification'
@@ -206,9 +208,23 @@ export const AGENT_SKILL_OPTIONS: readonly AgentSkillOption[] = [
     osafExtension: true,
   },
   {
-    id: 'relationship.association.authorization',
-    label: 'Relationship · association authorization',
-    description: 'Authorize creation of associations/memberships/delegations (e.g., ERC-8092).',
+    id: 'trust.association.attestation',
+    label: 'Trust · association attestation',
+    description: 'Create/verify attestations for associations and relationship trust decisions.',
+    domains: ['governance-and-trust'],
+    osafExtension: true,
+  },
+  {
+    id: 'trust.membership.attestation',
+    label: 'Trust · membership attestation',
+    description: 'Create/verify attestations for memberships (e.g., group/org membership proofs).',
+    domains: ['governance-and-trust'],
+    osafExtension: true,
+  },
+  {
+    id: 'trust.delegation.attestation',
+    label: 'Trust · delegation attestation',
+    description: 'Create/verify attestations for delegations and delegated authority.',
     domains: ['governance-and-trust'],
     osafExtension: true,
   },

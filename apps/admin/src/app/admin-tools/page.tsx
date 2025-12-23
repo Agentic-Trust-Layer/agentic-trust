@@ -1813,7 +1813,7 @@ export default function AdminPage() {
         },
             body: JSON.stringify({
           a2aEndpoint: agentA2aEndpoint,
-          skillId: 'atp.validation.respond',
+          skillId: 'osaf:trust.validation.attestation',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,

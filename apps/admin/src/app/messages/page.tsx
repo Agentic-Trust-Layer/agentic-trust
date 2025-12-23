@@ -427,7 +427,7 @@ export default function MessagesPage() {
     // Prefer the oldest feedback_request message in the thread (the original request).
     for (let i = selectedThread.messages.length - 1; i >= 0; i--) {
       const m = selectedThread.messages[i]!;
-      if (m.contextType === 'feedback_request') return m;
+      if (m.contextType === 'feedback_auth_request') return m;
     }
     return null;
   }, [selectedThread]);
@@ -499,7 +499,7 @@ export default function MessagesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          skillId: 'agent.feedback.requestAuth',
+          skillId: 'osaf:trust.feedback.authorization',
           payload: {
             // Worker will derive clientAddress/agentId/chainId from the stored request record
             feedbackRequestId: selectedMessageFeedbackRequestId,
@@ -741,7 +741,7 @@ export default function MessagesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           a2aEndpoint,
-          skillId: 'atp.validation.respond',
+          skillId: 'osaf:trust.validation.attestation',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
@@ -824,15 +824,13 @@ export default function MessagesPage() {
     setComposeToAgentInput('');
     setComposeToAgentCard(null);
     setComposeSubject(
-      selectedMessageType === 'feedback_request'
+      selectedMessageType === 'feedback_auth_request'
         ? 'Request Feedback Permission'
         : selectedMessageType === 'validation_request'
           ? 'Request Validation'
           : selectedMessageType === 'association_request'
             ? 'Request Association'
-            : selectedMessageType === 'give_feedback'
-              ? 'Give Feedback'
-              : '',
+            : '',
     );
     setComposeBody('');
     setFeedbackRequestComment('');
@@ -898,7 +896,7 @@ export default function MessagesPage() {
     // Pin the task type to the current thread's type when possible.
     const threadType = selectedThread.taskType as any;
     setSelectedMessageType(
-      threadType === 'feedback_request_approved' ? 'feedback_request' : threadType,
+      threadType === 'feedback_request_approved' ? 'feedback_auth_request' : threadType,
     );
     setComposeOpen(true);
   }, [selectedFolderAgent, selectedFromAgentDid, selectedThread, mailboxMode]);
@@ -1006,7 +1004,7 @@ export default function MessagesPage() {
     setError(null);
 
     try {
-      if (selectedMessageType === 'feedback_request') {
+      if (selectedMessageType === 'feedback_auth_request') {
         const comment = feedbackRequestComment.trim();
         if (!comment) {
           throw new Error('Reason is required for a feedback request.');
@@ -1054,9 +1052,7 @@ export default function MessagesPage() {
             ? `Request Validation: ${validationRequestKind}`
             : selectedMessageType === 'association_request'
               ? 'Request Association'
-              : selectedMessageType === 'give_feedback'
-                ? 'Give Feedback'
-                : 'Message');
+              : 'Message');
 
         // For association requests: prepare + execute via client wallet (AA + bundler).
         // If approver is a different agent account, we send a message containing the payload
@@ -1368,38 +1364,7 @@ export default function MessagesPage() {
           }
         }
 
-        const response = await fetch('/api/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: selectedMessageType === 'give_feedback' ? 'give_feedback' : selectedMessageType,
-            taskId: composeTaskId ?? undefined,
-            subject,
-            content: contentToSend,
-            fromClientAddress: walletAddress ?? undefined,
-            fromAgentDid: selectedFromAgentDid,
-            fromAgentName: selectedFolderAgent.agentName || undefined,
-            toAgentDid: composeToAgent.did,
-            toAgentName: composeToAgent.agentName || undefined,
-            metadata: {
-              source: 'admin-app',
-              timestamp: new Date().toISOString(),
-              ...(selectedMessageType === 'validation_request'
-                ? { validationKind: validationRequestKind, validationDetails: validationRequestDetails || undefined }
-                : selectedMessageType === 'association_request'
-                  ? {
-                      associationType: associationRequestType,
-                      associationDescription: associationRequestDescription || undefined,
-                    }
-                  : {}),
-            },
-          }),
-        });
 
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || errorData.error || 'Failed to send message');
-        }
 
         // no-op
       }
@@ -1441,7 +1406,7 @@ export default function MessagesPage() {
 
   const getMessageTypeLabel = (type: string) => {
     switch (type) {
-      case 'feedback_request':
+      case 'feedback_auth_request':
         return 'Request Feedback Permission';
       case 'validation_request':
         return 'Request Validation';
@@ -1449,8 +1414,6 @@ export default function MessagesPage() {
         return 'Request Association';
       case 'feedback_request_approved':
         return 'Feedback Request Approved';
-      case 'give_feedback':
-        return 'Give Feedback';
       default:
         return 'General Message';
     }
@@ -1458,7 +1421,7 @@ export default function MessagesPage() {
 
   const getMessageTypeColor = (type: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
     switch (type) {
-      case 'feedback_request':
+      case 'feedback_auth_request':
         return 'primary';
       case 'validation_request':
         return 'warning';
@@ -2201,17 +2164,9 @@ export default function MessagesPage() {
               </FormHelperText>
             </FormControl>
 
-            {selectedMessageType !== 'feedback_request' && selectedMessageType !== 'give_feedback' && (
-              <TextField
-                label="Subject"
-                value={composeSubject}
-                onChange={(e) => setComposeSubject(e.target.value)}
-                fullWidth
-                size="small"
-              />
-            )}
 
-            {selectedMessageType === 'feedback_request' ? (
+
+            {selectedMessageType === 'feedback_auth_request' ? (
               <TextField
                 label="Why do you want to give feedback?"
                 value={feedbackRequestComment}
@@ -2324,18 +2279,6 @@ export default function MessagesPage() {
                   multiline
                   minRows={4}
                   placeholder="Optional additional context…"
-                />
-              </Stack>
-            ) : selectedMessageType === 'give_feedback' ? (
-              <Stack spacing={2}>
-                <TextField
-                  label="Message"
-                  value={composeBody}
-                  onChange={(e) => setComposeBody(e.target.value)}
-                  fullWidth
-                  multiline
-                  minRows={6}
-                  placeholder="Share your feedback about this agent…"
                 />
               </Stack>
             ) : (

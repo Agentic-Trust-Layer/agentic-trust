@@ -669,8 +669,8 @@ app.get('/.well-known/agent-card.json', (c) => {
         outputModes: ['text/plain', 'application/json'],
       },
       {
-        id: 'agent.feedback.requestAuth',
-        name: 'agent.feedback.requestAuth',
+        id: 'osaf:trust.feedback.authorization',
+        name: 'osaf:trust.feedback.authorization',
         description: 'Issue feedbackAuth for a client (requires SessionPackage configuration).',
         inputModes: ['text/plain'],
         outputModes: ['text/plain', 'application/json'],
@@ -704,8 +704,8 @@ app.get('/.well-known/agent.json', (c) => {
         outputModes: ['text/plain', 'application/json'],
       },
       {
-        id: 'agent.feedback.requestAuth',
-        name: 'agent.feedback.requestAuth',
+        id: 'osaf:trust.feedback.authorization',
+        name: 'osaf:trust.feedback.authorization',
         description: 'Issue feedbackAuth for a client (requires SessionPackage configuration).',
         inputModes: ['text/plain'],
         outputModes: ['text/plain', 'application/json'],
@@ -794,7 +794,7 @@ async function handleA2A(c: any) {
     );
   }
 
-  if (skillId === 'agent.feedback.requestAuth') {
+  if (skillId === 'osaf:trust.feedback.authorization') {
     const clientAddress = String(payload?.clientAddress ?? '').trim();
     const agentIdParam = payload?.agentId;
     const expirySeconds =
@@ -803,7 +803,7 @@ async function handleA2A(c: any) {
         : undefined;
 
     if (!clientAddress || !clientAddress.startsWith('0x')) {
-      const err = a2aErr('clientAddress is required in payload for agent.feedback.requestAuth', 400);
+      const err = a2aErr('clientAddress is required in payload for osaf:trust.feedback.authorization', 400);
       return c.json(err.body, err.status);
     }
 

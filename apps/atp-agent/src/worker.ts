@@ -105,8 +105,7 @@ function getCorsHeaders() {
  * - We keep legacy context_type/context_id fields, but also persist explicit task_id/task_type.
  */
 const ATP_TASK_TYPES = [
-  'feedback_request',
-  'give_feedback',
+  'feedback_auth_request',
   'validation_request',
   'association_request',
   'feedback_request_approved',
@@ -318,7 +317,9 @@ const buildAgentCard = (params: {
     'trust.identity.validation',
     'trust.feedback.authorization',
     'trust.validation.attestation',
-    'relationship.association.authorization',
+    'trust.association.attestation',
+    'trust.membership.attestation',
+    'trust.delegation.attestation',
     'relationship.association.revocation',
     'delegation.request.authorization',
     'delegation.payload.verification',
@@ -359,14 +360,13 @@ const buildAgentCard = (params: {
             skills: osafSkills,
             // Best-effort mapping from executable skill IDs to OASF/OSAF skill ids.
             skillOverlay: {
-              'agent.feedback.requestAuth': ['trust.feedback.authorization'],
+              'osaf:trust.feedback.authorization': ['trust.feedback.authorization'],
               'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.markGiven': ['trust.validation.attestation', 'collaboration'],
               'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
-              'atp.validation.respond': ['trust.validation.attestation', 'collaboration'],
-              'agent.validation.respond': ['trust.validation.attestation', 'collaboration'],
+              'osaf:trust.validation.attestation': ['trust.validation.attestation', 'collaboration'],
               'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
               'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
@@ -393,7 +393,7 @@ function addOsafOverlayTags(skill: any): any {
   // Mark that the OASF/OSAF tags are an extension.
   add('osafExtension:true');
 
-  if (id === 'agent.feedback.requestAuth') {
+  if (id === 'osaf:trust.feedback.authorization') {
     add('osaf:trust.feedback.authorization');
     add('osafDomain:governance-and-trust');
   }
@@ -411,7 +411,7 @@ function addOsafOverlayTags(skill: any): any {
     add('osaf:governance.audit.provenance');
     add('osafDomain:governance-and-trust');
   }
-  if (id === 'atp.validation.respond' || id === 'agent.validation.respond') {
+  if (id === 'osaf:trust.validation.attestation') {
     add('osaf:trust.validation.attestation');
     add('osafDomain:governance-and-trust');
     add('osafDomain:collaboration');
@@ -435,8 +435,8 @@ const normalizeModes = (modes: unknown): string[] => {
 const buildSkills = (subdomain: string | null | undefined) => {
   const baseSkills = [
     {
-      id: 'agent.feedback.requestAuth',
-      name: 'agent.feedback.requestAuth',
+      id: 'osaf:trust.feedback.authorization',
+      name: 'osaf:trust.feedback.authorization',
       tags: ['erc8004', 'feedback', 'auth', 'a2a'],
       examples: ['Client requests feedbackAuth after receiving results'],
       inputModes: ['text'],
@@ -444,8 +444,8 @@ const buildSkills = (subdomain: string | null | undefined) => {
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     },
     {
-      id: 'atp.validation.respond',
-      name: 'atp.validation.respond',
+      id: 'osaf:trust.validation.attestation',
+      name: 'osaf:trust.validation.attestation',
       tags: ['erc8004', 'validation', 'attestation', 'a2a'],
       examples: ['Submit a validation response for a pending validation request'],
       inputModes: ['text', 'json'],
@@ -779,9 +779,8 @@ const handleA2A = async (c: HonoContext) => {
 
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
-      'agent.feedback.requestAuth',
-      'atp.validation.respond',
-      'agent.validation.respond',
+      'osaf:trust.feedback.authorization',
+      'osaf:trust.validation.attestation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
       'atp.agent.createOrUpdate',
@@ -862,7 +861,7 @@ const handleA2A = async (c: HonoContext) => {
     }
 
     // Handle feedback request auth skill
-    if (skillId === 'agent.feedback.requestAuth') {
+    if (skillId === 'osaf:trust.feedback.authorization') {
       try {
         const rpcUrl = c.env?.AGENTIC_TRUST_RPC_URL_SEPOLIA;
         if (!rpcUrl) {
@@ -985,7 +984,7 @@ const handleA2A = async (c: HonoContext) => {
         }
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for agent.feedback.requestAuth skill';
+          responseContent.error = 'clientAddress is required in payload for osaf:trust.feedback.authorization skill';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1167,7 +1166,7 @@ const handleA2A = async (c: HonoContext) => {
         console.log('[ATP Agent] Setting session package on agent instance');
         agent.setSessionPackage(sessionPackage);
 
-        console.info("agent.feedback.requestAuth: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
+        console.info("osaf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 
         const feedbackAuthResponse = await agent.requestAuth({
           clientAddress,
@@ -1236,8 +1235,7 @@ const handleA2A = async (c: HonoContext) => {
         responseContent.skill = skillId;
       }
     } else if (
-      skillId === 'atp.validation.respond' ||
-      skillId === 'agent.validation.respond'
+      skillId === 'osaf:trust.validation.attestation'
     ) {
       // Process validation response using session package
       console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
@@ -2168,7 +2166,7 @@ const handleA2A = async (c: HonoContext) => {
             )
             .bind(
               taskId,
-              'feedback_request',
+              'feedback_auth_request',
               'open',
               'Request Feedback Permission',
               fromAgentDid,
@@ -2200,10 +2198,10 @@ const handleA2A = async (c: HonoContext) => {
               toAgentName,
               'Feedback request',
               messageBody,
-              'feedback_request',
+              'feedback_auth_request',
               String(feedbackRequestId),
               taskId,
-              'feedback_request',
+              'feedback_auth_request',
               now * 1000, // messages table uses milliseconds
               null,
             )
@@ -2552,7 +2550,7 @@ const handleA2A = async (c: HonoContext) => {
           )
           .bind(
             taskId,
-            'feedback_request',
+            'feedback_auth_request',
             'open',
             'Request Feedback Permission',
             fromAgentDid,
@@ -2585,7 +2583,7 @@ const handleA2A = async (c: HonoContext) => {
             'feedback_request_approved',
             String(feedbackRequestId),
             taskId,
-            'feedback_request',
+            'feedback_auth_request',
             nowMs,
             null,
           )
