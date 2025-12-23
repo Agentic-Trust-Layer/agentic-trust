@@ -61,6 +61,7 @@ import {
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, toHex } from 'viem';
 import type { Chain } from 'viem';
+import { INBOX_TASK_TYPE_OPTIONS, type InboxTaskType } from '@/models/a2aTasks';
 
 type Message = {
   id: number;
@@ -68,6 +69,8 @@ type Message = {
   body: string;
   contextType: string;
   contextId: string | null;
+  taskId?: string | null;
+  taskType?: string | null;
   fromAgentDid: string | null;
   fromAgentName: string | null;
   toAgentDid: string | null;
@@ -162,6 +165,16 @@ type AgentSearchOption = {
   did: string;
 };
 
+type TaskThread = {
+  key: string;
+  taskId: string | null;
+  taskType: string;
+  messages: Message[];
+  lastMessage: Message;
+  lastTimestamp: number;
+  unreadCount: number;
+};
+
 function normalizeDid(value: unknown): string {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
@@ -196,9 +209,9 @@ export default function MessagesPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [selectedMessageType, setSelectedMessageType] = useState<'general' | 'feedback_request' | 'validation_request' | 'association_request' | 'give_feedback'>('general');
+  const [selectedMessageType, setSelectedMessageType] = useState<InboxTaskType>('general');
   const [selectedAgentKey, setSelectedAgentKey] = useState<string>('');
-  const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null);
+  const [selectedTaskKey, setSelectedTaskKey] = useState<string | null>(null);
   const [folderSearch, setFolderSearch] = useState('');
   const [messageSearch, setMessageSearch] = useState('');
   const [mailboxMode, setMailboxMode] = useState<'inbox' | 'sent'>('inbox');
@@ -206,10 +219,13 @@ export default function MessagesPage() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
+  const [composeTaskId, setComposeTaskId] = useState<string | null>(null);
   const [composeToAgent, setComposeToAgent] = useState<AgentSearchOption | null>(null);
   const [composeToAgentInput, setComposeToAgentInput] = useState('');
   const [composeToAgentOptions, setComposeToAgentOptions] = useState<AgentSearchOption[]>([]);
   const [composeToAgentLoading, setComposeToAgentLoading] = useState(false);
+  const [composeToAgentCard, setComposeToAgentCard] = useState<any | null>(null);
+  const [composeToAgentCardLoading, setComposeToAgentCardLoading] = useState(false);
 
   const [feedbackRequestComment, setFeedbackRequestComment] = useState('');
   const [validationRequestKind, setValidationRequestKind] = useState<ValidationClaimType>('compliance');
@@ -339,20 +355,108 @@ export default function MessagesPage() {
     [selectedFromAgentDid, selectedFolderAgent?.agentName],
   );
 
-  const inboxCount = useMemo(() => messages.filter(isInboxMessage).length, [messages, isInboxMessage]);
-  const sentCount = useMemo(() => messages.filter(isSentMessage).length, [messages, isSentMessage]);
+  const getThreadKeyForMessage = useCallback((m: Message): string => {
+    const rawTaskId = (m.taskId ?? m.contextId ?? null) as string | null;
+    // Keep stable even if taskType changes; taskId should already be unique enough in our system.
+    if (rawTaskId && rawTaskId.trim().length > 0) return `task:${rawTaskId}`;
+    return `msg:${m.id}`;
+  }, []);
 
-  const selectedMessage = useMemo(() => {
-    if (!selectedMessageId) return null;
-    return messages.find((m) => m.id === selectedMessageId) ?? null;
-  }, [messages, selectedMessageId]);
+  const buildThreads = useCallback(
+    (input: Message[], mode: 'inbox' | 'sent'): TaskThread[] => {
+      const map = new Map<string, Message[]>();
+      for (const m of input) {
+        const key = getThreadKeyForMessage(m);
+        const arr = map.get(key);
+        if (arr) arr.push(m);
+        else map.set(key, [m]);
+      }
+
+      const threads: TaskThread[] = [];
+      for (const [key, msgs] of map.entries()) {
+        const sorted = [...msgs].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+        const last = sorted[0]!;
+        const taskId = (last.taskId ?? last.contextId ?? null) as string | null;
+        const taskType = (last.taskType ?? last.contextType ?? 'general') as string;
+        const unreadCount =
+          mode === 'inbox'
+            ? sorted.filter((m) => !m.readAt).length
+            : 0;
+        threads.push({
+          key,
+          taskId,
+          taskType,
+          messages: sorted,
+          lastMessage: last,
+          lastTimestamp: last.createdAt ?? 0,
+          unreadCount,
+        });
+      }
+
+      return threads.sort((a, b) => (b.lastTimestamp ?? 0) - (a.lastTimestamp ?? 0));
+    },
+    [getThreadKeyForMessage],
+  );
+
+  const inboxThreads = useMemo(
+    () => buildThreads(messages.filter(isInboxMessage), 'inbox'),
+    [messages, isInboxMessage, buildThreads],
+  );
+  const sentThreads = useMemo(
+    () => buildThreads(messages.filter(isSentMessage), 'sent'),
+    [messages, isSentMessage, buildThreads],
+  );
+  const inboxCount = inboxThreads.length;
+  const sentCount = sentThreads.length;
+
+  const selectedThread = useMemo(() => {
+    if (!selectedTaskKey) return null;
+    const all = mailboxMode === 'sent' ? sentThreads : inboxThreads;
+    return all.find((t) => t.key === selectedTaskKey) ?? null;
+  }, [selectedTaskKey, mailboxMode, inboxThreads, sentThreads]);
+
+  const selectedMessage = useMemo(() => selectedThread?.lastMessage ?? null, [selectedThread]);
+
+  const selectedFeedbackApprovedMessage = useMemo(() => {
+    if (!selectedThread) return null;
+    return selectedThread.messages.find((m) => m.contextType === 'feedback_request_approved') ?? null;
+  }, [selectedThread]);
+
+  const selectedFeedbackRequestMessage = useMemo(() => {
+    if (!selectedThread) return null;
+    // Prefer the oldest feedback_request message in the thread (the original request).
+    for (let i = selectedThread.messages.length - 1; i >= 0; i--) {
+      const m = selectedThread.messages[i]!;
+      if (m.contextType === 'feedback_request') return m;
+    }
+    return null;
+  }, [selectedThread]);
+
+  const selectedValidationRequestMessage = useMemo(() => {
+    if (!selectedThread) return null;
+    // Prefer the oldest validation_request message in the thread.
+    for (let i = selectedThread.messages.length - 1; i >= 0; i--) {
+      const m = selectedThread.messages[i]!;
+      if (m.contextType === 'validation_request') return m;
+    }
+    return null;
+  }, [selectedThread]);
+
+  const selectedAssociationRequestMessage = useMemo(() => {
+    if (!selectedThread) return null;
+    // Prefer the newest association_request message that contains a payload block.
+    return (
+      selectedThread.messages.find(
+        (m) => m.contextType === 'association_request' && Boolean(extractAssociationPayloadFromBody(m.body)),
+      ) ?? null
+    );
+  }, [selectedThread]);
 
   const selectedMessageTargetDid = useMemo(() => {
-    if (!selectedMessage) return null;
     // For feedback_request_approved, the sender is the target agent that will issue feedbackAuth.
-    const did = normalizeDid(selectedMessage.fromAgentDid);
+    const did = normalizeDid(selectedFeedbackApprovedMessage?.fromAgentDid);
     return did || null;
-  }, [selectedMessage]);
+  }, [selectedFeedbackApprovedMessage]);
 
   const selectedMessageTargetParsed = useMemo(() => {
     if (!selectedMessageTargetDid) return null;
@@ -365,14 +469,14 @@ export default function MessagesPage() {
   }, [selectedMessageTargetDid]);
 
   const selectedMessageFeedbackRequestId = useMemo(() => {
-    if (!selectedMessage?.contextId) return null;
-    const n = Number(selectedMessage.contextId);
+    const raw = selectedFeedbackApprovedMessage?.contextId || selectedFeedbackRequestMessage?.contextId || null;
+    if (!raw) return null;
+    const n = Number(raw);
     return Number.isFinite(n) && n > 0 ? n : null;
-  }, [selectedMessage]);
+  }, [selectedFeedbackApprovedMessage, selectedFeedbackRequestMessage]);
 
   const requestFeedbackAuthForSelectedMessage = useCallback(async () => {
-    if (!selectedMessage) return;
-    if (selectedMessage.contextType !== 'feedback_request_approved') return;
+    if (!selectedFeedbackApprovedMessage) return;
     if (!walletAddress) {
       setFeedbackAuthError('Wallet address not available. Please connect.');
       return;
@@ -431,7 +535,7 @@ export default function MessagesPage() {
       setFeedbackAuthLoading(false);
     }
   }, [
-    selectedMessage,
+    selectedFeedbackApprovedMessage,
     selectedMessageTargetDid,
     selectedMessageTargetParsed,
     selectedMessageFeedbackRequestId,
@@ -440,8 +544,9 @@ export default function MessagesPage() {
 
   // Check if validation request exists in Validation Registry
   const checkValidationRequest = useCallback(async () => {
-    if (!selectedMessage || selectedMessage.contextType !== 'validation_request') return;
-    if (!selectedMessage.fromAgentDid || !selectedMessage.toAgentDid) return;
+    const msg = selectedValidationRequestMessage;
+    if (!msg) return;
+    if (!msg.fromAgentDid || !msg.toAgentDid) return;
     if (!selectedFolderAgent) return;
 
     setCheckingValidationRequest(true);
@@ -450,7 +555,7 @@ export default function MessagesPage() {
 
     try {
       // Parse the from agent DID (the agent being validated)
-      const fromDid = normalizeDid(selectedMessage.fromAgentDid);
+      const fromDid = normalizeDid(msg.fromAgentDid);
       if (!fromDid.startsWith('did:8004:')) {
         setValidationResponseError('From agent DID is not a valid did:8004');
         return;
@@ -520,7 +625,8 @@ export default function MessagesPage() {
 
   // Submit validation response via A2A endpoint (similar to admin-tools)
   const handleSubmitValidationResponse = useCallback(async (responseScore: number) => {
-    if (!validationRequestHash || !selectedFolderAgent || !selectedMessage || !validationRequestStatus) return;
+    const msg = selectedValidationRequestMessage;
+    if (!validationRequestHash || !selectedFolderAgent || !msg || !validationRequestStatus) return;
     
     // Check if response already exists
     if (validationRequestStatus.response !== undefined && validationRequestStatus.response !== 0 && validationRequestStatus.response !== '0') {
@@ -528,7 +634,7 @@ export default function MessagesPage() {
       return;
     }
 
-    if (!selectedMessage.fromAgentDid) {
+    if (!msg.fromAgentDid) {
       setValidationResponseError('From agent DID is required');
       return;
     }
@@ -538,7 +644,7 @@ export default function MessagesPage() {
 
     try {
       // Parse from agent DID to get agentId
-      const fromDid = normalizeDid(selectedMessage.fromAgentDid);
+      const fromDid = normalizeDid(msg.fromAgentDid);
       if (!fromDid.startsWith('did:8004:')) {
         throw new Error('From agent DID is not a valid did:8004');
       }
@@ -673,12 +779,12 @@ export default function MessagesPage() {
     setFeedbackComment('');
     setFeedbackRating(5);
     // Auto-fetch feedbackAuth for approved messages
-    if (selectedMessage?.contextType === 'feedback_request_approved') {
+    if (selectedFeedbackApprovedMessage) {
       // fire-and-forget; errors shown in UI
       requestFeedbackAuthForSelectedMessage();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMessageId]);
+  }, [selectedTaskKey]);
 
   const visibleFolders = useMemo(() => {
     const q = folderSearch.trim().toLowerCase();
@@ -692,19 +798,20 @@ export default function MessagesPage() {
     });
   }, [cachedOwnedAgents, folderSearch]);
 
-  const visibleMessages = useMemo(() => {
-    const mailboxFiltered =
-      mailboxMode === 'sent' ? messages.filter(isSentMessage) : messages.filter(isInboxMessage);
+  const visibleThreads = useMemo(() => {
+    const mailboxThreads = mailboxMode === 'sent' ? sentThreads : inboxThreads;
     const q = messageSearch.trim().toLowerCase();
-    if (!q) return mailboxFiltered;
-    return mailboxFiltered.filter((m) => {
-      const subj = (m.subject || '').toLowerCase();
-      const body = (m.body || '').toLowerCase();
-      const from = (m.fromAgentName || m.fromAgentDid || '').toLowerCase();
-      const to = (m.toAgentName || m.toAgentDid || '').toLowerCase();
-      return subj.includes(q) || body.includes(q) || from.includes(q) || to.includes(q);
-    });
-  }, [messages, messageSearch, mailboxMode, isInboxMessage, isSentMessage]);
+    if (!q) return mailboxThreads;
+    return mailboxThreads.filter((t) =>
+      t.messages.some((m) => {
+        const subj = (m.subject || '').toLowerCase();
+        const body = (m.body || '').toLowerCase();
+        const from = (m.fromAgentName || m.fromAgentDid || '').toLowerCase();
+        const to = (m.toAgentName || m.toAgentDid || '').toLowerCase();
+        return subj.includes(q) || body.includes(q) || from.includes(q) || to.includes(q);
+      }),
+    );
+  }, [mailboxMode, inboxThreads, sentThreads, messageSearch]);
 
   const handleOpenCompose = useCallback(() => {
     if (!selectedFolderAgent) {
@@ -712,8 +819,10 @@ export default function MessagesPage() {
       return;
     }
     setError(null);
+    setComposeTaskId(null);
     setComposeToAgent(null);
     setComposeToAgentInput('');
+    setComposeToAgentCard(null);
     setComposeSubject(
       selectedMessageType === 'feedback_request'
         ? 'Request Feedback Permission'
@@ -735,8 +844,67 @@ export default function MessagesPage() {
     setComposeOpen(true);
   }, [selectedFolderAgent, selectedMessageType]);
 
+  const handleReplyToSelectedTask = useCallback(() => {
+    if (!selectedFolderAgent || !selectedFromAgentDid) {
+      setError('Select an agent folder first.');
+      return;
+    }
+    if (!selectedThread) {
+      setError('Select a task first.');
+      return;
+    }
+
+    const last = selectedThread.lastMessage;
+    const targetDid =
+      mailboxMode === 'sent'
+        ? normalizeDid(last.toAgentDid)
+        : normalizeDid(last.fromAgentDid);
+
+    if (!targetDid || !targetDid.startsWith('did:8004:')) {
+      setError('Cannot reply: missing recipient agent DID on this task.');
+      return;
+    }
+
+    let opt: AgentSearchOption | null = null;
+    try {
+      const parsed = parseDid8004(targetDid);
+      const agentIdStr = String(parsed.agentId);
+      opt = {
+        key: `${parsed.chainId}:${agentIdStr}`,
+        chainId: parsed.chainId,
+        agentId: agentIdStr,
+        agentName: mailboxMode === 'sent' ? last.toAgentName : last.fromAgentName,
+        image: null,
+        did: targetDid,
+      };
+    } catch {
+      opt = {
+        key: targetDid,
+        chainId: DEFAULT_CHAIN_ID,
+        agentId: '0',
+        agentName: mailboxMode === 'sent' ? last.toAgentName : last.fromAgentName,
+        image: null,
+        did: targetDid,
+      };
+    }
+
+    setError(null);
+    setComposeTaskId(selectedThread.taskId ?? (last.taskId ?? last.contextId ?? null));
+    setComposeToAgent(opt);
+    setComposeToAgentInput(opt?.agentName || '');
+    setComposeToAgentCard(null);
+    setComposeSubject('');
+    setComposeBody('');
+    // Pin the task type to the current thread's type when possible.
+    const threadType = selectedThread.taskType as any;
+    setSelectedMessageType(
+      threadType === 'feedback_request_approved' ? 'feedback_request' : threadType,
+    );
+    setComposeOpen(true);
+  }, [selectedFolderAgent, selectedFromAgentDid, selectedThread, mailboxMode]);
+
   // Async agent search for "To Agent" autocomplete
-  // For validation requests, filter by agents with capability "Validation" or "Orchestration"
+  // Always show a default list (latest agents) when the dialog opens, and filter as user types.
   useEffect(() => {
     let cancelled = false;
     const q = composeToAgentInput.trim();
@@ -746,57 +914,16 @@ export default function MessagesPage() {
     setComposeToAgentLoading(true);
     (async () => {
       try {
-        // For validation/association requests, we want to show all agents
-        // For validation requests, filter by Validation/Orchestration capability
-        const searchQuery = (selectedMessageType === 'validation_request' || selectedMessageType === 'association_request')
-          ? (q || '') // Allow empty query to show all agents
-          : q; // For other message types, require a query
-
-        if (!searchQuery && selectedMessageType !== 'validation_request' && selectedMessageType !== 'association_request') {
-          setComposeToAgentOptions([]);
-          setComposeToAgentLoading(false);
-          return;
-        }
-
-        const response = await fetch(
-          `/api/agents/search?query=${encodeURIComponent(searchQuery)}&pageSize=50&orderBy=createdAtTime&orderDirection=DESC`,
-          { cache: 'no-store' },
-        );
+        const url =
+          q.length > 0
+            ? `/api/agents/search?query=${encodeURIComponent(q)}&pageSize=50&orderBy=createdAtTime&orderDirection=DESC`
+            : `/api/agents/search?pageSize=50&orderBy=createdAtTime&orderDirection=DESC`;
+        const response = await fetch(url, { cache: 'no-store' });
         if (!response.ok) {
           throw new Error(`Failed to search agents (${response.status})`);
         }
         const data = await response.json();
         let agents = Array.isArray(data?.agents) ? data.agents : [];
-        
-        // Filter by agentCategory for validation requests
-        if (selectedMessageType === 'validation_request') {
-          agents = agents.filter((a: any) => {
-            const validCategories = [
-              'Governance / Validation Agents',
-              'Orchestrator / Coordinator Agents',
-            ];
-            
-            // Check agentCategory in registration JSON (rawJson field)
-            try {
-              const rawJson = a?.rawJson;
-              if (rawJson && typeof rawJson === 'string') {
-                const registration = JSON.parse(rawJson);
-                const agentCategory = registration?.agentCategory;
-                if (typeof agentCategory === 'string') {
-                  return validCategories.includes(agentCategory);
-                }
-              }
-              // Also check if agentCategory is directly on the agent object
-              const agentCategory = a?.agentCategory;
-              if (typeof agentCategory === 'string') {
-                return validCategories.includes(agentCategory);
-              }
-              return false;
-            } catch {
-              return false;
-            }
-          });
-        }
         
         const mapped: AgentSearchOption[] = agents
           .map((a: any) => {
@@ -829,78 +956,40 @@ export default function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [composeOpen, composeToAgentInput, selectedMessageType]);
+  }, [composeOpen, composeToAgentInput]);
 
-  // Load validation/orchestration agents when compose dialog opens for validation requests
+  // Fetch the recipient's agent card so we can offer only supported task/message types.
   useEffect(() => {
-    if (!composeOpen || selectedMessageType !== 'validation_request') return;
-    
-    // Trigger the agent search with empty query to load all validation/orchestration agents
-    if (!composeToAgentInput) {
-      // Set a minimal query to trigger the search, or we can fetch directly
-      const loadValidationAgents = async () => {
-        try {
-          const response = await fetch(
-            `/api/agents/search?pageSize=100&orderBy=createdAtTime&orderDirection=DESC`,
-            { cache: 'no-store' },
-          );
-          if (!response.ok) return;
-          const data = await response.json();
-          let agents = Array.isArray(data?.agents) ? data.agents : [];
-          
-          // Filter by agentCategory
-          const validCategories = [
-            'Governance / Validation Agents',
-            'Orchestrator / Coordinator Agents',
-          ];
-          agents = agents.filter((a: any) => {
-            try {
-              // Check agentCategory in registration JSON (rawJson field)
-              const rawJson = a?.rawJson;
-              if (rawJson && typeof rawJson === 'string') {
-                const registration = JSON.parse(rawJson);
-                const agentCategory = registration?.agentCategory;
-                if (typeof agentCategory === 'string') {
-                  return validCategories.includes(agentCategory);
-                }
-              }
-              // Also check if agentCategory is directly on the agent object
-              const agentCategory = a?.agentCategory;
-              if (typeof agentCategory === 'string') {
-                return validCategories.includes(agentCategory);
-              }
-              return false;
-            } catch {
-              return false;
-            }
-          });
-          
-          const mapped: AgentSearchOption[] = agents
-            .map((a: any) => {
-              const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
-              const agentId = a?.agentId != null ? String(a.agentId) : '';
-              if (!chainId || !agentId) return null;
-              const did = buildDid8004(chainId, Number(agentId));
-              return {
-                key: `${chainId}:${agentId}`,
-                chainId,
-                agentId,
-                agentName: a?.agentName ?? null,
-                image: a?.image ?? null,
-                did,
-              } as AgentSearchOption;
-            })
-            .filter(Boolean) as AgentSearchOption[];
-          
-          setComposeToAgentOptions(mapped);
-        } catch (e) {
-          // Ignore errors
-        }
-      };
-      
-      void loadValidationAgents();
+    let cancelled = false;
+    if (!composeOpen || !composeToAgent?.did) {
+      setComposeToAgentCard(null);
+      setComposeToAgentCardLoading(false);
+      return;
     }
-  }, [composeOpen, selectedMessageType, composeToAgentInput]);
+
+    setComposeToAgentCardLoading(true);
+    (async () => {
+      try {
+        const resp = await fetch(`/api/agents/${encodeURIComponent(composeToAgent.did)}/card`, {
+          cache: 'no-store',
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data?.error || data?.message || `Failed to fetch agent card (${resp.status})`);
+        if (cancelled) return;
+        setComposeToAgentCard(data?.card ?? null);
+      } catch (e) {
+        if (!cancelled) setComposeToAgentCard(null);
+      } finally {
+        if (!cancelled) setComposeToAgentCardLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [composeOpen, composeToAgent?.did]);
+
+  // (removed) specialized validation-agent preload: To-Agent is chosen first now, so we always load a default list.
 
   const handleSendMessage = useCallback(async () => {
     if (!selectedFolderAgent || !selectedFromAgentDid) {
@@ -1284,6 +1373,7 @@ export default function MessagesPage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             type: selectedMessageType === 'give_feedback' ? 'give_feedback' : selectedMessageType,
+            taskId: composeTaskId ?? undefined,
             subject,
             content: contentToSend,
             fromClientAddress: walletAddress ?? undefined,
@@ -1378,6 +1468,59 @@ export default function MessagesPage() {
         return 'default';
     }
   };
+
+  const composeToAgentSkillIds = useMemo(() => {
+    const skills = Array.isArray(composeToAgentCard?.skills) ? composeToAgentCard.skills : [];
+    return new Set(
+      skills
+        .map((s: any) => String(s?.id || '').trim())
+        .filter(Boolean),
+    );
+  }, [composeToAgentCard]);
+
+  const composeToAgentOsafSkillIds = useMemo(() => {
+    const skills = Array.isArray(composeToAgentCard?.skills) ? composeToAgentCard.skills : [];
+    const out = new Set<string>();
+
+    // Primary: per-skill tags like "osaf:trust.feedback.authorization"
+    for (const s of skills) {
+      const tags = Array.isArray((s as any)?.tags) ? (s as any).tags : [];
+      for (const t of tags) {
+        const tag = String(t || '').trim();
+        if (tag.startsWith('osaf:')) out.add(tag.slice('osaf:'.length));
+      }
+    }
+
+    // Secondary: the agent-card extension (if present) may list supported OSAF skills globally.
+    const exts = Array.isArray((composeToAgentCard as any)?.capabilities?.extensions)
+      ? (composeToAgentCard as any).capabilities.extensions
+      : [];
+    const osafExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
+    const extSkills = Array.isArray(osafExt?.params?.skills) ? osafExt.params.skills : [];
+    for (const id of extSkills) out.add(String(id || '').trim());
+
+    return out;
+  }, [composeToAgentCard]);
+
+  const isToAgentSkillSupported = useCallback(
+    (requiredExecutable?: string[], requiredOsaf?: string[]) => {
+      // No constraints => always allowed.
+      if ((!requiredExecutable || requiredExecutable.length === 0) && (!requiredOsaf || requiredOsaf.length === 0)) return true;
+
+      // Prefer OSAF overlay if present.
+      if (requiredOsaf && requiredOsaf.length > 0 && composeToAgentOsafSkillIds.size > 0) {
+        return requiredOsaf.some((id) => composeToAgentOsafSkillIds.has(id));
+      }
+
+      // Fallback to raw executable A2A skill ids.
+      if (requiredExecutable && requiredExecutable.length > 0) {
+        return requiredExecutable.some((id) => composeToAgentSkillIds.has(id));
+      }
+
+      return true;
+    },
+    [composeToAgentOsafSkillIds, composeToAgentSkillIds],
+  );
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
@@ -1517,7 +1660,7 @@ export default function MessagesPage() {
                         selected={selected}
                         onClick={() => {
                           setSelectedAgentKey(key);
-                          setSelectedMessageId(null);
+                          setSelectedTaskKey(null);
                           setMailboxMode('inbox');
                           setMessageSearch('');
                         }}
@@ -1620,7 +1763,7 @@ export default function MessagesPage() {
                               clickable
                               onClick={() => {
                                 setMailboxMode('inbox');
-                                setSelectedMessageId(null);
+                                setSelectedTaskKey(null);
                               }}
                               color={mailboxMode === 'inbox' ? 'primary' : 'default'}
                               variant={mailboxMode === 'inbox' ? 'filled' : 'outlined'}
@@ -1631,7 +1774,7 @@ export default function MessagesPage() {
                               clickable
                               onClick={() => {
                                 setMailboxMode('sent');
-                                setSelectedMessageId(null);
+                                setSelectedTaskKey(null);
                               }}
                               color={mailboxMode === 'sent' ? 'primary' : 'default'}
                               variant={mailboxMode === 'sent' ? 'filled' : 'outlined'}
@@ -1640,7 +1783,7 @@ export default function MessagesPage() {
                           </Stack>
                         </Box>
 
-                        {visibleMessages.length === 0 ? (
+                        {visibleThreads.length === 0 ? (
                           <Box sx={{ p: 3 }}>
                             <Typography color="text.secondary">
                               {mailboxMode === 'sent' ? 'No sent messages.' : 'No inbox messages.'}
@@ -1648,9 +1791,10 @@ export default function MessagesPage() {
                           </Box>
                         ) : (
                           <List disablePadding>
-                            {visibleMessages.map((m) => {
-                              const selected = m.id === selectedMessageId;
-                              const unread = mailboxMode === 'inbox' && !m.readAt;
+                            {visibleThreads.map((t) => {
+                              const m = t.lastMessage;
+                              const selected = t.key === selectedTaskKey;
+                              const unread = mailboxMode === 'inbox' && t.unreadCount > 0;
                               const from =
                                 m.fromAgentName ||
                                 (m.fromAgentDid ? displayDid(m.fromAgentDid) : null) ||
@@ -1661,13 +1805,13 @@ export default function MessagesPage() {
                                 (m.toAgentDid ? displayDid(m.toAgentDid) : null) ||
                                 m.toClientAddress ||
                                 'Unknown';
-                              const subj = m.subject || getMessageTypeLabel(m.contextType);
+                              const subj = m.subject || getMessageTypeLabel(t.taskType);
                               const preview = (m.body || '').slice(0, 120);
                               return (
-                                <React.Fragment key={m.id}>
+                                <React.Fragment key={t.key}>
                                   <ListItemButton
                                     selected={selected}
-                                    onClick={() => setSelectedMessageId(m.id)}
+                                    onClick={() => setSelectedTaskKey(t.key)}
                                     sx={{
                                       alignItems: 'flex-start',
                                       '&.Mui-selected': { backgroundColor: 'rgba(122, 142, 230, 0.10)' },
@@ -1696,9 +1840,9 @@ export default function MessagesPage() {
                                         <Stack spacing={0.5} sx={{ mt: 0.25 }}>
                                           <Stack direction="row" spacing={1} alignItems="center">
                                             <Chip
-                                              label={getMessageTypeLabel(m.contextType)}
+                                              label={getMessageTypeLabel(t.taskType)}
                                               size="small"
-                                              color={getMessageTypeColor(m.contextType)}
+                                              color={getMessageTypeColor(t.taskType)}
                                             />
                                             <Typography variant="caption" color="text.secondary" noWrap>
                                               {mailboxMode === 'sent' ? `To: ${to}` : `From: ${from}`}
@@ -1732,12 +1876,12 @@ export default function MessagesPage() {
 
                   {/* Reading pane */}
                   <Box sx={{ overflow: 'auto', p: { xs: 2, md: 3 }, backgroundColor: 'background.paper' }}>
-                    {!selectedMessage ? (
+                    {!selectedThread ? (
                       <Box sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                         <Stack spacing={1} alignItems="center">
                           <MailOutlineIcon color="action" />
                           <Typography variant="body2" color="text.secondary">
-                            Select a message to read.
+                            Select a task to read.
                           </Typography>
                         </Stack>
                       </Box>
@@ -1746,24 +1890,32 @@ export default function MessagesPage() {
                         <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
                           <Box sx={{ minWidth: 0 }}>
                             <Typography variant="h6" sx={{ fontWeight: 800 }} noWrap>
-                              {selectedMessage.subject || getMessageTypeLabel(selectedMessage.contextType)}
+                              {selectedThread.lastMessage.subject || getMessageTypeLabel(selectedThread.taskType)}
                             </Typography>
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5, flexWrap: 'wrap' }}>
                               <Chip
-                                label={getMessageTypeLabel(selectedMessage.contextType)}
+                                label={getMessageTypeLabel(selectedThread.taskType)}
                                 size="small"
-                                color={getMessageTypeColor(selectedMessage.contextType)}
+                                color={getMessageTypeColor(selectedThread.taskType)}
                               />
                               <Typography variant="caption" color="text.secondary">
-                                {formatTimestamp(selectedMessage.createdAt)}
+                                {formatTimestamp(selectedThread.lastMessage.createdAt)}
                               </Typography>
+                              {selectedThread.taskId ? (
+                                <Typography variant="caption" color="text.secondary" noWrap>
+                                  Task: {selectedThread.taskId}
+                                </Typography>
+                              ) : null}
                             </Stack>
                           </Box>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <Button variant="outlined" size="small" onClick={handleReplyToSelectedTask}>
+                              Reply
+                            </Button>
+                          </Stack>
                         </Stack>
 
-                        {mailboxMode === 'inbox' &&
-                          selectedMessage.contextType === 'feedback_request' &&
-                          selectedMessage.contextId && (
+                        {mailboxMode === 'inbox' && Boolean(selectedFeedbackRequestMessage?.contextId) && (
                             <Box>
                               <Button
                                 variant="contained"
@@ -1783,8 +1935,7 @@ export default function MessagesPage() {
                             </Box>
                           )}
 
-                        {mailboxMode === 'inbox' &&
-                          selectedMessage.contextType === 'validation_request' && (
+                        {mailboxMode === 'inbox' && Boolean(selectedValidationRequestMessage) && (
                             <Box>
                               <Button
                                 variant="contained"
@@ -1800,16 +1951,16 @@ export default function MessagesPage() {
                             </Box>
                           )}
 
-                        {mailboxMode === 'inbox' &&
-                          selectedMessage.contextType === 'association_request' &&
-                          extractAssociationPayloadFromBody(selectedMessage.body) && (
+                        {mailboxMode === 'inbox' && Boolean(selectedAssociationRequestMessage) && (
                             <Box>
                               <Button
                                 variant="contained"
                                 size="small"
                                 onClick={() => {
                                   try {
-                                    const parsed = extractAssociationPayloadFromBody(selectedMessage.body);
+                                    const parsed = extractAssociationPayloadFromBody(
+                                      selectedAssociationRequestMessage?.body || '',
+                                    );
                                     if (!parsed) throw new Error('Missing association payload');
                                     setApproveAssociationPayload(parsed);
                                     setApproveAssociationError(null);
@@ -1835,22 +1986,21 @@ export default function MessagesPage() {
                         <Stack spacing={0.5}>
                           <Typography variant="body2" color="text.secondary">
                             <strong>From:</strong>{' '}
-                            {selectedMessage.fromAgentName ||
-                              (selectedMessage.fromAgentDid ? displayDid(selectedMessage.fromAgentDid) : null) ||
-                              selectedMessage.fromClientAddress ||
+                            {selectedThread.lastMessage.fromAgentName ||
+                              (selectedThread.lastMessage.fromAgentDid ? displayDid(selectedThread.lastMessage.fromAgentDid) : null) ||
+                              selectedThread.lastMessage.fromClientAddress ||
                               'Unknown'}
                           </Typography>
                           <Typography variant="body2" color="text.secondary">
                             <strong>To:</strong>{' '}
-                            {selectedMessage.toAgentName ||
-                              (selectedMessage.toAgentDid ? displayDid(selectedMessage.toAgentDid) : null) ||
-                              selectedMessage.toClientAddress ||
+                            {selectedThread.lastMessage.toAgentName ||
+                              (selectedThread.lastMessage.toAgentDid ? displayDid(selectedThread.lastMessage.toAgentDid) : null) ||
+                              selectedThread.lastMessage.toClientAddress ||
                               'Unknown'}
                           </Typography>
                         </Stack>
 
-                        {mailboxMode === 'inbox' &&
-                          selectedMessage.contextType === 'feedback_request_approved' && (
+                        {mailboxMode === 'inbox' && Boolean(selectedFeedbackApprovedMessage) && (
                             <Box>
                               <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
                                 <Button
@@ -1892,11 +2042,46 @@ export default function MessagesPage() {
                             </Box>
                           )}
 
-                        <Paper variant="outlined" sx={{ p: 2, borderColor: palette.border, backgroundColor: palette.surface }}>
-                          <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
-                            {selectedMessage.body}
-                          </Typography>
-                        </Paper>
+                        <Stack spacing={1.25}>
+                          {[...selectedThread.messages]
+                            .slice()
+                            .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+                            .map((m) => {
+                              const author =
+                                m.fromAgentName ||
+                                (m.fromAgentDid ? displayDid(m.fromAgentDid) : null) ||
+                                m.fromClientAddress ||
+                                'Unknown';
+                              return (
+                                <Paper
+                                  key={m.id}
+                                  variant="outlined"
+                                  sx={{ p: 2, borderColor: palette.border, backgroundColor: palette.surface }}
+                                >
+                                  <Stack spacing={0.75}>
+                                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                                      <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }} noWrap>
+                                          {author}
+                                        </Typography>
+                                        <Chip
+                                          label={getMessageTypeLabel(m.contextType)}
+                                          size="small"
+                                          color={getMessageTypeColor(m.contextType)}
+                                        />
+                                      </Stack>
+                                      <Typography variant="caption" color="text.secondary" noWrap>
+                                        {formatTimestamp(m.createdAt)}
+                                      </Typography>
+                                    </Stack>
+                                    <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
+                                      {m.body}
+                                    </Typography>
+                                  </Stack>
+                                </Paper>
+                              );
+                            })}
+                        </Stack>
                       </Stack>
                     )}
                   </Box>
@@ -1934,26 +2119,6 @@ export default function MessagesPage() {
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <FormControl fullWidth size="small">
-              <InputLabel id="compose-message-type-label">Message Type</InputLabel>
-              <Select
-                id="compose-message-type"
-                labelId="compose-message-type-label"
-                value={selectedMessageType}
-                label="Message Type"
-                onChange={(e) => setSelectedMessageType(e.target.value as any)}
-              >
-                <MenuItem value="general">General Message</MenuItem>
-                <MenuItem value="feedback_request">Request Feedback Permission</MenuItem>
-                <MenuItem value="validation_request">Request Validation</MenuItem>
-                <MenuItem value="association_request">Request Association</MenuItem>
-                <MenuItem value="give_feedback">Give Feedback</MenuItem>
-              </Select>
-              <FormHelperText>
-                Use standard types for inbox filtering. Sender is the selected agent folder.
-              </FormHelperText>
-            </FormControl>
-
             <Autocomplete
               options={composeToAgentOptions}
               value={composeToAgent}
@@ -2004,6 +2169,37 @@ export default function MessagesPage() {
                 />
               )}
             />
+
+            <FormControl fullWidth size="small" disabled={!composeToAgent || composeToAgentCardLoading}>
+              <InputLabel id="compose-message-type-label">Task Type</InputLabel>
+              <Select
+                id="compose-message-type"
+                labelId="compose-message-type-label"
+                value={selectedMessageType}
+                label="Task Type"
+                onChange={(e) => setSelectedMessageType(e.target.value as any)}
+              >
+                {INBOX_TASK_TYPE_OPTIONS.map((opt) => (
+                  <MenuItem
+                    key={opt.value}
+                    value={opt.value}
+                    disabled={
+                      Boolean(composeToAgent) &&
+                      !isToAgentSkillSupported(opt.requiredToAgentSkills, opt.requiredOsafSkills)
+                    }
+                  >
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                {!composeToAgent
+                  ? 'Pick a recipient first. Task types are derived from the recipient agent card skills.'
+                  : composeToAgentCardLoading
+                    ? 'Loading recipient agent card…'
+                    : 'Task types reflect what the recipient advertises in its agent card.'}
+              </FormHelperText>
+            </FormControl>
 
             {selectedMessageType !== 'feedback_request' && selectedMessageType !== 'give_feedback' && (
               <TextField
@@ -2175,7 +2371,8 @@ export default function MessagesPage() {
           Give Feedback
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             From: {selectedFolderAgent?.agentName || `Agent #${selectedFolderAgent?.agentId || ''}`} · To:{' '}
-            {selectedMessage?.fromAgentName || (selectedMessage?.fromAgentDid ? displayDid(selectedMessage.fromAgentDid) : '—')}
+            {selectedFeedbackApprovedMessage?.fromAgentName ||
+              (selectedFeedbackApprovedMessage?.fromAgentDid ? displayDid(selectedFeedbackApprovedMessage.fromAgentDid) : '—')}
           </Typography>
         </DialogTitle>
         <DialogContent>
@@ -2288,7 +2485,7 @@ export default function MessagesPage() {
           </Button>
           <Button
             variant="contained"
-            disabled={approving || !selectedMessage?.contextId}
+            disabled={approving || !selectedFeedbackRequestMessage?.contextId}
             startIcon={approving ? <CircularProgress size={16} /> : undefined}
             onClick={async () => {
               try {
@@ -2296,12 +2493,12 @@ export default function MessagesPage() {
                 setApproveError(null);
                 setApproveSuccess(null);
 
-                const feedbackRequestId = Number(selectedMessage?.contextId);
+                const feedbackRequestId = Number(selectedFeedbackRequestMessage?.contextId);
                 if (!Number.isFinite(feedbackRequestId) || feedbackRequestId <= 0) {
                   throw new Error('Missing feedback request id on message.');
                 }
 
-                if (!selectedMessage?.fromAgentDid || !selectedMessage?.toAgentDid) {
+                if (!selectedFeedbackRequestMessage?.fromAgentDid || !selectedFeedbackRequestMessage?.toAgentDid) {
                   throw new Error('Missing from/to agent DID on message.');
                 }
 
@@ -2312,8 +2509,8 @@ export default function MessagesPage() {
                     skillId: 'atp.feedback.requestapproved',
                     payload: {
                       feedbackRequestId,
-                      fromAgentDid: selectedMessage.fromAgentDid,
-                      toAgentDid: selectedMessage.toAgentDid,
+                      fromAgentDid: selectedFeedbackRequestMessage.fromAgentDid,
+                      toAgentDid: selectedFeedbackRequestMessage.toAgentDid,
                       approvedForDays: approveExpiryDays,
                     },
                     metadata: { source: 'admin-app', timestamp: new Date().toISOString() },
@@ -2345,7 +2542,11 @@ export default function MessagesPage() {
         <DialogTitle>
           Submit Validation Response
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-            Validating: {selectedMessage?.fromAgentName || (selectedMessage?.fromAgentDid ? displayDid(selectedMessage.fromAgentDid) : '—')}
+            Validating:{' '}
+            {selectedValidationRequestMessage?.fromAgentName ||
+              (selectedValidationRequestMessage?.fromAgentDid
+                ? displayDid(selectedValidationRequestMessage.fromAgentDid)
+                : '—')}
           </Typography>
         </DialogTitle>
         <DialogContent>

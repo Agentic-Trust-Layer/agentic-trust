@@ -4192,7 +4192,7 @@ export function AgentsPage({
                     )}
                     {trustLedgerScore !== null && trustLedgerOverallRank !== null && (
                       <span
-                        title={`Trust Ledger · score: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`}
+                        title={`Agent Index · score: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`}
                       >
                         score {Math.round(trustLedgerScore)} · rank #{trustLedgerOverallRank}
                       </span>
@@ -4274,7 +4274,7 @@ export function AgentsPage({
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: palette.textPrimary }}>
-                    Agent Ranking
+                    Agent Index
                   </h3>
                   <span style={{ fontSize: '0.75rem', color: palette.textSecondary }}>Top by rank</span>
                 </div>
@@ -4444,7 +4444,7 @@ export function AgentsPage({
                             </div>
                           </div>
                           <div
-                            title={`Trust Ledger score${typeof row.trustLedgerBadgeCount === 'number' ? ` · badges: ${row.trustLedgerBadgeCount}` : ''}`}
+                            title={`Agent Index score${typeof row.trustLedgerBadgeCount === 'number' ? ` · badges: ${row.trustLedgerBadgeCount}` : ''}`}
                             style={{ fontSize: '0.9rem', fontWeight: 800, color: palette.accent }}
                           >
                             {Math.round(row.trustLedgerScore)}

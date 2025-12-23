@@ -804,7 +804,7 @@ export default function AgentDetailsPageContent({
                     variant="body2"
                     color="text.secondary"
                     sx={{ lineHeight: 1.2 }}
-                    title={`Trust Ledger${typeof (agent as any).trustLedgerBadgeCount === 'number' ? ` · badges: ${(agent as any).trustLedgerBadgeCount}` : ''}`}
+                    title={`Agent Index${typeof (agent as any).trustLedgerBadgeCount === 'number' ? ` · badges: ${(agent as any).trustLedgerBadgeCount}` : ''}`}
                   >
                     score: {Math.round((agent as any).trustLedgerScore)} · rank: #{(agent as any).trustLedgerOverallRank}
                   </Typography>

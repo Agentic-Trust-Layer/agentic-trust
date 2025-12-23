@@ -99,6 +99,71 @@ function getCorsHeaders() {
   };
 }
 
+/**
+ * A2A "Task" primitives
+ * - Tasks are long-lived threads (a conversation) and messages are events within a task.
+ * - We keep legacy context_type/context_id fields, but also persist explicit task_id/task_type.
+ */
+const ATP_TASK_TYPES = [
+  'feedback_request',
+  'give_feedback',
+  'validation_request',
+  'association_request',
+  'feedback_request_approved',
+] as const;
+type ATPTaskType = (typeof ATP_TASK_TYPES)[number];
+
+function normalizeTaskType(value: unknown): ATPTaskType | null {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  return (ATP_TASK_TYPES as readonly string[]).includes(v) ? (v as ATPTaskType) : null;
+}
+
+function generateTaskId(prefix: string = 'task'): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+let tasksSchemaEnsured = false;
+async function ensureTasksSchema(db: D1Database): Promise<void> {
+  if (tasksSchemaEnsured) return;
+
+  // Tasks table (thread metadata)
+  await db.exec(`
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  subject TEXT NULL,
+  from_agent_did TEXT NULL,
+  from_agent_name TEXT NULL,
+  to_agent_did TEXT NULL,
+  to_agent_name TEXT NULL,
+  from_client_address TEXT NULL,
+  to_client_address TEXT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  last_message_at INTEGER NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_from_agent_did ON tasks(from_agent_did);
+CREATE INDEX IF NOT EXISTS idx_tasks_to_agent_did ON tasks(to_agent_did);
+CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_last_message_at ON tasks(last_message_at);
+`);
+
+  // Add explicit task columns to messages (safe to attempt repeatedly; ignore "duplicate column" errors).
+  try {
+    await db.exec('ALTER TABLE messages ADD COLUMN task_id TEXT NULL;');
+  } catch {}
+  try {
+    await db.exec('ALTER TABLE messages ADD COLUMN task_type TEXT NULL;');
+  } catch {}
+  try {
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_task_id ON messages(task_id);');
+  } catch {}
+
+  tasksSchemaEnsured = true;
+}
+
 // Define Hono app types
 type Env = {
   DB: D1Database;
@@ -246,6 +311,20 @@ const buildAgentCard = (params: {
 }) => {
   const { subdomain, env, origin, messageEndpoint, skills } = params;
 
+  const osafDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
+  const osafSkills = [
+    'agent_interaction.request_handling',
+    'integration.protocol_handling',
+    'trust.identity.validation',
+    'trust.feedback.authorization',
+    'trust.validation.attestation',
+    'relationship.association.authorization',
+    'relationship.association.revocation',
+    'delegation.request.authorization',
+    'delegation.payload.verification',
+    'governance.audit.provenance',
+  ] as const;
+
   return {
     protocolVersion: '1.0',
     name: subdomain ? `${env.AGENT_NAME || 'ATP Agent'} (${subdomain})` : env.AGENT_NAME || 'ATP Agent',
@@ -270,6 +349,31 @@ const buildAgentCard = (params: {
             feedbackDataURI: '',
           },
         },
+        {
+          uri: 'https://schema.oasf.outshift.com/',
+          description: 'OSAF/OASF extension metadata: domains + skill taxonomy overlay (ATP/Agentic Trust).',
+          required: false,
+          params: {
+            osafExtension: true,
+            domains: osafDomains,
+            skills: osafSkills,
+            // Best-effort mapping from executable skill IDs to OASF/OSAF skill ids.
+            skillOverlay: {
+              'agent.feedback.requestAuth': ['trust.feedback.authorization'],
+              'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
+              'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
+              'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
+              'atp.feedback.markGiven': ['trust.validation.attestation', 'collaboration'],
+              'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
+              'atp.validation.respond': ['trust.validation.attestation', 'collaboration'],
+              'agent.validation.respond': ['trust.validation.attestation', 'collaboration'],
+              'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
+              'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
+              'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
+              'atp.inbox.markRead': ['agent_interaction.request_handling', 'collaboration'],
+            },
+          },
+        },
       ],
     },
     defaultInputModes: ['text/plain'],
@@ -278,6 +382,43 @@ const buildAgentCard = (params: {
     supportsExtendedAgentCard: false,
   };
 };
+
+function addOsafOverlayTags(skill: any): any {
+  const id = String(skill?.id || '').trim();
+  const existingTags = Array.isArray(skill?.tags) ? skill.tags : [];
+  const outTags = new Set<string>(existingTags.map((t: any) => String(t)));
+
+  const add = (t: string) => outTags.add(t);
+
+  // Mark that the OASF/OSAF tags are an extension.
+  add('osafExtension:true');
+
+  if (id === 'agent.feedback.requestAuth') {
+    add('osaf:trust.feedback.authorization');
+    add('osafDomain:governance-and-trust');
+  }
+  if (id.startsWith('atp.inbox.')) {
+    add('osaf:agent_interaction.request_handling');
+    add('osaf:integration.protocol_handling');
+    add('osafDomain:collaboration');
+  }
+  if (id.startsWith('atp.feedback.')) {
+    add('osaf:trust.feedback.authorization');
+    add('osafDomain:governance-and-trust');
+    add('osafDomain:collaboration');
+  }
+  if (id.startsWith('atp.stats.')) {
+    add('osaf:governance.audit.provenance');
+    add('osafDomain:governance-and-trust');
+  }
+  if (id === 'atp.validation.respond' || id === 'agent.validation.respond') {
+    add('osaf:trust.validation.attestation');
+    add('osafDomain:governance-and-trust');
+    add('osafDomain:collaboration');
+  }
+
+  return { ...skill, tags: Array.from(outTags) };
+}
 
 const normalizeModes = (modes: unknown): string[] => {
   if (!Array.isArray(modes)) return [];
@@ -301,6 +442,15 @@ const buildSkills = (subdomain: string | null | undefined) => {
       inputModes: ['text'],
       outputModes: ['text', 'json'],
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
+    },
+    {
+      id: 'atp.validation.respond',
+      name: 'atp.validation.respond',
+      tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+      examples: ['Submit a validation response for a pending validation request'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Submit a validation response (attestation) using a configured session package.',
     },
   ];
 
@@ -438,7 +588,7 @@ const serveAgentCard = (c: HonoContext) => {
 
   const rawSkills = buildSkills(subdomain);
   const skills = (rawSkills as any[]).map((s: any) => ({
-    ...s,
+    ...addOsafOverlayTags(s),
     inputModes: normalizeModes(s.inputModes),
     outputModes: normalizeModes(s.outputModes),
   }));
@@ -2004,10 +2154,42 @@ const handleA2A = async (c: HonoContext) => {
         // Also create a corresponding inbox message so the request shows in messaging UIs
         try {
           const messageBody = `Feedback request for agent ${toAgentName || String(toAgentId)} (ID: ${String(toAgentId)}):\n\n${comment.trim()}`;
+          const taskId = String(feedbackRequestId);
+          await ensureTasksSchema(db);
+          await db
+            .prepare(
+              `INSERT OR IGNORE INTO tasks (
+                id, type, status, subject,
+                from_agent_did, from_agent_name,
+                to_agent_did, to_agent_name,
+                from_client_address, to_client_address,
+                created_at, updated_at, last_message_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              taskId,
+              'feedback_request',
+              'open',
+              'Request Feedback Permission',
+              fromAgentDid,
+              fromAgentName,
+              toAgentDid,
+              toAgentName,
+              clientAddress.toLowerCase(),
+              null,
+              now * 1000, // store ms for last_message_at consistency with messages.created_at
+              now * 1000,
+              now * 1000,
+            )
+            .run();
+          await db
+            .prepare('UPDATE tasks SET updated_at = ?, last_message_at = ? WHERE id = ?')
+            .bind(now * 1000, now * 1000, taskId)
+            .run();
 
           await db
             .prepare(
-              'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             )
             .bind(
               clientAddress.toLowerCase(),
@@ -2020,6 +2202,8 @@ const handleA2A = async (c: HonoContext) => {
               messageBody,
               'feedback_request',
               String(feedbackRequestId),
+              taskId,
+              'feedback_request',
               now * 1000, // messages table uses milliseconds
               null,
             )
@@ -2354,9 +2538,40 @@ const handleA2A = async (c: HonoContext) => {
           `feedbackRequestId: ${feedbackRequestId}\n` +
           `approvedForDays: ${approvedForDays}\n`;
 
+        // Treat this as part of the same feedback_request task thread.
+        await ensureTasksSchema(db);
+        const taskId = String(feedbackRequestId);
         await db
           .prepare(
-            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            `INSERT OR IGNORE INTO tasks (
+              id, type, status, subject,
+              from_agent_did, from_agent_name,
+              to_agent_did, to_agent_name,
+              created_at, updated_at, last_message_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            taskId,
+            'feedback_request',
+            'open',
+            'Request Feedback Permission',
+            fromAgentDid,
+            req.from_agent_name || null,
+            toAgentDid,
+            req.to_agent_name || null,
+            nowMs,
+            nowMs,
+            nowMs,
+          )
+          .run();
+        await db
+          .prepare('UPDATE tasks SET updated_at = ?, last_message_at = ? WHERE id = ?')
+          .bind(nowMs, nowMs, taskId)
+          .run();
+
+        await db
+          .prepare(
+            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           )
           .bind(
             null,
@@ -2369,6 +2584,8 @@ const handleA2A = async (c: HonoContext) => {
             body,
             'feedback_request_approved',
             String(feedbackRequestId),
+            taskId,
+            'feedback_request',
             nowMs,
             null,
           )
@@ -2560,9 +2777,54 @@ const handleA2A = async (c: HonoContext) => {
 
         const now = Date.now();
 
+        // Task normalization:
+        // - If contextType matches a known task type, we treat this message as the start of (or part of) a task thread.
+        // - If a contextId is not provided, we generate one and use it as the task id.
+        await ensureTasksSchema(db);
+        const taskType = normalizeTaskType(contextType);
+        let taskId: string | null = contextId != null ? String(contextId) : null;
+        if (taskType && !taskId) {
+          taskId = generateTaskId(taskType);
+        }
+
+        if (taskType && taskId) {
+          // Upsert task metadata (thread header). Keep it lightweight and idempotent.
+          await db
+            .prepare(
+              `INSERT OR IGNORE INTO tasks (
+                id, type, status, subject,
+                from_agent_did, from_agent_name,
+                to_agent_did, to_agent_name,
+                from_client_address, to_client_address,
+                created_at, updated_at, last_message_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              taskId,
+              taskType,
+              'open',
+              subject || null,
+              fromAgentDid || null,
+              fromAgentName || null,
+              toAgentDid || null,
+              toAgentName || null,
+              fromClientAddress ? fromClientAddress.toLowerCase() : null,
+              toClientAddress ? toClientAddress.toLowerCase() : null,
+              now,
+              now,
+              now,
+            )
+            .run();
+
+          await db
+            .prepare('UPDATE tasks SET updated_at = ?, last_message_at = ?, subject = COALESCE(subject, ?) WHERE id = ?')
+            .bind(now, now, subject || null, taskId)
+            .run();
+        }
+
         const result = await db
           .prepare(
-            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           )
           .bind(
             fromClientAddress ? fromClientAddress.toLowerCase() : null,
@@ -2573,8 +2835,10 @@ const handleA2A = async (c: HonoContext) => {
             toAgentName || null,
             subject || null,
             body.trim(),
-            contextType || null,
-            contextId != null ? String(contextId) : null,
+            taskType ? taskType : contextType || null,
+            taskId != null ? taskId : contextId != null ? String(contextId) : null,
+            taskId,
+            taskType,
             now,
             null,
           )
@@ -2623,7 +2887,7 @@ const handleA2A = async (c: HonoContext) => {
         const addr = clientAddress.toLowerCase();
         const rows = await db
           .prepare(
-            'SELECT id, from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at FROM messages WHERE to_client_address = ? OR from_client_address = ? ORDER BY created_at DESC',
+            'SELECT id, from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at FROM messages WHERE to_client_address = ? OR from_client_address = ? ORDER BY created_at DESC',
           )
           .bind(addr, addr)
           .all<any>();
@@ -2640,6 +2904,8 @@ const handleA2A = async (c: HonoContext) => {
           body: row.body,
           contextType: row.context_type,
           contextId: row.context_id,
+          taskId: row.task_id ?? null,
+          taskType: row.task_type ?? null,
           createdAt: row.created_at,
           readAt: row.read_at,
         }));
@@ -2690,7 +2956,7 @@ const handleA2A = async (c: HonoContext) => {
 
         const rows = await db
           .prepare(
-            'SELECT id, from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at FROM messages WHERE to_agent_did = ? OR to_agent_did = ? OR from_agent_did = ? OR from_agent_did = ? ORDER BY created_at DESC',
+            'SELECT id, from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at FROM messages WHERE to_agent_did = ? OR to_agent_did = ? OR from_agent_did = ? OR from_agent_did = ? ORDER BY created_at DESC',
           )
           .bind(agentDid, rawAgentDid, agentDid, rawAgentDid)
           .all<any>();
@@ -2707,6 +2973,8 @@ const handleA2A = async (c: HonoContext) => {
           body: row.body,
           contextType: row.context_type,
           contextId: row.context_id,
+          taskId: row.task_id ?? null,
+          taskType: row.task_type ?? null,
           createdAt: row.created_at,
           readAt: row.read_at,
         }));

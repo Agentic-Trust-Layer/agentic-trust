@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
           body: m.body || '',
           contextType: m.contextType || m.context_type || 'general',
           contextId: m.contextId || m.context_id || null,
+          taskId: m.taskId ?? m.task_id ?? null,
+          taskType: m.taskType ?? m.task_type ?? null,
           fromAgentDid: m.fromAgentDid || m.from_agent_did || null,
           fromAgentName: m.fromAgentName || m.from_agent_name || null,
           toAgentDid: m.toAgentDid || m.to_agent_did || null,
@@ -92,6 +94,7 @@ export async function POST(req: NextRequest) {
       toAgentDid,
       toAgentName,
       subject,
+      taskId,
     } = body;
 
     if (!content || typeof content !== 'string' || !content.trim()) {
@@ -100,6 +103,19 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
+    const typeStr = typeof type === 'string' ? type : undefined;
+    const shouldAutoTask =
+      typeStr === 'feedback_request' ||
+      typeStr === 'give_feedback' ||
+      typeStr === 'validation_request' ||
+      typeStr === 'association_request';
+    const resolvedTaskId =
+      typeof taskId === 'string' && taskId.trim().length > 0
+        ? taskId.trim()
+        : shouldAutoTask
+          ? `task_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+          : null;
 
     // Send message to agents-atp endpoint
     const response = await fetch('https://agents-atp.8004-agent.io/api/a2a', {
@@ -119,6 +135,7 @@ export async function POST(req: NextRequest) {
           subject: subject || (type ? `${type} message` : 'Message'),
           body: content.trim(),
           contextType: type || 'general',
+          ...(resolvedTaskId ? { contextId: resolvedTaskId } : {}),
           ...(metadata || {}),
         },
       } as MessageRequest),

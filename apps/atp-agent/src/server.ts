@@ -27,7 +27,7 @@ import {
   type SessionPackage,
 } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
-import { getD1Database } from './lib/d1-wrapper';
+import { getD1Database, type D1Database } from './lib/d1-wrapper';
 
 /**
  * Recursively convert BigInt values to strings for JSON serialization
@@ -213,6 +213,69 @@ function getCorsHeaders() {
 }
 
 /**
+ * A2A "Task" primitives
+ * - Tasks are long-lived threads (a conversation) and messages are events within a task.
+ * - We keep legacy context_type/context_id fields, but also persist explicit task_id/task_type.
+ */
+const ATP_TASK_TYPES = [
+  'feedback_request',
+  'give_feedback',
+  'validation_request',
+  'association_request',
+  'feedback_request_approved',
+] as const;
+type ATPTaskType = (typeof ATP_TASK_TYPES)[number];
+
+function normalizeTaskType(value: unknown): ATPTaskType | null {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  return (ATP_TASK_TYPES as readonly string[]).includes(v) ? (v as ATPTaskType) : null;
+}
+
+function generateTaskId(prefix: string = 'task'): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+let tasksSchemaEnsured = false;
+async function ensureTasksSchema(db: D1Database): Promise<void> {
+  if (tasksSchemaEnsured) return;
+
+  await db.exec(`
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  type TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  subject TEXT NULL,
+  from_agent_did TEXT NULL,
+  from_agent_name TEXT NULL,
+  to_agent_did TEXT NULL,
+  to_agent_name TEXT NULL,
+  from_client_address TEXT NULL,
+  to_client_address TEXT NULL,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  last_message_at INTEGER NULL
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_from_agent_did ON tasks(from_agent_did);
+CREATE INDEX IF NOT EXISTS idx_tasks_to_agent_did ON tasks(to_agent_did);
+CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_last_message_at ON tasks(last_message_at);
+`);
+
+  try {
+    await db.exec('ALTER TABLE messages ADD COLUMN task_id TEXT NULL;');
+  } catch {}
+  try {
+    await db.exec('ALTER TABLE messages ADD COLUMN task_type TEXT NULL;');
+  } catch {}
+  try {
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_task_id ON messages(task_id);');
+  } catch {}
+
+  tasksSchemaEnsured = true;
+}
+
+/**
  * Middleware to wait for client initialization
  */
 async function waitForClientInit(req: Request, res: Response, next: NextFunction) {
@@ -266,6 +329,15 @@ const buildSkills = (subdomain: string | null | undefined) => {
       inputModes: ['text'],
       outputModes: ['text', 'json'],
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
+    },
+    {
+      id: 'atp.validation.respond',
+      name: 'atp.validation.respond',
+      tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+      examples: ['Submit a validation response for a pending validation request'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Submit a validation response (attestation) using a configured session package.',
     },
     {
       id: 'atp.account.addOrUpdate',
@@ -414,11 +486,59 @@ const serveAgentCard = (req: Request, res: Response) => {
   const messageEndpoint = `${origin}/api/a2a`;
 
   const rawSkills = buildSkills(subdomain);
+  const addOsafOverlayTags = (skill: any): any => {
+    const id = String(skill?.id || '').trim();
+    const existingTags = Array.isArray(skill?.tags) ? skill.tags : [];
+    const outTags = new Set<string>(existingTags.map((t: any) => String(t)));
+
+    const add = (t: string) => outTags.add(t);
+    add('osafExtension:true');
+
+    if (id === 'agent.feedback.requestAuth') {
+      add('osaf:trust.feedback.authorization');
+      add('osafDomain:governance-and-trust');
+    }
+    if (id.startsWith('atp.inbox.')) {
+      add('osaf:agent_interaction.request_handling');
+      add('osaf:integration.protocol_handling');
+      add('osafDomain:collaboration');
+    }
+    if (id.startsWith('atp.feedback.')) {
+      add('osaf:trust.feedback.authorization');
+      add('osafDomain:governance-and-trust');
+      add('osafDomain:collaboration');
+    }
+    if (id.startsWith('atp.stats.')) {
+      add('osaf:governance.audit.provenance');
+      add('osafDomain:governance-and-trust');
+    }
+    if (id === 'atp.validation.respond' || id === 'agent.validation.respond') {
+      add('osaf:trust.validation.attestation');
+      add('osafDomain:governance-and-trust');
+      add('osafDomain:collaboration');
+    }
+
+    return { ...skill, tags: Array.from(outTags) };
+  };
   const skills = (rawSkills as any[]).map((s: any) => ({
-    ...s,
+    ...addOsafOverlayTags(s),
     inputModes: normalizeModes(s.inputModes),
     outputModes: normalizeModes(s.outputModes),
   }));
+
+  const osafDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
+  const osafSkills = [
+    'agent_interaction.request_handling',
+    'integration.protocol_handling',
+    'trust.identity.validation',
+    'trust.feedback.authorization',
+    'trust.validation.attestation',
+    'relationship.association.authorization',
+    'relationship.association.revocation',
+    'delegation.request.authorization',
+    'delegation.payload.verification',
+    'governance.audit.provenance',
+  ] as const;
 
   const agentCard = {
     protocolVersion: '1.0',
@@ -442,6 +562,30 @@ const serveAgentCard = (req: Request, res: Response) => {
           params: {
             trustModels: ['feedback'],
             feedbackDataURI: '',
+          },
+        },
+        {
+          uri: 'https://schema.oasf.outshift.com/',
+          description: 'OSAF/OASF extension metadata: domains + skill taxonomy overlay (ATP/Agentic Trust).',
+          required: false,
+          params: {
+            osafExtension: true,
+            domains: osafDomains,
+            skills: osafSkills,
+            skillOverlay: {
+              'agent.feedback.requestAuth': ['trust.feedback.authorization'],
+              'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
+              'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
+              'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
+              'atp.feedback.markGiven': ['trust.validation.attestation', 'collaboration'],
+              'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
+              'atp.validation.respond': ['trust.validation.attestation', 'collaboration'],
+              'agent.validation.respond': ['trust.validation.attestation', 'collaboration'],
+              'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
+              'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
+              'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
+              'atp.inbox.markRead': ['agent_interaction.request_handling', 'collaboration'],
+            },
           },
         },
       ],
@@ -1586,9 +1730,40 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           `feedbackRequestId: ${feedbackRequestId}\n` +
           `approvedForDays: ${approvedForDays}\n`;
 
+        // Treat this as part of the same feedback_request task thread.
+        await ensureTasksSchema(db);
+        const taskId = String(feedbackRequestId);
         await db
           .prepare(
-            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            `INSERT OR IGNORE INTO tasks (
+              id, type, status, subject,
+              from_agent_did, from_agent_name,
+              to_agent_did, to_agent_name,
+              created_at, updated_at, last_message_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            taskId,
+            'feedback_request',
+            'open',
+            'Request Feedback Permission',
+            fromAgentDid,
+            req.from_agent_name || null,
+            toAgentDid,
+            req.to_agent_name || null,
+            nowMs,
+            nowMs,
+            nowMs,
+          )
+          .run();
+        await db
+          .prepare('UPDATE tasks SET updated_at = ?, last_message_at = ? WHERE id = ?')
+          .bind(nowMs, nowMs, taskId)
+          .run();
+
+        await db
+          .prepare(
+            'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           )
           .bind(
             null,
@@ -1601,6 +1776,8 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             body,
             'feedback_request_approved',
             String(feedbackRequestId),
+            taskId,
+            'feedback_request',
             nowMs,
             null,
           )
@@ -2016,10 +2193,42 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
         try {
           const messageBody = `Feedback request for agent ${toAgentName || String(toAgentId)} (ID: ${String(toAgentId)}):\n\n${comment.trim()}`;
+          const taskId = String(feedbackRequestId);
+          await ensureTasksSchema(db);
+          await db
+            .prepare(
+              `INSERT OR IGNORE INTO tasks (
+                id, type, status, subject,
+                from_agent_did, from_agent_name,
+                to_agent_did, to_agent_name,
+                from_client_address, to_client_address,
+                created_at, updated_at, last_message_at
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              taskId,
+              'feedback_request',
+              'open',
+              'Request Feedback Permission',
+              fromAgentDid,
+              fromAgentName,
+              toAgentDid,
+              toAgentName,
+              clientAddress.toLowerCase(),
+              null,
+              now * 1000,
+              now * 1000,
+              now * 1000,
+            )
+            .run();
+          await db
+            .prepare('UPDATE tasks SET updated_at = ?, last_message_at = ? WHERE id = ?')
+            .bind(now * 1000, now * 1000, taskId)
+            .run();
 
           await db
             .prepare(
-              'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+              'INSERT INTO messages (from_client_address, from_agent_did, from_agent_name, to_client_address, to_agent_did, to_agent_name, subject, body, context_type, context_id, task_id, task_type, created_at, read_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             )
             .bind(
               clientAddress.toLowerCase(),
@@ -2032,6 +2241,8 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
               messageBody,
               'feedback_request',
               String(feedbackRequestId),
+              taskId,
+              'feedback_request',
               now * 1000,
               null,
             )
