@@ -713,14 +713,6 @@ export class AIAgentDiscoveryClient {
       });
       allAgents = allAgents.concat(pageAgents);
       
-      console.log('[AIAgentDiscoveryClient.listAgents] Returning agents:', {
-        count: allAgents.length,
-        agentNames: allAgents.map(a => ({
-          agentId: a.agentId,
-          agentName: a.agentName,
-          agentNameType: typeof a.agentName,
-        })),
-      });
 
       // Apply client-side ordering to ensure deterministic results,
       // since the base agents query may not support orderBy/orderDirection

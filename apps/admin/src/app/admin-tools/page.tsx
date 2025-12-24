@@ -2023,6 +2023,9 @@ export default function AdminPage() {
         requestHash: requestHash,
         chain: chain as any,
         requesterAccountClient: agentAccountClient,
+        mode: 'eoa',
+        ethereumProvider: eip1193Provider as any,
+        account: eoaAddress as `0x${string}`,
         onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
       });
 

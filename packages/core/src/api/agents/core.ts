@@ -449,11 +449,8 @@ export async function prepareValidationRequestCore(
   }
 
   const mode: AgentOperationMode = input.mode ?? 'smartAccount';
-  if (mode !== 'smartAccount') {
-    throw new AgentApiError(
-      `mode "${mode}" is not supported for validation requests. Only "smartAccount" mode is supported.`,
-      400,
-    );
+  if (mode !== 'smartAccount' && mode !== 'eoa') {
+    throw new AgentApiError(`Invalid mode "${String(mode)}"`, 400);
   }
 
   const parsed = (() => {
@@ -516,30 +513,67 @@ export async function prepareValidationRequestCore(
     if (error instanceof AgentApiError) {
       throw error;
     }
-    // Ignore read errors (some chains may not support the call yet)
-    console.warn(
-      `[prepareValidationRequestCore] Unable to check existing validation status for requestHash=${requestHash}`,
-      error,
-    );
+    // Ignore read errors (some chains may not support the call yet, or requestHash may not exist yet)
+    const err = error as any;
+    const short =
+      err?.shortMessage ||
+      err?.cause?.shortMessage ||
+      err?.cause?.reason ||
+      err?.reason ||
+      err?.message ||
+      'Unknown error';
+
+    const name = String(err?.name || err?.cause?.name || '').toLowerCase();
+    const msg = String(short).toLowerCase();
+    const looksLikeRevert =
+      name.includes('contractfunctionexecutionerror') ||
+      name.includes('contractfunctionrevertederror') ||
+      msg.includes('revert') ||
+      msg.includes('reverted');
+
+    // Reverts are expected when there is no prior validation request for this hash.
+    if (!looksLikeRevert) {
+      console.warn(
+        `[prepareValidationRequestCore] Unable to check existing validation status for requestHash=${requestHash}: ${short}`,
+      );
+    }
   }
 
-  // Get bundler URL for AA mode
+  // EOA mode: return a direct transaction payload (no bundler / AA).
+  if (mode === 'eoa') {
+    const txPayload: AgentPreparedTransactionPayload = {
+      to: txRequest.to,
+      data: txRequest.data,
+      value: normalizeCallValue(txRequest.value),
+      chainId: parsed.chainId,
+    };
+
+    return {
+      success: true,
+      operation: 'update',
+      mode: 'eoa',
+      chainId: parsed.chainId,
+      calls: [],
+      transaction: txPayload,
+      metadata: {
+        validatorAddress,
+        requestHash,
+      },
+    };
+  }
+
+  // SmartAccount mode: return calls + bundlerUrl for a sponsored UserOp.
   const bundlerUrl = getChainBundlerUrl(parsed.chainId);
   if (!bundlerUrl) {
-    throw new AgentApiError(
-      `Bundler URL not configured for chain ${parsed.chainId}`,
-      500,
-    );
+    throw new AgentApiError(`Bundler URL not configured for chain ${parsed.chainId}`, 500);
   }
 
-  // Map TxRequest into AgentOperationCall for AA mode
   const call: AgentOperationCall = {
     to: txRequest.to,
     data: txRequest.data,
     value: normalizeCallValue(txRequest.value),
   };
 
-  // Return the plan with validator address and request hash in metadata
   return {
     success: true,
     operation: 'update',
@@ -564,11 +598,8 @@ export async function prepareAssociationRequestCore(
   }
 
   const mode: AgentOperationMode = input.mode ?? 'smartAccount';
-  if (mode !== 'smartAccount') {
-    throw new AgentApiError(
-      `mode "${mode}" is not supported for association requests. Only "smartAccount" mode is supported.`,
-      400,
-    );
+  if (mode !== 'smartAccount' && mode !== 'eoa') {
+    throw new AgentApiError(`Invalid mode "${String(mode)}"`, 400);
   }
 
   const parsed = (() => {
@@ -590,7 +621,7 @@ export async function prepareAssociationRequestCore(
     throw new AgentApiError('Agent not found', 404, { did8004: input.did8004 });
   }
 
-  if (!agent.agentAccount) {
+  if (!agent.agentAccount && !input.initiatorAddress) {
     throw new AgentApiError('Agent must have an agentAccount address', 400);
   }
 
@@ -604,7 +635,7 @@ export async function prepareAssociationRequestCore(
     throw new AgentApiError('approverAddress must be a valid Ethereum address (0x...)', 400);
   }
 
-  const initiatorAddress = agent.agentAccount as `0x${string}`;
+  const initiatorAddress = (input.initiatorAddress ?? agent.agentAccount) as `0x${string}`;
   const approverAddress = input.approverAddress as `0x${string}`;
 
   // Get associations client
@@ -686,23 +717,42 @@ export async function prepareAssociationRequestCore(
   // The association client will encode the call, but signatures happen during AA execution
   const { txRequest } = await associationsClient.prepareStoreAssociationTx({ sar } as any);
 
-  // Get bundler URL for AA mode
-  const bundlerUrl = getChainBundlerUrl(parsed.chainId);
-  if (!bundlerUrl) {
-    throw new AgentApiError(
-      `Bundler URL not configured for chain ${parsed.chainId}`,
-      500,
-    );
+  // EOA mode: return a direct transaction payload (no bundler / AA).
+  if (mode === 'eoa') {
+    const txPayload: AgentPreparedTransactionPayload = {
+      to: txRequest.to,
+      data: txRequest.data,
+      value: normalizeCallValue(txRequest.value),
+      chainId: parsed.chainId,
+    };
+    return {
+      success: true,
+      operation: 'update',
+      mode: 'eoa',
+      chainId: parsed.chainId,
+      calls: [],
+      transaction: txPayload,
+      metadata: {
+        initiatorAddress,
+        approverAddress,
+        assocType: input.assocType,
+        description: input.description,
+      },
+    };
   }
 
-  // Map TxRequest into AgentOperationCall for AA mode
+  // SmartAccount mode: return calls + bundlerUrl for a sponsored UserOp.
+  const bundlerUrl = getChainBundlerUrl(parsed.chainId);
+  if (!bundlerUrl) {
+    throw new AgentApiError(`Bundler URL not configured for chain ${parsed.chainId}`, 500);
+  }
+
   const call: AgentOperationCall = {
     to: txRequest.to,
     data: txRequest.data,
     value: normalizeCallValue(txRequest.value),
   };
 
-  // Return the plan with association metadata
   return {
     success: true,
     operation: 'update',

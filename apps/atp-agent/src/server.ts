@@ -239,36 +239,41 @@ let tasksSchemaEnsured = false;
 async function ensureTasksSchema(db: D1Database): Promise<void> {
   if (tasksSchemaEnsured) return;
 
-  await db.exec(`
-CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open',
-  subject TEXT NULL,
-  from_agent_did TEXT NULL,
-  from_agent_name TEXT NULL,
-  to_agent_did TEXT NULL,
-  to_agent_name TEXT NULL,
-  from_client_address TEXT NULL,
-  to_client_address TEXT NULL,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  last_message_at INTEGER NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tasks_from_agent_did ON tasks(from_agent_did);
-CREATE INDEX IF NOT EXISTS idx_tasks_to_agent_did ON tasks(to_agent_did);
-CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_last_message_at ON tasks(last_message_at);
-`);
+  // NOTE: avoid multi-statement exec; it can behave differently across D1 adapters/runtimes.
+  const ddl: string[] = [
+    `CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      subject TEXT NULL,
+      from_agent_did TEXT NULL,
+      from_agent_name TEXT NULL,
+      to_agent_did TEXT NULL,
+      to_agent_name TEXT NULL,
+      from_client_address TEXT NULL,
+      to_client_address TEXT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      last_message_at INTEGER NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_from_agent_did ON tasks(from_agent_did);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_to_agent_did ON tasks(to_agent_did);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_last_message_at ON tasks(last_message_at);`,
+  ];
+
+  for (const stmt of ddl) {
+    await db.prepare(stmt).run();
+  }
 
   try {
-    await db.exec('ALTER TABLE messages ADD COLUMN task_id TEXT NULL;');
+    await db.prepare('ALTER TABLE messages ADD COLUMN task_id TEXT NULL;').run();
   } catch {}
   try {
-    await db.exec('ALTER TABLE messages ADD COLUMN task_type TEXT NULL;');
+    await db.prepare('ALTER TABLE messages ADD COLUMN task_type TEXT NULL;').run();
   } catch {}
   try {
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_task_id ON messages(task_id);');
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_messages_task_id ON messages(task_id);').run();
   } catch {}
 
   tasksSchemaEnsured = true;

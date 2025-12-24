@@ -39,7 +39,7 @@ import {
   updateAgentRegistration as callUpdateAgentRegistrationEndpoint,
   type UpdateAgentRegistrationClientResult,
 } from '../api/agents/client';
-import type { AgentOperationPlan } from '../api/agents/types';
+import type { AgentOperationMode, AgentOperationPlan } from '../api/agents/types';
 import { parseDid8004 } from '../shared/did8004';
 export {
   getDeployedAccountClientByAgentName,
@@ -1519,7 +1519,10 @@ export async function giveFeedbackWithWallet(
 export interface RequestValidationWithWalletOptions {
   requesterDid: string;
   chain: Chain;
-  requesterAccountClient: any; // Agent account abstraction client (the requester)
+  requesterAccountClient?: any; // AA account client (required for smartAccount mode)
+  mode?: AgentOperationMode; // default: smartAccount
+  ethereumProvider?: any; // required for eoa mode (EIP-1193 provider)
+  account?: `0x${string}`; // required for eoa mode (EOA sender)
   requestUri?: string;
   requestHash?: string;
   validatorAddress?: string; // Optional: if provided, use this address directly instead of validatorName
@@ -1529,7 +1532,10 @@ export interface RequestValidationWithWalletOptions {
 export interface RequestAssociationWithWalletOptions {
   requesterDid: string; // initiator agent DID (did:8004:chainId:agentId)
   chain: Chain;
-  requesterAccountClient: any; // initiator AA account client
+  requesterAccountClient?: any; // initiator AA account client (smartAccount mode)
+  mode?: AgentOperationMode; // default: smartAccount
+  ethereumProvider?: any; // required for eoa mode
+  account?: `0x${string}`; // required for eoa mode
   approverAddress: `0x${string}`; // counterparty smart account address
   assocType?: number;
   description?: string;
@@ -1538,8 +1544,12 @@ export interface RequestAssociationWithWalletOptions {
 
 export async function finalizeAssociationWithWallet(options: {
   chain: Chain;
-  submitterAccountClient: any; // AA account client of whoever submits (typically approver agent)
+  submitterAccountClient?: any; // AA account client of whoever submits (smartAccount mode)
+  mode?: AgentOperationMode; // default: smartAccount
+  ethereumProvider?: any; // required for eoa mode
+  account?: `0x${string}`; // required for eoa mode (EOA sender)
   requesterDid: string; // initiator did:8004
+  initiatorAddress?: `0x${string}`; // optional override (must match the signed digest)
   approverAddress: `0x${string}`;
   assocType?: number;
   description?: string;
@@ -1552,7 +1562,11 @@ export async function finalizeAssociationWithWallet(options: {
   const {
     chain,
     submitterAccountClient,
+    mode = 'smartAccount',
+    ethereumProvider,
+    account,
     requesterDid,
+    initiatorAddress: initiatorAddressOverride,
     approverAddress,
     assocType,
     description,
@@ -1566,20 +1580,38 @@ export async function finalizeAssociationWithWallet(options: {
   // Preflight: best-effort ERC-1271 signature validation to avoid opaque bundler "reason: 0x".
   // This checks whether the initiator/approver smart accounts would accept the provided signatures
   // for the association digest we are about to submit.
-  try {
-    const rpcUrl = getChainRpcUrl(chain.id) || chain.rpcUrls?.default?.http?.[0];
-    if (rpcUrl) {
-      const publicClient = createPublicClient({
-        chain: chain as any,
-        transport: http(rpcUrl),
-      }) as any;
+  if (mode === 'smartAccount') {
+    if (!submitterAccountClient) {
+      throw new Error('smartAccount mode requires submitterAccountClient');
+    }
+    try {
+      const rpcUrl = getChainRpcUrl(chain.id) || chain.rpcUrls?.default?.http?.[0];
+      if (rpcUrl) {
+        const publicClient = createPublicClient({
+          chain: chain as any,
+          transport: http(rpcUrl),
+        }) as any;
 
-      // Fetch initiator smart account address from DID (server already does this, but we need it to compute digest)
-      const initiatorResp = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}`);
-      const initiatorJson = initiatorResp.ok ? await initiatorResp.json().catch(() => ({})) : {};
-      const initiatorAddrRaw = initiatorJson?.agentAccount || initiatorJson?.account;
-      if (initiatorAddrRaw) {
-        const initiatorAddress = getAddress(initiatorAddrRaw) as `0x${string}`;
+        // Resolve initiator address for digest computation.
+        // If caller supplied an override (from inbox payload), prefer it to avoid mismatches.
+        const initiatorFinal = initiatorAddressOverride
+          ? (getAddress(initiatorAddressOverride) as `0x${string}`)
+          : null;
+
+        let initiatorResolved = initiatorFinal;
+        if (!initiatorResolved) {
+          const initiatorResp = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}`);
+          const initiatorJson = initiatorResp.ok ? await initiatorResp.json().catch(() => ({})) : {};
+          const initiatorAddrRaw = initiatorJson?.agentAccount || initiatorJson?.account;
+          if (initiatorAddrRaw) {
+            initiatorResolved = getAddress(initiatorAddrRaw) as `0x${string}`;
+          }
+        }
+
+        if (!initiatorResolved) {
+          throw new Error('Missing initiatorAddress for association preflight');
+        }
+
         const approver = getAddress(approverAddress) as `0x${string}`;
 
         // Recompute digest using the erc8092 scheme (same as packages/erc8092-sdk eip712Hash)
@@ -1603,7 +1635,7 @@ export async function finalizeAssociationWithWallet(options: {
           ]);
           return ethers.hexlify(out);
         };
-        const initiatorInterop = formatEvmV1(chain.id, initiatorAddress);
+        const initiatorInterop = formatEvmV1(chain.id, initiatorResolved);
         const approverInterop = formatEvmV1(chain.id, approver);
         const abiCoder = ethers.AbiCoder.defaultAbiCoder();
         const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
@@ -1649,9 +1681,24 @@ export async function finalizeAssociationWithWallet(options: {
           },
         ] as const;
 
-        const check1271 = async (account: `0x${string}`, sig: `0x${string}`) => {
+        const checkSignature = async (account: `0x${string}`, sig: `0x${string}`) => {
           const code = await publicClient.getBytecode({ address: account });
-          if (!code || code === '0x') return { ok: false as const, reason: 'not_a_contract' as const };
+
+          // EOA: verify with ecrecover.
+          if (!code || code === '0x') {
+            try {
+              const recovered = ethers.recoverAddress(digest, sig);
+              return {
+                ok: recovered.toLowerCase() === account.toLowerCase(),
+                method: 'ecrecover' as const,
+                recovered,
+              };
+            } catch (e: any) {
+              return { ok: false as const, method: 'ecrecover' as const, error: e?.message || String(e) };
+            }
+          }
+
+          // Contract: verify with ERC-1271.
           try {
             const magic = (await publicClient.readContract({
               address: account,
@@ -1659,23 +1706,23 @@ export async function finalizeAssociationWithWallet(options: {
               functionName: 'isValidSignature',
               args: [digest, sig],
             })) as `0x${string}`;
-            return { ok: magic.toLowerCase() === ERC1271_MAGIC, magic };
+            return { ok: magic.toLowerCase() === ERC1271_MAGIC, method: 'erc1271' as const, magic };
           } catch (e: any) {
-            return { ok: false as const, reason: 'reverted', error: e?.message || String(e) };
+            return { ok: false as const, method: 'erc1271' as const, error: e?.message || String(e) };
           }
         };
 
-        const initiatorCheck = await check1271(initiatorAddress, initiatorSignature);
+        const initiatorCheck = await checkSignature(initiatorResolved, initiatorSignature);
         if (!initiatorCheck.ok) {
           throw new Error(
-            `Initiator smart account rejected signature (ERC-1271). initiator=${initiatorAddress} digest=${digest}`,
+            `Initiator signature check failed. initiator=${initiatorResolved} digest=${digest} method=${(initiatorCheck as any).method}`,
           );
         }
 
-        const approverCheck = await check1271(approver, approverSignature);
+        const approverCheck = await checkSignature(approver, approverSignature);
         if (!approverCheck.ok) {
           throw new Error(
-            `Approver smart account rejected signature (ERC-1271). approver=${approver} digest=${digest}`,
+            `Approver signature check failed. approver=${approver} digest=${digest} method=${(approverCheck as any).method}`,
           );
         }
 
@@ -1688,13 +1735,13 @@ export async function finalizeAssociationWithWallet(options: {
           );
         }
       }
-    }
-  } catch (preflightErr: any) {
-    // If we can detect invalid signatures, surface it; otherwise continue to let bundler give more info.
-    // (This block is best-effort and should not block in environments without RPC.)
-    const msg = preflightErr?.message || String(preflightErr);
-    if (msg.includes('rejected signature') || msg.includes('ERC-1271')) {
-      throw preflightErr;
+    } catch (preflightErr: any) {
+      // If we can detect invalid signatures, surface it; otherwise continue to let bundler give more info.
+      // (This block is best-effort and should not block in environments without RPC.)
+      const msg = preflightErr?.message || String(preflightErr);
+      if (msg.includes('rejected signature') || msg.includes('ERC-1271')) {
+        throw preflightErr;
+      }
     }
   }
 
@@ -1706,6 +1753,7 @@ export async function finalizeAssociationWithWallet(options: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       did8004: requesterDid,
+      initiatorAddress: initiatorAddressOverride,
       approverAddress: getAddress(approverAddress),
       assocType,
       description,
@@ -1713,7 +1761,7 @@ export async function finalizeAssociationWithWallet(options: {
       data,
       initiatorSignature,
       approverSignature,
-      mode: 'smartAccount',
+      mode,
     }),
   });
 
@@ -1723,11 +1771,31 @@ export async function finalizeAssociationWithWallet(options: {
   }
   prepared = (await response.json()) as AgentOperationPlan;
 
+  if (mode === 'eoa') {
+    if (!prepared.transaction) {
+      throw new Error('Association store response missing transaction payload');
+    }
+    if (!account) {
+      throw new Error('EOA mode requires account (EOA sender address)');
+    }
+    const txResult = await signAndSendTransaction({
+      transaction: prepared.transaction as any,
+      account,
+      chain,
+      ethereumProvider,
+      onStatusUpdate,
+    });
+    return { txHash: txResult.hash, requiresClientSigning: true as const };
+  }
+
   const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
     Array.isArray(prepared.calls) ? prepared.calls : [];
   if (!bundlerUrl || rawCalls.length === 0) {
     throw new Error('Association store response missing bundlerUrl or calls');
+  }
+  if (!submitterAccountClient) {
+    throw new Error('smartAccount mode requires submitterAccountClient');
   }
 
   const calls = rawCalls.map((call) => ({
@@ -1760,6 +1828,9 @@ export async function requestNameValidationWithWallet(
     requesterDid,
     chain,
     requesterAccountClient,
+    mode = 'smartAccount',
+    ethereumProvider,
+    account,
     requestUri,
     requestHash,
     onStatusUpdate,
@@ -1870,7 +1941,7 @@ export async function requestNameValidationWithWallet(
     const requestBody: any = {
       requestUri,
       requestHash,
-      mode: 'smartAccount',
+      mode,
     };
     
     // Server requires validatorAddress; resolve validatorName -> address client-side if needed.
@@ -1907,6 +1978,36 @@ export async function requestNameValidationWithWallet(
   const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
     Array.isArray(prepared.calls) ? prepared.calls : [];
+
+  // EOA mode: server returns a transaction payload.
+  if (mode === 'eoa') {
+    if (!prepared.transaction) {
+      throw new Error('Validation request response missing transaction payload');
+    }
+    if (!account) {
+      throw new Error('EOA mode requires account (EOA sender address)');
+    }
+    const txResult = await signAndSendTransaction({
+      transaction: prepared.transaction as any,
+      account,
+      chain,
+      ethereumProvider,
+      onStatusUpdate,
+    });
+
+    const validatorAddress =
+      ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+      (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+      '';
+    const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
+
+    return {
+      txHash: txResult.hash,
+      requiresClientSigning: true as const,
+      validatorAddress,
+      requestHash: finalRequestHash,
+    };
+  }
 
   if (!bundlerUrl || rawCalls.length === 0) {
     throw new Error('Validation request response missing bundlerUrl or calls');
@@ -1957,6 +2058,9 @@ export async function requestAccountValidationWithWallet(
     requesterDid,
     chain,
     requesterAccountClient,
+    mode = 'smartAccount',
+    ethereumProvider,
+    account,
     requestUri,
     requestHash,
     onStatusUpdate,
@@ -2079,7 +2183,7 @@ export async function requestAccountValidationWithWallet(
             chainId: chainIdFromDid,
           })) as `0x${string}`;
 
-    const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
+  const response = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}/validation-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
@@ -2104,6 +2208,35 @@ export async function requestAccountValidationWithWallet(
   const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
     Array.isArray(prepared.calls) ? prepared.calls : [];
+
+  if (mode === 'eoa') {
+    if (!prepared.transaction) {
+      throw new Error('Validation request response missing transaction payload');
+    }
+    if (!account) {
+      throw new Error('EOA mode requires account (EOA sender address)');
+    }
+    const txResult = await signAndSendTransaction({
+      transaction: prepared.transaction as any,
+      account,
+      chain,
+      ethereumProvider,
+      onStatusUpdate,
+    });
+
+    const validatorAddress =
+      ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+      (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+      '';
+    const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
+
+    return {
+      txHash: txResult.hash,
+      requiresClientSigning: true as const,
+      validatorAddress,
+      requestHash: finalRequestHash,
+    };
+  }
 
   if (!bundlerUrl || rawCalls.length === 0) {
     throw new Error('Validation request response missing bundlerUrl or calls');
@@ -2154,6 +2287,9 @@ export async function requestAppValidationWithWallet(
     requesterDid,
     chain,
     requesterAccountClient,
+    mode = 'smartAccount',
+    ethereumProvider,
+    account,
     requestUri,
     requestHash,
     onStatusUpdate,
@@ -2264,7 +2400,7 @@ export async function requestAppValidationWithWallet(
     const requestBody: any = {
       requestUri,
       requestHash,
-      mode: 'smartAccount',
+      mode,
     };
     
     requestBody.validatorAddress =
@@ -2300,6 +2436,35 @@ export async function requestAppValidationWithWallet(
   const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
     Array.isArray(prepared.calls) ? prepared.calls : [];
+
+  if (mode === 'eoa') {
+    if (!prepared.transaction) {
+      throw new Error('Validation request response missing transaction payload');
+    }
+    if (!account) {
+      throw new Error('EOA mode requires account (EOA sender address)');
+    }
+    const txResult = await signAndSendTransaction({
+      transaction: prepared.transaction as any,
+      account,
+      chain,
+      ethereumProvider,
+      onStatusUpdate,
+    });
+
+    const validatorAddress =
+      ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+      (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+      '';
+    const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
+
+    return {
+      txHash: txResult.hash,
+      requiresClientSigning: true as const,
+      validatorAddress,
+      requestHash: finalRequestHash,
+    };
+  }
 
   if (!bundlerUrl || rawCalls.length === 0) {
     throw new Error('Validation request response missing bundlerUrl or calls');
@@ -2350,6 +2515,9 @@ export async function requestAIDValidationWithWallet(
     requesterDid,
     chain,
     requesterAccountClient,
+    mode = 'smartAccount',
+    ethereumProvider,
+    account,
     requestUri,
     requestHash,
     onStatusUpdate,
@@ -2460,7 +2628,7 @@ export async function requestAIDValidationWithWallet(
     const requestBody: any = {
       requestUri,
       requestHash,
-      mode: 'smartAccount',
+      mode,
     };
     
     requestBody.validatorAddress =
@@ -2496,6 +2664,35 @@ export async function requestAIDValidationWithWallet(
   const bundlerUrl: string | undefined = prepared.bundlerUrl;
   const rawCalls: Array<{ to: string; data: string; value?: string | number | bigint }> =
     Array.isArray(prepared.calls) ? prepared.calls : [];
+
+  if (mode === 'eoa') {
+    if (!prepared.transaction) {
+      throw new Error('Validation request response missing transaction payload');
+    }
+    if (!account) {
+      throw new Error('EOA mode requires account (EOA sender address)');
+    }
+    const txResult = await signAndSendTransaction({
+      transaction: prepared.transaction as any,
+      account,
+      chain,
+      ethereumProvider,
+      onStatusUpdate,
+    });
+
+    const validatorAddress =
+      ((prepared.metadata as any)?.validatorAddress as string | undefined) ||
+      (options.validatorAddress ? getAddress(options.validatorAddress) : '') ||
+      '';
+    const finalRequestHash = (prepared.metadata as any)?.requestHash || '';
+
+    return {
+      txHash: txResult.hash,
+      requiresClientSigning: true as const,
+      validatorAddress,
+      requestHash: finalRequestHash,
+    };
+  }
 
   if (!bundlerUrl || rawCalls.length === 0) {
     throw new Error('Validation request response missing bundlerUrl or calls');

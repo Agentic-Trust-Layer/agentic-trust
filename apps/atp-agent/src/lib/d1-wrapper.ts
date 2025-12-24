@@ -237,7 +237,7 @@ function createRemotePreparedStatement(
 ): D1PreparedStatement {
   let boundParams: unknown[] = [];
 
-  const executeQuery = async (): Promise<any> => {
+  const executeQuery = async (): Promise<{ results: any[]; meta: any }> => {
     const response = await fetch(`${baseUrl}/query`, {
       method: 'POST',
       headers: {
@@ -263,22 +263,31 @@ function createRemotePreparedStatement(
     }
 
     const result = await response.json();
-    
-    // Cloudflare D1 API returns { result: [[...], {...}] } format
-    // First array is results, second object is metadata
-    if (result.result && Array.isArray(result.result)) {
-      const [results, meta] = result.result;
-      return {
-        results: Array.isArray(results) ? results : [],
-        meta: meta || {},
-      };
+
+    // Cloudflare API common shapes:
+    // 1) D1 REST: { success, result: [ { results: [...], success, meta: {...} } ], errors, messages }
+    // 2) Some wrappers: { result: [ [...rows], {...meta} ] }
+    // 3) Local/dev: { results: [...], meta: {...} } or direct array
+    if (result && Array.isArray((result as any).result)) {
+      const resultArr = (result as any).result as any[];
+      const r0 = resultArr[0];
+
+      // Shape (1)
+      if (r0 && typeof r0 === 'object' && Array.isArray((r0 as any).results)) {
+        const metaObj = (r0 as any).meta && typeof (r0 as any).meta === 'object' ? (r0 as any).meta : {};
+        return { results: (r0 as any).results, meta: metaObj };
+      }
+
+      // Shape (2)
+      const [rows, meta] = resultArr;
+      const metaObj = meta && typeof meta === 'object' ? meta : {};
+      return { results: Array.isArray(rows) ? rows : [], meta: metaObj };
     }
-    
-    // Fallback: assume direct array or object
-    return {
-      results: Array.isArray(result) ? result : (result.results || []),
-      meta: result.meta || {},
-    };
+
+    // Fallback (3)
+    const rows = Array.isArray(result) ? result : Array.isArray((result as any)?.results) ? (result as any).results : [];
+    const metaObj = (result as any)?.meta && typeof (result as any).meta === 'object' ? (result as any).meta : {};
+    return { results: rows, meta: metaObj };
   };
 
   const stmt: D1PreparedStatement = {
@@ -300,15 +309,16 @@ function createRemotePreparedStatement(
     },
     async run<T = unknown>(): Promise<D1Result<T>> {
       const { results, meta } = await executeQuery();
+      const metaObj = meta && typeof meta === 'object' ? meta : {};
       return {
         success: true,
         meta: {
-          duration: meta.duration || 0,
-          rows_read: meta.rows_read || (Array.isArray(results) ? results.length : 0),
-          rows_written: meta.rows_written || 0,
-          last_row_id: meta.last_row_id || 0,
-          changed_db: meta.changed_db || false,
-          changes: meta.changes || 0,
+          duration: (metaObj as any).duration ?? 0,
+          rows_read: (metaObj as any).rows_read ?? (Array.isArray(results) ? results.length : 0),
+          rows_written: (metaObj as any).rows_written ?? 0,
+          last_row_id: (metaObj as any).last_row_id ?? 0,
+          changed_db: (metaObj as any).changed_db ?? false,
+          changes: (metaObj as any).changes ?? 0,
         },
         results: (Array.isArray(results) ? results : []) as T[],
       };

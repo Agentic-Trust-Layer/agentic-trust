@@ -59,7 +59,7 @@ import {
   requestAppValidationWithWallet,
 } from '@agentic-trust/core/client';
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
-import { encodeAbiParameters, getAddress, keccak256, parseAbiParameters, toHex } from 'viem';
+import { createPublicClient, encodeAbiParameters, getAddress, http, keccak256, parseAbiParameters, toHex } from 'viem';
 import type { Chain } from 'viem';
 import { INBOX_TASK_TYPE_OPTIONS, type InboxTaskType } from '@/models/a2aTasks';
 
@@ -99,7 +99,7 @@ type AssociationRequestPayload = {
   data: `0x${string}`;
   digest: `0x${string}`;
   initiatorSignature: `0x${string}`;
-  signatureMethod?: 'eth_sign' | 'personal_sign';
+  signatureMethod?: 'eth_sign' | 'eth_signTypedData_v4' | 'eth_signTypedData_v3';
 };
 
 const ASSOCIATION_PAYLOAD_MARKER_BEGIN = '---BEGIN ASSOCIATION PAYLOAD---';
@@ -123,9 +123,10 @@ async function signAssociationDigest(params: {
   provider: any;
   signerAddress: `0x${string}`;
   digest: `0x${string}`;
-  preferredMethod?: 'eth_sign' | 'personal_sign';
-}): Promise<{ signature: `0x${string}`; method: 'eth_sign' | 'personal_sign' }> {
-  const { provider, signerAddress, digest, preferredMethod } = params;
+  typedData?: any;
+  preferredMethod?: 'eth_sign' | 'eth_signTypedData_v4' | 'eth_signTypedData_v3';
+}): Promise<{ signature: `0x${string}`; method: 'eth_sign' | 'eth_signTypedData_v4' | 'eth_signTypedData_v3' }> {
+  const { provider, signerAddress, digest, typedData, preferredMethod } = params;
   const tryEthSign = async () => {
     const sig = (await provider.request?.({
       method: 'eth_sign',
@@ -134,15 +135,47 @@ async function signAssociationDigest(params: {
     return sig;
   };
 
-  // IMPORTANT: For ERC-8092 validation in the on-chain contract, signatures are verified over the raw
-  // EIP-712 hash (bytes32 digest). `personal_sign` prefixes the message and will NOT validate.
-  // So we require `eth_sign` here.
-  const order: Array<'eth_sign'> = ['eth_sign'];
+  const trySignTypedDataV4 = async () => {
+    if (!typedData) throw new Error('typedData is required for eth_signTypedData_v4');
+    const sig = (await provider.request?.({
+      method: 'eth_signTypedData_v4',
+      params: [signerAddress, JSON.stringify(typedData)],
+    })) as `0x${string}`;
+    return sig;
+  };
+
+  const trySignTypedDataV3 = async () => {
+    if (!typedData) throw new Error('typedData is required for eth_signTypedData_v3');
+    const sig = (await provider.request?.({
+      method: 'eth_signTypedData_v3',
+      params: [signerAddress, JSON.stringify(typedData)],
+    })) as `0x${string}`;
+    return sig;
+  };
+
+  // IMPORTANT:
+  // ERC-8092 verifies signatures over the raw EIP-712 digest.
+  // - `eth_sign` on the digest works.
+  // - `eth_signTypedData_v4/v3` also works (it signs the same digest).
+  // - `personal_sign` prefixes the message and will NOT validate on-chain for this scheme.
+  const baseOrder: Array<'eth_sign' | 'eth_signTypedData_v4' | 'eth_signTypedData_v3'> = [
+    'eth_sign',
+    'eth_signTypedData_v4',
+    'eth_signTypedData_v3',
+  ];
+  const order = preferredMethod
+    ? [preferredMethod, ...baseOrder.filter((m) => m !== preferredMethod)]
+    : baseOrder;
 
   let lastErr: any = null;
   for (const method of order) {
     try {
-      const signature = await tryEthSign();
+      const signature =
+        method === 'eth_sign'
+          ? await tryEthSign()
+          : method === 'eth_signTypedData_v4'
+            ? await trySignTypedDataV4()
+            : await trySignTypedDataV3();
       if (signature && signature !== '0x') return { signature, method };
     } catch (e) {
       lastErr = e;
@@ -151,9 +184,95 @@ async function signAssociationDigest(params: {
   throw (
     lastErr ??
     new Error(
-      'Failed to sign digest via eth_sign. This wallet must support eth_sign for ERC-8092 association approvals.',
+      'Failed to sign association. This wallet must support eth_sign or eth_signTypedData_v4/v3 for ERC-8092 association approvals.',
     )
   );
+}
+
+function buildAssociationTypedData(params: {
+  initiatorInterop: string;
+  approverInterop: string;
+  validAt: number;
+  validUntil: number;
+  interfaceId: `0x${string}`;
+  data: `0x${string}`;
+}) {
+  const { initiatorInterop, approverInterop, validAt, validUntil, interfaceId, data } = params;
+  return {
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+      ],
+      AssociatedAccountRecord: [
+        { name: 'initiator', type: 'bytes' },
+        { name: 'approver', type: 'bytes' },
+        { name: 'validAt', type: 'uint40' },
+        { name: 'validUntil', type: 'uint40' },
+        { name: 'interfaceId', type: 'bytes4' },
+        { name: 'data', type: 'bytes' },
+      ],
+    },
+    primaryType: 'AssociatedAccountRecord',
+    domain: { name: 'AssociatedAccounts', version: '1' },
+    message: {
+      initiator: initiatorInterop,
+      approver: approverInterop,
+      validAt,
+      validUntil,
+      interfaceId,
+      data,
+    },
+  };
+}
+
+async function getConnectedEoaAddress(provider: any): Promise<`0x${string}`> {
+  const accounts = (await provider?.request?.({ method: 'eth_accounts', params: [] })) as unknown;
+  const first = Array.isArray(accounts) ? (accounts[0] as string | undefined) : undefined;
+  if (!first || typeof first !== 'string' || !first.startsWith('0x')) {
+    throw new Error('Wallet is not connected (no eth_accounts available)');
+  }
+  return getAddress(first) as `0x${string}`;
+}
+
+async function isErc1271ValidSignature(params: {
+  chain: Chain;
+  contract: `0x${string}`;
+  digest: `0x${string}`;
+  signature: `0x${string}`;
+}): Promise<boolean> {
+  const { chain, contract, digest, signature } = params;
+  const rpcUrl = chain?.rpcUrls?.default?.http?.[0];
+  if (!rpcUrl) return false;
+
+  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) }) as any;
+  const bytecode = (await publicClient.getBytecode({ address: contract }).catch(() => null)) as
+    | `0x${string}`
+    | null;
+  if (!bytecode || bytecode === '0x') return false;
+
+  // Standard ERC-1271 magic value.
+  const ERC1271_ABI = [
+    {
+      type: 'function',
+      name: 'isValidSignature',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'hash', type: 'bytes32' },
+        { name: 'signature', type: 'bytes' },
+      ],
+      outputs: [{ name: 'magicValue', type: 'bytes4' }],
+    },
+  ] as const;
+
+  const magic = (await publicClient.readContract({
+    address: contract,
+    abi: ERC1271_ABI,
+    functionName: 'isValidSignature',
+    args: [digest, signature],
+  }).catch(() => null)) as `0x${string}` | null;
+
+  return String(magic || '').toLowerCase() === '0x1626ba7e';
 }
 
 type AgentSearchOption = {
@@ -444,13 +563,23 @@ export default function MessagesPage() {
 
   const selectedAssociationRequestMessage = useMemo(() => {
     if (!selectedThread) return null;
-    // Prefer the newest association_request message that contains a payload block.
-    return (
-      selectedThread.messages.find(
-        (m) => m.contextType === 'association_request' && Boolean(extractAssociationPayloadFromBody(m.body)),
-      ) ?? null
-    );
+    // Prefer the newest association_request message (payload may be missing if request prep failed,
+    // but we still want to surface an "Approve Association" action + error state).
+    return selectedThread.messages.find((m) => m.contextType === 'association_request') ?? null;
   }, [selectedThread]);
+
+  const selectedFolderDid = useMemo(() => {
+    if (!selectedFolderAgent) return null;
+    return buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId);
+  }, [selectedFolderAgent]);
+
+  const canApproveAssociation = useMemo(() => {
+    if (mailboxMode !== 'inbox') return false;
+    if (!selectedAssociationRequestMessage) return false;
+    if (!selectedFolderDid) return false;
+    const toDid = normalizeDid(selectedAssociationRequestMessage.toAgentDid);
+    return Boolean(toDid) && toDid === normalizeDid(selectedFolderDid);
+  }, [mailboxMode, selectedAssociationRequestMessage, selectedFolderDid]);
 
   const selectedMessageTargetDid = useMemo(() => {
     // For feedback_request_approved, the sender is the target agent that will issue feedbackAuth.
@@ -656,6 +785,13 @@ export default function MessagesPage() {
       const validationKind = 'compliance';
       const validationDetails = 'Validation Request';
 
+      const threadTaskId =
+        (msg as any).taskId ??
+        (msg as any).task_id ??
+        (msg as any).contextId ??
+        (msg as any).context_id ??
+        generateTaskId();
+
       // Generate ValidationResult structure similar to name-validation validator
       const validationResult = {
         kind: 'erc8004.validation.request@1' as const,
@@ -666,7 +802,7 @@ export default function MessagesPage() {
         validationRegistry: validationRequestStatus.validationRegistry || '',
         requesterAddress: validationRequestStatus.requesterAddress || '',
         validatorAddress: validationRequestStatus.validatorAddress || selectedFolderAgent.agentAccount || '',
-        taskId: generateTaskId(),
+        taskId: threadTaskId,
         createdAt: new Date().toISOString(),
         claim: {
           type: validationKind,
@@ -758,6 +894,56 @@ export default function MessagesPage() {
         throw new Error(data?.error || data?.response?.error || 'Failed to submit validation response');
       }
 
+      // Reply back to requester in the same task thread (this is what shows up in Inbox UI).
+      // Keep contextType as 'validation_request' so ATP threads it under the original task.
+      const replyBody = [
+        `Validation response submitted.`,
+        ``,
+        `requestHash: ${validationRequestHash}`,
+        `score: ${responseScore}`,
+        `responseUri: ${finalResponseUri}`,
+        ``,
+        `[validation_response]`,
+        JSON.stringify(
+          {
+            kind: 'erc8004.validation.response@1',
+            chainId: selectedFolderAgent.chainId,
+            requesterDid: msg.fromAgentDid,
+            validatorDid: currentAgentDid,
+            requestHash: validationRequestHash,
+            response: responseScore,
+            responseUri: finalResponseUri,
+            taskId: threadTaskId,
+            createdAt: new Date().toISOString(),
+          },
+          null,
+          2,
+        ),
+        `[/validation_response]`,
+      ].join('\n');
+
+      const replyRes = await fetch('/api/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'validation_request',
+          subject: `Validation Response: ${responseScore}`,
+          content: replyBody,
+          fromClientAddress: walletAddress,
+          fromAgentDid: currentAgentDid,
+          fromAgentName: selectedFolderAgent.agentName || null,
+          toAgentDid: msg.fromAgentDid,
+          toAgentName: msg.fromAgentName || null,
+          taskId: threadTaskId,
+          metadata: { source: 'admin-app', timestamp: new Date().toISOString() },
+        }),
+      });
+
+      const replyJson = await replyRes.json().catch(() => ({}));
+      if (!replyRes.ok) {
+        throw new Error(replyJson?.error || replyJson?.message || 'Failed to send validation response message');
+      }
+
       setValidateDialogOpen(false);
       setValidationRequestHash(null);
       setValidationRequestStatus(null);
@@ -767,7 +953,15 @@ export default function MessagesPage() {
     } finally {
       setValidationResponseLoading(false);
     }
-  }, [validationRequestHash, validationRequestStatus, selectedFolderAgent, selectedMessage, validationRequestDetails, fetchMessages]);
+  }, [
+    validationRequestHash,
+    selectedFolderAgent,
+    selectedValidationRequestMessage,
+    validationRequestStatus,
+    walletAddress,
+    fetchMessages,
+    checkValidationRequest,
+  ]);
 
   useEffect(() => {
     // Reset per-message feedbackAuth state whenever selection changes
@@ -1041,10 +1235,16 @@ export default function MessagesPage() {
         }
       } else {
         const content = composeBody.trim();
-        if (!content) {
+        if (!content && selectedMessageType !== 'validation_request' && selectedMessageType !== 'association_request') {
           throw new Error('Message body is required.');
         }
-        let contentToSend = content;
+        let contentToSend =
+          content ||
+          (selectedMessageType === 'validation_request'
+            ? `Request validation (${validationRequestKind})`
+            : selectedMessageType === 'association_request'
+              ? 'Request association'
+              : '');
 
         const subject =
           composeSubject.trim() ||
@@ -1065,14 +1265,10 @@ export default function MessagesPage() {
 
             const chainId = selectedFolderAgent.chainId;
             const chain = getChainById(chainId);
-            const bundlerUrl = getClientBundlerUrl(chainId);
-            if (!bundlerUrl) {
-              throw new Error(`Bundler URL not configured for chain ${chainId}`);
-            }
-
             if (!eip1193Provider || !walletAddress) {
               throw new Error('Wallet not connected');
             }
+            const signerEoa = await getConnectedEoaAddress(eip1193Provider);
 
             // Switch to correct chain
             if (eip1193Provider && typeof eip1193Provider.request === 'function') {
@@ -1087,22 +1283,25 @@ export default function MessagesPage() {
               }
             }
 
-            const agentName = selectedFolderAgent.agentName || '';
-            if (!agentName) {
-              throw new Error('Agent name is required');
-            }
-
             const initiatorDid = buildDid8004(chainId, selectedFolderAgent.agentId);
 
-            const agentAccountClient = await getDeployedAccountClientByAgentName(
-              bundlerUrl,
-              agentName,
-              walletAddress as `0x${string}`,
-              {
-                chain: chain as any,
-                ethereumProvider: eip1193Provider as any,
-              },
-            );
+            // IMPORTANT:
+            // The association record's initiator/approver addresses must be the *agent accounts* being associated.
+            // But in practice some agents are "EOA-owned" and their stored agentAccount may be a smart account
+            // that does NOT accept owner signatures (ERC-1271 not configured). In that case we fall back to
+            // using the owner EOA as the initiator address so the association is still actionable.
+            if (!selectedFolderAgent?.agentAccount) {
+              throw new Error(
+                'This agent is missing agentAccount. Cannot create an ERC-8092 association request without a concrete initiator account address.',
+              );
+            }
+
+            let initiatorAddress = getAddress(selectedFolderAgent.agentAccount as `0x${string}`) as `0x${string}`;
+            let isEoaOwnedInitiator =
+              initiatorAddress.toLowerCase() === String(signerEoa).toLowerCase();
+
+            // Only needed if we are going to immediately submit a self-association from an AA initiator.
+            let agentAccountClient: any | null = null;
 
             // Fetch "To Agent" account address (approverAddress)
             const toAgentDid = composeToAgent.did;
@@ -1125,7 +1324,6 @@ export default function MessagesPage() {
             });
 
             // Build record + digest + initiator signature (for later approver consent)
-            const initiatorAddress = getAddress(agentAccountClient.address) as `0x${string}`;
             const validAt = Math.max(0, Math.floor(Date.now() / 1000) - 10);
             const validUntil = 0;
             const interfaceId = '0x00000000' as const;
@@ -1155,43 +1353,81 @@ export default function MessagesPage() {
               ]);
               return ethers.hexlify(out);
             };
-            const initiatorInterop = formatEvmV1(chainId, initiatorAddress);
-            const approverInterop = formatEvmV1(chainId, approverAddress);
-            const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-            const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
-            const NAME_HASH = ethers.id('AssociatedAccounts');
-            const VERSION_HASH = ethers.id('1');
-            const MESSAGE_TYPEHASH = ethers.id(
-              'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
-            );
-            const domainSeparator = ethers.keccak256(
-              abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
-            );
-            const hashStruct = ethers.keccak256(
-              abiCoder.encode(
-                ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
-                [
-                  MESSAGE_TYPEHASH,
-                  ethers.keccak256(initiatorInterop),
-                  ethers.keccak256(approverInterop),
-                  validAt,
-                  validUntil,
-                  interfaceId,
-                  ethers.keccak256(data),
-                ],
-              ),
-            );
-            const digest = ethers.keccak256(
-              ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
-            ) as `0x${string}`;
+            const buildDigestBundle = async (params: { initiatorAddress: `0x${string}` }) => {
+              const initiatorInterop = formatEvmV1(chainId, params.initiatorAddress);
+              const approverInterop = formatEvmV1(chainId, approverAddress);
+              const typedData = buildAssociationTypedData({
+                initiatorInterop,
+                approverInterop,
+                validAt,
+                validUntil,
+                interfaceId,
+                data,
+              });
 
-            const ownerAddr = walletAddress as `0x${string}`;
-            const initiatorSig = await signAssociationDigest({
+              const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+              const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
+              const NAME_HASH = ethers.id('AssociatedAccounts');
+              const VERSION_HASH = ethers.id('1');
+              const MESSAGE_TYPEHASH = ethers.id(
+                'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+              );
+              const domainSeparator = ethers.keccak256(
+                abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
+              );
+              const hashStruct = ethers.keccak256(
+                abiCoder.encode(
+                  ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
+                  [
+                    MESSAGE_TYPEHASH,
+                    ethers.keccak256(initiatorInterop),
+                    ethers.keccak256(approverInterop),
+                    validAt,
+                    validUntil,
+                    interfaceId,
+                    ethers.keccak256(data),
+                  ],
+                ),
+              );
+              const digest = ethers.keccak256(
+                ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
+              ) as `0x${string}`;
+
+              return { initiatorInterop, approverInterop, typedData, digest };
+            };
+
+            let { typedData, digest } = await buildDigestBundle({ initiatorAddress });
+            let initiatorSig = await signAssociationDigest({
               provider: eip1193Provider,
-              signerAddress: ownerAddr,
+              signerAddress: signerEoa,
               digest,
+              typedData,
             });
             const initiatorSignature = initiatorSig.signature;
+
+            // If initiatorAddress is a smart account but rejects the owner's signature, treat initiator as EOA.
+            if (!isEoaOwnedInitiator) {
+              const ok1271 = await isErc1271ValidSignature({
+                chain: chain as any,
+                contract: initiatorAddress,
+                digest,
+                signature: initiatorSignature,
+              });
+              if (!ok1271) {
+                initiatorAddress = signerEoa;
+                isEoaOwnedInitiator = true;
+                const rebuilt = await buildDigestBundle({ initiatorAddress });
+                typedData = rebuilt.typedData;
+                digest = rebuilt.digest;
+                initiatorSig = await signAssociationDigest({
+                  provider: eip1193Provider,
+                  signerAddress: signerEoa,
+                  digest,
+                  typedData,
+                  preferredMethod: initiatorSig.method,
+                });
+              }
+            }
 
             const payload: AssociationRequestPayload = {
               version: 1,
@@ -1213,9 +1449,27 @@ export default function MessagesPage() {
 
             // If initiator == approver (self-association), we can submit immediately.
             if (initiatorAddress.toLowerCase() === approverAddress.toLowerCase()) {
+              if (!isEoaOwnedInitiator) {
+                const bundlerUrl = getClientBundlerUrl(chainId);
+                if (!bundlerUrl) throw new Error(`Bundler URL not configured for chain ${chainId}`);
+                const agentName = selectedFolderAgent.agentName || '';
+                if (!agentName) throw new Error('Agent name is required');
+                agentAccountClient = await getDeployedAccountClientByAgentName(
+                  bundlerUrl,
+                  agentName,
+                  walletAddress as `0x${string}`,
+                  { chain: chain as any, ethereumProvider: eip1193Provider as any },
+                );
+              }
               const result = await finalizeAssociationWithWallet({
                 chain: chain as any,
-                submitterAccountClient: agentAccountClient,
+                ...(isEoaOwnedInitiator
+                  ? {
+                      mode: 'eoa' as const,
+                      ethereumProvider: eip1193Provider as any,
+                      account: signerEoa,
+                    }
+                  : { mode: 'smartAccount' as const, submitterAccountClient: agentAccountClient }),
                 requesterDid: initiatorDid,
                 approverAddress,
                 assocType: associationRequestType,
@@ -1238,8 +1492,8 @@ export default function MessagesPage() {
             }
           } catch (assocError: any) {
             console.error('[Association Request] Failed to create association:', assocError);
-            // Continue with message sending even if association creation fails
-            // The user will still get the message notification
+            // Association requests must include a payload block to be actionable.
+            throw assocError;
           }
         } else if (selectedMessageType === 'validation_request') {
           try {
@@ -1342,6 +1596,11 @@ export default function MessagesPage() {
 
             // Create on-chain validation request
             const requesterDid = buildDid8004(chainId, selectedFolderAgent.agentId);
+            const isEoaOwnedRequester =
+              Boolean(selectedFolderAgent?.agentAccount) &&
+              Boolean(walletAddress) &&
+              String(selectedFolderAgent.agentAccount || '').toLowerCase() === String(walletAddress).toLowerCase();
+
             const validationResult = await requestValidationFn({
               requesterDid,
               requestUri,
@@ -1349,6 +1608,9 @@ export default function MessagesPage() {
               chain: chain as any,
               requesterAccountClient: agentAccountClient,
               validatorAddress, // Pass the "To Agent" account address as the validator
+              mode: isEoaOwnedRequester ? 'eoa' : 'smartAccount',
+              ethereumProvider: eip1193Provider as any,
+              account: (walletAddress as any) as `0x${string}`,
               onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
             } as any);
 
@@ -1357,6 +1619,21 @@ export default function MessagesPage() {
               validatorAddress: validationResult.validatorAddress,
               requestHash: validationResult.requestHash,
             });
+
+            // Persist validation details in the inbox message body (ATP only stores subject/body/context/task fields).
+            const validationBlock = {
+              kind: 'erc8004.validation.request@1',
+              chainId,
+              requesterDid,
+              validatorDid: toAgentDid,
+              validatorAddress,
+              requestUri,
+              requestHash,
+              txHash: validationResult.txHash,
+              mode: isEoaOwnedRequester ? 'eoa' : 'smartAccount',
+              createdAt: new Date().toISOString(),
+            };
+            contentToSend = `${contentToSend}\n\n[validation_request]\n${JSON.stringify(validationBlock)}\n[/validation_request]`;
           } catch (validationErr: any) {
             console.error('[Validation Request] Failed to create on-chain validation request:', validationErr);
             // Continue with message sending even if validation request creation fails
@@ -1366,7 +1643,31 @@ export default function MessagesPage() {
 
 
 
-        // no-op
+        // Create the ATP inbox message (this is what creates/updates the task thread).
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: selectedMessageType,
+            subject,
+            content: contentToSend,
+            fromClientAddress: walletAddress,
+            fromAgentDid: selectedFromAgentDid,
+            fromAgentName: selectedFolderAgent.agentName || null,
+            toAgentDid: composeToAgent.did,
+            toAgentName: composeToAgent.agentName,
+            taskId: composeTaskId,
+            metadata: {
+              source: 'admin-app',
+              timestamp: new Date().toISOString(),
+            },
+          }),
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || data?.message || 'Failed to send message');
+        }
       }
 
       setComposeOpen(false);
@@ -1393,6 +1694,7 @@ export default function MessagesPage() {
     associationRequestDescription,
     walletAddress,
     eip1193Provider,
+    composeTaskId,
     fetchMessages,
   ]);
 
@@ -1914,7 +2216,7 @@ export default function MessagesPage() {
                             </Box>
                           )}
 
-                        {mailboxMode === 'inbox' && Boolean(selectedAssociationRequestMessage) && (
+                        {canApproveAssociation && (
                             <Box>
                               <Button
                                 variant="contained"
@@ -2704,9 +3006,8 @@ export default function MessagesPage() {
               try {
                 const chainId = approveAssociationPayload.chainId;
                 const chain = getChainById(chainId);
-                const bundlerUrl = getClientBundlerUrl(chainId);
-                if (!bundlerUrl) throw new Error(`Bundler URL not configured for chain ${chainId}`);
                 if (!eip1193Provider || !walletAddress) throw new Error('Wallet not connected');
+                const signerEoa = await getConnectedEoaAddress(eip1193Provider);
 
                 // Switch chain
                 if (typeof eip1193Provider.request === 'function') {
@@ -2719,22 +3020,63 @@ export default function MessagesPage() {
                   } catch {}
                 }
 
-                // Build AA account client for the approver agent (current folder agent)
-                const approverAgentName = selectedFolderAgent.agentName || '';
-                if (!approverAgentName) throw new Error('Approver agent name is required');
-                const approverAccountClient = await getDeployedAccountClientByAgentName(
-                  bundlerUrl,
-                  approverAgentName,
-                  walletAddress as `0x${string}`,
-                  { chain: chain as any, ethereumProvider: eip1193Provider as any },
-                );
+                const isEoaOwnedApprover =
+                  Boolean(selectedFolderAgent?.agentAccount) &&
+                  String(selectedFolderAgent.agentAccount || '').toLowerCase() === String(signerEoa).toLowerCase();
+
+                // For AA approvers, build the deployed smart account client for bundler submission.
+                let approverAccountClient: any | null = null;
+                if (!isEoaOwnedApprover) {
+                  const bundlerUrl = getClientBundlerUrl(chainId);
+                  if (!bundlerUrl) throw new Error(`Bundler URL not configured for chain ${chainId}`);
+                  const approverAgentName = selectedFolderAgent.agentName || '';
+                  if (!approverAgentName) throw new Error('Approver agent name is required');
+                  approverAccountClient = await getDeployedAccountClientByAgentName(
+                    bundlerUrl,
+                    approverAgentName,
+                    walletAddress as `0x${string}`,
+                    { chain: chain as any, ethereumProvider: eip1193Provider as any },
+                  );
+                }
 
                 // Approver signature (prefer matching initiator's signing method)
                 const preferredMethod = approveAssociationPayload.signatureMethod;
+                // Rebuild typed data (so wallets that don't support eth_sign can use signTypedData).
+                const { ethers } = await import('ethers');
+                const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+                  if (n === 0n) return new Uint8Array([0]);
+                  let hex = n.toString(16);
+                  if (hex.length % 2) hex = `0${hex}`;
+                  return ethers.getBytes(`0x${hex}`);
+                };
+                const formatEvmV1 = (chainId: number, address: string): string => {
+                  const addr = ethers.getAddress(address);
+                  const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+                  const head = ethers.getBytes('0x00010000');
+                  const out = ethers.concat([
+                    head,
+                    new Uint8Array([chainRef.length]),
+                    chainRef,
+                    new Uint8Array([20]),
+                    ethers.getBytes(addr),
+                  ]);
+                  return ethers.hexlify(out);
+                };
+                const initiatorInterop = formatEvmV1(chainId, approveAssociationPayload.initiatorAddress);
+                const approverInterop = formatEvmV1(chainId, approveAssociationPayload.approverAddress);
+                const typedData = buildAssociationTypedData({
+                  initiatorInterop,
+                  approverInterop,
+                  validAt: approveAssociationPayload.validAt,
+                  validUntil: approveAssociationPayload.validUntil,
+                  interfaceId: approveAssociationPayload.interfaceId,
+                  data: approveAssociationPayload.data,
+                });
                 const approverSig = await signAssociationDigest({
                   provider: eip1193Provider,
-                  signerAddress: walletAddress as `0x${string}`,
+                  signerAddress: signerEoa,
                   digest: approveAssociationPayload.digest,
+                  typedData,
                   preferredMethod,
                 });
 
@@ -2742,8 +3084,15 @@ export default function MessagesPage() {
                 try {
                   res = await finalizeAssociationWithWallet({
                     chain: chain as any,
-                    submitterAccountClient: approverAccountClient,
+                    ...(isEoaOwnedApprover
+                      ? {
+                          mode: 'eoa' as const,
+                          ethereumProvider: eip1193Provider as any,
+                          account: signerEoa,
+                        }
+                      : { mode: 'smartAccount' as const, submitterAccountClient: approverAccountClient }),
                     requesterDid: approveAssociationPayload.initiatorDid,
+                    initiatorAddress: approveAssociationPayload.initiatorAddress,
                     approverAddress: approveAssociationPayload.approverAddress,
                     assocType: approveAssociationPayload.assocType,
                     description: approveAssociationPayload.description,
@@ -2754,20 +3103,30 @@ export default function MessagesPage() {
                     onStatusUpdate: (msg: string) => console.log('[Association Approve]', msg),
                   } as any);
                 } catch (e: any) {
-                  // Back-compat: if payload didn't record initiator method, try the other method once.
+                  // Retry once with a different signing method (never use personal_sign; it won't validate on-chain).
                   if (!preferredMethod) {
                     const fallbackMethod =
-                      approverSig.method === 'eth_sign' ? 'personal_sign' : 'eth_sign';
+                      approverSig.method === 'eth_sign'
+                        ? 'eth_signTypedData_v4'
+                        : 'eth_sign';
                     const fallbackSig = await signAssociationDigest({
                       provider: eip1193Provider,
-                      signerAddress: walletAddress as `0x${string}`,
+                      signerAddress: signerEoa,
                       digest: approveAssociationPayload.digest,
+                      typedData,
                       preferredMethod: fallbackMethod,
                     });
                     res = await finalizeAssociationWithWallet({
                       chain: chain as any,
-                      submitterAccountClient: approverAccountClient,
+                      ...(isEoaOwnedApprover
+                        ? {
+                            mode: 'eoa' as const,
+                            ethereumProvider: eip1193Provider as any,
+                            account: signerEoa,
+                          }
+                        : { mode: 'smartAccount' as const, submitterAccountClient: approverAccountClient }),
                       requesterDid: approveAssociationPayload.initiatorDid,
+                      initiatorAddress: approveAssociationPayload.initiatorAddress,
                       approverAddress: approveAssociationPayload.approverAddress,
                       assocType: approveAssociationPayload.assocType,
                       description: approveAssociationPayload.description,

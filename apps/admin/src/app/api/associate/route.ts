@@ -10,6 +10,7 @@ export async function POST(req: Request) {
     const body = (await req.json()) as {
       did8004?: string; // initiator agent DID
       initiatorDid?: string; // alias for did8004
+      initiatorAddress?: `0x${string}`;
       approverAddress?: string; // counterparty account address
       assocType?: number;
       description?: string;
@@ -55,6 +56,7 @@ export async function POST(req: Request) {
 
     const plan = await prepareAssociationRequest(undefined, {
       did8004,
+      initiatorAddress: body.initiatorAddress,
       approverAddress,
       assocType: body.assocType,
       description: body.description,

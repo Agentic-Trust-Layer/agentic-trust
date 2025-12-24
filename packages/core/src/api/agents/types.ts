@@ -119,6 +119,11 @@ export interface PrepareValidationRequestPayload {
 
 export interface PrepareAssociationRequestPayload {
   did8004: string;
+  /**
+   * Optional: override the initiator account address used in the association record.
+   * If provided, server will use this instead of the agent's stored agentAccount.
+   */
+  initiatorAddress?: `0x${string}`;
   approverAddress: string; // The agent account address that will approve the association
   assocType?: number; // Association type (0=Membership, 1=Delegation, etc.)
   description?: string; // Description of the association

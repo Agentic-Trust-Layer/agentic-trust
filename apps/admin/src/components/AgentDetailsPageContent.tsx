@@ -444,7 +444,7 @@ export default function AgentDetailsPageContent({
       const messageRequest = {
         message: `Feedback Request: ${feedbackRequestReason}`,
         payload: {
-          type: 'feedback_request',
+          type: 'feedback_auth_request',
           comment: feedbackRequestReason,
           clientAddress: walletAddress,
           fromAgentId: fromAgentId,
@@ -457,7 +457,7 @@ export default function AgentDetailsPageContent({
           toAgentName: agent.agentName || `Agent #${agent.agentId}`,
         },
         metadata: {
-          requestType: 'feedback_request',
+          requestType: 'feedback_auth_request',
           timestamp: new Date().toISOString(),
           fromAgentId: fromAgentId,
           fromAgentChainId: parsedFromChainId,

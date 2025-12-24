@@ -127,37 +127,43 @@ async function ensureTasksSchema(db: D1Database): Promise<void> {
   if (tasksSchemaEnsured) return;
 
   // Tasks table (thread metadata)
-  await db.exec(`
-CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'open',
-  subject TEXT NULL,
-  from_agent_did TEXT NULL,
-  from_agent_name TEXT NULL,
-  to_agent_did TEXT NULL,
-  to_agent_name TEXT NULL,
-  from_client_address TEXT NULL,
-  to_client_address TEXT NULL,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-  last_message_at INTEGER NULL
-);
-CREATE INDEX IF NOT EXISTS idx_tasks_from_agent_did ON tasks(from_agent_did);
-CREATE INDEX IF NOT EXISTS idx_tasks_to_agent_did ON tasks(to_agent_did);
-CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);
-CREATE INDEX IF NOT EXISTS idx_tasks_last_message_at ON tasks(last_message_at);
-`);
+  // NOTE: Cloudflare D1 `exec()` can be fragile with multi-statement SQL in some runtimes;
+  // also avoid `exec()` entirely (Cloudflare internal tracing can crash when aggregating exec meta).
+  const ddl: string[] = [
+    `CREATE TABLE IF NOT EXISTS tasks (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      subject TEXT NULL,
+      from_agent_did TEXT NULL,
+      from_agent_name TEXT NULL,
+      to_agent_did TEXT NULL,
+      to_agent_name TEXT NULL,
+      from_client_address TEXT NULL,
+      to_client_address TEXT NULL,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      last_message_at INTEGER NULL
+    );`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_from_agent_did ON tasks(from_agent_did);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_to_agent_did ON tasks(to_agent_did);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_created_at ON tasks(created_at);`,
+    `CREATE INDEX IF NOT EXISTS idx_tasks_last_message_at ON tasks(last_message_at);`,
+  ];
+
+  for (const stmt of ddl) {
+    await db.prepare(stmt).run();
+  }
 
   // Add explicit task columns to messages (safe to attempt repeatedly; ignore "duplicate column" errors).
   try {
-    await db.exec('ALTER TABLE messages ADD COLUMN task_id TEXT NULL;');
+    await db.prepare('ALTER TABLE messages ADD COLUMN task_id TEXT NULL;').run();
   } catch {}
   try {
-    await db.exec('ALTER TABLE messages ADD COLUMN task_type TEXT NULL;');
+    await db.prepare('ALTER TABLE messages ADD COLUMN task_type TEXT NULL;').run();
   } catch {}
   try {
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_messages_task_id ON messages(task_id);');
+    await db.prepare('CREATE INDEX IF NOT EXISTS idx_messages_task_id ON messages(task_id);').run();
   } catch {}
 
   tasksSchemaEnsured = true;
@@ -2881,6 +2887,7 @@ const handleA2A = async (c: HonoContext) => {
         if (!db) {
           throw new Error('D1 database is not available. Cannot query messages.');
         }
+        await ensureTasksSchema(db);
 
         const addr = clientAddress.toLowerCase();
         const rows = await db
@@ -2913,7 +2920,10 @@ const handleA2A = async (c: HonoContext) => {
         responseContent.messages = messages;
         responseContent.count = messages.length;
       } catch (error: any) {
-        console.error('[ATP Agent] Error querying client messages:', error);
+        console.error(
+          '[ATP Agent] Error querying client messages:',
+          error?.stack ? String(error.stack) : error,
+        );
         responseContent.error = error instanceof Error ? error.message : 'Failed to query messages';
         responseContent.skill = skillId;
         responseContent.success = false;
@@ -2951,6 +2961,7 @@ const handleA2A = async (c: HonoContext) => {
         if (!db) {
           throw new Error('D1 database is not available. Cannot query messages.');
         }
+        await ensureTasksSchema(db);
 
         const rows = await db
           .prepare(
@@ -2982,7 +2993,10 @@ const handleA2A = async (c: HonoContext) => {
         responseContent.messages = messages;
         responseContent.count = messages.length;
       } catch (error: any) {
-        console.error('[ATP Agent] Error querying agent messages:', error);
+        console.error(
+          '[ATP Agent] Error querying agent messages:',
+          error?.stack ? String(error.stack) : error,
+        );
         responseContent.error = error instanceof Error ? error.message : 'Failed to query messages';
         responseContent.skill = skillId;
         responseContent.success = false;
