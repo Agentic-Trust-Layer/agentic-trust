@@ -5,10 +5,10 @@
 @prefix prov: <http://www.w3.org/ns/prov#> .
 @prefix p-plan: <http://purl.org/net/p-plan#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
-@prefix agentictrust: <https://agentictrust.io/ontology/agentictrust#> .
+@prefix agentictrust: <https://www.agentictrust.io/ontology/agentictrust#> .
 
 agentictrust: a owl:Ontology ;
-  dcterms:title "Agentic Trust Ontology (Agent Cards + Intent Messaging)" ;
+  dcterms:title "AgenticTrustOntologyAgentCardsIntentMessaging" ;
   dcterms:description "Ontology for Agentic Trust concepts: ERC-8004 agents, A2A agent cards, skills, intent-driven messaging, tasks/workflows, and provenance. Grounded in PROV-O and P-PLAN." ;
   owl:imports <http://www.w3.org/ns/prov-o#> ;
   owl:imports <http://purl.org/net/p-plan#> ;
@@ -20,21 +20,16 @@ agentictrust: a owl:Ontology ;
 ########
 
 agentictrust:ERC8004Agent a owl:Class ;
-  rdfs:label "ERC-8004 Agent" ;
-  rdfs:subClassOf prov:Agent .
-
-agentictrust:IndexerAgent a owl:Class ;
-  rdfs:label "Indexer Agent" ;
-  rdfs:comment "Software agent performing indexing and agent-card retrieval." ;
-  rdfs:subClassOf prov:Agent .
+  rdfs:label "ERC8004Agent" ;
+  rdfs:subClassOf prov:SoftwareAgent .
 
 agentictrust:AgentRegistration a owl:Class ;
-  rdfs:label "ERC-8004 Registration JSON" ;
+  rdfs:label "ERC8004RegistrationJSON" ;
   rdfs:comment "Registration metadata (typically from tokenUri) that includes endpoints (e.g., A2A registration endpoint)." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:AgentCard a owl:Class ;
-  rdfs:label "A2A Agent Card" ;
+  rdfs:label "A2AAgentCard" ;
   rdfs:comment "A2A protocol agent card (agent.json / agent-card.json) describing skills, transports, and capabilities." ;
   rdfs:subClassOf prov:Entity .
 
@@ -44,17 +39,17 @@ agentictrust:Endpoint a owl:Class ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:TransportBinding a owl:Class ;
-  rdfs:label "Transport Binding" ;
+  rdfs:label "TransportBinding" ;
   rdfs:comment "Transport/protocol binding (e.g., HTTP+JSON, JSON-RPC)." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Skill a owl:Class ;
-  rdfs:label "A2A Skill" ;
+  rdfs:label "A2ASkill" ;
   rdfs:comment "A callable capability described in an A2A agent card." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:SkillExample a owl:Class ;
-  rdfs:label "Skill Example" ;
+  rdfs:label "SkillExample" ;
   rdfs:comment "Example attached to a skill; may contain intent-driven requests." ;
   rdfs:subClassOf prov:Entity .
 
@@ -68,21 +63,21 @@ agentictrust:Tag a owl:Class ;
 ########
 
 agentictrust:Message a owl:Class ;
-  rdfs:label "A2A Message" ;
+  rdfs:label "A2AMessage" ;
   rdfs:comment "A message exchanged between agents; carries content parts." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:MessagePart a owl:Class ;
-  rdfs:label "Message Part" ;
+  rdfs:label "MessagePart" ;
   rdfs:comment "Part of a message (text or structured data)." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:TextPart a owl:Class ;
-  rdfs:label "Text Part" ;
+  rdfs:label "TextPart" ;
   rdfs:subClassOf agentictrust:MessagePart .
 
 agentictrust:DataPart a owl:Class ;
-  rdfs:label "Data Part" ;
+  rdfs:label "DataPart" ;
   rdfs:subClassOf agentictrust:MessagePart .
 
 agentictrust:Intent a owl:Class ;
@@ -92,27 +87,27 @@ agentictrust:Intent a owl:Class ;
   rdfs:subClassOf p-plan:Plan .
 
 agentictrust:IntentType a owl:Class ;
-  rdfs:label "Intent Type" ;
+  rdfs:label "IntentType" ;
   rdfs:comment "Taxonomy value used to scope discovery and select compatible skills." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Action a owl:Class ;
-  rdfs:label "Intent Action" ;
+  rdfs:label "IntentAction" ;
   rdfs:comment "Action/verb used within an intent." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Subject a owl:Class ;
-  rdfs:label "Intent Subject" ;
+  rdfs:label "IntentSubject" ;
   rdfs:comment "The subject of an intent (e.g., an agent ENS name)." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Check a owl:Class ;
-  rdfs:label "Intent Check" ;
+  rdfs:label "IntentCheck" ;
   rdfs:comment "A requested check within an intent." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:ExpectedResult a owl:Class ;
-  rdfs:label "Expected Result" ;
+  rdfs:label "ExpectedResult" ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Evidence a owl:Class ;
@@ -120,7 +115,7 @@ agentictrust:Evidence a owl:Class ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Artifact a owl:Class ;
-  rdfs:label "Result Artifact" ;
+  rdfs:label "ResultArtifact" ;
   rdfs:comment "Artifact produced as a result of executing an intent (e.g., attestation, validation-result)." ;
   rdfs:subClassOf prov:Entity .
 
@@ -133,7 +128,7 @@ agentictrust:Attestation a owl:Class ;
 ########
 
 agentictrust:TaskType a owl:Class ;
-  rdfs:label "Task Type" ;
+  rdfs:label "TaskType" ;
   rdfs:comment "Workflow/task type derived from skills/intent taxonomy." ;
   rdfs:subClassOf prov:Entity .
 
@@ -143,25 +138,25 @@ agentictrust:Task a owl:Class ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:TaskExecution a owl:Class ;
-  rdfs:label "Task Execution" ;
+  rdfs:label "TaskExecution" ;
   rdfs:comment "Execution activity that realizes a task plan." ;
   rdfs:subClassOf prov:Activity .
 
 agentictrust:MessageSend a owl:Class ;
-  rdfs:label "Message Send" ;
+  rdfs:label "MessageSend" ;
   rdfs:subClassOf prov:Activity .
 
 agentictrust:MessageReceive a owl:Class ;
-  rdfs:label "Message Receive" ;
+  rdfs:label "MessageReceive" ;
   rdfs:subClassOf prov:Activity .
 
 agentictrust:SkillInvocation a owl:Class ;
-  rdfs:label "Skill Invocation" ;
+  rdfs:label "SkillInvocation" ;
   rdfs:comment "JSON-RPC based invocation of a skill at an A2A service endpoint." ;
   rdfs:subClassOf prov:Activity .
 
 agentictrust:AgentCardFetch a owl:Class ;
-  rdfs:label "Agent Card Fetch" ;
+  rdfs:label "AgentCardFetch" ;
   rdfs:comment "Indexing activity that retrieves an agent card from a registration endpoint." ;
   rdfs:subClassOf prov:Activity .
 
@@ -170,97 +165,97 @@ agentictrust:AgentCardFetch a owl:Class ;
 ########
 
 agentictrust:hasAgentRegistration a owl:ObjectProperty ;
-  rdfs:label "has agent registration" ;
+  rdfs:label "hasAgentRegistration" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range agentictrust:AgentRegistration .
 
 agentictrust:hasAgentCard a owl:ObjectProperty ;
-  rdfs:label "has agent card" ;
+  rdfs:label "hasAgentCard" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range agentictrust:AgentCard .
 
 agentictrust:hasEndpoint a owl:ObjectProperty ;
-  rdfs:label "has endpoint" ;
+  rdfs:label "hasEndpoint" ;
   rdfs:domain agentictrust:AgentCard ;
   rdfs:range agentictrust:Endpoint .
 
 agentictrust:hasSkill a owl:ObjectProperty ;
-  rdfs:label "has skill" ;
+  rdfs:label "hasSkill" ;
   rdfs:domain agentictrust:AgentCard ;
   rdfs:range agentictrust:Skill .
 
 agentictrust:hasExample a owl:ObjectProperty ;
-  rdfs:label "has example" ;
+  rdfs:label "hasExample" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range agentictrust:SkillExample .
 
 agentictrust:hasTag a owl:ObjectProperty ;
-  rdfs:label "has tag" ;
+  rdfs:label "hasTag" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range agentictrust:Tag .
 
 agentictrust:supportsIntentType a owl:ObjectProperty ;
-  rdfs:label "supports intent type" ;
+  rdfs:label "supportsIntentType" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range agentictrust:IntentType .
 
 agentictrust:hasIntent a owl:ObjectProperty ;
-  rdfs:label "has intent" ;
+  rdfs:label "hasIntent" ;
   rdfs:domain agentictrust:Message ;
   rdfs:range agentictrust:Intent .
 
 agentictrust:hasPart a owl:ObjectProperty ;
-  rdfs:label "has part" ;
+  rdfs:label "hasPart" ;
   rdfs:domain agentictrust:Message ;
   rdfs:range agentictrust:MessagePart .
 
 agentictrust:hasSubject a owl:ObjectProperty ;
-  rdfs:label "has subject" ;
+  rdfs:label "hasSubject" ;
   rdfs:domain agentictrust:Intent ;
   rdfs:range agentictrust:Subject .
 
 agentictrust:hasCheck a owl:ObjectProperty ;
-  rdfs:label "has check" ;
+  rdfs:label "hasCheck" ;
   rdfs:domain agentictrust:Intent ;
   rdfs:range agentictrust:Check .
 
 agentictrust:hasEvidence a owl:ObjectProperty ;
-  rdfs:label "has evidence" ;
+  rdfs:label "hasEvidence" ;
   rdfs:domain agentictrust:Intent ;
   rdfs:range agentictrust:Evidence .
 
 agentictrust:hasExpectedResult a owl:ObjectProperty ;
-  rdfs:label "has expected result" ;
+  rdfs:label "hasExpectedResult" ;
   rdfs:domain agentictrust:Intent ;
   rdfs:range agentictrust:ExpectedResult .
 
 agentictrust:producedArtifact a owl:ObjectProperty ;
-  rdfs:label "produced artifact" ;
+  rdfs:label "producedArtifact" ;
   rdfs:domain agentictrust:TaskExecution ;
   rdfs:range agentictrust:Artifact .
 
 agentictrust:taskHasType a owl:ObjectProperty ;
-  rdfs:label "task has type" ;
+  rdfs:label "taskHasType" ;
   rdfs:domain agentictrust:Task ;
   rdfs:range agentictrust:TaskType .
 
 agentictrust:taskRealizedBy a owl:ObjectProperty ;
-  rdfs:label "task realized by" ;
+  rdfs:label "taskRealizedBy" ;
   rdfs:domain agentictrust:Task ;
   rdfs:range agentictrust:TaskExecution .
 
 agentictrust:invokesSkill a owl:ObjectProperty ;
-  rdfs:label "invokes skill" ;
+  rdfs:label "invokesSkill" ;
   rdfs:domain agentictrust:SkillInvocation ;
   rdfs:range agentictrust:Skill .
 
 agentictrust:invocationUsedMessage a owl:ObjectProperty ;
-  rdfs:label "invocation used message" ;
+  rdfs:label "invocationUsedMessage" ;
   rdfs:domain agentictrust:SkillInvocation ;
   rdfs:range agentictrust:Message .
 
 agentictrust:hadPlan a owl:ObjectProperty ;
-  rdfs:label "had plan" ;
+  rdfs:label "hadPlan" ;
   rdfs:comment "Alias to prov:hadPlan to connect executions to intent/task plans." ;
   rdfs:subPropertyOf prov:hadPlan ;
   rdfs:domain prov:Activity ;
@@ -271,132 +266,132 @@ agentictrust:hadPlan a owl:ObjectProperty ;
 ########
 
 agentictrust:chainId a owl:DatatypeProperty ;
-  rdfs:label "chain id" ;
+  rdfs:label "chainId" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:integer .
 
 agentictrust:agentId a owl:DatatypeProperty ;
-  rdfs:label "agent id" ;
+  rdfs:label "agentId" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:agentName a owl:DatatypeProperty ;
-  rdfs:label "agent name" ;
+  rdfs:label "agentName" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:didIdentity a owl:DatatypeProperty ;
-  rdfs:label "did identity" ;
+  rdfs:label "didIdentity" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:didAccount a owl:DatatypeProperty ;
-  rdfs:label "did account" ;
+  rdfs:label "didAccount" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:didName a owl:DatatypeProperty ;
-  rdfs:label "did name" ;
+  rdfs:label "didName" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:agentAccount a owl:DatatypeProperty ;
-  rdfs:label "agent account" ;
+  rdfs:label "agentAccount" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:agentOwner a owl:DatatypeProperty ;
-  rdfs:label "agent owner" ;
+  rdfs:label "agentOwner" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:eoaOwner a owl:DatatypeProperty ;
-  rdfs:label "EOA owner" ;
+  rdfs:label "EOAOwner" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:tokenUri a owl:DatatypeProperty ;
-  rdfs:label "token URI" ;
+  rdfs:label "tokenURI" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:anyURI .
 
 agentictrust:a2aEndpoint a owl:DatatypeProperty ;
-  rdfs:label "A2A registration endpoint" ;
+  rdfs:label "A2ARegistrationEndpoint" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:anyURI .
 
 agentictrust:ensEndpoint a owl:DatatypeProperty ;
-  rdfs:label "ENS endpoint" ;
+  rdfs:label "ENSEndpoint" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:anyURI .
 
 agentictrust:agentAccountEndpoint a owl:DatatypeProperty ;
-  rdfs:label "agent account endpoint" ;
+  rdfs:label "agentAccountEndpoint" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:anyURI .
 
 agentictrust:supportedTrust a owl:DatatypeProperty ;
-  rdfs:label "supported trust (JSON string)" ;
+  rdfs:label "supportedTrustJSONString" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:string .
 
 agentictrust:createdAtTime a owl:DatatypeProperty ;
-  rdfs:label "created at time" ;
+  rdfs:label "createdAtTime" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:integer .
 
 agentictrust:updatedAtTime a owl:DatatypeProperty ;
-  rdfs:label "updated at time" ;
+  rdfs:label "updatedAtTime" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:integer .
 
 agentictrust:agentCardReadAt a owl:DatatypeProperty ;
-  rdfs:label "agent card read at" ;
+  rdfs:label "agentCardReadAt" ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:integer .
 
 agentictrust:protocolVersion a owl:DatatypeProperty ;
-  rdfs:label "protocol version" ;
+  rdfs:label "protocolVersion" ;
   rdfs:domain agentictrust:AgentCard ;
   rdfs:range xsd:string .
 
 agentictrust:preferredTransport a owl:DatatypeProperty ;
-  rdfs:label "preferred transport" ;
+  rdfs:label "preferredTransport" ;
   rdfs:domain agentictrust:AgentCard ;
   rdfs:range xsd:string .
 
 agentictrust:serviceUrl a owl:DatatypeProperty ;
-  rdfs:label "service url" ;
+  rdfs:label "serviceUrl" ;
   rdfs:domain agentictrust:AgentCard ;
   rdfs:range xsd:anyURI .
 
 agentictrust:skillId a owl:DatatypeProperty ;
-  rdfs:label "skill id" ;
+  rdfs:label "skillId" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range xsd:string .
 
 agentictrust:skillName a owl:DatatypeProperty ;
-  rdfs:label "skill name" ;
+  rdfs:label "skillName" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range xsd:string .
 
 agentictrust:skillDescription a owl:DatatypeProperty ;
-  rdfs:label "skill description" ;
+  rdfs:label "skillDescription" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range xsd:string .
 
 agentictrust:intentTypeValue a owl:DatatypeProperty ;
-  rdfs:label "intent type (string)" ;
+  rdfs:label "intentTypeString" ;
   rdfs:domain agentictrust:Intent ;
   rdfs:range xsd:string .
 
 agentictrust:actionValue a owl:DatatypeProperty ;
-  rdfs:label "intent action (string)" ;
+  rdfs:label "intentActionString" ;
   rdfs:domain agentictrust:Intent ;
   rdfs:range xsd:string .
 
 agentictrust:json a owl:DatatypeProperty ;
-  rdfs:label "json payload" ;
+  rdfs:label "jsonPayload" ;
   rdfs:comment "Raw JSON payload for message parts, intents, agent cards, registrations." ;
   rdfs:range rdf:JSON .
 
@@ -404,19 +399,19 @@ agentictrust:json a owl:DatatypeProperty ;
 # Canonical intent type individuals (starter set)
 ########
 
-<https://agentictrust.io/ontology/agentictrust/intentType/trust.validation> a agentictrust:IntentType ;
+<https://www.agentictrust.io/ontology/agentictrust/intentType/trust.validation> a agentictrust:IntentType ;
   rdfs:label "trust.validation" .
 
-<https://agentictrust.io/ontology/agentictrust/intentType/trust.feedback> a agentictrust:IntentType ;
+<https://www.agentictrust.io/ontology/agentictrust/intentType/trust.feedback> a agentictrust:IntentType ;
   rdfs:label "trust.feedback" .
 
-<https://agentictrust.io/ontology/agentictrust/intentType/trust.association> a agentictrust:IntentType ;
+<https://www.agentictrust.io/ontology/agentictrust/intentType/trust.association> a agentictrust:IntentType ;
   rdfs:label "trust.association" .
 
-<https://agentictrust.io/ontology/agentictrust/intentType/trust.membership> a agentictrust:IntentType ;
+<https://www.agentictrust.io/ontology/agentictrust/intentType/trust.membership> a agentictrust:IntentType ;
   rdfs:label "trust.membership" .
 
-<https://agentictrust.io/ontology/agentictrust/intentType/trust.delegation> a agentictrust:IntentType ;
+<https://www.agentictrust.io/ontology/agentictrust/intentType/trust.delegation> a agentictrust:IntentType ;
   rdfs:label "trust.delegation" .
 
 
