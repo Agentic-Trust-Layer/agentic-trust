@@ -458,6 +458,33 @@ const buildSkills = (subdomain: string | null | undefined) => {
       outputModes: ['text', 'json'],
       description: 'Submit a validation response (attestation) using a configured session package.',
     },
+    {
+      id: 'atp.account.addOrUpdate',
+      name: 'atp.account.addOrUpdate',
+      tags: ['atp', 'account', 'database', 'a2a'],
+      examples: ['Add or update user account in ATP database'],
+      inputModes: ['text'],
+      outputModes: ['text'],
+      description: 'Add or update an account in the ATP accounts table',
+    },
+    {
+      id: 'atp.agent.get',
+      name: 'atp.agent.get',
+      tags: ['atp', 'agent', 'database', 'a2a'],
+      examples: ['Get agent record/config from ATP database'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Get an agent from the ATP agents table. Payload: { ens_name? | agent_name? | agent_account? }',
+    },
+    {
+      id: 'atp.agent.createOrUpdate',
+      name: 'atp.agent.createOrUpdate',
+      tags: ['atp', 'agent', 'database', 'a2a'],
+      examples: ['Create or update agent in ATP database'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Create or update an agent in the ATP agents table (supports session_package and agent_card_json).',
+    },
   ];
 
   // Only add admin/inbox skills for agents-atp subdomain
@@ -584,7 +611,30 @@ const buildSkills = (subdomain: string | null | undefined) => {
   return baseSkills;
 };
 
-const serveAgentCard = (c: HonoContext) => {
+async function ensureAgentsSchema(db: D1Database): Promise<void> {
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS agents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ens_name TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        email_domain TEXT NULL,
+        agent_account TEXT NULL,
+        chain_id INTEGER NULL,
+        session_package TEXT NULL,
+        agent_card_json TEXT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );`,
+    )
+    .run();
+
+  try {
+    await db.prepare('ALTER TABLE agents ADD COLUMN agent_card_json TEXT NULL;').run();
+  } catch {}
+}
+
+const serveAgentCard = async (c: HonoContext) => {
   const subdomain = c.get('providerSubdomain');
   const env = c.env || {};
 
@@ -593,11 +643,63 @@ const serveAgentCard = (c: HonoContext) => {
   const messageEndpoint = `${origin}/api/a2a`;
 
   const rawSkills = buildSkills(subdomain);
-  const skills = (rawSkills as any[]).map((s: any) => ({
+  const skillsAll = (rawSkills as any[]).map((s: any) => ({
     ...addOsafOverlayTags(s),
     inputModes: normalizeModes(s.inputModes),
     outputModes: normalizeModes(s.outputModes),
   }));
+
+  // Filter advertised skills by agent_card_json (stored per tenant agent in D1 agents table).
+  let configuredSkillIds: string[] | null = null;
+  if (subdomain) {
+    try {
+      const db = c.env?.DB || getD1Database(c.env);
+      await ensureAgentsSchema(db);
+
+      let baseAgentName = String(subdomain || '').trim();
+      baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
+      const baseAgentNameLower = baseAgentName.toLowerCase();
+      const ensName = `${baseAgentNameLower}.8004-agent.eth`;
+      const ensNameDup = `${ensName}.8004-agent.eth`;
+
+      const agentRecord = await db
+        .prepare(
+          `SELECT id, ens_name, agent_name, agent_card_json, updated_at
+           FROM agents
+           WHERE ens_name = ? COLLATE NOCASE
+              OR ens_name = ? COLLATE NOCASE
+              OR agent_name = ? COLLATE NOCASE
+              OR agent_name = ? COLLATE NOCASE
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+        )
+        .bind(ensName, ensNameDup, baseAgentNameLower, ensName)
+        .first<{ id: number; ens_name: string; agent_name: string; agent_card_json: string | null; updated_at: number }>();
+
+      const raw = agentRecord?.agent_card_json;
+      if (raw && typeof raw === 'string' && raw.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(raw);
+          const skillIds =
+            Array.isArray((parsed as any)?.skillIds) ? (parsed as any).skillIds :
+            Array.isArray((parsed as any)?.skills) ? (parsed as any).skills :
+            null;
+          if (Array.isArray(skillIds)) {
+            configuredSkillIds = skillIds.map((s: any) => String(s)).filter(Boolean);
+          }
+        } catch {
+          // ignore invalid JSON
+        }
+      }
+    } catch (err) {
+      console.warn('[ATP Agent Worker] Failed to load agent_card_json for agent-card:', err);
+    }
+  }
+
+  const skills =
+    configuredSkillIds && configuredSkillIds.length > 0
+      ? skillsAll.filter((s: any) => configuredSkillIds!.includes(String(s?.id)))
+      : skillsAll;
 
   const agentCard = buildAgentCard({
     subdomain,
@@ -789,6 +891,7 @@ const handleA2A = async (c: HonoContext) => {
       'osaf:trust.validation.attestation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
+      'atp.agent.get',
       'atp.agent.createOrUpdate',
       'atp.feedback.request',
       'atp.feedback.getRequests',
@@ -1884,6 +1987,49 @@ const handleA2A = async (c: HonoContext) => {
         responseContent.error = error?.message || 'Failed to add/update account';
         responseContent.skill = skillId;
       }
+    } else if (skillId === 'atp.agent.get') {
+      try {
+        const { ens_name, agent_name, agent_account } = payload || {};
+        const ensName = typeof ens_name === 'string' ? ens_name.trim() : '';
+        const agentName = typeof agent_name === 'string' ? agent_name.trim() : '';
+        const agentAccount = typeof agent_account === 'string' ? agent_account.trim().toLowerCase() : '';
+
+        if (!ensName && !agentName && !agentAccount) {
+          responseContent.error = 'Provide ens_name, agent_name, or agent_account in payload for atp.agent.get';
+          responseContent.skill = skillId;
+          return c.json(
+            {
+              success: false,
+              messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+              response: responseContent,
+            },
+            400,
+          );
+        }
+
+        const db = c.env?.DB || getD1Database(c.env);
+        await ensureAgentsSchema(db);
+
+        const row = await db
+          .prepare(
+            `SELECT id, ens_name, agent_name, email_domain, agent_account, chain_id, session_package, agent_card_json, created_at, updated_at
+             FROM agents
+             WHERE (? != '' AND LOWER(ens_name) = LOWER(?))
+                OR (? != '' AND LOWER(agent_name) = LOWER(?))
+                OR (? != '' AND LOWER(agent_account) = LOWER(?))
+             ORDER BY updated_at DESC
+             LIMIT 1`,
+          )
+          .bind(ensName, ensName, agentName, agentName, agentAccount, agentAccount)
+          .first<any>();
+
+        responseContent.skill = skillId;
+        (responseContent as any).agent = row || null;
+      } catch (error: any) {
+        console.error('Error fetching agent:', error);
+        responseContent.error = error?.message || 'Failed to fetch agent';
+        responseContent.skill = skillId;
+      }
     } else if (skillId === 'atp.agent.createOrUpdate') {
       // Agent management skill - create or update agent in D1 database
       try {
@@ -1894,6 +2040,7 @@ const handleA2A = async (c: HonoContext) => {
           email_domain,
           chain_id,
           session_package,
+          agent_card_json,
         } = payload || {};
 
         if (!agent_name || typeof agent_name !== 'string') {
@@ -1922,9 +2069,11 @@ const handleA2A = async (c: HonoContext) => {
           ens_name: ens_name || 'undefined',
           session_package_provided: session_package ? 'yes' : 'no',
           session_package_type: typeof session_package,
+          agent_card_json_provided: agent_card_json !== undefined ? 'yes' : 'no',
         });
 
         const db = c.env?.DB || getD1Database(c.env);
+        await ensureAgentsSchema(db);
 
         // Determine ens_name: use provided ens_name, or generate from agent_name
         let agentEnsName: string;
@@ -1963,14 +2112,29 @@ const handleA2A = async (c: HonoContext) => {
         // Use provided chain_id or default to Sepolia (11155111)
         const agentChainId = chain_id && Number.isFinite(chain_id) ? Number(chain_id) : 11155111;
 
-        // Handle session_package: convert to string if it's an object, or use as-is if string, or null if undefined
+        const sessionPackageProvided = Object.prototype.hasOwnProperty.call(payload || {}, 'session_package');
         let sessionPackageValue: string | null = null;
-        if (session_package !== undefined && session_package !== null) {
-          if (typeof session_package === 'string') {
+        if (sessionPackageProvided) {
+          if (session_package === null) {
+            sessionPackageValue = null;
+          } else if (typeof session_package === 'string') {
             sessionPackageValue = session_package.trim().length > 0 ? session_package : null;
           } else if (typeof session_package === 'object') {
-            // If it's an object, stringify it
             sessionPackageValue = JSON.stringify(session_package);
+          }
+        }
+
+        const agentCardProvided = Object.prototype.hasOwnProperty.call(payload || {}, 'agent_card_json');
+        let agentCardJsonValue: string | null = null;
+        if (agentCardProvided) {
+          if (agent_card_json === null) {
+            agentCardJsonValue = null;
+          } else if (typeof agent_card_json === 'string') {
+            agentCardJsonValue = agent_card_json.trim().length > 0 ? agent_card_json : null;
+          } else if (typeof agent_card_json === 'object') {
+            agentCardJsonValue = JSON.stringify(agent_card_json);
+          } else {
+            agentCardJsonValue = String(agent_card_json);
           }
         }
 
@@ -1978,6 +2142,11 @@ const handleA2A = async (c: HonoContext) => {
           provided: typeof session_package,
           hasValue: session_package !== undefined && session_package !== null,
           finalValue: sessionPackageValue ? `${sessionPackageValue.substring(0, 100)}...` : 'null',
+        });
+        console.log('[ATP Agent] Processing agent_card_json:', {
+          provided: typeof agent_card_json,
+          hasField: agentCardProvided,
+          finalValue: agentCardProvided ? (agentCardJsonValue ? `${agentCardJsonValue.substring(0, 100)}...` : 'null') : '(unchanged)',
         });
 
         // Check if agent exists by ens_name (prefer exact lowercase match, then case-insensitive)
@@ -2012,14 +2181,25 @@ const handleA2A = async (c: HonoContext) => {
         if (existing) {
           // Update existing agent
           await db.prepare(
-            'UPDATE agents SET agent_name = ?, agent_account = ?, email_domain = ?, chain_id = ?, session_package = ?, updated_at = ? WHERE id = ?'
+            `UPDATE agents
+             SET agent_name = ?,
+                 agent_account = ?,
+                 email_domain = ?,
+                 chain_id = ?,
+                 session_package = CASE WHEN ? = 1 THEN ? ELSE session_package END,
+                 agent_card_json = CASE WHEN ? = 1 THEN ? ELSE agent_card_json END,
+                 updated_at = ?
+             WHERE id = ?`
           )
             .bind(
               baseAgentName,
               agent_account.toLowerCase(),
               agentEmailDomain,
               agentChainId,
+              sessionPackageProvided ? 1 : 0,
               sessionPackageValue,
+              agentCardProvided ? 1 : 0,
+              agentCardJsonValue,
               now,
               existing.id
             )
@@ -2031,7 +2211,7 @@ const handleA2A = async (c: HonoContext) => {
         } else {
           // Insert new agent
           const result = await db.prepare(
-            'INSERT INTO agents (ens_name, agent_name, email_domain, agent_account, chain_id, session_package, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO agents (ens_name, agent_name, email_domain, agent_account, chain_id, session_package, agent_card_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
             .bind(
               agentEnsNameLower,
@@ -2039,7 +2219,8 @@ const handleA2A = async (c: HonoContext) => {
               agentEmailDomain,
               agent_account.toLowerCase(),
               agentChainId,
-              sessionPackageValue,
+              sessionPackageProvided ? sessionPackageValue : null,
+              agentCardProvided ? agentCardJsonValue : null,
               now,
               now
             )

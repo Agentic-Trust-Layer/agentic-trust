@@ -161,6 +161,55 @@ agentictrust:AgentCardFetch a owl:Class ;
   rdfs:subClassOf prov:Activity .
 
 ########
+# TrustRegistryModel(ERC8004+ERC8092)
+########
+
+agentictrust:TrustEvent a owl:Class ;
+  rdfs:label "TrustEvent" ;
+  rdfs:comment "On-chain or derived event that affects trust." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:TrustEvidence a owl:Class ;
+  rdfs:label "TrustEvidence" ;
+  rdfs:comment "Evidence used to compute or justify trust." ;
+  rdfs:subClassOf agentictrust:Evidence .
+
+agentictrust:TrustArtifact a owl:Class ;
+  rdfs:label "TrustArtifact" ;
+  rdfs:comment "Artifact produced by trust workflows (e.g., validation response)." ;
+  rdfs:subClassOf agentictrust:Artifact .
+
+agentictrust:Feedback a owl:Class ;
+  rdfs:label "Feedback" ;
+  rdfs:comment "ERC-8004 reputation feedback record." ;
+  rdfs:subClassOf agentictrust:TrustEvidence .
+
+agentictrust:FeedbackResponse a owl:Class ;
+  rdfs:label "FeedbackResponse" ;
+  rdfs:comment "Response to a feedback record (e.g., dispute/clarification)." ;
+  rdfs:subClassOf agentictrust:TrustEvidence .
+
+agentictrust:ValidationRequest a owl:Class ;
+  rdfs:label "ValidationRequest" ;
+  rdfs:comment "ERC-8004 validation registry request." ;
+  rdfs:subClassOf agentictrust:TrustEvent .
+
+agentictrust:ValidationResponse a owl:Class ;
+  rdfs:label "ValidationResponse" ;
+  rdfs:comment "ERC-8004 validation response/attestation." ;
+  rdfs:subClassOf agentictrust:TrustArtifact .
+
+agentictrust:Association a owl:Class ;
+  rdfs:label "Association" ;
+  rdfs:comment "ERC-8092 agent-to-agent association record." ;
+  rdfs:subClassOf agentictrust:TrustEvent .
+
+agentictrust:AssociationType a owl:Class ;
+  rdfs:label "AssociationType" ;
+  rdfs:comment "Recommended taxonomy of association intent/types." ;
+  rdfs:subClassOf prov:Entity .
+
+########
 # Object properties
 ########
 
@@ -260,6 +309,66 @@ agentictrust:hadPlan a owl:ObjectProperty ;
   rdfs:subPropertyOf prov:hadPlan ;
   rdfs:domain prov:Activity ;
   rdfs:range prov:Plan .
+
+agentictrust:hasFeedback a owl:ObjectProperty ;
+  rdfs:label "hasFeedback" ;
+  rdfs:domain agentictrust:ERC8004Agent ;
+  rdfs:range agentictrust:Feedback .
+
+agentictrust:hasValidation a owl:ObjectProperty ;
+  rdfs:label "hasValidation" ;
+  rdfs:domain agentictrust:ERC8004Agent ;
+  rdfs:range agentictrust:ValidationResponse .
+
+agentictrust:hasAssociation a owl:ObjectProperty ;
+  rdfs:label "hasAssociation" ;
+  rdfs:domain agentictrust:ERC8004Agent ;
+  rdfs:range agentictrust:Association .
+
+agentictrust:feedbackClient a owl:ObjectProperty ;
+  rdfs:label "feedbackClient" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range prov:Agent .
+
+agentictrust:feedbackSkill a owl:ObjectProperty ;
+  rdfs:label "feedbackSkill" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range agentictrust:Skill .
+
+agentictrust:feedbackIntentType a owl:ObjectProperty ;
+  rdfs:label "feedbackIntentType" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range agentictrust:IntentType .
+
+agentictrust:validationValidator a owl:ObjectProperty ;
+  rdfs:label "validationValidator" ;
+  rdfs:domain agentictrust:ValidationRequest ;
+  rdfs:range prov:Agent .
+
+agentictrust:validationRespondsToRequest a owl:ObjectProperty ;
+  rdfs:label "validationRespondsToRequest" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range agentictrust:ValidationRequest .
+
+agentictrust:validationTagCheck a owl:ObjectProperty ;
+  rdfs:label "validationTagCheck" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range agentictrust:Check .
+
+agentictrust:associationInitiator a owl:ObjectProperty ;
+  rdfs:label "associationInitiator" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range prov:Agent .
+
+agentictrust:associationApprover a owl:ObjectProperty ;
+  rdfs:label "associationApprover" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range prov:Agent .
+
+agentictrust:associationType a owl:ObjectProperty ;
+  rdfs:label "associationType" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range agentictrust:AssociationType .
 
 ########
 # Datatype properties
@@ -395,6 +504,66 @@ agentictrust:json a owl:DatatypeProperty ;
   rdfs:comment "Raw JSON payload for message parts, intents, agent cards, registrations." ;
   rdfs:range rdf:JSON .
 
+agentictrust:feedbackIndex a owl:DatatypeProperty ;
+  rdfs:label "feedbackIndex" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range xsd:integer .
+
+agentictrust:feedbackScore a owl:DatatypeProperty ;
+  rdfs:label "feedbackScore" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range xsd:integer .
+
+agentictrust:feedbackRatingPct a owl:DatatypeProperty ;
+  rdfs:label "feedbackRatingPct" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range xsd:integer .
+
+agentictrust:isRevoked a owl:DatatypeProperty ;
+  rdfs:label "isRevoked" ;
+  rdfs:domain agentictrust:Feedback ;
+  rdfs:range xsd:boolean .
+
+agentictrust:requestHash a owl:DatatypeProperty ;
+  rdfs:label "requestHash" ;
+  rdfs:domain agentictrust:ValidationRequest ;
+  rdfs:range xsd:string .
+
+agentictrust:responseHash a owl:DatatypeProperty ;
+  rdfs:label "responseHash" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range xsd:string .
+
+agentictrust:validationResponseValue a owl:DatatypeProperty ;
+  rdfs:label "validationResponseValue" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationInterfaceId a owl:DatatypeProperty ;
+  rdfs:label "associationInterfaceId" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationValidAt a owl:DatatypeProperty ;
+  rdfs:label "associationValidAt" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationValidUntil a owl:DatatypeProperty ;
+  rdfs:label "associationValidUntil" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationRevokedAt a owl:DatatypeProperty ;
+  rdfs:label "associationRevokedAt" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationDataHex a owl:DatatypeProperty ;
+  rdfs:label "associationDataHex" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
 ########
 # Canonical intent type individuals (starter set)
 ########
@@ -413,5 +582,22 @@ agentictrust:json a owl:DatatypeProperty ;
 
 <https://www.agentictrust.io/ontology/agentictrust/intentType/trust.delegation> a agentictrust:IntentType ;
   rdfs:label "trust.delegation" .
+
+########
+# AssociationTypeIndividuals(recommended)
+########
+
+agentictrust:AffiliationAssociationType a agentictrust:AssociationType ; rdfs:label "Affiliation" .
+agentictrust:DelegationAssociationType a agentictrust:AssociationType ; rdfs:label "Delegation" .
+agentictrust:MembershipAssociationType a agentictrust:AssociationType ; rdfs:label "Membership" .
+agentictrust:EndorsementAssociationType a agentictrust:AssociationType ; rdfs:label "Endorsement" .
+agentictrust:PartnershipAssociationType a agentictrust:AssociationType ; rdfs:label "Partnership" .
+agentictrust:OperatorAssociationType a agentictrust:AssociationType ; rdfs:label "Operator" .
+agentictrust:ValidatorAssociationType a agentictrust:AssociationType ; rdfs:label "Validator" .
+agentictrust:AuditorAssociationType a agentictrust:AssociationType ; rdfs:label "Auditor" .
+agentictrust:ServiceProviderAssociationType a agentictrust:AssociationType ; rdfs:label "ServiceProvider" .
+agentictrust:MaintainerAssociationType a agentictrust:AssociationType ; rdfs:label "Maintainer" .
+agentictrust:ContributorAssociationType a agentictrust:AssociationType ; rdfs:label "Contributor" .
+agentictrust:SponsorshipAssociationType a agentictrust:AssociationType ; rdfs:label "Sponsorship" .
 
 

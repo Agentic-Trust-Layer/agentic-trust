@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch, Chip } from '@mui/material';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch, Chip, Checkbox, FormControlLabel, FormGroup } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
@@ -21,6 +21,7 @@ import {
   getChainBundlerUrl,
 } from '@agentic-trust/core/server';
 import { getClientBundlerUrl, getClientChainEnv } from '@/lib/clientChainEnv';
+import { getAgentFromATP, updateAgentCardConfigInATP } from '@/lib/a2a-client';
 import { AGENT_CATEGORY_OPTIONS, SUPPORTED_TRUST_MECHANISMS } from '@/models/agentRegistration';
 type Agent = DiscoverResponse['agents'][number];
 type ValidationStatusWithHash = ValidationStatus & { requestHash?: string };
@@ -29,6 +30,114 @@ type ValidatorAgentDetailsState = {
   error: string | null;
   agent: Record<string, any> | null;
 };
+
+type AgentSkillDefinition = {
+  id: string;
+  name: string;
+  description: string;
+  tags?: string[];
+  onlyForSubdomains?: Array<'agents-atp' | 'atp' | 'tenant'>;
+};
+
+const ATP_AGENT_SKILL_CATALOG: AgentSkillDefinition[] = [
+  {
+    id: 'osaf:trust.feedback.authorization',
+    name: 'osaf:trust.feedback.authorization',
+    description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
+    tags: ['erc8004', 'feedback', 'auth', 'a2a'],
+  },
+  {
+    id: 'osaf:trust.validation.attestation',
+    name: 'osaf:trust.validation.attestation',
+    description: 'Submit a validation response (attestation) using a configured session package.',
+    tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+  },
+  // Admin-only skills (only meaningful on agents-atp subdomain in atp-agent)
+  {
+    id: 'atp.ens.isNameAvailable',
+    name: 'atp.ens.isNameAvailable',
+    description: 'Check if an ENS name is available. Payload: { ensName, chainId }',
+    tags: ['ens', 'availability', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.feedback.request',
+    name: 'atp.feedback.request',
+    description: 'Submit a feedback request for an agent (admin).',
+    tags: ['erc8004', 'feedback', 'request', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.feedback.getRequests',
+    name: 'atp.feedback.getRequests',
+    description: 'Query feedback requests by client address (admin).',
+    tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.feedback.getRequestsByAgent',
+    name: 'atp.feedback.getRequestsByAgent',
+    description: 'Query feedback requests by target agent ID (admin).',
+    tags: ['erc8004', 'feedback', 'query', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.feedback.markGiven',
+    name: 'atp.feedback.markGiven',
+    description: 'Mark a feedback request as having feedback given (admin).',
+    tags: ['erc8004', 'feedback', 'update', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.feedback.requestapproved',
+    name: 'atp.feedback.requestapproved',
+    description: 'Approve a feedback request and notify requester (admin).',
+    tags: ['atp', 'feedback', 'approval', 'database', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.inbox.sendMessage',
+    name: 'atp.inbox.sendMessage',
+    description: 'Send a message via the inbox system.',
+    tags: ['erc8004', 'inbox', 'message', 'a2a'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.inbox.listClientMessages',
+    name: 'atp.inbox.listClientMessages',
+    description: 'List messages for a client address (admin).',
+    tags: ['erc8004', 'inbox', 'query', 'a2a'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.inbox.listAgentMessages',
+    name: 'atp.inbox.listAgentMessages',
+    description: 'List messages for an agent DID (admin).',
+    tags: ['erc8004', 'inbox', 'query', 'a2a'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.inbox.markRead',
+    name: 'atp.inbox.markRead',
+    description: 'Mark a message as read (admin).',
+    tags: ['erc8004', 'inbox', 'query', 'a2a'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.stats.trends',
+    name: 'atp.stats.trends',
+    description: 'Get feedback/validation trends (admin).',
+    tags: ['atp', 'stats', 'query', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+  {
+    id: 'atp.stats.sdkApps',
+    name: 'atp.stats.sdkApps',
+    description: 'Get SDK app stats (admin).',
+    tags: ['atp', 'stats', 'query', 'a2a', 'admin'],
+    onlyForSubdomains: ['agents-atp'],
+  },
+];
 
 const CHAIN_SUFFIX_MAP: Record<number, string> = {
   11155111: 'SEPOLIA',
@@ -279,9 +388,31 @@ export default function AdminPage() {
   const displayAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
   const displayAgentAddress = queryAgentAddress ?? fetchedAgentInfo?.agentAccount ?? null;
 
+  const derivedEnsNameForATP = useMemo(() => {
+    const fromDetails = fetchedAgentInfo && typeof (fetchedAgentInfo as any).didName === 'string'
+      ? String((fetchedAgentInfo as any).didName).trim()
+      : '';
+    if (fromDetails) return fromDetails;
+    // Fallback: derive from displayAgentName if it looks like a label.
+    const base = String(displayAgentName || '').trim().toLowerCase();
+    if (!base) return '';
+    if (base.endsWith('.8004-agent.eth')) return base;
+    if (/^[a-z0-9-]{1,63}$/.test(base)) return `${base}.8004-agent.eth`;
+    return '';
+  }, [fetchedAgentInfo, displayAgentName]);
+
+  const derivedSubdomainType = useMemo((): 'agents-atp' | 'atp' | 'tenant' => {
+    const ens = derivedEnsNameForATP.toLowerCase();
+    const label = ens.endsWith('.8004-agent.eth') ? ens.slice(0, -'.8004-agent.eth'.length) : ens;
+    if (label === 'agents-atp') return 'agents-atp';
+    if (label === 'atp') return 'atp';
+    return 'tenant';
+  }, [derivedEnsNameForATP]);
+
   const [activeManagementTab, setActiveManagementTab] = useState<
     | 'registration'
     | 'session'
+    | 'skills'
     | 'delete'
     | 'transfer'
     | 'validators'
@@ -790,6 +921,14 @@ export default function AdminPage() {
   const sessionPackageProgressTimerRef = useRef<number | null>(null);
   const [sessionPackageConfirmOpen, setSessionPackageConfirmOpen] = useState(false);
 
+  // Agent Skills (ATP agent_card_json config)
+  const [agentSkillsLoading, setAgentSkillsLoading] = useState(false);
+  const [agentSkillsSaving, setAgentSkillsSaving] = useState(false);
+  const [agentSkillsError, setAgentSkillsError] = useState<string | null>(null);
+  const [agentSkillsSuccess, setAgentSkillsSuccess] = useState<string | null>(null);
+  const [agentSkillsSelectedIds, setAgentSkillsSelectedIds] = useState<string[]>([]);
+  const [agentSkillsRawConfig, setAgentSkillsRawConfig] = useState<string>('');
+
   const [activeToggleSaving, setActiveToggleSaving] = useState(false);
   const [activeToggleError, setActiveToggleError] = useState<string | null>(null);
 
@@ -947,6 +1086,107 @@ export default function AdminPage() {
     finalChainId,
     validateUrlLike,
   ]);
+
+  const loadAgentSkillsFromATP = useCallback(async () => {
+    if (!derivedEnsNameForATP && !displayAgentName && !displayAgentAddress) {
+      setAgentSkillsError('Select an agent first.');
+      return;
+    }
+    setAgentSkillsError(null);
+    setAgentSkillsSuccess(null);
+    setAgentSkillsLoading(true);
+    try {
+      const res = await getAgentFromATP({
+        ensName: derivedEnsNameForATP || undefined,
+        agentName: typeof displayAgentName === 'string' ? displayAgentName : undefined,
+        agentAccount: typeof displayAgentAddress === 'string' ? displayAgentAddress : undefined,
+      });
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to load agent from ATP');
+      }
+      const agent = res.agent;
+      const raw = agent && typeof agent.agent_card_json === 'string' ? agent.agent_card_json : '';
+      if (raw) {
+        setAgentSkillsRawConfig(raw);
+        try {
+          const parsed = JSON.parse(raw);
+          const ids = Array.isArray((parsed as any)?.skillIds) ? (parsed as any).skillIds : [];
+          const normalized = Array.isArray(ids) ? ids.map((x: any) => String(x)).filter(Boolean) : [];
+          setAgentSkillsSelectedIds(normalized);
+        } catch {
+          // leave selected as-is
+        }
+      } else {
+        // No stored config => default is "all skills", since atp-agent advertises all when agent_card_json is empty.
+        const all = ATP_AGENT_SKILL_CATALOG.map((s) => s.id);
+        setAgentSkillsSelectedIds(all);
+      }
+    } catch (e: any) {
+      setAgentSkillsError(e?.message || 'Failed to load agent skills from ATP');
+    } finally {
+      setAgentSkillsLoading(false);
+    }
+  }, [derivedEnsNameForATP, displayAgentName, displayAgentAddress]);
+
+  const saveAgentSkillsToATP = useCallback(async () => {
+    if (!isEditMode || !finalAgentId || !finalChainId || !displayAgentAddress) {
+      setAgentSkillsError('Select an agent first.');
+      return;
+    }
+    const parsedChainId = Number.parseInt(finalChainId, 10);
+    if (!Number.isFinite(parsedChainId)) {
+      setAgentSkillsError('Invalid chainId.');
+      return;
+    }
+
+    const agentNameForATP = displayAgentName === '...' ? '' : String(displayAgentName || '');
+    if (!agentNameForATP) {
+      setAgentSkillsError('Agent name is missing.');
+      return;
+    }
+
+    setAgentSkillsError(null);
+    setAgentSkillsSuccess(null);
+    setAgentSkillsSaving(true);
+    try {
+      const configObj = {
+        version: 1,
+        updatedAt: Date.now(),
+        skillIds: agentSkillsSelectedIds.slice().sort(),
+      };
+      const configJson = JSON.stringify(configObj);
+
+      const res = await updateAgentCardConfigInATP(agentNameForATP, displayAgentAddress, configJson, {
+        ensName: derivedEnsNameForATP || undefined,
+        chainId: parsedChainId,
+      });
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to save agent skills');
+      }
+      setAgentSkillsRawConfig(JSON.stringify(configObj, null, 2));
+      setAgentSkillsSuccess('Saved.');
+    } catch (e: any) {
+      setAgentSkillsError(e?.message || 'Failed to save agent skills to ATP');
+    } finally {
+      setAgentSkillsSaving(false);
+    }
+  }, [isEditMode, finalAgentId, finalChainId, displayAgentAddress, displayAgentName, agentSkillsSelectedIds, derivedEnsNameForATP]);
+
+  // Keep the preview JSON in sync with the currently selected skills (live as you click).
+  useEffect(() => {
+    const preview = {
+      version: 1,
+      skillIds: agentSkillsSelectedIds.slice().sort(),
+    };
+    setAgentSkillsRawConfig(JSON.stringify(preview, null, 2));
+  }, [agentSkillsSelectedIds]);
+
+  // Auto-load when opening the Agent Skills tab (and when agent changes).
+  useEffect(() => {
+    if (!isEditMode) return;
+    if (activeManagementTab !== 'skills') return;
+    void loadAgentSkillsFromATP();
+  }, [isEditMode, activeManagementTab, derivedEnsNameForATP, displayAgentName, displayAgentAddress, loadAgentSkillsFromATP]);
 
   // Keep preview JSON in sync with field-by-field edits
   useEffect(() => {
@@ -2427,6 +2667,7 @@ export default function AdminPage() {
                     >
                       <Tab label="Agent Info" value="registration" />
                       <Tab label="Agent Operator" value="session" />
+                      <Tab label="Agent Skills" value="skills" />
                       <Tab label="Transfer Agent" value="transfer" />
                       <Tab label="Delete Agent" value="delete" />
                       <Tab label="Validators" value="validators" />
@@ -2811,6 +3052,116 @@ export default function AdminPage() {
                   </Paper>
                 )}
 
+                {(!isEditMode || activeManagementTab === 'skills') && (
+                  <Paper sx={{ p: 3 }}>
+                    <Typography variant="h5" gutterBottom>
+                      Agent Skills
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" paragraph>
+                      Select which skills should be advertised in this agent&apos;s <code>/.well-known/agent-card.json</code>. This writes a config blob to the ATP DB <code>agents.agent_card_json</code>.
+                    </Typography>
+
+                    {agentSkillsError && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        {agentSkillsError}
+                      </Alert>
+                    )}
+                    {agentSkillsSuccess && (
+                      <Alert severity="success" sx={{ mb: 2 }}>
+                        {agentSkillsSuccess}
+                      </Alert>
+                    )}
+
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
+                      <Button
+                        variant="outlined"
+                        disabled={agentSkillsLoading || agentSkillsSaving}
+                        onClick={loadAgentSkillsFromATP}
+                      >
+                        {agentSkillsLoading ? 'Loading…' : 'Refresh from ATP'}
+                      </Button>
+                      <Button
+                        variant="contained"
+                        disabled={agentSkillsLoading || agentSkillsSaving}
+                        onClick={saveAgentSkillsToATP}
+                      >
+                        {agentSkillsSaving ? 'Saving…' : 'Save skills'}
+                      </Button>
+                      <Button
+                        variant="text"
+                        disabled={agentSkillsLoading || agentSkillsSaving}
+                        onClick={() => {
+                          const all = ATP_AGENT_SKILL_CATALOG.map((s) => s.id);
+                          setAgentSkillsSelectedIds(all);
+                          setAgentSkillsError(null);
+                          setAgentSkillsSuccess(null);
+                        }}
+                      >
+                        Select all
+                      </Button>
+                      <Button
+                        variant="text"
+                        disabled={agentSkillsLoading || agentSkillsSaving}
+                        onClick={() => {
+                          setAgentSkillsSelectedIds([]);
+                          setAgentSkillsError(null);
+                          setAgentSkillsSuccess(null);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </Box>
+
+                    <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                        Agent type (heuristic): <strong>{derivedSubdomainType}</strong>. Some skills are only meaningful on <code>agents-atp</code>, but you can select any.
+                      </Typography>
+                      <FormGroup>
+                        {ATP_AGENT_SKILL_CATALOG.map((skill) => {
+                          const checked = agentSkillsSelectedIds.includes(skill.id);
+                          return (
+                            <FormControlLabel
+                              key={skill.id}
+                              control={
+                                <Checkbox
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const nextChecked = e.target.checked;
+                                    setAgentSkillsSelectedIds((prev) => {
+                                      if (nextChecked) return Array.from(new Set([...prev, skill.id]));
+                                      return prev.filter((x) => x !== skill.id);
+                                    });
+                                  }}
+                                />
+                              }
+                              label={
+                                <Box>
+                                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                    {skill.name}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {skill.description}
+                                  </Typography>
+                                </Box>
+                              }
+                            />
+                          );
+                        })}
+                      </FormGroup>
+                    </Paper>
+
+                    <TextField
+                      label="agent_card_json (live preview)"
+                      fullWidth
+                      multiline
+                      minRows={6}
+                      value={agentSkillsRawConfig}
+                      onChange={(e) => setAgentSkillsRawConfig(e.target.value)}
+                      helperText="This preview updates as you check/uncheck skills. Saving writes it to ATP."
+                    />
+                  </Paper>
+                )}
+
                 {(!isEditMode || activeManagementTab === 'session') && (
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h5" gutterBottom>
@@ -2819,7 +3170,7 @@ export default function AdminPage() {
                     <Typography variant="body2" color="text.secondary" paragraph>
                       The Agent Operator is a delegation from the Agent Owner to an operator that allows the agent app to interact with the Reputation Registry and Validation Registry. A session package contains the operator session keys and delegation information that enables this functionality.
                     </Typography>
-
+                      <>
                     <Box 
                       sx={{ 
                         mb: 2, 
@@ -2996,6 +3347,7 @@ export default function AdminPage() {
                         </Button>
                       </DialogActions>
                     </Dialog>
+                      </>
                   </Paper>
                 )}
         {(!isEditMode || activeManagementTab === 'transfer') && (

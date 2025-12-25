@@ -35,6 +35,7 @@ export interface A2AMessagePayload {
   email_domain?: string;
   chain_id?: number;
   session_package?: string; // JSON string of sessionPackage
+  agent_card_json?: string | null; // JSON string of agent card config (or full agent-card.json)
   metadata?: Record<string, unknown>;
 }
 
@@ -153,6 +154,59 @@ export async function syncAgentToATP(
     return {
       success: false,
       error: result.error || 'Failed to sync agent',
+    };
+  }
+
+  const response = result.response || {};
+  return {
+    success: true,
+    action: response.action as 'created' | 'updated',
+    agentId: response.agentId,
+  };
+}
+
+export async function getAgentFromATP(options: {
+  ensName?: string;
+  agentName?: string;
+  agentAccount?: string;
+}): Promise<{ success: boolean; agent?: any; error?: string }> {
+  const result = await sendA2AMessageToATP('atp.agent.get', {
+    ens_name: options.ensName,
+    agent_name: options.agentName,
+    agent_account: options.agentAccount,
+  });
+
+  if (!result.success) {
+    return { success: false, error: result.error || 'Failed to fetch agent' };
+  }
+
+  const response = result.response || {};
+  return { success: true, agent: response.agent ?? null };
+}
+
+export async function updateAgentCardConfigInATP(
+  agentName: string,
+  agentAccount: string,
+  agentCardJson: string | null,
+  options?: {
+    ensName?: string;
+    emailDomain?: string;
+    chainId?: number;
+  },
+): Promise<{ success: boolean; action?: 'created' | 'updated'; agentId?: number; error?: string }> {
+  const result = await sendA2AMessageToATP('atp.agent.createOrUpdate', {
+    agent_name: agentName,
+    agent_account: agentAccount,
+    ens_name: options?.ensName,
+    email_domain: options?.emailDomain,
+    chain_id: options?.chainId,
+    agent_card_json: agentCardJson === null ? null : String(agentCardJson),
+  });
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: result.error || 'Failed to update agent card config',
     };
   }
 

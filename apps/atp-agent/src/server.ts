@@ -352,6 +352,24 @@ const buildSkills = (subdomain: string | null | undefined) => {
       outputModes: ['text'],
       description: 'Add or update an account in the ATP accounts table',
     },
+    {
+      id: 'atp.agent.get',
+      name: 'atp.agent.get',
+      tags: ['atp', 'agent', 'database', 'a2a'],
+      examples: ['Get agent record/config from ATP database'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Get an agent from the ATP agents table. Payload: { ens_name? | agent_name? | agent_account? }',
+    },
+    {
+      id: 'atp.agent.createOrUpdate',
+      name: 'atp.agent.createOrUpdate',
+      tags: ['atp', 'agent', 'database', 'a2a'],
+      examples: ['Create or update agent in ATP database'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Create or update an agent in the ATP agents table (supports session_package and agent_card_json).',
+    },
   ];
 
   // Only add admin/inbox skills for agents-atp subdomain
@@ -478,7 +496,31 @@ const buildSkills = (subdomain: string | null | undefined) => {
   return baseSkills;
 };
 
-const serveAgentCard = (req: Request, res: Response) => {
+async function ensureAgentsSchema(db: D1Database): Promise<void> {
+  // Agents table is provisioned externally in prod, but keep this safe for local/dev and incremental schema.
+  await db
+    .prepare(
+      `CREATE TABLE IF NOT EXISTS agents (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ens_name TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        email_domain TEXT NULL,
+        agent_account TEXT NULL,
+        chain_id INTEGER NULL,
+        session_package TEXT NULL,
+        agent_card_json TEXT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );`,
+    )
+    .run();
+
+  try {
+    await db.prepare('ALTER TABLE agents ADD COLUMN agent_card_json TEXT NULL;').run();
+  } catch {}
+}
+
+const serveAgentCard = async (req: Request, res: Response) => {
   const subdomain = (req as any).providerSubdomain as string | null | undefined;
   const agentName = process.env.AGENT_NAME || 'ATP Agent';
   const agentDescription = process.env.AGENT_DESCRIPTION || 'An ATP agent for A2A communication';
@@ -490,6 +532,62 @@ const serveAgentCard = (req: Request, res: Response) => {
   const messageEndpoint = `${origin}/api/a2a`;
 
   const rawSkills = buildSkills(subdomain);
+
+  // If this request is for a tenant subdomain (i.e. a specific provider agent),
+  // load the per-agent agent_card_json config and filter the advertised skills accordingly.
+  let configuredSkillIds: string[] | null = null;
+  let configuredCardName: string | null = null;
+  let configuredCardDescription: string | null = null;
+  if (subdomain) {
+    try {
+      const db = getD1Database();
+      await ensureAgentsSchema(db);
+
+      let baseAgentName = subdomain.trim();
+      baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
+      const baseAgentNameLower = baseAgentName.toLowerCase();
+      const ensName = `${baseAgentNameLower}.8004-agent.eth`;
+      const ensNameDup = `${ensName}.8004-agent.eth`;
+
+      const agentRecord = await db
+        .prepare(
+          `SELECT id, ens_name, agent_name, agent_card_json, updated_at
+           FROM agents
+           WHERE ens_name = ? COLLATE NOCASE
+              OR ens_name = ? COLLATE NOCASE
+              OR agent_name = ? COLLATE NOCASE
+              OR agent_name = ? COLLATE NOCASE
+           ORDER BY updated_at DESC
+           LIMIT 1`,
+        )
+        .bind(ensName, ensNameDup, baseAgentNameLower, ensName)
+        .first<{ id: number; ens_name: string; agent_name: string; agent_card_json: string | null; updated_at: number }>();
+
+      const raw = agentRecord?.agent_card_json;
+      if (raw && typeof raw === 'string' && raw.trim().length > 0) {
+        try {
+          const parsed = JSON.parse(raw);
+          const skillIds =
+            Array.isArray((parsed as any)?.skillIds) ? (parsed as any).skillIds :
+            Array.isArray((parsed as any)?.skills) ? (parsed as any).skills :
+            null;
+          if (Array.isArray(skillIds)) {
+            configuredSkillIds = skillIds.map((s: any) => String(s)).filter(Boolean);
+          }
+          if (typeof (parsed as any)?.name === 'string') {
+            configuredCardName = (parsed as any).name;
+          }
+          if (typeof (parsed as any)?.description === 'string') {
+            configuredCardDescription = (parsed as any).description;
+          }
+        } catch {
+          // ignore invalid agent_card_json
+        }
+      }
+    } catch (err) {
+      console.warn('[ATP Agent] Failed to load agent_card_json for agent-card:', err);
+    }
+  }
   const addOsafOverlayTags = (skill: any): any => {
     const id = String(skill?.id || '').trim();
     const existingTags = Array.isArray(skill?.tags) ? skill.tags : [];
@@ -524,11 +622,16 @@ const serveAgentCard = (req: Request, res: Response) => {
 
     return { ...skill, tags: Array.from(outTags) };
   };
-  const skills = (rawSkills as any[]).map((s: any) => ({
+  const skillsAll = (rawSkills as any[]).map((s: any) => ({
     ...addOsafOverlayTags(s),
     inputModes: normalizeModes(s.inputModes),
     outputModes: normalizeModes(s.outputModes),
   }));
+
+  const skills =
+    configuredSkillIds && configuredSkillIds.length > 0
+      ? skillsAll.filter((s: any) => configuredSkillIds!.includes(String(s?.id)))
+      : skillsAll;
 
   const osafDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
   const osafSkills = [
@@ -548,8 +651,8 @@ const serveAgentCard = (req: Request, res: Response) => {
 
   const agentCard = {
     protocolVersion: '1.0',
-    name: subdomain ? `${agentName} (${subdomain})` : agentName,
-    description: agentDescription,
+    name: configuredCardName ?? (subdomain ? `${agentName} (${subdomain})` : agentName),
+    description: configuredCardDescription ?? agentDescription,
     version: process.env.AGENT_VERSION || '0.1.0',
     supportedInterfaces: [{ url: messageEndpoint, protocolBinding: 'JSONRPC' }],
     provider: {
@@ -1916,6 +2019,47 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to add/update account';
         responseContent.skill = skillId;
       }
+    } else if (skillId === 'atp.agent.get') {
+      try {
+        const { ens_name, agent_name, agent_account } = payload || {};
+        const ensName = typeof ens_name === 'string' ? ens_name.trim() : '';
+        const agentName = typeof agent_name === 'string' ? agent_name.trim() : '';
+        const agentAccount = typeof agent_account === 'string' ? agent_account.trim().toLowerCase() : '';
+
+        if (!ensName && !agentName && !agentAccount) {
+          responseContent.error = 'Provide ens_name, agent_name, or agent_account in payload for atp.agent.get';
+          responseContent.skill = skillId;
+          res.set(getCorsHeaders());
+          return res.status(400).json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          });
+        }
+
+        const db = getD1Database();
+        await ensureAgentsSchema(db);
+
+        const row = await db
+          .prepare(
+            `SELECT id, ens_name, agent_name, email_domain, agent_account, chain_id, session_package, agent_card_json, created_at, updated_at
+             FROM agents
+             WHERE (? != '' AND LOWER(ens_name) = LOWER(?))
+                OR (? != '' AND LOWER(agent_name) = LOWER(?))
+                OR (? != '' AND LOWER(agent_account) = LOWER(?))
+             ORDER BY updated_at DESC
+             LIMIT 1`,
+          )
+          .bind(ensName, ensName, agentName, agentName, agentAccount, agentAccount)
+          .first<any>();
+
+        responseContent.skill = skillId;
+        (responseContent as any).agent = row || null;
+      } catch (error: any) {
+        console.error('Error fetching agent:', error);
+        responseContent.error = error?.message || 'Failed to fetch agent';
+        responseContent.skill = skillId;
+      }
     } else if (skillId === 'atp.agent.createOrUpdate') {
       // Agent management skill - create or update agent in D1 database
       try {
@@ -1926,6 +2070,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           email_domain,
           chain_id,
           session_package,
+          agent_card_json,
         } = payload || {};
 
         if (!agent_name || typeof agent_name !== 'string') {
@@ -1956,9 +2101,11 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           ens_name: ens_name || 'undefined',
           session_package_provided: session_package ? 'yes' : 'no',
           session_package_type: typeof session_package,
+          agent_card_json_provided: agent_card_json !== undefined ? 'yes' : 'no',
         });
 
         const db = getD1Database();
+        await ensureAgentsSchema(db);
 
         // Determine ens_name: use provided ens_name, or generate from agent_name
         let agentEnsName: string;
@@ -1997,14 +2144,29 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         // Use provided chain_id or default to Sepolia (11155111)
         const agentChainId = chain_id && Number.isFinite(chain_id) ? Number(chain_id) : 11155111;
 
-        // Handle session_package: convert to string if it's an object, or use as-is if string, or null if undefined
+        const sessionPackageProvided = Object.prototype.hasOwnProperty.call(payload || {}, 'session_package');
         let sessionPackageValue: string | null = null;
-        if (session_package !== undefined && session_package !== null) {
-          if (typeof session_package === 'string') {
+        if (sessionPackageProvided) {
+          if (session_package === null) {
+            sessionPackageValue = null;
+          } else if (typeof session_package === 'string') {
             sessionPackageValue = session_package.trim().length > 0 ? session_package : null;
           } else if (typeof session_package === 'object') {
-            // If it's an object, stringify it
             sessionPackageValue = JSON.stringify(session_package);
+          }
+        }
+
+        const agentCardProvided = Object.prototype.hasOwnProperty.call(payload || {}, 'agent_card_json');
+        let agentCardJsonValue: string | null = null;
+        if (agentCardProvided) {
+          if (agent_card_json === null) {
+            agentCardJsonValue = null;
+          } else if (typeof agent_card_json === 'string') {
+            agentCardJsonValue = agent_card_json.trim().length > 0 ? agent_card_json : null;
+          } else if (typeof agent_card_json === 'object') {
+            agentCardJsonValue = JSON.stringify(agent_card_json);
+          } else {
+            agentCardJsonValue = String(agent_card_json);
           }
         }
 
@@ -2012,6 +2174,11 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           provided: typeof session_package,
           hasValue: session_package !== undefined && session_package !== null,
           finalValue: sessionPackageValue ? `${sessionPackageValue.substring(0, 100)}...` : 'null',
+        });
+        console.log('[ATP Agent] Processing agent_card_json:', {
+          provided: typeof agent_card_json,
+          hasField: agentCardProvided,
+          finalValue: agentCardProvided ? (agentCardJsonValue ? `${agentCardJsonValue.substring(0, 100)}...` : 'null') : '(unchanged)',
         });
 
         // Check if agent exists by ens_name (prefer exact lowercase match, then case-insensitive)
@@ -2046,14 +2213,25 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         if (existing) {
           // Update existing agent
           await db.prepare(
-            'UPDATE agents SET agent_name = ?, agent_account = ?, email_domain = ?, chain_id = ?, session_package = ?, updated_at = ? WHERE id = ?'
+            `UPDATE agents
+             SET agent_name = ?,
+                 agent_account = ?,
+                 email_domain = ?,
+                 chain_id = ?,
+                 session_package = CASE WHEN ? = 1 THEN ? ELSE session_package END,
+                 agent_card_json = CASE WHEN ? = 1 THEN ? ELSE agent_card_json END,
+                 updated_at = ?
+             WHERE id = ?`
           )
             .bind(
               baseAgentName,
               agent_account.toLowerCase(),
               agentEmailDomain,
               agentChainId,
+              sessionPackageProvided ? 1 : 0,
               sessionPackageValue,
+              agentCardProvided ? 1 : 0,
+              agentCardJsonValue,
               now,
               existing.id
             )
@@ -2065,7 +2243,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         } else {
           // Insert new agent
           const result = await db.prepare(
-            'INSERT INTO agents (ens_name, agent_name, email_domain, agent_account, chain_id, session_package, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO agents (ens_name, agent_name, email_domain, agent_account, chain_id, session_package, agent_card_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
           )
             .bind(
               agentEnsNameLower,
@@ -2073,7 +2251,8 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
               agentEmailDomain,
               agent_account.toLowerCase(),
               agentChainId,
-              sessionPackageValue,
+              sessionPackageProvided ? sessionPackageValue : null,
+              agentCardProvided ? agentCardJsonValue : null,
               now,
               now
             )
