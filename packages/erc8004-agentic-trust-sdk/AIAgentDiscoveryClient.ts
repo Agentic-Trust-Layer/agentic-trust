@@ -740,81 +740,96 @@ export class AIAgentDiscoveryClient {
    * `semanticAgentSearch`, this will return an empty result instead of
    * throwing, so callers can fall back gracefully.
    */
-  async semanticAgentSearch(params: { text: string }): Promise<SemanticAgentSearchResult> {
+  async semanticAgentSearch(params: {
+    text?: string;
+    intentJson?: string;
+    topK?: number;
+  }): Promise<SemanticAgentSearchResult> {
     const rawText = typeof params?.text === 'string' ? params.text : '';
     const text = rawText.trim();
+    const rawIntentJson = typeof params?.intentJson === 'string' ? params.intentJson : '';
+    const intentJson = rawIntentJson.trim();
+    const topK =
+      typeof params?.topK === 'number' && Number.isFinite(params.topK) && params.topK > 0
+        ? Math.floor(params.topK)
+        : undefined;
 
-    if (!text) {
+    // Nothing to search.
+    if (!text && !intentJson) {
       return { total: 0, matches: [] };
     }
 
-    // Use JSON.stringify to safely escape the text for inclusion in the
-    // GraphQL query as a string literal.
-    const textLiteral = JSON.stringify(text);
-
-    const query = `
-      query SemanticAgentSearch {
-        semanticAgentSearch(
-          input: {
-            text: ${textLiteral}
-          }
-        ) {
-          total
-          matches {
-            score
-            matchReasons
-            agent {
-              chainId
-              agentId
-              agentAccount
-              agentOwner
-              eoaOwner
-              agentName
-              agentCategory
-              didIdentity
-              didAccount
-              didName
-              tokenUri
-              createdAtBlock
-              createdAtTime
-              updatedAtTime
-              type
-              description
-              image
-              a2aEndpoint
-              ensEndpoint
-              agentAccountEndpoint
-              supportedTrust
-              rawJson
-              did
-              mcp
-              x402support
-              active
-              feedbackCount
-              feedbackAverageScore
-              validationPendingCount
-              validationCompletedCount
-              validationRequestedCount
-            initiatedAssociationCount
-            approvedAssociationCount
-            atiOverallScore
-            atiOverallConfidence
-            atiVersion
-            atiComputedAt
-            atiBundleJson
-              trustLedgerScore
-              trustLedgerBadgeCount
-              trustLedgerOverallRank
-              trustLedgerCapabilityRank
-              metadata {
-                key
-                valueText
-              }
-            }
+    const selection = `
+      total
+      matches {
+        score
+        matchReasons
+        agent {
+          chainId
+          agentId
+          agentAccount
+          agentOwner
+          eoaOwner
+          agentName
+          agentCategory
+          didIdentity
+          didAccount
+          didName
+          tokenUri
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          ensEndpoint
+          agentAccountEndpoint
+          supportedTrust
+          rawJson
+          did
+          mcp
+          x402support
+          active
+          feedbackCount
+          feedbackAverageScore
+          validationPendingCount
+          validationCompletedCount
+          validationRequestedCount
+          initiatedAssociationCount
+          approvedAssociationCount
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
+          metadata {
+            key
+            valueText
           }
         }
       }
     `;
+
+    const query = intentJson
+      ? `
+        query SearchByIntent($intentJson: String!, $topK: Int) {
+          semanticAgentSearch(input: { intentJson: $intentJson, topK: $topK }) {
+            ${selection}
+          }
+        }
+      `
+      : `
+        query SearchByText($text: String!) {
+          semanticAgentSearch(input: { text: $text }) {
+            ${selection}
+          }
+        }
+      `;
 
     try {
       const data = await this.client.request<{
@@ -826,7 +841,10 @@ export class AIAgentDiscoveryClient {
             agent?: Record<string, unknown> | null;
           }> | null;
         };
-      }>(query);
+      }>(
+        query,
+        intentJson ? { intentJson, topK } : { text },
+      );
 
       const root = data.semanticAgentSearch;
       if (!root) {
@@ -836,7 +854,9 @@ export class AIAgentDiscoveryClient {
       const total =
         typeof root.total === 'number' && Number.isFinite(root.total) && root.total >= 0
           ? root.total
-          : 0;
+          : Array.isArray(root.matches)
+            ? root.matches.length
+            : 0;
 
       const matches: SemanticAgentMatch[] = [];
       const rawMatches = Array.isArray(root.matches) ? root.matches : [];

@@ -251,6 +251,23 @@ export function semanticAgentSearchPostRouteHandler() {
     try {
       const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
 
+      const rawIntentJson =
+        typeof body.intentJson === 'string'
+          ? (body.intentJson as string)
+          : typeof body.intent === 'string'
+            ? (body.intent as string)
+            : '';
+
+      const intentJson = rawIntentJson.trim();
+
+      const topKRaw = body.topK;
+      const topK =
+        typeof topKRaw === 'number' && Number.isFinite(topKRaw) && topKRaw > 0
+          ? Math.floor(topKRaw)
+          : typeof topKRaw === 'string' && topKRaw.trim()
+            ? Math.max(1, Math.floor(Number(topKRaw)))
+            : undefined;
+
       const rawText =
         typeof body.text === 'string'
           ? (body.text as string)
@@ -260,7 +277,7 @@ export function semanticAgentSearchPostRouteHandler() {
 
       const text = rawText.trim();
 
-      if (!text) {
+      if (!text && !intentJson) {
         return jsonResponse({
           success: true,
           total: 0,
@@ -269,7 +286,9 @@ export function semanticAgentSearchPostRouteHandler() {
       }
 
       const discoveryClient = await getDiscoveryClient();
-      const result = await (discoveryClient as any).semanticAgentSearch({ text });
+      const result = await (discoveryClient as any).semanticAgentSearch(
+        intentJson ? { intentJson, topK } : { text },
+      );
 
       const total =
         result && typeof result.total === 'number' && Number.isFinite(result.total)

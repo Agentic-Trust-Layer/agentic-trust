@@ -4,6 +4,20 @@ export type InboxTaskType =
   | 'validation_request'
   | 'association_request';
 
+export type InboxIntentType =
+  | 'general'
+  | 'trust.validation'
+  | 'trust.feedback'
+  | 'trust.association'
+  | 'trust.membership'
+  | 'trust.delegation';
+
+export type InboxIntentTypeOption = {
+  value: InboxIntentType;
+  label: string;
+  defaultTaskType: InboxTaskType;
+};
+
 export type InboxTaskTypeOption = {
   value: InboxTaskType;
   label: string;
@@ -38,6 +52,15 @@ export const INBOX_TASK_TYPE_OPTIONS: InboxTaskTypeOption[] = [
     label: 'Request Association',
     requiredOsafSkills: ['trust.association.attestation'],
   }
+];
+
+export const INBOX_INTENT_TYPE_OPTIONS: InboxIntentTypeOption[] = [
+  { value: 'general', label: 'General', defaultTaskType: 'general' },
+  { value: 'trust.validation', label: 'Trust Validation', defaultTaskType: 'validation_request' },
+  { value: 'trust.feedback', label: 'Trust Feedback', defaultTaskType: 'feedback_auth_request' },
+  { value: 'trust.association', label: 'Trust Association', defaultTaskType: 'association_request' },
+  { value: 'trust.membership', label: 'Trust Membership', defaultTaskType: 'association_request' },
+  { value: 'trust.delegation', label: 'Trust Delegation', defaultTaskType: 'association_request' },
 ];
 
 

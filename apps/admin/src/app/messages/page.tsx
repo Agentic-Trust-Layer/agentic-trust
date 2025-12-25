@@ -61,7 +61,12 @@ import {
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 import { createPublicClient, encodeAbiParameters, getAddress, http, keccak256, parseAbiParameters, toHex } from 'viem';
 import type { Chain } from 'viem';
-import { INBOX_TASK_TYPE_OPTIONS, type InboxTaskType } from '@/models/a2aTasks';
+import {
+  INBOX_INTENT_TYPE_OPTIONS,
+  INBOX_TASK_TYPE_OPTIONS,
+  type InboxIntentType,
+  type InboxTaskType,
+} from '@/models/a2aTasks';
 
 type Message = {
   id: number;
@@ -335,6 +340,7 @@ export default function MessagesPage() {
   const [messageSearch, setMessageSearch] = useState('');
   const [mailboxMode, setMailboxMode] = useState<'inbox' | 'sent'>('inbox');
 
+  const [selectedIntentType, setSelectedIntentType] = useState<InboxIntentType>('general');
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
@@ -1017,6 +1023,8 @@ export default function MessagesPage() {
     setComposeToAgent(null);
     setComposeToAgentInput('');
     setComposeToAgentCard(null);
+    setSelectedIntentType('general');
+    setSelectedMessageType('general');
     setComposeSubject(
       selectedMessageType === 'feedback_auth_request'
         ? 'Request Feedback Permission'
@@ -1089,8 +1097,17 @@ export default function MessagesPage() {
     setComposeBody('');
     // Pin the task type to the current thread's type when possible.
     const threadType = selectedThread.taskType as any;
-    setSelectedMessageType(
-      threadType === 'feedback_request_approved' ? 'feedback_auth_request' : threadType,
+    const pinnedTaskType =
+      threadType === 'feedback_request_approved' ? 'feedback_auth_request' : threadType;
+    setSelectedMessageType(pinnedTaskType);
+    setSelectedIntentType(
+      pinnedTaskType === 'validation_request'
+        ? 'trust.validation'
+        : pinnedTaskType === 'feedback_auth_request'
+          ? 'trust.feedback'
+          : pinnedTaskType === 'association_request'
+            ? 'trust.association'
+            : 'general',
     );
     setComposeOpen(true);
   }, [selectedFolderAgent, selectedFromAgentDid, selectedThread, mailboxMode]);
@@ -1106,17 +1123,97 @@ export default function MessagesPage() {
     setComposeToAgentLoading(true);
     (async () => {
       try {
-        const url =
-          q.length > 0
-            ? `/api/agents/search?query=${encodeURIComponent(q)}&pageSize=50&orderBy=createdAtTime&orderDirection=DESC`
-            : `/api/agents/search?pageSize=50&orderBy=createdAtTime&orderDirection=DESC`;
-        const response = await fetch(url, { cache: 'no-store' });
+        const buildIntentJson = (intent: InboxIntentType, query: string) => {
+          if (intent === 'general') return null;
+          const base: any = { intentType: intent };
+          if (intent === 'trust.validation') base.action = 'validate-agent';
+          if (intent === 'trust.feedback') base.action = 'request-authorization';
+          if (intent === 'trust.association') base.action = 'request-attestation';
+          if (intent === 'trust.membership') base.action = 'attest-membership';
+          if (intent === 'trust.delegation') base.action = 'attest-delegation';
+          if (query) base.query = query;
+          return JSON.stringify(base);
+        };
+
+        // Intent-first: when intent != general, drive agent list via semantic search.
+        if (selectedIntentType !== 'general') {
+          const intentJson = buildIntentJson(selectedIntentType, q);
+          const response = await fetch('/api/agents/semantic-search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ intentJson, topK: 25 }),
+            cache: 'no-store',
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to semantic search agents (${response.status})`);
+          }
+          const data = await response.json().catch(() => ({}));
+          const matches = Array.isArray(data?.matches) ? data.matches : [];
+          const mapped: AgentSearchOption[] = matches
+            .map((m: any) => {
+              const a = m?.agent;
+              const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
+              const agentId = a?.agentId != null ? String(a.agentId) : '';
+              if (!chainId || !agentId) return null;
+              const did = typeof a?.did === 'string' && a.did ? a.did : buildDid8004(chainId, Number(agentId));
+              return {
+                key: `${chainId}:${agentId}`,
+                chainId,
+                agentId,
+                agentName: a?.agentName ?? null,
+                image: a?.image ?? null,
+                did,
+              } as AgentSearchOption;
+            })
+            .filter(Boolean) as AgentSearchOption[];
+
+          if (cancelled) return;
+          setComposeToAgentOptions(mapped);
+          return;
+        }
+
+        // General: keyword search if user typed, else default list.
+        if (q.length > 0) {
+          const url = `/api/agents/search?query=${encodeURIComponent(q)}&pageSize=50&orderBy=createdAtTime&orderDirection=DESC`;
+          const response = await fetch(url, { cache: 'no-store' });
+          if (!response.ok) {
+            throw new Error(`Failed to search agents (${response.status})`);
+          }
+          const data = await response.json();
+          const agents = Array.isArray(data?.agents) ? data.agents : [];
+        
+          const mapped: AgentSearchOption[] = agents
+            .map((a: any) => {
+              const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
+              const agentId = a?.agentId != null ? String(a.agentId) : '';
+              if (!chainId || !agentId) return null;
+              const did = buildDid8004(chainId, Number(agentId));
+              return {
+                key: `${chainId}:${agentId}`,
+                chainId,
+                agentId,
+                agentName: a?.agentName ?? null,
+                image: a?.image ?? null,
+                did,
+              } as AgentSearchOption;
+            })
+            .filter(Boolean) as AgentSearchOption[];
+
+          if (cancelled) return;
+          setComposeToAgentOptions(mapped);
+          return;
+        }
+
+        // Fallback: default list (latest agents).
+        const response = await fetch(
+          `/api/agents/search?pageSize=50&orderBy=createdAtTime&orderDirection=DESC`,
+          { cache: 'no-store' },
+        );
         if (!response.ok) {
           throw new Error(`Failed to search agents (${response.status})`);
         }
         const data = await response.json();
-        let agents = Array.isArray(data?.agents) ? data.agents : [];
-        
+        const agents = Array.isArray(data?.agents) ? data.agents : [];
         const mapped: AgentSearchOption[] = agents
           .map((a: any) => {
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
@@ -1148,7 +1245,7 @@ export default function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [composeOpen, composeToAgentInput]);
+  }, [composeOpen, composeToAgentInput, selectedIntentType]);
 
   // Fetch the recipient's agent card so we can offer only supported task/message types.
   useEffect(() => {
@@ -1787,6 +1884,22 @@ export default function MessagesPage() {
     [composeToAgentOsafSkillIds, composeToAgentSkillIds],
   );
 
+  // If the selected task type isn't supported by the chosen recipient, auto-pick the first supported type.
+  useEffect(() => {
+    if (!composeOpen || !composeToAgent) return;
+    if (composeToAgentCardLoading) return;
+
+    const isSupported = (taskType: InboxTaskType) => {
+      const opt = INBOX_TASK_TYPE_OPTIONS.find((o) => o.value === taskType);
+      if (!opt) return true;
+      return isToAgentSkillSupported(opt.requiredToAgentSkills, opt.requiredOsafSkills);
+    };
+
+    if (isSupported(selectedMessageType)) return;
+    const first = INBOX_TASK_TYPE_OPTIONS.find((o) => isSupported(o.value));
+    if (first) setSelectedMessageType(first.value);
+  }, [composeOpen, composeToAgent, composeToAgentCardLoading, selectedMessageType, isToAgentSkillSupported]);
+
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
       <Header
@@ -2384,6 +2497,41 @@ export default function MessagesPage() {
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
+            <FormControl fullWidth size="small">
+              <InputLabel id="compose-intent-type-label">Intent Type</InputLabel>
+              <Select
+                id="compose-intent-type"
+                labelId="compose-intent-type-label"
+                value={selectedIntentType}
+                label="Intent Type"
+                onChange={(e) => {
+                  const next = e.target.value as InboxIntentType;
+                  setSelectedIntentType(next);
+
+                  // Reset recipient when intent changes (agent list is intent-scoped).
+                  setComposeToAgent(null);
+                  setComposeToAgentInput('');
+                  setComposeToAgentCard(null);
+
+                  // Default task type for the intent.
+                  const opt = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === next);
+                  const defaultTask = opt?.defaultTaskType ?? 'general';
+                  setSelectedMessageType(defaultTask as any);
+
+                  // Default association subtype for membership/delegation intents.
+                  if (next === 'trust.membership') setAssociationRequestType(AssocType.Membership);
+                  if (next === 'trust.delegation') setAssociationRequestType(AssocType.Delegation);
+                }}
+              >
+                {INBOX_INTENT_TYPE_OPTIONS.map((opt) => (
+                  <MenuItem key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>Choose what you want to accomplish; we’ll suggest agents that support it.</FormHelperText>
+            </FormControl>
+
             <Autocomplete
               options={composeToAgentOptions}
               value={composeToAgent}
@@ -2420,7 +2568,11 @@ export default function MessagesPage() {
                 <TextField
                   {...params}
                   label="To Agent"
-                  placeholder="Search agents…"
+                  placeholder={
+                    selectedIntentType === 'general'
+                      ? 'Search agents…'
+                      : 'Search agents (intent-scoped)…'
+                  }
                   size="small"
                   InputProps={{
                     ...params.InputProps,
