@@ -5,6 +5,7 @@
 @prefix prov: <http://www.w3.org/ns/prov#> .
 @prefix p-plan: <http://purl.org/net/p-plan#> .
 @prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix erc8004: <https://www.agentictrust.io/ontology/erc8004#> .
 @prefix agentictrust: <https://www.agentictrust.io/ontology/agentictrust#> .
 
 agentictrust: a owl:Ontology ;
@@ -19,9 +20,29 @@ agentictrust: a owl:Ontology ;
 # Core Agent / Agent Card concepts
 ########
 
+########
+# ERC8004VocabularyLayer
+########
+
+erc8004:AgentIdentity a owl:Class ;
+  rdfs:label "AgentIdentity" ;
+  rdfs:comment "ERC-8004 vocabulary: agent identity layer." ;
+  rdfs:subClassOf prov:SoftwareAgent .
+
+erc8004:AgentValidation a owl:Class ;
+  rdfs:label "AgentValidation" ;
+  rdfs:comment "ERC-8004 vocabulary: validation layer (requests/responses/attestations)." ;
+  rdfs:subClassOf prov:Entity .
+
+erc8004:AgentReputation a owl:Class ;
+  rdfs:label "AgentReputation" ;
+  rdfs:comment "ERC-8004 vocabulary: reputation layer (feedback and responses)." ;
+  rdfs:subClassOf prov:Entity .
+
 agentictrust:ERC8004Agent a owl:Class ;
   rdfs:label "ERC8004Agent" ;
-  rdfs:subClassOf prov:SoftwareAgent .
+  rdfs:subClassOf prov:SoftwareAgent ;
+  rdfs:subClassOf erc8004:AgentIdentity .
 
 agentictrust:AgentRegistration a owl:Class ;
   rdfs:label "ERC8004RegistrationJSON" ;
@@ -182,26 +203,40 @@ agentictrust:TrustArtifact a owl:Class ;
 agentictrust:Feedback a owl:Class ;
   rdfs:label "Feedback" ;
   rdfs:comment "ERC-8004 reputation feedback record." ;
-  rdfs:subClassOf agentictrust:TrustEvidence .
+  rdfs:subClassOf agentictrust:TrustEvidence ;
+  rdfs:subClassOf erc8004:AgentReputation .
 
 agentictrust:FeedbackResponse a owl:Class ;
   rdfs:label "FeedbackResponse" ;
   rdfs:comment "Response to a feedback record (e.g., dispute/clarification)." ;
-  rdfs:subClassOf agentictrust:TrustEvidence .
+  rdfs:subClassOf agentictrust:TrustEvidence ;
+  rdfs:subClassOf erc8004:AgentReputation .
 
 agentictrust:ValidationRequest a owl:Class ;
   rdfs:label "ValidationRequest" ;
   rdfs:comment "ERC-8004 validation registry request." ;
-  rdfs:subClassOf agentictrust:TrustEvent .
+  rdfs:subClassOf agentictrust:TrustEvent ;
+  rdfs:subClassOf erc8004:AgentValidation .
 
 agentictrust:ValidationResponse a owl:Class ;
   rdfs:label "ValidationResponse" ;
   rdfs:comment "ERC-8004 validation response/attestation." ;
-  rdfs:subClassOf agentictrust:TrustArtifact .
+  rdfs:subClassOf agentictrust:TrustArtifact ;
+  rdfs:subClassOf erc8004:AgentValidation .
 
 agentictrust:Association a owl:Class ;
   rdfs:label "Association" ;
   rdfs:comment "ERC-8092 agent-to-agent association record." ;
+  rdfs:subClassOf agentictrust:TrustEvent .
+
+agentictrust:AssociationAccount a owl:Class ;
+  rdfs:label "AssociationAccount" ;
+  rdfs:comment "ERC-8092 association account (account abstraction for association participants)." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:AssociationRevocation a owl:Class ;
+  rdfs:label "AssociationRevocation" ;
+  rdfs:comment "ERC-8092 association revocation event." ;
   rdfs:subClassOf agentictrust:TrustEvent .
 
 agentictrust:AssociationType a owl:Class ;
@@ -345,6 +380,18 @@ agentictrust:validationValidator a owl:ObjectProperty ;
   rdfs:domain agentictrust:ValidationRequest ;
   rdfs:range prov:Agent .
 
+agentictrust:validatorAgent a owl:ObjectProperty ;
+  rdfs:label "validatorAgent" ;
+  rdfs:comment "Optional link when validatorAddress maps to a known ERC8004Agent account/address." ;
+  rdfs:domain agentictrust:ValidationRequest ;
+  rdfs:range agentictrust:ERC8004Agent .
+
+agentictrust:validatorAgentForResponse a owl:ObjectProperty ;
+  rdfs:label "validatorAgentForResponse" ;
+  rdfs:comment "Optional link when validatorAddress maps to a known ERC8004Agent account/address (response side)." ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range agentictrust:ERC8004Agent .
+
 agentictrust:validationRespondsToRequest a owl:ObjectProperty ;
   rdfs:label "validationRespondsToRequest" ;
   rdfs:domain agentictrust:ValidationResponse ;
@@ -369,6 +416,26 @@ agentictrust:associationType a owl:ObjectProperty ;
   rdfs:label "associationType" ;
   rdfs:domain agentictrust:Association ;
   rdfs:range agentictrust:AssociationType .
+
+agentictrust:associationInitiatorAccount a owl:ObjectProperty ;
+  rdfs:label "associationInitiatorAccount" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range agentictrust:AssociationAccount .
+
+agentictrust:associationApproverAccount a owl:ObjectProperty ;
+  rdfs:label "associationApproverAccount" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range agentictrust:AssociationAccount .
+
+agentictrust:associationRevokedBy a owl:ObjectProperty ;
+  rdfs:label "associationRevokedBy" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range agentictrust:AssociationRevocation .
+
+agentictrust:revocationOfAssociation a owl:ObjectProperty ;
+  rdfs:label "revocationOfAssociation" ;
+  rdfs:domain agentictrust:AssociationRevocation ;
+  rdfs:range agentictrust:Association .
 
 ########
 # Datatype properties
@@ -436,6 +503,18 @@ agentictrust:ensEndpoint a owl:DatatypeProperty ;
 
 agentictrust:agentAccountEndpoint a owl:DatatypeProperty ;
   rdfs:label "agentAccountEndpoint" ;
+  rdfs:domain agentictrust:ERC8004Agent ;
+  rdfs:range xsd:anyURI .
+
+agentictrust:agentApp a owl:DatatypeProperty ;
+  rdfs:label "agentApp" ;
+  rdfs:comment "AgenticTrust vocabulary: an application identifier for the agent (e.g., URL or package name)." ;
+  rdfs:domain agentictrust:ERC8004Agent ;
+  rdfs:range xsd:string .
+
+agentictrust:agentAppUrl a owl:DatatypeProperty ;
+  rdfs:label "agentAppUrl" ;
+  rdfs:comment "AgenticTrust vocabulary: URL for the agent application (if known)." ;
   rdfs:domain agentictrust:ERC8004Agent ;
   rdfs:range xsd:anyURI .
 
@@ -529,8 +608,38 @@ agentictrust:requestHash a owl:DatatypeProperty ;
   rdfs:domain agentictrust:ValidationRequest ;
   rdfs:range xsd:string .
 
+agentictrust:validationChainId a owl:DatatypeProperty ;
+  rdfs:label "validationChainId" ;
+  rdfs:domain agentictrust:ValidationRequest ;
+  rdfs:range xsd:integer .
+
+agentictrust:requestingAgentId a owl:DatatypeProperty ;
+  rdfs:label "requestingAgentId" ;
+  rdfs:domain agentictrust:ValidationRequest ;
+  rdfs:range xsd:string .
+
+agentictrust:validatorAddress a owl:DatatypeProperty ;
+  rdfs:label "validatorAddress" ;
+  rdfs:domain agentictrust:ValidationRequest ;
+  rdfs:range xsd:string .
+
 agentictrust:responseHash a owl:DatatypeProperty ;
   rdfs:label "responseHash" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range xsd:string .
+
+agentictrust:validationChainIdForResponse a owl:DatatypeProperty ;
+  rdfs:label "validationChainIdForResponse" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range xsd:integer .
+
+agentictrust:requestingAgentIdForResponse a owl:DatatypeProperty ;
+  rdfs:label "requestingAgentIdForResponse" ;
+  rdfs:domain agentictrust:ValidationResponse ;
+  rdfs:range xsd:string .
+
+agentictrust:validatorAddressForResponse a owl:DatatypeProperty ;
+  rdfs:label "validatorAddressForResponse" ;
   rdfs:domain agentictrust:ValidationResponse ;
   rdfs:range xsd:string .
 
@@ -563,6 +672,86 @@ agentictrust:associationDataHex a owl:DatatypeProperty ;
   rdfs:label "associationDataHex" ;
   rdfs:domain agentictrust:Association ;
   rdfs:range xsd:string .
+
+agentictrust:associationAccountId a owl:DatatypeProperty ;
+  rdfs:label "associationAccountId" ;
+  rdfs:domain agentictrust:AssociationAccount ;
+  rdfs:range xsd:string .
+
+agentictrust:associationId a owl:DatatypeProperty ;
+  rdfs:label "associationId" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationRevocationId a owl:DatatypeProperty ;
+  rdfs:label "associationRevocationId" ;
+  rdfs:domain agentictrust:AssociationRevocation ;
+  rdfs:range xsd:string .
+
+agentictrust:associationInitiatorKeyType a owl:DatatypeProperty ;
+  rdfs:label "associationInitiatorKeyType" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationApproverKeyType a owl:DatatypeProperty ;
+  rdfs:label "associationApproverKeyType" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationInitiatorSignature a owl:DatatypeProperty ;
+  rdfs:label "associationInitiatorSignature" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationApproverSignature a owl:DatatypeProperty ;
+  rdfs:label "associationApproverSignature" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationCreatedTxHash a owl:DatatypeProperty ;
+  rdfs:label "associationCreatedTxHash" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationCreatedBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "associationCreatedBlockNumber" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationCreatedTimestamp a owl:DatatypeProperty ;
+  rdfs:label "associationCreatedTimestamp" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationLastUpdatedTxHash a owl:DatatypeProperty ;
+  rdfs:label "associationLastUpdatedTxHash" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:string .
+
+agentictrust:associationLastUpdatedBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "associationLastUpdatedBlockNumber" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationLastUpdatedTimestamp a owl:DatatypeProperty ;
+  rdfs:label "associationLastUpdatedTimestamp" ;
+  rdfs:domain agentictrust:Association ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationRevocationTxHash a owl:DatatypeProperty ;
+  rdfs:label "associationRevocationTxHash" ;
+  rdfs:domain agentictrust:AssociationRevocation ;
+  rdfs:range xsd:string .
+
+agentictrust:associationRevocationBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "associationRevocationBlockNumber" ;
+  rdfs:domain agentictrust:AssociationRevocation ;
+  rdfs:range xsd:integer .
+
+agentictrust:associationRevocationTimestamp a owl:DatatypeProperty ;
+  rdfs:label "associationRevocationTimestamp" ;
+  rdfs:domain agentictrust:AssociationRevocation ;
+  rdfs:range xsd:integer .
 
 ########
 # Canonical intent type individuals (starter set)
