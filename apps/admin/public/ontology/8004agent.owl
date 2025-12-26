@@ -1,0 +1,191 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix agentictrust: <https://www.agentictrust.io/ontology/agentictrust#> .
+@prefix agent8004: <https://www.agentictrust.io/ontology/8004agent#> .
+
+agent8004: a owl:Ontology ;
+  dcterms:title "8004AgentOntology" ;
+  dcterms:description "ERC-8004/8092-aligned terms layered on the abstract AgenticTrust trust model (TrustSituation/TrustAssertion/RelationshipAssertion/Relationship)." ;
+  owl:imports <https://www.agentictrust.io/ontology/agentictrust#> ;
+  owl:imports <http://www.w3.org/ns/prov-o#> ;
+  owl:versionInfo "0.1.0" ;
+  dcterms:license <https://opensource.org/license/mit/> .
+
+########
+# ERC-8092 Relationship model (maps from association tables)
+########
+
+agent8004:ERC8092Relationship a owl:Class ;
+  rdfs:label "ERC8092Relationship" ;
+  rdfs:comment "A relationship instance referenced/qualified by one or more relationship assertions. In ERC-8092 this corresponds to the relationship identified by associationId." ;
+  rdfs:subClassOf agentictrust:Relationship .
+
+agent8004:ERC8092RelationshipAssertion a owl:Class ;
+  rdfs:label "ERC8092RelationshipAssertion" ;
+  rdfs:comment "An ERC-8092 association record interpreted as a relationship assertion that establishes or modifies an underlying relationship." ;
+  rdfs:subClassOf agentictrust:RelationshipAssertion .
+
+agent8004:RelationshipAccount a owl:Class ;
+  rdfs:label "RelationshipAccount" ;
+  rdfs:comment "An ERC-8092 account identifier (e.g., key-id / account-id such as 0x000100...). This is not necessarily an EVM address." ;
+  rdfs:subClassOf prov:Entity .
+
+agent8004:RelationshipRevocationAssertion a owl:Class ;
+  rdfs:label "RelationshipRevocationAssertion" ;
+  rdfs:comment "A revocation assertion that modifies a relationship by revoking a prior relationship assertion." ;
+  rdfs:subClassOf agentictrust:RelationshipAssertion .
+
+########
+# ERC-8092 properties
+########
+
+agent8004:relationshipId a owl:DatatypeProperty ;
+  rdfs:label "relationshipId" ;
+  rdfs:domain agentictrust:Relationship ;
+  rdfs:range xsd:string .
+
+agent8004:relationshipAssertionId a owl:DatatypeProperty ;
+  rdfs:label "relationshipAssertionId" ;
+  rdfs:domain agentictrust:RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:initiator a owl:ObjectProperty ;
+  rdfs:label "initiator" ;
+  rdfs:comment "The initiator participant (may be a key-id/account-id represented as an agentictrust Account IRI in data)." ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range prov:Agent .
+
+agent8004:approver a owl:ObjectProperty ;
+  rdfs:label "approver" ;
+  rdfs:comment "The approver participant (may be a key-id/account-id represented as an agentictrust Account IRI in data)." ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range prov:Agent .
+
+agent8004:initiatorAccount a owl:ObjectProperty ;
+  rdfs:label "initiatorAccount" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range agent8004:RelationshipAccount .
+
+agent8004:approverAccount a owl:ObjectProperty ;
+  rdfs:label "approverAccount" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range agent8004:RelationshipAccount .
+
+agent8004:ownsRelationshipAccount a owl:ObjectProperty ;
+  rdfs:label "ownsRelationshipAccount" ;
+  rdfs:comment "Links an agent identity to relationship account ids it controls/uses." ;
+  rdfs:domain prov:Agent ;
+  rdfs:range agent8004:RelationshipAccount .
+
+agent8004:relationshipAccountId a owl:DatatypeProperty ;
+  rdfs:label "relationshipAccountId" ;
+  rdfs:comment "Raw relationship account identifier string (DB id column)." ;
+  rdfs:domain agent8004:RelationshipAccount ;
+  rdfs:range xsd:string .
+
+agent8004:accountAddress a owl:DatatypeProperty ;
+  rdfs:label "accountAddress" ;
+  rdfs:comment "Alias of relationshipAccountId for query convenience (maps to the same underlying value)." ;
+  rdfs:domain agent8004:RelationshipAccount ;
+  rdfs:range xsd:string .
+
+agent8004:interfaceId a owl:DatatypeProperty ;
+  rdfs:label "interfaceId" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:validAt a owl:DatatypeProperty ;
+  rdfs:label "validAt" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:validUntil a owl:DatatypeProperty ;
+  rdfs:label "validUntil" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:revokedAt a owl:DatatypeProperty ;
+  rdfs:label "revokedAt" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:dataHex a owl:DatatypeProperty ;
+  rdfs:label "dataHex" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:initiatorKeyType a owl:DatatypeProperty ;
+  rdfs:label "initiatorKeyType" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:approverKeyType a owl:DatatypeProperty ;
+  rdfs:label "approverKeyType" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:initiatorSignature a owl:DatatypeProperty ;
+  rdfs:label "initiatorSignature" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:approverSignature a owl:DatatypeProperty ;
+  rdfs:label "approverSignature" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:createdTxHash a owl:DatatypeProperty ;
+  rdfs:label "createdTxHash" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:createdBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "createdBlockNumber" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:createdTimestamp a owl:DatatypeProperty ;
+  rdfs:label "createdTimestamp" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:lastUpdatedTxHash a owl:DatatypeProperty ;
+  rdfs:label "lastUpdatedTxHash" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:lastUpdatedBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "lastUpdatedBlockNumber" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:lastUpdatedTimestamp a owl:DatatypeProperty ;
+  rdfs:label "lastUpdatedTimestamp" ;
+  rdfs:domain agent8004:ERC8092RelationshipAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:revocationOfRelationshipAssertion a owl:ObjectProperty ;
+  rdfs:label "revocationOfRelationshipAssertion" ;
+  rdfs:domain agent8004:RelationshipRevocationAssertion ;
+  rdfs:range agentictrust:RelationshipAssertion .
+
+agent8004:revocationTxHash a owl:DatatypeProperty ;
+  rdfs:label "revocationTxHash" ;
+  rdfs:domain agent8004:RelationshipRevocationAssertion ;
+  rdfs:range xsd:string .
+
+agent8004:revocationBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "revocationBlockNumber" ;
+  rdfs:domain agent8004:RelationshipRevocationAssertion ;
+  rdfs:range xsd:integer .
+
+agent8004:revocationTimestamp a owl:DatatypeProperty ;
+  rdfs:label "revocationTimestamp" ;
+  rdfs:domain agent8004:RelationshipRevocationAssertion ;
+  rdfs:range xsd:integer .
+
+
