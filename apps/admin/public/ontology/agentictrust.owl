@@ -818,7 +818,6 @@ agentictrust:validationResponseValue a owl:DatatypeProperty ;
 ########
 # ERC8004ValidationDataProfile(community)
 # Based on Validation Data Profile v2.0 (non-normative guidance)
-# See: https://best-practices.8004scan.io/docs/03-validation-standard.html
 ########
 
 agentictrust:ValidationOffchainData a owl:Class ;
@@ -980,7 +979,6 @@ agentictrust:attachmentDescription a owl:DatatypeProperty ;
 ########
 # ERC8004FeedbackDataProfile(community)
 # Based on Feedback Data Profile v2.0 (non-normative guidance)
-# See: https://best-practices.8004scan.io/docs/02-feedback-standard.html
 ########
 
 agentictrust:feedbackAuth a owl:DatatypeProperty ;

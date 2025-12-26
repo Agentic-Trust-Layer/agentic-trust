@@ -2,6 +2,30 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@agentic-trust/core', '@agentic-trust/8004-ext-sdk', '@agentic-trust/8004-sdk'],
+  async rewrites() {
+    return [
+      // OWLAPI/Protégé will dereference `.../ontology/agentictrust#` as `.../ontology/agentictrust`
+      // (fragment not sent over HTTP). Serve the actual ontology file from that IRI.
+      {
+        source: '/ontology/agentictrust',
+        destination: '/ontology/agentictrust.owl',
+      },
+    ];
+  },
+  async headers() {
+    return [
+      {
+        // This file is Turtle syntax (despite .owl extension), so advertise accordingly.
+        source: '/ontology/agentictrust.owl',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        // And ensure the import IRI gets the same content-type.
+        source: '/ontology/agentictrust',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+    ];
+  },
   eslint: {
     // Don't fail build on ESLint warnings
     ignoreDuringBuilds: true,
