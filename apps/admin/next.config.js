@@ -10,6 +10,11 @@ const nextConfig = {
         source: '/ontology/agentictrust',
         destination: '/ontology/agentictrust.owl',
       },
+      // Same pattern for the ERC-8004/8092 layered ontology.
+      {
+        source: '/ontology/8004agent',
+        destination: '/ontology/8004agent.owl',
+      },
     ];
   },
   async headers() {
@@ -22,6 +27,14 @@ const nextConfig = {
       {
         // And ensure the import IRI gets the same content-type.
         source: '/ontology/agentictrust',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/8004agent.owl',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/8004agent',
         headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
       },
     ];
