@@ -374,7 +374,7 @@ export default function Home() {
       console.log("data returned", JSON.stringify(data.response, null, 2));
       
       // If the response contains a feedback auth signature, automatically call giveClientFeedback
-      if (data.response?.skill === 'osaf:trust.feedback.authorization' && data.response?.feedbackAuth) {
+      if (data.response?.skill === 'oasf:trust.feedback.authorization' && data.response?.feedbackAuth) {
         console.log("process feedback auth request.............. ")
         try {
           // Get client address from server-side API

@@ -6,7 +6,7 @@ An A2A (Agent-to-Agent) application built with Express.js and the Agentic Trust 
 
 - **A2A Protocol**: Handles agent-to-agent communication via `/api/a2a` endpoint
 - **Agent Descriptor**: Provides agent metadata via `/.well-known/agent.json`
-- **ERC-8004 Feedback**: Supports feedback authentication via `osaf:trust.feedback.authorization` skill
+- **ERC-8004 Feedback**: Supports feedback authentication via `oasf:trust.feedback.authorization` skill
 - **Cloudflare D1**: Stores A2A messages and agent data in Cloudflare D1 database
 - **ENS Integration**: Resolves agent accounts via ENS names
 
@@ -255,7 +255,7 @@ Receives A2A messages from other agents.
   "message": "Hello from agent",
   "payload": { "key": "value" },
   "metadata": { "source": "web-client" },
-  "skillId": "osaf:trust.feedback.authorization"
+  "skillId": "oasf:trust.feedback.authorization"
 }
 ```
 

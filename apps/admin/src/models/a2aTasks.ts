@@ -22,13 +22,13 @@ export type InboxTaskTypeOption = {
   value: InboxTaskType;
   label: string;
   /**
-   * A2A/ATP task types map to OSAF/OSAF-style skill identifiers.
-   * If set, the "To Agent" card must advertise at least one of these OSAF skills to enable the task type.
-   * This is our primary mapping layer (tasks → OSAF skills → executable A2A skills).
+   * A2A/ATP task types map to OASF/OASF-style skill identifiers.
+   * If set, the "To Agent" card must advertise at least one of these OASF skills to enable the task type.
+   * This is our primary mapping layer (tasks → OASF skills → executable A2A skills).
    */
   requiredOsafSkills?: string[];
   /**
-   * Back-compat: if the recipient does not publish OSAF overlay tags, fall back to checking raw A2A skill ids.
+   * Back-compat: if the recipient does not publish OASF overlay tags, fall back to checking raw A2A skill ids.
    */
   requiredToAgentSkills?: string[];
 };
@@ -39,13 +39,13 @@ export const INBOX_TASK_TYPE_OPTIONS: InboxTaskTypeOption[] = [
     value: 'feedback_auth_request',
     label: 'Request Feedback Permission',
     requiredOsafSkills: ['trust.feedback.authorization'],
-    requiredToAgentSkills: ['osaf:trust.feedback.authorization'],
+    requiredToAgentSkills: ['oasf:trust.feedback.authorization'],
   },
   {
     value: 'validation_request',
     label: 'Request Validation',
     requiredOsafSkills: ['trust.validation.attestation'],
-    requiredToAgentSkills: ['osaf:trust.validation.attestation'],
+    requiredToAgentSkills: ['oasf:trust.validation.attestation'],
   },
   {
     value: 'association_request',

@@ -167,7 +167,7 @@ const agent = await client.getAgent('943');
 // Send a message to an agent
 const response = await agent.sendMessage({
   message: 'Hello agent',
-  skillId: 'osaf:trust.feedback.authorization',
+  skillId: 'oasf:trust.feedback.authorization',
 });
 
 // Verify an agent

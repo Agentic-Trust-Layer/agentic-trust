@@ -41,14 +41,14 @@ type AgentSkillDefinition = {
 
 const ATP_AGENT_SKILL_CATALOG: AgentSkillDefinition[] = [
   {
-    id: 'osaf:trust.feedback.authorization',
-    name: 'osaf:trust.feedback.authorization',
+    id: 'oasf:trust.feedback.authorization',
+    name: 'oasf:trust.feedback.authorization',
     description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     tags: ['erc8004', 'feedback', 'auth', 'a2a'],
   },
   {
-    id: 'osaf:trust.validation.attestation',
-    name: 'osaf:trust.validation.attestation',
+    id: 'oasf:trust.validation.attestation',
+    name: 'oasf:trust.validation.attestation',
     description: 'Submit a validation response (attestation) using a configured session package.',
     tags: ['erc8004', 'validation', 'attestation', 'a2a'],
   },
@@ -2053,7 +2053,7 @@ export default function AdminPage() {
         },
             body: JSON.stringify({
           a2aEndpoint: agentA2aEndpoint,
-          skillId: 'osaf:trust.validation.attestation',
+          skillId: 'oasf:trust.validation.attestation',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,

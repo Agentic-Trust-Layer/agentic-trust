@@ -12,101 +12,101 @@ export type AgentCategoryOption = {
   label: string;
   description?: string;
   /**
-   * True if this option is an extension beyond the currently published OASF/OSAF standard list.
+   * True if this option is an extension beyond the currently published OASF/OASF standard list.
    * (We still align to OASF naming where possible.)
    */
-  osafExtension: boolean;
+  oasfExtension: boolean;
 };
 
 // NOTE: These labels align with the OASF top-level “Skills” domains taxonomy:
 // `https://schema.oasf.outshift.com/`
 export const AGENT_CATEGORY_OPTIONS: readonly AgentCategoryOption[] = [
-  { value: '', label: 'Select a category (optional)', description: 'No category', osafExtension: true },
+  { value: '', label: 'Select a category (optional)', description: 'No category', oasfExtension: true },
   {
     value: 'Natural Language Processing',
     label: 'Natural Language Processing',
     description: 'Language understanding, generation, retrieval & synthesis, and dialogue.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Images / Computer Vision',
     label: 'Images / Computer Vision',
     description: 'Vision perception and generation: classification, detection, segmentation, etc.',
-    osafExtension: true,
+    oasfExtension: true,
   },
-  { value: 'Audio', label: 'Audio', description: 'Audio understanding and generation.', osafExtension: true },
+  { value: 'Audio', label: 'Audio', description: 'Audio understanding and generation.', oasfExtension: true },
   {
     value: 'Tabular / Text',
     label: 'Tabular / Text',
     description: 'Structured-data and mixed tabular/text workloads (classification, regression, etc.).',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Analytical skills',
     label: 'Analytical skills',
     description: 'Math, logic, coding, and other analytic capabilities.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Retrieval Augmented Generation',
     label: 'Retrieval Augmented Generation',
     description: 'Retrieval + generation pipelines (indexing, search, document QA).',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Multi-modal',
     label: 'Multi-modal',
     description: 'Cross-modality processing (text↔image, text↔audio, any-to-any).',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Security & Privacy',
     label: 'Security & Privacy',
     description: 'Threat/vulnerability analysis, secret detection, and privacy risk assessment.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Data Engineering',
     label: 'Data Engineering',
     description: 'Data cleaning, schema inference, transformation pipelines, and quality checks.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Agent Orchestration',
     label: 'Agent Orchestration',
     description: 'Task decomposition, role assignment, planning, coordination, negotiation.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Evaluation & Monitoring',
     label: 'Evaluation & Monitoring',
     description: 'Benchmarks, quality evaluation, anomaly detection, performance monitoring.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'DevOps / MLOps',
     label: 'DevOps / MLOps',
     description: 'Provisioning, deployments, CI/CD, model versioning, monitoring & alerting.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Governance & Compliance',
     label: 'Governance & Compliance',
     description:
       'Scope: “Are we following the rules?” Regulatory compliance (HIPAA, SOC2, GDPR, PCI), policy interpretation/enforcement, auditing evidence, risk/legal workflows, retention/reporting/controls testing. Typical outputs: compliance reports, policy decisions, control checks, audit artifacts.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Tool Interaction',
     label: 'Tool Interaction',
     description: 'API/schema understanding, workflow automation, tool-use planning, script integration.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     value: 'Advanced Reasoning & Planning',
     label: 'Advanced Reasoning & Planning',
     description: 'Strategic planning, long-horizon reasoning, hypothesis generation.',
-    osafExtension: true,
+    oasfExtension: true,
   },
 ] as const;
 
@@ -120,7 +120,7 @@ export type AgentDomainOption = {
   id: AgentDomainId;
   label: string;
   description: string;
-  osafExtension: boolean;
+  oasfExtension: boolean;
 };
 
 export const AGENT_DOMAIN_OPTIONS: readonly AgentDomainOption[] = [
@@ -129,25 +129,25 @@ export const AGENT_DOMAIN_OPTIONS: readonly AgentDomainOption[] = [
     label: 'Governance-and-Trust',
     description:
       'Scope: “Should I trust / authorize this actor in this context?” Identity verification & key/credential checks; signature validation (e.g., ERC-1271, VC proofs); reputation/trust scoring & validation attestations (ERC-8004); relationship authorization (associations, memberships, delegations — ERC-8092); provenance tracking for trust decisions. Typical outputs: allow/deny decisions, trust attestations, verified relationships, delegation approvals.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'security',
     label: 'Security',
     description: 'Security operations, threat/vuln analysis, and defensive checks.',
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'collaboration',
     label: 'Collaboration',
     description: 'Inbox/task-based coordination between agents and users.',
-    osafExtension: true,
+    oasfExtension: true,
   },
 ] as const;
 
 /**
  * ATP / AgenticTrust “skills” (A2A-level capabilities) and how they relate to domains.
- * These are extensions over the currently published OASF/OSAF skill identifiers.
+ * These are extensions over the currently published OASF/OASF skill identifiers.
  */
 export type AgentSkillId =
   | 'agent_interaction.request_handling'
@@ -168,7 +168,7 @@ export type AgentSkillOption = {
   label: string;
   description: string;
   domains: AgentDomainId[];
-  osafExtension: boolean;
+  oasfExtension: boolean;
 };
 
 export const AGENT_SKILL_OPTIONS: readonly AgentSkillOption[] = [
@@ -177,84 +177,84 @@ export const AGENT_SKILL_OPTIONS: readonly AgentSkillOption[] = [
     label: 'Agent interaction · request handling',
     description: 'Accept, validate, and route inbound A2A requests/messages/tasks.',
     domains: ['collaboration'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'integration.protocol_handling',
     label: 'Integration · protocol handling',
     description: 'Implement protocol bindings and message envelope handling (e.g., JSON-RPC, HTTP+JSON).',
     domains: ['collaboration'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'trust.identity.validation',
     label: 'Trust · identity validation',
     description: 'Verify identities, credentials, keys, and signatures (e.g., ERC-1271, VC proofs).',
     domains: ['governance-and-trust', 'security'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'trust.feedback.authorization',
     label: 'Trust · feedback authorization',
     description: 'Issue/verify authorization to submit feedback (e.g., ERC-8004 feedbackAuth).',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'trust.validation.attestation',
     label: 'Trust · validation attestation',
     description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'trust.association.attestation',
     label: 'Trust · association attestation',
     description: 'Create/verify attestations for associations and relationship trust decisions.',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'trust.membership.attestation',
     label: 'Trust · membership attestation',
     description: 'Create/verify attestations for memberships (e.g., group/org membership proofs).',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'trust.delegation.attestation',
     label: 'Trust · delegation attestation',
     description: 'Create/verify attestations for delegations and delegated authority.',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'relationship.association.revocation',
     label: 'Relationship · association revocation',
     description: 'Revoke/expire associations and publish revocation evidence.',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'delegation.request.authorization',
     label: 'Delegation · request authorization',
     description: 'Authorize delegated actions and time-bounded permissions.',
     domains: ['governance-and-trust'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'delegation.payload.verification',
     label: 'Delegation · payload verification',
     description: 'Verify delegated payload integrity/provenance (e.g., signatures, scopes, constraints).',
     domains: ['governance-and-trust', 'security'],
-    osafExtension: true,
+    oasfExtension: true,
   },
   {
     id: 'governance.audit.provenance',
     label: 'Governance · audit provenance',
     description: 'Produce audit/provenance trails for trust and compliance decisions.',
     domains: ['governance-and-trust', 'security'],
-    osafExtension: true,
+    oasfExtension: true,
   },
 ] as const;
 

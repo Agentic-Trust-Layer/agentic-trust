@@ -326,8 +326,8 @@ const normalizeModes = (modes: unknown): string[] => {
 const buildSkills = (subdomain: string | null | undefined) => {
   const baseSkills = [
     {
-      id: 'osaf:trust.feedback.authorization',
-      name: 'osaf:trust.feedback.authorization',
+      id: 'oasf:trust.feedback.authorization',
+      name: 'oasf:trust.feedback.authorization',
       tags: ['erc8004', 'feedback', 'auth', 'a2a'],
       examples: ['Client requests feedbackAuth after receiving results'],
       inputModes: ['text'],
@@ -335,8 +335,8 @@ const buildSkills = (subdomain: string | null | undefined) => {
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     },
     {
-      id: 'osaf:trust.validation.attestation',
-      name: 'osaf:trust.validation.attestation',
+      id: 'oasf:trust.validation.attestation',
+      name: 'oasf:trust.validation.attestation',
       tags: ['erc8004', 'validation', 'attestation', 'a2a'],
       examples: ['Submit a validation response for a pending validation request'],
       inputModes: ['text', 'json'],
@@ -594,30 +594,30 @@ const serveAgentCard = async (req: Request, res: Response) => {
     const outTags = new Set<string>(existingTags.map((t: any) => String(t)));
 
     const add = (t: string) => outTags.add(t);
-    add('osafExtension:true');
+    add('oasfExtension:true');
 
-    if (id === 'osaf:trust.feedback.authorization') {
-      add('osaf:trust.feedback.authorization');
-      add('osafDomain:governance-and-trust');
+    if (id === 'oasf:trust.feedback.authorization') {
+      add('oasf:trust.feedback.authorization');
+      add('oasfDomain:governance-and-trust');
     }
     if (id.startsWith('atp.inbox.')) {
-      add('osaf:agent_interaction.request_handling');
-      add('osaf:integration.protocol_handling');
-      add('osafDomain:collaboration');
+      add('oasf:agent_interaction.request_handling');
+      add('oasf:integration.protocol_handling');
+      add('oasfDomain:collaboration');
     }
     if (id.startsWith('atp.feedback.')) {
-      add('osaf:trust.feedback.authorization');
-      add('osafDomain:governance-and-trust');
-      add('osafDomain:collaboration');
+      add('oasf:trust.feedback.authorization');
+      add('oasfDomain:governance-and-trust');
+      add('oasfDomain:collaboration');
     }
     if (id.startsWith('atp.stats.')) {
-      add('osaf:governance.audit.provenance');
-      add('osafDomain:governance-and-trust');
+      add('oasf:governance.audit.provenance');
+      add('oasfDomain:governance-and-trust');
     }
-    if (id === 'osaf:trust.validation.attestation') {
-      add('osaf:trust.validation.attestation');
-      add('osafDomain:governance-and-trust');
-      add('osafDomain:collaboration');
+    if (id === 'oasf:trust.validation.attestation') {
+      add('oasf:trust.validation.attestation');
+      add('oasfDomain:governance-and-trust');
+      add('oasfDomain:collaboration');
     }
 
     return { ...skill, tags: Array.from(outTags) };
@@ -633,8 +633,8 @@ const serveAgentCard = async (req: Request, res: Response) => {
       ? skillsAll.filter((s: any) => configuredSkillIds!.includes(String(s?.id)))
       : skillsAll;
 
-  const osafDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
-  const osafSkills = [
+  const oasfDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
+  const oasfSkills = [
     'agent_interaction.request_handling',
     'integration.protocol_handling',
     'trust.identity.validation',
@@ -675,20 +675,20 @@ const serveAgentCard = async (req: Request, res: Response) => {
         },
         {
           uri: 'https://schema.oasf.outshift.com/',
-          description: 'OSAF/OASF extension metadata: domains + skill taxonomy overlay (ATP/Agentic Trust).',
+          description: 'OASF/OASF extension metadata: domains + skill taxonomy overlay (ATP/Agentic Trust).',
           required: false,
           params: {
-            osafExtension: true,
-            domains: osafDomains,
-            skills: osafSkills,
+            oasfExtension: true,
+            domains: oasfDomains,
+            skills: oasfSkills,
             skillOverlay: {
-              'osaf:trust.feedback.authorization': ['trust.feedback.authorization'],
+              'oasf:trust.feedback.authorization': ['trust.feedback.authorization'],
               'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.markGiven': ['trust.validation.attestation', 'collaboration'],
               'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
-              'osaf:trust.validation.attestation': ['trust.validation.attestation', 'collaboration'],
+              'oasf:trust.validation.attestation': ['trust.validation.attestation', 'collaboration'],
               'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
               'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
@@ -884,8 +884,8 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
-      'osaf:trust.feedback.authorization',
-      'osaf:trust.validation.attestation',
+      'oasf:trust.feedback.authorization',
+      'oasf:trust.validation.attestation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
       'atp.agent.createOrUpdate',
@@ -963,7 +963,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
     }
 
     // Handle feedback request auth skill
-    if (skillId === 'osaf:trust.feedback.authorization') {
+    if (skillId === 'oasf:trust.feedback.authorization') {
       try {
         const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA;
         if (!rpcUrl) {
@@ -1067,7 +1067,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for osaf:trust.feedback.authorization skill';
+          responseContent.error = 'clientAddress is required in payload for oasf:trust.feedback.authorization skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1250,7 +1250,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         console.log('[ATP Agent] Setting session package on agent instance');
         agent.setSessionPackage(sessionPackage);
 
-        console.info("osaf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
+        console.info("oasf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 
         const feedbackAuthResponse = await agent.requestAuth({
           clientAddress,
@@ -1315,7 +1315,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'osaf:trust.validation.attestation') {
+    } else if (skillId === 'oasf:trust.validation.attestation') {
       // Process validation response using session package
       console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
       try {

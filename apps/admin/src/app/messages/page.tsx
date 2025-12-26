@@ -634,7 +634,7 @@ export default function MessagesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          skillId: 'osaf:trust.feedback.authorization',
+          skillId: 'oasf:trust.feedback.authorization',
           payload: {
             // Worker will derive clientAddress/agentId/chainId from the stored request record
             feedbackRequestId: selectedMessageFeedbackRequestId,
@@ -883,7 +883,7 @@ export default function MessagesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           a2aEndpoint,
-          skillId: 'osaf:trust.validation.attestation',
+          skillId: 'oasf:trust.validation.attestation',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
@@ -1844,21 +1844,21 @@ export default function MessagesPage() {
     const skills = Array.isArray(composeToAgentCard?.skills) ? composeToAgentCard.skills : [];
     const out = new Set<string>();
 
-    // Primary: per-skill tags like "osaf:trust.feedback.authorization"
+    // Primary: per-skill tags like "oasf:trust.feedback.authorization"
     for (const s of skills) {
       const tags = Array.isArray((s as any)?.tags) ? (s as any).tags : [];
       for (const t of tags) {
         const tag = String(t || '').trim();
-        if (tag.startsWith('osaf:')) out.add(tag.slice('osaf:'.length));
+        if (tag.startsWith('oasf:')) out.add(tag.slice('oasf:'.length));
       }
     }
 
-    // Secondary: the agent-card extension (if present) may list supported OSAF skills globally.
+    // Secondary: the agent-card extension (if present) may list supported OASF skills globally.
     const exts = Array.isArray((composeToAgentCard as any)?.capabilities?.extensions)
       ? (composeToAgentCard as any).capabilities.extensions
       : [];
-    const osafExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
-    const extSkills = Array.isArray(osafExt?.params?.skills) ? osafExt.params.skills : [];
+    const oasfExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
+    const extSkills = Array.isArray(oasfExt?.params?.skills) ? oasfExt.params.skills : [];
     for (const id of extSkills) out.add(String(id || '').trim());
 
     return out;
@@ -1869,7 +1869,7 @@ export default function MessagesPage() {
       // No constraints => always allowed.
       if ((!requiredExecutable || requiredExecutable.length === 0) && (!requiredOsaf || requiredOsaf.length === 0)) return true;
 
-      // Prefer OSAF overlay if present.
+      // Prefer OASF overlay if present.
       if (requiredOsaf && requiredOsaf.length > 0 && composeToAgentOsafSkillIds.size > 0) {
         return requiredOsaf.some((id) => composeToAgentOsafSkillIds.has(id));
       }
