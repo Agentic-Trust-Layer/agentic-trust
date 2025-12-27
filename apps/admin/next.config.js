@@ -15,6 +15,15 @@ const nextConfig = {
         source: '/ontology/8004agent',
         destination: '/ontology/8004agent.owl',
       },
+      // And for ontology IRIs like `.../ontology/ERC8004#` and `.../ontology/ERC8092#`.
+      {
+        source: '/ontology/ERC8004',
+        destination: '/ontology/ERC8004.owl',
+      },
+      {
+        source: '/ontology/ERC8092',
+        destination: '/ontology/ERC8092.owl',
+      },
     ];
   },
   async headers() {
@@ -35,6 +44,22 @@ const nextConfig = {
       },
       {
         source: '/ontology/8004agent',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/ERC8004.owl',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/ERC8004',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/ERC8092.owl',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/ERC8092',
         headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
       },
     ];

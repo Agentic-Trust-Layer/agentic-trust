@@ -131,21 +131,25 @@ agentictrust:EndpointType a owl:Class ;
   rdfs:comment "Recommended endpoint type taxonomy for agent metadata endpoints." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Operator a owl:Class ;
-  rdfs:label "Operator" ;
-  rdfs:comment "Operator identity (address or DID) that may act on behalf of an agent." ;
-  rdfs:subClassOf prov:Agent .
-
-agentictrust:AgentRegistration a owl:Class ;
-  rdfs:label "AgentRegistrationJSON" ;
-  rdfs:comment "Registration metadata (typically from tokenUri) that includes endpoints (e.g., A2A registration endpoint)." ;
-  rdfs:subClassOf prov:Entity ;
-  rdfs:subClassOf agentictrust:AgentMetadata .
-
-agentictrust:AgentCard a owl:Class ;
-  rdfs:label "A2AAgentCard" ;
-  rdfs:comment "A2A protocol agent card (agent.json / agent-card.json) describing skills, transports, and capabilities." ;
+agentictrust:OperatorIdentifier a owl:Class ;
+  rdfs:label "OperatorIdentifier" ;
+  rdfs:comment "An identifier for an operator (e.g., address, DID, CAIP-10). Modeled as an Entity (identifier artifact), not a prov:Agent." ;
   rdfs:subClassOf prov:Entity .
+
+agentictrust:AgentDescriptor a owl:Class ;
+  rdfs:label "AgentDescriptor" ;
+  rdfs:comment "Protocol-agnostic, machine-readable declaration of an agent’s identity, interaction surfaces, protocol bindings, capabilities, and constraints; sufficient for discovery, trust evaluation, and runtime interaction." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:A2AAgentCard a owl:Class ;
+  rdfs:label "A2AAgentCard" ;
+  rdfs:comment "Concrete AgentDescriptor serialization for the A2A protocol (agent.json / agent-card.json)." ;
+  rdfs:subClassOf agentictrust:AgentDescriptor .
+
+agentictrust:MCPManifest a owl:Class ;
+  rdfs:label "MCPManifest" ;
+  rdfs:comment "Concrete AgentDescriptor serialization for the Model Context Protocol (MCP) tool/manifest format." ;
+  rdfs:subClassOf agentictrust:AgentDescriptor .
 
 agentictrust:Endpoint a owl:Class ;
   rdfs:label "Endpoint" ;
@@ -158,8 +162,13 @@ agentictrust:TransportBinding a owl:Class ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Skill a owl:Class ;
-  rdfs:label "A2ASkill" ;
-  rdfs:comment "A callable capability described in an A2A agent card." ;
+  rdfs:label "Skill" ;
+  rdfs:comment "A callable capability (tool/function) exposed by an agent. Used across protocols (e.g., A2A skills, MCP tools)." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:JsonSchema a owl:Class ;
+  rdfs:label "JsonSchema" ;
+  rdfs:comment "A JSON Schema artifact describing inputs/outputs for a callable capability." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:SkillExample a owl:Class ;
@@ -205,17 +214,17 @@ agentictrust:IntentType a owl:Class ;
   rdfs:comment "Taxonomy value used to scope discovery and select compatible skills." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Action a owl:Class ;
+agentictrust:IntentAction a owl:Class ;
   rdfs:label "IntentAction" ;
   rdfs:comment "Action/verb used within an intent." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Subject a owl:Class ;
+agentictrust:IntentSubject a owl:Class ;
   rdfs:label "IntentSubject" ;
   rdfs:comment "The subject of an intent (e.g., an agent ENS name)." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Check a owl:Class ;
+agentictrust:IntentCheck a owl:Class ;
   rdfs:label "IntentCheck" ;
   rdfs:comment "A requested check within an intent." ;
   rdfs:subClassOf prov:Entity .
@@ -270,13 +279,13 @@ agentictrust:SkillInvocation a owl:Class ;
   rdfs:comment "JSON-RPC based invocation of a skill at an A2A service endpoint." ;
   rdfs:subClassOf prov:Activity .
 
-agentictrust:AgentCardFetch a owl:Class ;
-  rdfs:label "AgentCardFetch" ;
-  rdfs:comment "Indexing activity that retrieves an agent card from a registration endpoint." ;
+agentictrust:AgentDescriptorFetch a owl:Class ;
+  rdfs:label "AgentDescriptorFetch" ;
+  rdfs:comment "Indexing activity that retrieves an AgentDescriptor (e.g., A2AAgentCard or MCPManifest) from a registration endpoint." ;
   rdfs:subClassOf prov:Activity .
 
 ########
-# TrustRegistryModel(ERC8004+ERC8092)
+# TrustRegistryModel
 ########
 
 agentictrust:TrustEvidence a owl:Class ;
@@ -289,37 +298,9 @@ agentictrust:TrustArtifact a owl:Class ;
   rdfs:comment "Artifact produced by trust workflows (e.g., validation response)." ;
   rdfs:subClassOf agentictrust:Artifact .
 
-agentictrust:Feedback a owl:Class ;
-  rdfs:label "Feedback" ;
-  rdfs:comment "ERC-8004 reputation feedback record." ;
-  rdfs:subClassOf agentictrust:ReputationAssertion ;
-  rdfs:subClassOf agentictrust:TrustEvidence .
-
-agentictrust:FeedbackResponse a owl:Class ;
-  rdfs:label "FeedbackResponse" ;
-  rdfs:comment "Response to a feedback record (e.g., dispute/clarification)." ;
-  rdfs:subClassOf agentictrust:ReputationAssertion ;
-  rdfs:subClassOf agentictrust:TrustEvidence .
-
-agentictrust:ValidationRequest a owl:Class ;
-  rdfs:label "ValidationRequest" ;
-  rdfs:comment "ERC-8004 validation registry request." ;
-  rdfs:subClassOf agentictrust:TrustSituation .
-
-agentictrust:ValidationResponse a owl:Class ;
-  rdfs:label "ValidationResponse" ;
-  rdfs:comment "ERC-8004 validation response/attestation." ;
-  rdfs:subClassOf agentictrust:VerificationAssertion ;
-  rdfs:subClassOf agentictrust:TrustArtifact .
-
 ########
 # Object properties
 ########
-
-agentictrust:hasAgentRegistration a owl:ObjectProperty ;
-  rdfs:label "hasAgentRegistration" ;
-  rdfs:domain agentictrust:AIAgent ;
-  rdfs:range agentictrust:AgentRegistration .
 
 agentictrust:hasMetadata a owl:ObjectProperty ;
   rdfs:label "hasMetadata" ;
@@ -337,30 +318,56 @@ agentictrust:endpointType a owl:ObjectProperty ;
   rdfs:domain agentictrust:AgentEndpoint ;
   rdfs:range agentictrust:EndpointType .
 
-agentictrust:hasOperator a owl:ObjectProperty ;
-  rdfs:label "hasOperator" ;
+agentictrust:hasOperatorIdentifier a owl:ObjectProperty ;
+  rdfs:label "hasOperatorIdentifier" ;
+  rdfs:comment "Links agent metadata to operator identifiers authorized/declared for the agent (without asserting agency)." ;
   rdfs:domain agentictrust:AgentMetadata ;
-  rdfs:range agentictrust:Operator .
+  rdfs:range agentictrust:OperatorIdentifier .
 
-agentictrust:hasAgentCard a owl:ObjectProperty ;
-  rdfs:label "hasAgentCard" ;
+agentictrust:hasAgentDescriptor a owl:ObjectProperty ;
+  rdfs:label "hasAgentDescriptor" ;
+  rdfs:comment "Links an agent identity to a protocol-specific AgentDescriptor (e.g., A2AAgentCard or MCPManifest)." ;
   rdfs:domain agentictrust:AIAgent ;
-  rdfs:range agentictrust:AgentCard .
+  rdfs:range agentictrust:AgentDescriptor .
+
+agentictrust:assembledFromMetadata a owl:ObjectProperty ;
+  rdfs:label "assembledFromMetadata" ;
+  rdfs:comment "Links an AgentDescriptor to the AgentMetadata entity/entities it is assembled from (inputs used to produce the operational descriptor used for advertisement and discovery)." ;
+  rdfs:domain agentictrust:AgentDescriptor ;
+  rdfs:range agentictrust:AgentMetadata .
 
 agentictrust:hasEndpoint a owl:ObjectProperty ;
   rdfs:label "hasEndpoint" ;
-  rdfs:domain agentictrust:AgentCard ;
+  rdfs:domain agentictrust:AgentDescriptor ;
   rdfs:range agentictrust:Endpoint .
 
 agentictrust:hasSkill a owl:ObjectProperty ;
   rdfs:label "hasSkill" ;
-  rdfs:domain agentictrust:AgentCard ;
+  rdfs:domain agentictrust:AgentDescriptor ;
+  rdfs:range agentictrust:Skill .
+
+agentictrust:declaresSkill a owl:ObjectProperty ;
+  rdfs:label "declaresSkill" ;
+  rdfs:comment "Links agent metadata to skills/capabilities it declares for discovery." ;
+  rdfs:domain agentictrust:AgentMetadata ;
   rdfs:range agentictrust:Skill .
 
 agentictrust:hasExample a owl:ObjectProperty ;
   rdfs:label "hasExample" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range agentictrust:SkillExample .
+
+agentictrust:hasInputSchema a owl:ObjectProperty ;
+  rdfs:label "hasInputSchema" ;
+  rdfs:comment "Links a skill/tool to its JSON Schema describing valid inputs." ;
+  rdfs:domain agentictrust:Skill ;
+  rdfs:range agentictrust:JsonSchema .
+
+agentictrust:hasOutputSchema a owl:ObjectProperty ;
+  rdfs:label "hasOutputSchema" ;
+  rdfs:comment "Links a skill/tool to its JSON Schema describing outputs (when declared)." ;
+  rdfs:domain agentictrust:Skill ;
+  rdfs:range agentictrust:JsonSchema .
 
 agentictrust:hasTag a owl:ObjectProperty ;
   rdfs:label "hasTag" ;
@@ -371,6 +378,24 @@ agentictrust:supportsIntentType a owl:ObjectProperty ;
   rdfs:label "supportsIntentType" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range agentictrust:IntentType .
+
+agentictrust:enablesTaskType a owl:ObjectProperty ;
+  rdfs:label "enablesTaskType" ;
+  rdfs:comment "Links a skill/tool to the task types it can realize." ;
+  rdfs:domain agentictrust:Skill ;
+  rdfs:range agentictrust:TaskType .
+
+agentictrust:implementedBySkill a owl:ObjectProperty ;
+  rdfs:label "implementedBySkill" ;
+  rdfs:comment "Inverse-style link from task type to skills that can implement it." ;
+  rdfs:domain agentictrust:TaskType ;
+  rdfs:range agentictrust:Skill .
+
+agentictrust:mapsToTaskType a owl:ObjectProperty ;
+  rdfs:label "mapsToTaskType" ;
+  rdfs:comment "Maps an intent type to a task type for routing/planning." ;
+  rdfs:domain agentictrust:IntentType ;
+  rdfs:range agentictrust:TaskType .
 
 agentictrust:hasIntent a owl:ObjectProperty ;
   rdfs:label "hasIntent" ;
@@ -385,12 +410,12 @@ agentictrust:hasPart a owl:ObjectProperty ;
 agentictrust:hasSubject a owl:ObjectProperty ;
   rdfs:label "hasSubject" ;
   rdfs:domain agentictrust:Intent ;
-  rdfs:range agentictrust:Subject .
+  rdfs:range agentictrust:IntentSubject .
 
 agentictrust:hasCheck a owl:ObjectProperty ;
   rdfs:label "hasCheck" ;
   rdfs:domain agentictrust:Intent ;
-  rdfs:range agentictrust:Check .
+  rdfs:range agentictrust:IntentCheck .
 
 agentictrust:hasEvidence a owl:ObjectProperty ;
   rdfs:label "hasEvidence" ;
@@ -427,64 +452,24 @@ agentictrust:invocationUsedMessage a owl:ObjectProperty ;
   rdfs:domain agentictrust:SkillInvocation ;
   rdfs:range agentictrust:Message .
 
+agentictrust:hasInvocation a owl:ObjectProperty ;
+  rdfs:label "hasInvocation" ;
+  rdfs:comment "Links a task execution to one or more skill invocations used to realize it." ;
+  rdfs:domain agentictrust:TaskExecution ;
+  rdfs:range agentictrust:SkillInvocation .
+
+agentictrust:fulfilledByInvocation a owl:ObjectProperty ;
+  rdfs:label "fulfilledByInvocation" ;
+  rdfs:comment "Links an intent to the skill invocation(s) that fulfill it." ;
+  rdfs:domain agentictrust:Intent ;
+  rdfs:range agentictrust:SkillInvocation .
+
 agentictrust:hadPlan a owl:ObjectProperty ;
   rdfs:label "hadPlan" ;
   rdfs:comment "Alias to prov:hadPlan to connect executions to intent/task plans." ;
   rdfs:subPropertyOf prov:hadPlan ;
   rdfs:domain prov:Activity ;
   rdfs:range prov:Plan .
-
-agentictrust:hasFeedback a owl:ObjectProperty ;
-  rdfs:label "hasFeedback" ;
-  rdfs:domain agentictrust:AIAgent ;
-  rdfs:range agentictrust:Feedback .
-
-agentictrust:hasValidation a owl:ObjectProperty ;
-  rdfs:label "hasValidation" ;
-  rdfs:domain agentictrust:AIAgent ;
-  rdfs:range agentictrust:ValidationResponse .
-
-agentictrust:feedbackClient a owl:ObjectProperty ;
-  rdfs:label "feedbackClient" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range prov:Agent .
-
-agentictrust:feedbackSkill a owl:ObjectProperty ;
-  rdfs:label "feedbackSkill" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range agentictrust:Skill .
-
-agentictrust:feedbackIntentType a owl:ObjectProperty ;
-  rdfs:label "feedbackIntentType" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range agentictrust:IntentType .
-
-agentictrust:validationValidator a owl:ObjectProperty ;
-  rdfs:label "validationValidator" ;
-  rdfs:domain agentictrust:ValidationRequest ;
-  rdfs:range prov:Agent .
-
-agentictrust:validatorAgent a owl:ObjectProperty ;
-  rdfs:label "validatorAgent" ;
-  rdfs:comment "Optional link when validatorAddress maps to a known AIAgent account/address." ;
-  rdfs:domain agentictrust:ValidationRequest ;
-  rdfs:range agentictrust:AIAgent .
-
-agentictrust:validatorAgentForResponse a owl:ObjectProperty ;
-  rdfs:label "validatorAgentForResponse" ;
-  rdfs:comment "Optional link when validatorAddress maps to a known AIAgent account/address (response side)." ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range agentictrust:AIAgent .
-
-agentictrust:validationRespondsToRequest a owl:ObjectProperty ;
-  rdfs:label "validationRespondsToRequest" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range agentictrust:ValidationRequest .
-
-agentictrust:validationTagCheck a owl:ObjectProperty ;
-  rdfs:label "validationTagCheck" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range agentictrust:Check .
 
 ########
 # Datatype properties
@@ -589,17 +574,17 @@ agentictrust:agentCardReadAt a owl:DatatypeProperty ;
 
 agentictrust:protocolVersion a owl:DatatypeProperty ;
   rdfs:label "protocolVersion" ;
-  rdfs:domain agentictrust:AgentCard ;
+  rdfs:domain agentictrust:A2AAgentCard ;
   rdfs:range xsd:string .
 
 agentictrust:preferredTransport a owl:DatatypeProperty ;
   rdfs:label "preferredTransport" ;
-  rdfs:domain agentictrust:AgentCard ;
+  rdfs:domain agentictrust:A2AAgentCard ;
   rdfs:range xsd:string .
 
 agentictrust:serviceUrl a owl:DatatypeProperty ;
   rdfs:label "serviceUrl" ;
-  rdfs:domain agentictrust:AgentCard ;
+  rdfs:domain agentictrust:A2AAgentCard ;
   rdfs:range xsd:anyURI .
 
 agentictrust:skillId a owl:DatatypeProperty ;
@@ -616,6 +601,12 @@ agentictrust:skillDescription a owl:DatatypeProperty ;
   rdfs:label "skillDescription" ;
   rdfs:domain agentictrust:Skill ;
   rdfs:range xsd:string .
+
+agentictrust:schemaJson a owl:DatatypeProperty ;
+  rdfs:label "schemaJson" ;
+  rdfs:comment "JSON Schema payload (as rdf:JSON)." ;
+  rdfs:domain agentictrust:JsonSchema ;
+  rdfs:range rdf:JSON .
 
 agentictrust:intentTypeValue a owl:DatatypeProperty ;
   rdfs:label "intentTypeString" ;
@@ -730,10 +721,10 @@ agentictrust:endpointVersion a owl:DatatypeProperty ;
   rdfs:domain agentictrust:AgentEndpoint ;
   rdfs:range xsd:string .
 
-agentictrust:operatorValue a owl:DatatypeProperty ;
-  rdfs:label "operatorValue" ;
+agentictrust:operatorIdentifierValue a owl:DatatypeProperty ;
+  rdfs:label "operatorIdentifierValue" ;
   rdfs:comment "Raw operator identifier from metadata (address/DID/CAIP-10)." ;
-  rdfs:domain agentictrust:Operator ;
+  rdfs:domain agentictrust:OperatorIdentifier ;
   rdfs:range xsd:string .
 
 agentictrust:TrustModel a owl:Class ;
@@ -745,357 +736,6 @@ agentictrust:supportsTrustModel a owl:ObjectProperty ;
   rdfs:label "supportsTrustModel" ;
   rdfs:domain agentictrust:AgentMetadata ;
   rdfs:range agentictrust:TrustModel .
-
-agentictrust:feedbackIndex a owl:DatatypeProperty ;
-  rdfs:label "feedbackIndex" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range xsd:integer .
-
-agentictrust:feedbackScore a owl:DatatypeProperty ;
-  rdfs:label "feedbackScore" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range xsd:integer .
-
-agentictrust:feedbackRatingPct a owl:DatatypeProperty ;
-  rdfs:label "feedbackRatingPct" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range xsd:integer .
-
-agentictrust:isRevoked a owl:DatatypeProperty ;
-  rdfs:label "isRevoked" ;
-  rdfs:domain agentictrust:Feedback ;
-  rdfs:range xsd:boolean .
-
-agentictrust:requestHash a owl:DatatypeProperty ;
-  rdfs:label "requestHash" ;
-  rdfs:domain agentictrust:ValidationRequest ;
-  rdfs:range xsd:string .
-
-agentictrust:validationChainId a owl:DatatypeProperty ;
-  rdfs:label "validationChainId" ;
-  rdfs:domain agentictrust:ValidationRequest ;
-  rdfs:range xsd:integer .
-
-agentictrust:requestingAgentId a owl:DatatypeProperty ;
-  rdfs:label "requestingAgentId" ;
-  rdfs:domain agentictrust:ValidationRequest ;
-  rdfs:range xsd:string .
-
-agentictrust:validatorAddress a owl:DatatypeProperty ;
-  rdfs:label "validatorAddress" ;
-  rdfs:domain agentictrust:ValidationRequest ;
-  rdfs:range xsd:string .
-
-agentictrust:responseHash a owl:DatatypeProperty ;
-  rdfs:label "responseHash" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range xsd:string .
-
-agentictrust:validationChainIdForResponse a owl:DatatypeProperty ;
-  rdfs:label "validationChainIdForResponse" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range xsd:integer .
-
-agentictrust:requestingAgentIdForResponse a owl:DatatypeProperty ;
-  rdfs:label "requestingAgentIdForResponse" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range xsd:string .
-
-agentictrust:validatorAddressForResponse a owl:DatatypeProperty ;
-  rdfs:label "validatorAddressForResponse" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range xsd:string .
-
-agentictrust:validationResponseValue a owl:DatatypeProperty ;
-  rdfs:label "validationResponseValue" ;
-  rdfs:domain agentictrust:ValidationResponse ;
-  rdfs:range xsd:integer .
-
-########
-# Canonical intent type individuals (starter set)
-########
-
-########
-# ERC8004ValidationDataProfile(community)
-# Based on Validation Data Profile v2.0 (non-normative guidance)
-########
-
-agentictrust:ValidationOffchainData a owl:Class ;
-  rdfs:label "ValidationOffchainData" ;
-  rdfs:comment "Offchain JSON referenced by requestUri/responseUri in ERC-8004 validation registries." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:Attachment a owl:Class ;
-  rdfs:label "Attachment" ;
-  rdfs:comment "Generic attachment pattern entity (name, uri, mimeType, size, uploadedAt, description)." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:ValidationAttachment a owl:Class ;
-  rdfs:label "ValidationAttachment" ;
-  rdfs:comment "Attachment entity referenced by validation offchain JSON (name, uri, mimeType, size, uploadedAt, description)." ;
-  rdfs:subClassOf agentictrust:Attachment .
-
-agentictrust:FeedbackOffchainData a owl:Class ;
-  rdfs:label "FeedbackOffchainData" ;
-  rdfs:comment "Offchain JSON referenced by feedbackUri in ERC-8004 reputation registries (feedback data profile v2.0)." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:FeedbackAttachment a owl:Class ;
-  rdfs:label "FeedbackAttachment" ;
-  rdfs:comment "Attachment entity referenced by feedback offchain JSON." ;
-  rdfs:subClassOf agentictrust:Attachment .
-
-agentictrust:PaymentProof a owl:Class ;
-  rdfs:label "PaymentProof" ;
-  rdfs:comment "Payment proof object in feedback offchain JSON (e.g., x402 protocol proof_of_payment)." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:ValidationType a owl:Class ;
-  rdfs:label "ValidationType" ;
-  rdfs:comment "Taxonomy of validationType strings (e.g., zkmlproof, teeattestation, cryptoeconomic)." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:ParseStatus a owl:Class ;
-  rdfs:label "ParseStatus" ;
-  rdfs:comment "Parse status indicator for offchain JSON (success, warning, knowncustom, unknown, error)." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:ProofFormat a owl:Class ;
-  rdfs:label "ProofFormat" ;
-  rdfs:comment "Known proof protocol/format taxonomy (groth16, plonk, stark, halo2)." ;
-  rdfs:subClassOf prov:Entity .
-
-agentictrust:hasOffchainData a owl:ObjectProperty ;
-  rdfs:label "hasOffchainData" ;
-  rdfs:range agentictrust:ValidationOffchainData .
-
-agentictrust:hasFeedbackOffchainData a owl:ObjectProperty ;
-  rdfs:label "hasFeedbackOffchainData" ;
-  rdfs:range agentictrust:FeedbackOffchainData .
-
-agentictrust:hasAttachment a owl:ObjectProperty ;
-  rdfs:label "hasAttachment" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range agentictrust:ValidationAttachment .
-
-agentictrust:hasFeedbackAttachment a owl:ObjectProperty ;
-  rdfs:label "hasFeedbackAttachment" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range agentictrust:FeedbackAttachment .
-
-agentictrust:hasPaymentProof a owl:ObjectProperty ;
-  rdfs:label "hasPaymentProof" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range agentictrust:PaymentProof .
-
-agentictrust:hasValidationType a owl:ObjectProperty ;
-  rdfs:label "hasValidationType" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range agentictrust:ValidationType .
-
-agentictrust:hasParseStatus a owl:ObjectProperty ;
-  rdfs:label "hasParseStatus" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range agentictrust:ParseStatus .
-
-agentictrust:hasProofFormat a owl:ObjectProperty ;
-  rdfs:label "hasProofFormat" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range agentictrust:ProofFormat .
-
-agentictrust:createdAt a owl:DatatypeProperty ;
-  rdfs:label "createdAt" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:dateTime .
-
-agentictrust:deadline a owl:DatatypeProperty ;
-  rdfs:label "deadline" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:dateTime .
-
-agentictrust:reasoning a owl:DatatypeProperty ;
-  rdfs:label "reasoning" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:result a owl:DatatypeProperty ;
-  rdfs:label "result" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:confidence a owl:DatatypeProperty ;
-  rdfs:label "confidence" ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:decimal .
-
-agentictrust:validationTypeValue a owl:DatatypeProperty ;
-  rdfs:label "validationTypeValue" ;
-  rdfs:comment "Raw validationType string (may include dashes in source JSON)." ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:parseStatusValue a owl:DatatypeProperty ;
-  rdfs:label "parseStatusValue" ;
-  rdfs:comment "Raw parse status string (API/tooling specific)." ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:proofFormatValue a owl:DatatypeProperty ;
-  rdfs:label "proofFormatValue" ;
-  rdfs:comment "Raw proof protocol/format string (e.g., groth16)." ;
-  rdfs:domain agentictrust:ValidationOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:attachmentName a owl:DatatypeProperty ;
-  rdfs:label "attachmentName" ;
-  rdfs:domain agentictrust:Attachment ;
-  rdfs:range xsd:string .
-
-agentictrust:attachmentUri a owl:DatatypeProperty ;
-  rdfs:label "attachmentUri" ;
-  rdfs:domain agentictrust:Attachment ;
-  rdfs:range xsd:anyURI .
-
-agentictrust:attachmentMimeType a owl:DatatypeProperty ;
-  rdfs:label "attachmentMimeType" ;
-  rdfs:domain agentictrust:Attachment ;
-  rdfs:range xsd:string .
-
-agentictrust:attachmentSize a owl:DatatypeProperty ;
-  rdfs:label "attachmentSize" ;
-  rdfs:domain agentictrust:Attachment ;
-  rdfs:range xsd:integer .
-
-agentictrust:attachmentUploadedAt a owl:DatatypeProperty ;
-  rdfs:label "attachmentUploadedAt" ;
-  rdfs:domain agentictrust:Attachment ;
-  rdfs:range xsd:dateTime .
-
-agentictrust:attachmentDescription a owl:DatatypeProperty ;
-  rdfs:label "attachmentDescription" ;
-  rdfs:domain agentictrust:Attachment ;
-  rdfs:range xsd:string .
-
-########
-# ERC8004FeedbackDataProfile(community)
-# Based on Feedback Data Profile v2.0 (non-normative guidance)
-########
-
-agentictrust:feedbackAuth a owl:DatatypeProperty ;
-  rdfs:label "feedbackAuth" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:score a owl:DatatypeProperty ;
-  rdfs:label "score" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:integer .
-
-agentictrust:tag1 a owl:DatatypeProperty ;
-  rdfs:label "tag1" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:tag2 a owl:DatatypeProperty ;
-  rdfs:label "tag2" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:skill a owl:DatatypeProperty ;
-  rdfs:label "skill" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:context a owl:DatatypeProperty ;
-  rdfs:label "context" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:task a owl:DatatypeProperty ;
-  rdfs:label "task" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:capability a owl:DatatypeProperty ;
-  rdfs:label "capability" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:name a owl:DatatypeProperty ;
-  rdfs:label "name" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:clientAddress a owl:DatatypeProperty ;
-  rdfs:label "clientAddress" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:agentRegistry a owl:DatatypeProperty ;
-  rdfs:label "agentRegistry" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:string .
-
-agentictrust:agentIdValue a owl:DatatypeProperty ;
-  rdfs:label "agentIdValue" ;
-  rdfs:domain agentictrust:FeedbackOffchainData ;
-  rdfs:range xsd:integer .
-
-agentictrust:paymentProtocol a owl:DatatypeProperty ;
-  rdfs:label "paymentProtocol" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:paymentFromAddress a owl:DatatypeProperty ;
-  rdfs:label "paymentFromAddress" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:paymentToAddress a owl:DatatypeProperty ;
-  rdfs:label "paymentToAddress" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:paymentChainId a owl:DatatypeProperty ;
-  rdfs:label "paymentChainId" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:integer .
-
-agentictrust:paymentTxHash a owl:DatatypeProperty ;
-  rdfs:label "paymentTxHash" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:paymentAmount a owl:DatatypeProperty ;
-  rdfs:label "paymentAmount" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:paymentCurrency a owl:DatatypeProperty ;
-  rdfs:label "paymentCurrency" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:paymentTokenAddress a owl:DatatypeProperty ;
-  rdfs:label "paymentTokenAddress" ;
-  rdfs:domain agentictrust:PaymentProof ;
-  rdfs:range xsd:string .
-
-agentictrust:ParseStatus_success a agentictrust:ParseStatus ; rdfs:label "success" .
-agentictrust:ParseStatus_warning a agentictrust:ParseStatus ; rdfs:label "warning" .
-agentictrust:ParseStatus_knowncustom a agentictrust:ParseStatus ; rdfs:label "knowncustom" .
-agentictrust:ParseStatus_unknown a agentictrust:ParseStatus ; rdfs:label "unknown" .
-agentictrust:ParseStatus_error a agentictrust:ParseStatus ; rdfs:label "error" .
-
-agentictrust:ProofFormat_groth16 a agentictrust:ProofFormat ; rdfs:label "groth16" .
-agentictrust:ProofFormat_plonk a agentictrust:ProofFormat ; rdfs:label "plonk" .
-agentictrust:ProofFormat_stark a agentictrust:ProofFormat ; rdfs:label "stark" .
-agentictrust:ProofFormat_halo2 a agentictrust:ProofFormat ; rdfs:label "halo2" .
-
-# Common validationType individuals (labels omit dashes/spaces; raw strings belong in validationTypeValue)
-agentictrust:ValidationType_zkmlproof a agentictrust:ValidationType ; rdfs:label "zkmlproof" .
-agentictrust:ValidationType_teeattestation a agentictrust:ValidationType ; rdfs:label "teeattestation" .
-agentictrust:ValidationType_cryptoeconomic a agentictrust:ValidationType ; rdfs:label "cryptoeconomic" .
 
 ########
 # ERC8004AgentMetadataProfile(recommended)
