@@ -251,6 +251,12 @@ agentictrust:hasName a owl:ObjectProperty ;
   rdfs:domain agentictrust:AIAgent ;
   rdfs:range agentictrust:Name .
 
+agentictrust:hasDID a owl:ObjectProperty ;
+  rdfs:label "hasDID" ;
+  rdfs:comment "Links an agent directly to a DID (Decentralized Identifier) that identifies it. This allows protocol-agnostic access to agent DIDs without requiring protocol-specific ontology imports." ;
+  rdfs:domain agentictrust:AIAgent ;
+  rdfs:range agentictrust:DID .
+
 ########
 # UniversalIdentifier (HCS-14)
 ########
@@ -727,11 +733,6 @@ agentictrust:hadPlan a owl:ObjectProperty ;
 ########
 # Datatype properties
 ########
-
-agentictrust:chainId a owl:DatatypeProperty ;
-  rdfs:label "chainId" ;
-  rdfs:domain agentictrust:AIAgent ;
-  rdfs:range xsd:integer .
 
 agentictrust:agentId a owl:DatatypeProperty ;
   rdfs:label "agentId" ;
