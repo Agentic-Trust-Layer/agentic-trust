@@ -4,16 +4,20 @@ const nextConfig = {
   transpilePackages: ['@agentic-trust/core', '@agentic-trust/8004-ext-sdk', '@agentic-trust/8004-sdk'],
   async rewrites() {
     return [
-      // OWLAPI/Protégé will dereference `.../ontology/agentictrust#` as `.../ontology/agentictrust`
-      // (fragment not sent over HTTP). Serve the actual ontology file from that IRI.
+      // OWLAPI/Protégé dereferences `.../ontology/X#` as `.../ontology/X` (fragment not sent over HTTP).
+      // Serve the actual ontology files from their IRI paths.
+      {
+        source: '/ontology/agentictrust-core',
+        destination: '/ontology/agentictrust-core.owl',
+      },
+      {
+        source: '/ontology/agentictrust-eth',
+        destination: '/ontology/agentictrust-eth.owl',
+      },
+      // Back-compat: old base IRI (if referenced anywhere) points at the core ontology.
       {
         source: '/ontology/agentictrust',
-        destination: '/ontology/agentictrust.owl',
-      },
-      // Same pattern for the ERC-8004/8092 layered ontology.
-      {
-        source: '/ontology/8004agent',
-        destination: '/ontology/8004agent.owl',
+        destination: '/ontology/agentictrust-core.owl',
       },
       // And for ontology IRIs like `.../ontology/ERC8004#` and `.../ontology/ERC8092#`.
       {
@@ -29,21 +33,25 @@ const nextConfig = {
   async headers() {
     return [
       {
-        // This file is Turtle syntax (despite .owl extension), so advertise accordingly.
-        source: '/ontology/agentictrust.owl',
+        // These ontology files are Turtle syntax (despite .owl extension), so advertise accordingly.
+        source: '/ontology/agentictrust-core.owl',
         headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
       },
       {
-        // And ensure the import IRI gets the same content-type.
+        source: '/ontology/agentictrust-core',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/agentictrust-eth.owl',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/agentictrust-eth',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        // Back-compat IRI path content-type.
         source: '/ontology/agentictrust',
-        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
-      },
-      {
-        source: '/ontology/8004agent.owl',
-        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
-      },
-      {
-        source: '/ontology/8004agent',
         headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
       },
       {
@@ -61,6 +69,10 @@ const nextConfig = {
       {
         source: '/ontology/ERC8092',
         headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/catalog-v001.xml',
+        headers: [{ key: 'Content-Type', value: 'application/xml; charset=utf-8' }],
       },
     ];
   },
