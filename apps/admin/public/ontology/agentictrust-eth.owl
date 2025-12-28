@@ -30,7 +30,7 @@ agentictrustEth:Account a owl:Class ;
 
 agentictrustEth:AccountIdentifier a owl:Class ;
   rdfs:label "AccountIdentifier" ;
-  rdfs:comment "Identifier for an Ethereum Account. Links to the Account entity via hasAccount and to its DID via hasDID. Realizes agentictrust:Identifier for Ethereum-based agents." ;
+  rdfs:comment "Identifier for an Ethereum Account. Links to its DID via hasDID. The underlying Account entity links to this identifier via agentictrustEth:hasIdentifier (inverse traversal can be expressed in SPARQL as ^agentictrustEth:hasIdentifier)." ;
   rdfs:subClassOf agentictrust:Identifier ;
   rdfs:subClassOf prov:Entity .
 
@@ -70,15 +70,9 @@ agentictrustEth:AccountType_SmartAccount a agentictrustEth:AccountType ; rdfs:la
 
 agentictrustEth:hasIdentifier a owl:ObjectProperty ;
   rdfs:label "hasIdentifier" ;
-  rdfs:comment "Links an Ethereum Account to its AccountIdentifier. Each Account has one AccountIdentifier." ;
+  rdfs:comment "Links an Ethereum Account to its AccountIdentifier. Each Account has one AccountIdentifier. The inverse can be traversed in SPARQL via ^agentictrustEth:hasIdentifier." ;
   rdfs:domain agentictrustEth:Account ;
   rdfs:range agentictrustEth:AccountIdentifier .
-
-agentictrustEth:hasAccount a owl:ObjectProperty ;
-  rdfs:label "hasAccount" ;
-  rdfs:comment "Links an AccountIdentifier to its Account entity (inverse of hasIdentifier)." ;
-  rdfs:domain agentictrustEth:AccountIdentifier ;
-  rdfs:range agentictrustEth:Account .
 
 ########
 # AccountIdentifier DID
@@ -136,7 +130,7 @@ agentictrustEth:hasIdentifier a owl:ObjectProperty ;
   rdfs:label "hasIdentifier" ;
   rdfs:comment "Links an ENS Name to its ENSNameIdentifier. Each ENS Name has one ENSNameIdentifier." ;
   rdfs:domain agentictrustEth:ENSName ;
-  rdfs:range agentictrust:ENSNameIdentifier .
+  rdfs:range agentictrustEth:ENSNameIdentifier .
 
 agentictrustEth:ensChainId a owl:DatatypeProperty ;
   rdfs:label "ensChainId" ;
@@ -236,4 +230,32 @@ agentictrustEth:participatesInAccountRelationship a owl:ObjectProperty ;
   rdfs:comment "Links an AccountRelationship to the Accounts that participate in it (inverse of hasAccountRelationship)." ;
   rdfs:domain agentictrustEth:AccountRelationship ;
   rdfs:range agentictrustEth:Account .
+
+########
+# Descriptors
+########
+
+agentictrustEth:AccountDescriptor a owl:Class ;
+  rdfs:label "AccountDescriptor" ;
+  rdfs:comment "Descriptor for an Ethereum Account identifier/entity (resolved chainId/address, account type, signing authority, and validation capabilities)." ;
+  rdfs:subClassOf agentictrust:IdentifierDescriptor .
+
+agentictrustEth:ENSNameIdentifier a owl:Class ;
+  rdfs:label "ENSNameIdentifier" ;
+  rdfs:comment "ENS (Ethereum Name Service) name identifier. Represents a human-readable ENS name (e.g., agent.eth) that resolves to an Ethereum address. Valid ENS names end with .eth." ;
+  rdfs:subClassOf agentictrust:Identifier ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrustEth:IdentifierType_account a agentictrust:IdentifierType ;
+  rdfs:label "account" ;
+  rdfs:comment "Ethereum account identifier type." .
+
+agentictrustEth:IdentifierType_ens a agentictrust:IdentifierType ;
+  rdfs:label "ens" ;
+  rdfs:comment "ENS name identifier type." .
+
+agentictrustEth:ENSNameDescriptor a owl:Class ;
+  rdfs:label "ENSNameDescriptor" ;
+  rdfs:comment "Descriptor for an ENS name (resolved name, chain, resolver/controller, and resolution targets)." ;
+  rdfs:subClassOf agentictrust:IdentifierDescriptor .
 
