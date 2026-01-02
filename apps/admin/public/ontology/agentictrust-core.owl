@@ -171,7 +171,8 @@ agentictrust:RelationshipSituation a owl:Class ;
 agentictrust:RelationshipTrustSituation a owl:Class ;
   rdfs:label "RelationshipTrustSituation" ;
   rdfs:comment "A TrustSituation about the status/constraints/qualification of a Relationship (trust-qualified relationship state)." ;
-  rdfs:subClassOf agentictrust:TrustSituation .
+  rdfs:subClassOf agentictrust:TrustSituation ;
+  rdfs:subClassOf agentictrust:RelationshipSituation .
 
 agentictrust:RequestSituation a owl:Class ;
   rdfs:label "RequestSituation" ;
@@ -228,12 +229,12 @@ agentictrust:ReputationTrustAssertionAct a owl:Class ;
 
 agentictrust:Relationship a owl:Class ;
   rdfs:label "Relationship" ;
-  rdfs:comment "A persistent social relationship between Agents. Exists independently of any single TrustSituation and has a lifecycle supported by RelationshipAssertions. For Account-to-Account relationships, see agentictrustEth:AccountRelationship." ;
+  rdfs:comment "A persistent social relationship between Agents. Exists independently of any single TrustSituation and has a lifecycle supported by RelationshipAssertions." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:RelationshipTrustAssertion a owl:Class ;
   rdfs:label "RelationshipTrustAssertion" ;
-  rdfs:comment "A durable trust assertion record that establishes, modifies, or terminates a Relationship between Agents. For Account-to-Account relationship assertions, see agentictrustEth:TrustAssertion8092." ;
+  rdfs:comment "A durable trust assertion record that establishes, modifies, or terminates a Relationship between Agents. For Account-to-Account relationship assertions, see erc8092:TrustAssertion." ;
   rdfs:subClassOf agentictrust:TrustAssertion .
 
 agentictrust:RelationshipTrustAssertionAct a owl:Class ;
@@ -438,7 +439,7 @@ agentictrust:hasReputationAssertion a owl:ObjectProperty ;
 
 agentictrust:hasRelationshipAssertion a owl:ObjectProperty ;
   rdfs:label "hasRelationshipAssertion" ;
-  rdfs:comment "Links an Agent to RelationshipAssertions it participates in or produces (for Agent-to-Agent relationships). For Account-to-Account relationship assertions, see agentictrustEth:hasAccountRelationshipAssertion (which links to TrustAssertion8092)." ;
+  rdfs:comment "Links an Agent to RelationshipAssertions it participates in or produces (for Agent-to-Agent relationships). For Account-to-Account relationship assertions, see agentictrustEth:hasAccountRelationshipAssertion (which links to erc8092:TrustAssertion)." ;
   rdfs:subPropertyOf agentictrust:hasTrustAssertion ;
   rdfs:domain prov:Agent ;
   rdfs:range agentictrust:RelationshipTrustAssertion .
