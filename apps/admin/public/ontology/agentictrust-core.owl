@@ -138,13 +138,13 @@ agentictrust:TrustSituation a owl:Class ;
   rdfs:comment "Trust Situation (epistemic object): the context/claim that certain trust-relevant relations hold. This is what assertion activities assert." ;
   rdfs:subClassOf agentictrust:Situation .
 
-agentictrust:VerificationSituation a owl:Class ;
-  rdfs:label "VerificationSituation" ;
+agentictrust:VerificationTrustSituation a owl:Class ;
+  rdfs:label "VerificationTrustSituation" ;
   rdfs:comment "A TrustSituation about verification/validation of an agent, endpoint, identifier, or credential." ;
   rdfs:subClassOf agentictrust:TrustSituation .
 
-agentictrust:ReputationSituation a owl:Class ;
-  rdfs:label "ReputationSituation" ;
+agentictrust:ReputationTrustSituation a owl:Class ;
+  rdfs:label "ReputationTrustSituation" ;
   rdfs:comment "A TrustSituation about reputation/feedback outcomes." ;
   rdfs:subClassOf agentictrust:TrustSituation .
 
@@ -152,6 +152,33 @@ agentictrust:RelationshipSituation a owl:Class ;
   rdfs:label "RelationshipSituation" ;
   rdfs:comment "A Situation about the status/constraints/qualification of a Relationship. This can exist independently of trust, and can be asserted/qualified by TrustAssertions." ;
   rdfs:subClassOf agentictrust:Situation .
+
+agentictrust:RelationshipTrustSituation a owl:Class ;
+  rdfs:label "RelationshipTrustSituation" ;
+  rdfs:comment "A TrustSituation about the status/constraints/qualification of a Relationship (trust-qualified relationship state)." ;
+  rdfs:subClassOf agentictrust:TrustSituation .
+
+agentictrust:RequestSituation a owl:Class ;
+  rdfs:label "RequestSituation" ;
+  rdfs:comment "A Situation that represents a request context (epistemic request object), which may later be asserted/validated by one or more TrustAssertions." ;
+  rdfs:subClassOf agentictrust:Situation .
+
+agentictrust:VerificationRequestSituation a owl:Class ;
+  rdfs:label "VerificationRequestSituation" ;
+  rdfs:comment "ERC-8004 verification/validation request record modeled as a Situation (not defined in ERC8004.owl, which is assertion-only). Used as the asserted situation for validation responses." ;
+  rdfs:subClassOf agentictrust:RequestSituation ;
+  rdfs:subClassOf agentictrust:VerificationTrustSituation .
+
+agentictrust:ReputationRequestSituation a owl:Class ;
+  rdfs:label "ReputationRequestSituation" ;
+  rdfs:comment "A request-shaped Situation in the reputation domain (e.g., a client requests feedback authorization or asks to provide feedback). This is a RequestSituation and also a ReputationTrustSituation." ;
+  rdfs:subClassOf agentictrust:RequestSituation ;
+  rdfs:subClassOf agentictrust:ReputationTrustSituation .
+
+agentictrust:FeedbackAuthRequestSituation a owl:Class ;
+  rdfs:label "FeedbackAuthRequestSituation" ;
+  rdfs:comment "A ReputationRequestSituation representing the request flow for issuing an ERC-8004 feedbackAuth token/signature, enabling a client to submit feedback." ;
+  rdfs:subClassOf agentictrust:ReputationRequestSituation .
 
 ### TrustAssertion (assertion act / activity)
 agentictrust:TrustAssertion a owl:Class ;
@@ -867,7 +894,7 @@ agentictrust:assembledFromMetadata a owl:ObjectProperty ;
   rdfs:label "assembledFromMetadata" ;
   rdfs:comment "Links an AgentDescriptor to other descriptor documents/components it is assembled from (inputs used to produce the operational descriptor used for advertisement and discovery)." ;
   rdfs:domain agentictrust:AgentDescriptor ;
-  rdfs:range agentictrust:AgentDescriptor .
+  rdfs:range agentictrust:Descriptor .
 
 agentictrust:hasEndpoint a owl:ObjectProperty ;
   rdfs:label "hasEndpoint" ;
