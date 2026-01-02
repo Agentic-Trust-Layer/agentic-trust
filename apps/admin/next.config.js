@@ -28,6 +28,10 @@ const nextConfig = {
         source: '/ontology/ERC8092',
         destination: '/ontology/ERC8092.owl',
       },
+      {
+        source: '/ontology/hol',
+        destination: '/ontology/hol.owl',
+      },
     ];
   },
   async headers() {
@@ -68,6 +72,14 @@ const nextConfig = {
       },
       {
         source: '/ontology/ERC8092',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/hol.owl',
+        headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
+      },
+      {
+        source: '/ontology/hol',
         headers: [{ key: 'Content-Type', value: 'text/turtle; charset=utf-8' }],
       },
       {
