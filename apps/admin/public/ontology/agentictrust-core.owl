@@ -34,10 +34,10 @@ agentictrust:Descriptor
   ├─ agentictrust:ProtocolDescriptor
   ├─ agentictrust:IdentifierDescriptor
   │    └─ agentictrustEth:AccountDescriptor (in agentictrust-eth.owl)
-  ├─ agentictrust:IdentityDescriptor
+  ├─ agentictrust:AgentIdentityDescriptor
   │    ├─ erc8004:IdentityDescriptor8004 (in ERC8004.owl)
   │    └─ NANDAIdentityDescriptor (in NANDA.owl)
-  └─ agentictrust:NameDescriptor
+  └─ agentictrust:AgentNameDescriptor
        ├─ agentictrustEth:NameDescriptorENS (in agentictrust-eth.owl)
        └─ DNSNameDescriptor (in agentictrust-dns.owl)
 
@@ -48,15 +48,15 @@ Things that can be described:
   agentictrust:AIAgent     ── agentictrust:hasDescriptor ──▶ agentictrust:AgentDescriptor
   agentictrust:Identifier  ── agentictrust:hasDescriptor ──▶ agentictrust:IdentifierDescriptor
   agentictrust:Protocol    ── agentictrust:hasDescriptor ──▶ agentictrust:ProtocolDescriptor
-  agentictrust:Identity    ── agentictrust:hasDescriptor ──▶ agentictrust:IdentityDescriptor
-  agentictrust:Name        ── agentictrust:hasDescriptor ──▶ agentictrust:NameDescriptor
+  agentictrust:AgentIdentity    ── agentictrust:hasDescriptor ──▶ agentictrust:AgentIdentityDescriptor
+  agentictrust:AgentName        ── agentictrust:hasDescriptor ──▶ agentictrust:AgentNameDescriptor
 
 Protocol specializations:
 
   agentictrustEth:Account      ── agentictrust:hasDescriptor ──▶ agentictrustEth:AccountDescriptor (in agentictrust-eth.owl)
-  erc8004:Identity8004         ── agentictrust:hasDescriptor ──▶ erc8004:IdentityDescriptor8004 (in ERC8004.owl)
+  erc8004:AgentIdentity8004         ── agentictrust:hasDescriptor ──▶ erc8004:IdentityDescriptor8004 (in ERC8004.owl)
   NANDAIdentity                ── agentictrust:hasDescriptor ──▶ NANDAIdentityDescriptor (in NANDA.owl)
-  agentictrustEth:NameENS      ── agentictrust:hasDescriptor ──▶ agentictrustEth:NameDescriptorENS (in agentictrust-eth.owl)
+  agentictrustEth:AgentNameENS      ── agentictrust:hasDescriptor ──▶ agentictrustEth:AgentNameENSDescriptor (in agentictrust-eth.owl)
   DNSName                       ── agentictrust:hasDescriptor ──▶ DNSNameDescriptor (in agentictrust-dns.owl)
 
 Resolver workflow (typical)
@@ -98,7 +98,7 @@ Design notes
 # PROV-native intermediate layer:
 #   - Situation (prov:Entity): the epistemic/social object ("what is being claimed to hold")
 #   - SituationDescription (prov:Plan / p-plan:Plan): the schema/pattern/roles of a situation
-#   - SituationAssertion (prov:Activity): the act of asserting a situation (time-scoped, agent-associated)
+#   - AssertionAct (prov:Activity): the act of asserting a situation (time-scoped, agent-associated)
 #   - Role (p-plan:Role): contextual role within a situation, played by an Agent
 ########
 
@@ -124,10 +124,6 @@ agentictrust:AssertionAct a owl:Class ;
   rdfs:comment "The time-scoped act of asserting (PROV Activity). Generates an AssertionRecord." ;
   rdfs:subClassOf prov:Activity .
 
-agentictrust:SituationAssertion a owl:Class ;
-  rdfs:label "SituationAssertion" ;
-  rdfs:comment "Legacy alias for AssertionAct: an activity by which an agent asserts that a Situation holds (time-scoped, revocable/supersedable). Modeled as a PROV Activity." ;
-  rdfs:subClassOf agentictrust:AssertionAct .
 
 agentictrust:Role a owl:Class ;
   rdfs:label "Role" ;
@@ -252,14 +248,14 @@ agentictrust:Identifier a owl:Class ;
     owl:allValuesFrom agentictrust:IdentifierDescriptor
   ] .
 
-agentictrust:Identity a owl:Class ;
-  rdfs:label "Identity" ;
-  rdfs:comment "Abstract identity for an agent. Protocol-specific realizations include ERC-8004 Identity (erc8004:Identity8004), Web2 identities, etc. An agent may have one or more Identities. Modeled as prov:Entity. Protocol-specific identities inherit from this class." ;
+agentictrust:AgentIdentity a owl:Class ;
+  rdfs:label "AgentIdentity" ;
+  rdfs:comment "Abstract identity for an agent. Protocol-specific realizations include ERC-8004 Identity (erc8004:AgentIdentity8004), Web2 identities, etc. An agent may have one or more Identities. Modeled as prov:Entity. Protocol-specific identities inherit from this class." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Name a owl:Class ;
-  rdfs:label "Name" ;
-  rdfs:comment "Abstract name for an agent. Protocol-specific realizations include ENS Name (agentictrustEth:NameENS), DNS names, etc. An agent may have zero or more Names. Modeled as prov:Entity. For Ethereum ENS details, see agentictrust-eth.owl." ;
+agentictrust:AgentName a owl:Class ;
+  rdfs:label "AgentName" ;
+  rdfs:comment "Abstract name for an agent. Protocol-specific realizations include ENS Name (agentictrustEth:AgentNameENS), DNS names, etc. An agent may have zero or more Names. Modeled as prov:Entity. For Ethereum ENS details, see agentictrust-eth.owl." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Commitment a owl:Class ;
@@ -283,7 +279,7 @@ agentictrust:FeedbackAuthorizationCommitment a owl:Class ;
   rdfs:subClassOf agentictrust:Commitment .
 
 ########
-# Core Situation/SituationAssertion properties (PROV-native DnS behavior)
+# Core Situation/AssertionAct properties (PROV-native DnS behavior)
 ########
 
 agentictrust:hasSituationDescription a owl:ObjectProperty ;
@@ -344,7 +340,7 @@ agentictrust:assertionRecordOf a owl:ObjectProperty ;
 
 agentictrust:generatedSituation a owl:ObjectProperty ;
   rdfs:label "generatedSituation" ;
-  rdfs:comment "Optional: use when a SituationAssertion activity mints a new Situation entity (prov:generated) as an explicit recorded claim object. If the Situation already exists (e.g., registry request records), prefer agentictrust:assertsSituation." ;
+  rdfs:comment "Optional: use when an AssertionAct activity mints a new Situation entity (prov:generated) as an explicit recorded claim object. If the Situation already exists (e.g., registry request records), prefer agentictrust:assertsSituation." ;
   rdfs:subPropertyOf prov:generated ;
   rdfs:domain agentictrust:AssertionAct ;
   rdfs:range agentictrust:Situation .
@@ -566,16 +562,16 @@ agentictrust:assertedIn a owl:ObjectProperty ;
 
 agentictrust:hasIdentity a owl:ObjectProperty ;
   rdfs:label "hasIdentity" ;
-  rdfs:comment "Links an Agent (or any subclass of prov:Agent) to an Identity (e.g., erc8004:Identity8004). An agent may have one or more identities." ;
+  rdfs:comment "Links an Agent (or any subclass of prov:Agent) to an AgentIdentity (e.g., erc8004:AgentIdentity8004). An agent may have one or more identities." ;
   rdfs:domain prov:Agent ;
-  rdfs:range agentictrust:Identity .
+  rdfs:range agentictrust:AgentIdentity .
 
 
 agentictrust:hasName a owl:ObjectProperty ;
   rdfs:label "hasName" ;
-  rdfs:comment "Links an agent to a Name. An agent may have zero or more Names. Protocol-specific realizations: ENS Name (agentictrustEth:NameENS), DNS names, etc." ;
+  rdfs:comment "Links an agent to an AgentName. An agent may have zero or more Names. Protocol-specific realizations: ENS Name (agentictrustEth:AgentNameENS), DNS names, etc." ;
   rdfs:domain prov:Agent ;
-  rdfs:range agentictrust:Name .
+  rdfs:range agentictrust:AgentName .
 
 agentictrust:identifierType a owl:ObjectProperty ;
   rdfs:label "identifierType" ;
@@ -585,8 +581,8 @@ agentictrust:identifierType a owl:ObjectProperty ;
 
 agentictrust:hasDID a owl:ObjectProperty ;
   rdfs:label "hasDID" ;
-  rdfs:comment "Links an Identifier to its associated DID. Protocol-specific identifier types (e.g., erc8004:IdentityIdentifier8004, agentictrustEth:NameIdentifierENS) link to their respective DIDs." ;
-  rdfs:domain agentictrust:Identifier ;
+  rdfs:comment "Links a Descriptor to a DID (Decentralized Identifier) following W3C DID Core specification (https://www.w3.org/TR/did-core/). DID is a descriptor data type that follows DID Document standards." ;
+  rdfs:domain agentictrust:Descriptor ;
   rdfs:range agentictrust:DID .
 
 
@@ -715,14 +711,9 @@ agentictrust:AIAgent a owl:Class ;
     owl:allValuesFrom agentictrust:AgentDescriptor
   ] .
 
-agentictrust:AgentEndpoint a owl:Class ;
-  rdfs:label "AgentEndpoint" ;
-  rdfs:comment "An endpoint entry declared by an AgentDescriptor (name/endpoint/version)." ;
-  rdfs:subClassOf prov:Entity .
-
 agentictrust:EndpointType a owl:Class ;
   rdfs:label "EndpointType" ;
-  rdfs:comment "Recommended endpoint type taxonomy for agent metadata endpoints." ;
+  rdfs:comment "Recommended endpoint type taxonomy for agent metadata endpoints (e.g., a2a, mcp, ens, agentAccount)." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:OperatorIdentifier a owl:Class ;
@@ -740,14 +731,14 @@ agentictrust:IdentifierDescriptor a owl:Class ;
   rdfs:comment "Descriptor for an Identifier (resolved metadata about an identifier and its bindings, subject/controller links, and verification methods)." ;
   rdfs:subClassOf agentictrust:Descriptor .
 
-agentictrust:IdentityDescriptor a owl:Class ;
-  rdfs:label "IdentityDescriptor" ;
-  rdfs:comment "Descriptor for an Identity (resolved metadata about an identity, its identifiers, and associated metadata). Protocol-specific realizations include erc8004:IdentityDescriptor8004, NANDAIdentityDescriptor, etc." ;
+agentictrust:AgentIdentityDescriptor a owl:Class ;
+  rdfs:label "AgentIdentityDescriptor" ;
+  rdfs:comment "Descriptor for an AgentIdentity (resolved metadata about an identity, its identifiers, and associated metadata). Protocol-specific realizations include erc8004:IdentityDescriptor8004, NANDAIdentityDescriptor, etc." ;
   rdfs:subClassOf agentictrust:Descriptor .
 
-agentictrust:NameDescriptor a owl:Class ;
-  rdfs:label "NameDescriptor" ;
-  rdfs:comment "Descriptor for a Name (resolved metadata about a name, its identifiers, and associated metadata). Protocol-specific realizations include agentictrustEth:NameDescriptorENS, DNSNameDescriptor, etc." ;
+agentictrust:AgentNameDescriptor a owl:Class ;
+  rdfs:label "AgentNameDescriptor" ;
+  rdfs:comment "Descriptor for an AgentName (resolved metadata about a name, its identifiers, and associated metadata). Protocol-specific realizations include agentictrustEth:AgentNameENSDescriptor, DNSNameDescriptor, etc." ;
   rdfs:subClassOf agentictrust:Descriptor .
 
 
@@ -791,9 +782,9 @@ agentictrust:TransportBinding a owl:Class ;
   rdfs:comment "Transport/protocol binding (e.g., HTTP+JSON, JSON-RPC)." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Skill a owl:Class ;
-  rdfs:label "Skill" ;
-  rdfs:comment "A callable capability (tool/function) exposed by an agent. Used across protocols (e.g., A2A skills, MCP tools)." ;
+agentictrust:AgentSkillClassification a owl:Class ;
+  rdfs:label "AgentSkillClassification" ;
+  rdfs:comment "A callable capability (tool/function) classification exposed by an agent. Used across protocols (e.g., A2A skills, MCP tools). Follows OASF (Open Agent Skill Format) standards for skill classification and discovery." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:JsonSchema a owl:Class ;
@@ -803,7 +794,7 @@ agentictrust:JsonSchema a owl:Class ;
 
 agentictrust:SkillExample a owl:Class ;
   rdfs:label "SkillExample" ;
-  rdfs:comment "Example attached to a skill; may contain intent-driven requests." ;
+  rdfs:comment "Example attached to an agent skill classification; may contain intent-driven requests." ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:Tag a owl:Class ;
@@ -811,21 +802,21 @@ agentictrust:Tag a owl:Class ;
   rdfs:comment "A tag value used for discovery and matching (e.g., trust.validation, ens.name.valid)." ;
   rdfs:subClassOf prov:Entity .
 
-agentictrust:Domain a owl:Class ;
-  rdfs:label "Domain" ;
-  rdfs:comment "OASF Domain: A categorization/grouping mechanism for discovery and filtering. Examples: 'finance', 'healthcare', 'education', 'e-commerce'. Distinct from integration capabilities (which describe how agents integrate with external systems). Synced from https://github.com/agntcy/oasf/tree/main/schema/domains" ;
+agentictrust:AgentDomainClassification a owl:Class ;
+  rdfs:label "AgentDomainClassification" ;
+  rdfs:comment "OASF Domain classification: A categorization/grouping mechanism for discovery and filtering. Examples: 'finance', 'healthcare', 'education', 'e-commerce'. Distinct from integration capabilities (which describe how agents integrate with external systems). Follows OASF (Open Agent Skill Format) standards. Synced from https://github.com/agntcy/oasf/tree/main/schema/domains" ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:OASFDomain a owl:Class ;
   rdfs:label "OASFDomain" ;
   rdfs:comment "OASF Domain instance synced from GitHub. Contains OASF schema metadata including name, description, category, and full schema JSON." ;
-  rdfs:subClassOf agentictrust:Domain ;
+  rdfs:subClassOf agentictrust:AgentDomainClassification ;
   rdfs:subClassOf prov:Entity .
 
 agentictrust:OASFSkill a owl:Class ;
   rdfs:label "OASFSkill" ;
   rdfs:comment "OASF Skill instance synced from GitHub. Contains OASF schema metadata including name, description, domain, category, and full schema JSON. Synced from https://github.com/agntcy/oasf/tree/main/schema/skills" ;
-  rdfs:subClassOf agentictrust:Skill ;
+  rdfs:subClassOf agentictrust:AgentSkillClassification ;
   rdfs:subClassOf prov:Entity .
 
 ########
@@ -960,14 +951,10 @@ agentictrust:hasDescriptor a owl:ObjectProperty ;
   rdfs:domain prov:Entity ;
   rdfs:range agentictrust:Descriptor .
 
-agentictrust:hasEndpointEntry a owl:ObjectProperty ;
-  rdfs:label "hasEndpointEntry" ;
-  rdfs:domain agentictrust:AgentDescriptor ;
-  rdfs:range agentictrust:AgentEndpoint .
-
 agentictrust:endpointType a owl:ObjectProperty ;
   rdfs:label "endpointType" ;
-  rdfs:domain agentictrust:AgentEndpoint ;
+  rdfs:comment "Links an Endpoint to its EndpointType (e.g., a2a, mcp, ens, agentAccount)." ;
+  rdfs:domain agentictrust:Endpoint ;
   rdfs:range agentictrust:EndpointType .
 
 agentictrust:hasOperatorIdentifier a owl:ObjectProperty ;
@@ -998,53 +985,65 @@ agentictrust:assembledFromMetadata a owl:ObjectProperty ;
 
 agentictrust:hasEndpoint a owl:ObjectProperty ;
   rdfs:label "hasEndpoint" ;
-  rdfs:domain agentictrust:AgentDescriptor ;
+  rdfs:comment "Links a Descriptor to an Endpoint (network endpoint used by protocols like A2A/MCP)." ;
+  rdfs:domain agentictrust:Descriptor ;
   rdfs:range agentictrust:Endpoint .
 
 agentictrust:hasSkill a owl:ObjectProperty ;
   rdfs:label "hasSkill" ;
-  rdfs:domain agentictrust:AgentDescriptor ;
-  rdfs:range agentictrust:Skill .
+  rdfs:comment "Links a Descriptor to an AgentSkillClassification (OASF skill/capability classification)." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range agentictrust:AgentSkillClassification .
 
-agentictrust:declaresSkill a owl:ObjectProperty ;
-  rdfs:label "declaresSkill" ;
-  rdfs:comment "Links agent metadata to skills/capabilities it declares for discovery." ;
-  rdfs:domain agentictrust:AgentDescriptor ;
-  rdfs:range agentictrust:Skill .
 
 agentictrust:hasExample a owl:ObjectProperty ;
   rdfs:label "hasExample" ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range agentictrust:SkillExample .
 
 agentictrust:hasInputSchema a owl:ObjectProperty ;
   rdfs:label "hasInputSchema" ;
   rdfs:comment "Links a skill/tool to its JSON Schema describing valid inputs." ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range agentictrust:JsonSchema .
 
 agentictrust:hasOutputSchema a owl:ObjectProperty ;
   rdfs:label "hasOutputSchema" ;
   rdfs:comment "Links a skill/tool to its JSON Schema describing outputs (when declared)." ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range agentictrust:JsonSchema .
 
 agentictrust:hasTag a owl:ObjectProperty ;
   rdfs:label "hasTag" ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range agentictrust:Tag .
+
 
 agentictrust:hasDomain a owl:ObjectProperty ;
   rdfs:label "hasDomain" ;
-  rdfs:comment "Links a Skill to an OASF Domain for categorization and discovery filtering. OASF Domains are high-level categories (e.g., 'finance', 'healthcare') used to group skills and agents by application area. Distinct from integration capabilities which describe technical integration mechanisms." ;
-  rdfs:domain agentictrust:Skill ;
-  rdfs:range agentictrust:Domain .
+  rdfs:comment "Links a Descriptor to an OASF Domain for categorization and discovery filtering." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range agentictrust:AgentDomainClassification .
 
-agentictrust:declaresDomain a owl:ObjectProperty ;
-  rdfs:label "declaresDomain" ;
-  rdfs:comment "Links an AgentDescriptor to one or more OASF Domains for discovery and filtering. This allows agent descriptions to be categorized by application area independently of individual skills." ;
-  rdfs:domain agentictrust:AgentDescriptor ;
-  rdfs:range agentictrust:Domain .
+agentictrust:hasDomain a owl:ObjectProperty ;
+  rdfs:label "hasDomain" ;
+  rdfs:comment "Links a Descriptor to an OASF Domain for categorization and discovery filtering." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range agentictrust:AgentDomainClassification .
+
+
+agentictrust:hasDomainName a owl:ObjectProperty ;
+  rdfs:label "hasDomainName" ;
+  rdfs:comment "Links a Descriptor to a DomainName (IETF FQDN) for agent naming and discovery." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range agentictrust:DomainName .
+
+agentictrust:hasTrustType a owl:ObjectProperty ;
+  rdfs:label "hasTrustType" ;
+  rdfs:comment "Links a Descriptor to a TrustType indicating the types of trust mechanisms supported (e.g., reputation, crypto-economic, tee, zkml)." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range agentictrust:TrustType .
+
 
 agentictrust:oasfDomainId a owl:DatatypeProperty ;
   rdfs:label "oasfDomainId" ;
@@ -1104,26 +1103,26 @@ agentictrust:githubSha a owl:DatatypeProperty ;
 agentictrust:supportsIntentType a owl:ObjectProperty ;
   rdfs:label "supportsIntentType" ;
   rdfs:comment "Links a Skill to an IntentType that it can support. This is the inverse direction from targetsSkill." ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range agentictrust:IntentType .
 
 agentictrust:targetsSkill a owl:ObjectProperty ;
   rdfs:label "targetsSkill" ;
   rdfs:comment "Links an IntentType to an OASF Skill that can satisfy this intent. This intent can be satisfied by invoking this skill. Allows many intents to target the same skill, and one intent to target many skills. Keeps OASF skills untouched - only references them." ;
   rdfs:domain agentictrust:IntentType ;
-  rdfs:range agentictrust:Skill .
+  rdfs:range agentictrust:AgentSkillClassification .
 
 agentictrust:enablesTaskType a owl:ObjectProperty ;
   rdfs:label "enablesTaskType" ;
   rdfs:comment "Links a skill/tool to the task types it can realize." ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range agentictrust:TaskType .
 
 agentictrust:implementedBySkill a owl:ObjectProperty ;
   rdfs:label "implementedBySkill" ;
   rdfs:comment "Inverse-style link from task type to skills that can implement it." ;
   rdfs:domain agentictrust:TaskType ;
-  rdfs:range agentictrust:Skill .
+  rdfs:range agentictrust:AgentSkillClassification .
 
 agentictrust:mapsToTaskType a owl:ObjectProperty ;
   rdfs:label "mapsToTaskType" ;
@@ -1179,7 +1178,7 @@ agentictrust:taskRealizedBy a owl:ObjectProperty ;
 agentictrust:invokesSkill a owl:ObjectProperty ;
   rdfs:label "invokesSkill" ;
   rdfs:domain agentictrust:SkillInvocation ;
-  rdfs:range agentictrust:Skill .
+  rdfs:range agentictrust:AgentSkillClassification .
 
 agentictrust:invocationUsedMessage a owl:ObjectProperty ;
   rdfs:label "invocationUsedMessage" ;
@@ -1294,19 +1293,93 @@ agentictrust:serviceUrl a owl:DatatypeProperty ;
   rdfs:domain agentictrust:A2AProtocolDescriptor ;
   rdfs:range xsd:anyURI .
 
+agentictrust:Capability a owl:Class ;
+  rdfs:label "Capability" ;
+  rdfs:comment "A capability supported by an agent (e.g., 'text-generation', 'image-processing'). Used in A2A protocol descriptors to describe agent capabilities." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:Operator a owl:Class ;
+  rdfs:label "Operator" ;
+  rdfs:comment "An operator address or identifier associated with an agent. Used in A2A protocol descriptors to list authorized operators." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:InputMode a owl:Class ;
+  rdfs:label "InputMode" ;
+  rdfs:comment "An input mode supported by an agent (e.g., 'text', 'image', 'audio'). Used in A2A protocol descriptors to specify default input modes." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:OutputMode a owl:Class ;
+  rdfs:label "OutputMode" ;
+  rdfs:comment "An output mode supported by an agent (e.g., 'text', 'image', 'audio'). Used in A2A protocol descriptors to specify default output modes." ;
+  rdfs:subClassOf prov:Entity .
+
+agentictrust:hasCapability a owl:ObjectProperty ;
+  rdfs:label "hasCapability" ;
+  rdfs:comment "Links a ProtocolDescriptor to a Capability it supports." ;
+  rdfs:domain agentictrust:ProtocolDescriptor ;
+  rdfs:range agentictrust:Capability .
+
+agentictrust:hasOperator a owl:ObjectProperty ;
+  rdfs:label "hasOperator" ;
+  rdfs:comment "Links a ProtocolDescriptor to an Operator (authorized operator address/identifier)." ;
+  rdfs:domain agentictrust:ProtocolDescriptor ;
+  rdfs:range agentictrust:Operator .
+
+agentictrust:hasDefaultInputMode a owl:ObjectProperty ;
+  rdfs:label "hasDefaultInputMode" ;
+  rdfs:comment "Links a ProtocolDescriptor to a default InputMode it supports." ;
+  rdfs:domain agentictrust:ProtocolDescriptor ;
+  rdfs:range agentictrust:InputMode .
+
+agentictrust:hasDefaultOutputMode a owl:ObjectProperty ;
+  rdfs:label "hasDefaultOutputMode" ;
+  rdfs:comment "Links a ProtocolDescriptor to a default OutputMode it supports." ;
+  rdfs:domain agentictrust:ProtocolDescriptor ;
+  rdfs:range agentictrust:OutputMode .
+
+agentictrust:descriptorName a owl:DatatypeProperty ;
+  rdfs:label "descriptorName" ;
+  rdfs:comment "Name text associated with a Descriptor (e.g., agent name from registration metadata). Follows Unicode text encoding standards (UTF-8) for international character support." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range xsd:string .
+
+agentictrust:descriptorDescription a owl:DatatypeProperty ;
+  rdfs:label "descriptorDescription" ;
+  rdfs:comment "Description text associated with a Descriptor (e.g., agent description from registration metadata). Follows Unicode text encoding standards (UTF-8) for international character support. May support Markdown or plain text formatting." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range xsd:string .
+
+agentictrust:descriptorImage a owl:DatatypeProperty ;
+  rdfs:label "descriptorImage" ;
+  rdfs:comment "Image path/URL associated with a Descriptor (e.g., agent image from registration metadata). Follows URI/URL standards (RFC 3986) and common image format standards (PNG, JPEG, SVG, WebP)." ;
+  rdfs:domain agentictrust:Descriptor ;
+  rdfs:range xsd:anyURI .
+
+agentictrust:domainNameValue a owl:DatatypeProperty ;
+  rdfs:label "domainNameValue" ;
+  rdfs:comment "Domain name string value following IETF standards (RFC 1034, RFC 1035)." ;
+  rdfs:domain agentictrust:DomainName ;
+  rdfs:range xsd:string .
+
+agentictrust:trustTypeValue a owl:DatatypeProperty ;
+  rdfs:label "trustTypeValue" ;
+  rdfs:comment "Trust type string value (e.g., 'reputation', 'crypto-economic', 'tee', 'zkml'). Follows trust mechanism taxonomy standards for agent trust classification." ;
+  rdfs:domain agentictrust:TrustType ;
+  rdfs:range xsd:string .
+
 agentictrust:skillId a owl:DatatypeProperty ;
   rdfs:label "skillId" ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range xsd:string .
 
 agentictrust:skillName a owl:DatatypeProperty ;
   rdfs:label "skillName" ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range xsd:string .
 
 agentictrust:skillDescription a owl:DatatypeProperty ;
   rdfs:label "skillDescription" ;
-  rdfs:domain agentictrust:Skill ;
+  rdfs:domain agentictrust:AgentSkillClassification ;
   rdfs:range xsd:string .
 
 agentictrust:schemaJson a owl:DatatypeProperty ;
@@ -1458,17 +1531,20 @@ agentictrust:metadataUpdatedAt a owl:DatatypeProperty ;
 
 agentictrust:endpointName a owl:DatatypeProperty ;
   rdfs:label "endpointName" ;
-  rdfs:domain agentictrust:AgentEndpoint ;
+  rdfs:comment "Name of an endpoint (e.g., 'A2A', 'MCP', 'ENS', 'agentAccount')." ;
+  rdfs:domain agentictrust:Endpoint ;
   rdfs:range xsd:string .
 
 agentictrust:endpointUrl a owl:DatatypeProperty ;
   rdfs:label "endpointUrl" ;
-  rdfs:domain agentictrust:AgentEndpoint ;
+  rdfs:comment "URL/URI of an endpoint." ;
+  rdfs:domain agentictrust:Endpoint ;
   rdfs:range xsd:anyURI .
 
 agentictrust:endpointVersion a owl:DatatypeProperty ;
   rdfs:label "endpointVersion" ;
-  rdfs:domain agentictrust:AgentEndpoint ;
+  rdfs:comment "Version string for an endpoint." ;
+  rdfs:domain agentictrust:Endpoint ;
   rdfs:range xsd:string .
 
 agentictrust:operatorIdentifierValue a owl:DatatypeProperty ;
