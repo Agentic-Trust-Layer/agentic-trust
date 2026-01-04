@@ -2,6 +2,7 @@ import { zeroAddress } from 'viem';
 import { uploadRegistration } from '../../server/lib/agentRegistration';
 import { getAgenticTrustClient } from '../../server/lib/agenticTrust';
 import { parseDid8004 } from '../../shared/did8004';
+import { getChainContractAddress } from '../../server/lib/chainConfig';
 import type { AgenticTrustClient } from '../../server/singletons/agenticTrustClient';
 import {
   type AgentOperationPlan,
@@ -287,6 +288,18 @@ export async function updateAgentRegistrationCore(
 
   const registrationObject = normalizeRegistrationPayload(input.registration);
 
+  // Enforce: never include MCP endpoint entries in registration JSON.
+  try {
+    const maybeEndpoints = (registrationObject as any)?.endpoints;
+    if (Array.isArray(maybeEndpoints)) {
+      (registrationObject as any).endpoints = maybeEndpoints.filter(
+        (e: any) => e?.name !== 'MCP',
+      );
+    }
+  } catch {
+    // best-effort only
+  }
+
   // If the caller is updating a registration JSON that already includes a registrations[]
   // array, ensure the agentId is populated (common for "finalize after create" flows).
   try {
@@ -297,6 +310,21 @@ export async function updateAgentRegistrationCore(
         if (entry.agentId === null || typeof entry.agentId === 'undefined') {
           entry.agentId = parsed.agentId;
         }
+      }
+    } else {
+      // If registrations[] is missing entirely, create it so agentId is persisted in tokenUri JSON.
+      const registryAddress = getChainContractAddress(
+        'AGENTIC_TRUST_IDENTITY_REGISTRY',
+        parsed.chainId,
+      );
+      if (registryAddress) {
+        (registrationObject as any).registrations = [
+          {
+            agentId: parsed.agentId,
+            agentRegistry: `eip155:${parsed.chainId}:${String(registryAddress)}`,
+            registeredAt: new Date().toISOString(),
+          },
+        ];
       }
     }
   } catch {

@@ -1166,12 +1166,24 @@ async function createAgentWithWalletAA(
             description: agentData.description,
             image: agentData.image,
             agentUrl: agentData.agentUrl,
-            endpoints: agentData.endpoints,
+            // Never include MCP endpoint in registration JSON updates.
+            endpoints: Array.isArray(agentData.endpoints)
+              ? agentData.endpoints.filter(e => e?.name !== 'MCP')
+              : undefined,
             supportedTrust: agentData.supportedTrust,
             active: true,
             registeredBy: 'agentic-trust',
-            registryNamespace: 'agentic-trust',
+            registryNamespace: 'erc-8004',
             uaid,
+            // Ensure agentId is written into the tokenUri JSON
+            registrations: [
+              {
+                agentId: String(agentId),
+                // agentRegistry is best-effort; server will also backfill if omitted
+                agentRegistry: `eip155:${chain.id}:unknown`,
+                registeredAt: new Date().toISOString(),
+              },
+            ],
           };
 
           await updateAgentRegistrationWithWallet({

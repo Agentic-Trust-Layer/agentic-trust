@@ -177,7 +177,7 @@ export function createRegistrationJSON(params: {
     agentAccount: params.agentAccount,
     // Registry metadata fields
     registeredBy: 'agentic-trust',
-    registryNamespace: 'agentic-trust',
+    registryNamespace: 'erc-8004',
     uaid: params.uaid,
     // Legacy fields
     metadata: params.metadata,
