@@ -394,7 +394,6 @@ export class AgentsAPI {
         const registrationJSON = createRegistrationJSON({
           name: params.agentName,
           agentAccount: params.agentAccount,
-          agentCategory: params.agentCategory,
           description: params.description,
           image: params.image,
           agentUrl: params.agentUrl,
@@ -558,7 +557,6 @@ export class AgentsAPI {
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
-        agentCategory: params.agentCategory,
         description: params.description,
         image: params.image,
         agentUrl: params.agentUrl,
@@ -635,6 +633,28 @@ export class AgentsAPI {
       ? identityRegistry 
       : `0x${identityRegistry}`;
 
+    // Generate UAID using HCS14Client
+    let uaid: string | undefined;
+    try {
+      const { HCS14Client } = await import('@hashgraphonline/standards-sdk');
+      const hcs14 = new HCS14Client();
+      uaid = await (hcs14.createUaid as any)(
+        {
+          registry: 'agentic-trust',
+          name: params.agentName,
+          version: '1.0.0',
+          protocol: 'a2a',
+          nativeId: params.agentAccount.toLowerCase(),
+          skills: [],
+        },
+        { uid: params.agentName.toLowerCase().replace(/\s+/g, '-') }
+      );
+      console.log('[agents.createAgentWithSmartAccountOwnerUsingWallet] Generated UAID:', uaid);
+    } catch (error) {
+      console.warn('[agents.createAgentWithSmartAccountOwnerUsingWallet] Failed to generate UAID:', error);
+      // Continue without UAID - it's optional
+    }
+
     // Create registration JSON and upload to IPFS
     let tokenUri = '';
     console.log('[agents.createAgentWithSmartAccountOwnerUsingWallet] Using chainId', chainId);
@@ -643,7 +663,6 @@ export class AgentsAPI {
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
-        agentCategory: params.agentCategory,
         description: params.description,
         image: params.image,
         agentUrl: params.agentUrl,
@@ -651,6 +670,7 @@ export class AgentsAPI {
         identityRegistry: identityRegistryHex as `0x${string}`,
         supportedTrust: params.supportedTrust,
         endpoints: params.endpoints,
+        uaid,
       });
       
       const uploadResult = await uploadRegistration(registrationJSON);
@@ -685,7 +705,12 @@ export class AgentsAPI {
       identityRegistryAddress: identityRegistryHex as `0x${string}`,
     });
 
-    const additionalMetadata = params.agentCategory ? [{ key: 'agentCategory', value: params.agentCategory }] : [];
+    const additionalMetadata = [
+      ...(params.agentCategory ? [{ key: 'agentCategory', value: params.agentCategory }] : []),
+      { key: 'registeredBy', value: 'agentic-trust' },
+      { key: 'registryNamespace', value: 'agentic-trust' },
+      ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
+    ];
     const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
       params.agentName,
       params.agentAccount,
@@ -1705,11 +1730,36 @@ export class AgentsAPI {
         identityRegistryHex as `0x${string}`
       );
 
+      // Generate UAID using HCS14Client
+      let uaid: string | undefined;
+      try {
+        const { HCS14Client } = await import('@hashgraphonline/standards-sdk');
+        const hcs14 = new HCS14Client();
+        uaid = await (hcs14.createUaid as any)(
+          {
+            registry: 'agentic-trust',
+            name: params.agentName,
+            version: '1.0.0',
+            protocol: 'a2a',
+            nativeId: params.agentAccount.toLowerCase(),
+            skills: [],
+          },
+          { uid: params.agentName.toLowerCase().replace(/\s+/g, '-') }
+        );
+        console.log('[agents.prepareCreateAgentTransaction] Generated UAID:', uaid);
+      } catch (error) {
+        console.warn('[agents.prepareCreateAgentTransaction] Failed to generate UAID:', error);
+        // Continue without UAID - it's optional
+      }
+
       // Build metadata array
       const metadata = [
         { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
         { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
         ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
+        { key: 'registeredBy', value: 'agentic-trust' },
+        { key: 'registryNamespace', value: 'agentic-trust' },
+        ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
       ].filter(m => m.value !== '');
 
       // Create registration JSON and upload to IPFS
@@ -1719,7 +1769,6 @@ export class AgentsAPI {
         const registrationJSON = createRegistrationJSON({
           name: params.agentName,
           agentAccount: params.agentAccount,
-          agentCategory: params.agentCategory,
           description: params.description,
           image: params.image,
           agentUrl: params.agentUrl,
@@ -1727,6 +1776,7 @@ export class AgentsAPI {
           identityRegistry: identityRegistryHex as `0x${string}`,
           supportedTrust: params.supportedTrust,
           endpoints: params.endpoints,
+          uaid,
         });
         
         const uploadResult = await uploadRegistration(registrationJSON);

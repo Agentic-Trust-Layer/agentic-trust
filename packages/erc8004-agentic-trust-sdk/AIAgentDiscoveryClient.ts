@@ -72,6 +72,27 @@ export interface SemanticAgentSearchResult {
   matches: SemanticAgentMatch[];
 }
 
+/**
+ * OASF taxonomy types (served by discovery GraphQL when enabled)
+ */
+export interface OasfSkill {
+  key: string;
+  nameKey?: string | null;
+  uid?: number | null;
+  caption?: string | null;
+  extendsKey?: string | null;
+  category?: string | null;
+}
+
+export interface OasfDomain {
+  key: string;
+  nameKey?: string | null;
+  uid?: number | null;
+  caption?: string | null;
+  extendsKey?: string | null;
+  category?: string | null;
+}
+
 type GraphQLTypeRef = {
   kind: string;
   name?: string | null;
@@ -378,6 +399,8 @@ export class AIAgentDiscoveryClient {
   private typeFieldsCache = new Map<string, TypeField[] | null>();
   private tokenMetadataCollectionSupported?: boolean;
   private agentMetadataValueField?: 'valueText' | 'value' | null;
+  private queryFieldsCache?: GraphQLField[] | null;
+  private queryFieldsPromise?: Promise<GraphQLField[] | null>;
 
   constructor(config: AIAgentDiscoveryClientConfig) {
     this.config = config;
@@ -395,6 +418,38 @@ export class AIAgentDiscoveryClient {
     this.client = new GraphQLClient(config.endpoint, {
       headers,
     });
+  }
+
+  private async getQueryFields(): Promise<GraphQLField[] | null> {
+    if (this.queryFieldsCache !== undefined) {
+      return this.queryFieldsCache;
+    }
+    if (this.queryFieldsPromise) {
+      return this.queryFieldsPromise;
+    }
+
+    this.queryFieldsPromise = (async () => {
+      try {
+        const data = await this.client.request<IntrospectionQueryResult>(INTROSPECTION_QUERY);
+        const fields = data.__schema?.queryType?.fields ?? [];
+        this.queryFieldsCache = fields;
+        return fields;
+      } catch (error) {
+        console.warn('[AIAgentDiscoveryClient] Failed to introspect query fields:', error);
+        this.queryFieldsCache = null;
+        return null;
+      } finally {
+        this.queryFieldsPromise = undefined;
+      }
+    })();
+
+    return this.queryFieldsPromise;
+  }
+
+  private async supportsQueryField(fieldName: string): Promise<boolean> {
+    const fields = await this.getQueryFields();
+    if (!fields) return false;
+    return fields.some((f) => f.name === fieldName);
   }
 
   private normalizeAgent(agent: AgentData | Record<string, unknown> | null | undefined): AgentData {
@@ -916,6 +971,141 @@ export class AIAgentDiscoveryClient {
         error,
       );
       return { total: 0, matches: [] };
+    }
+  }
+
+  /**
+   * Fetch OASF skills taxonomy from the discovery GraphQL endpoint (best-effort).
+   * Returns [] if the backend does not expose `oasfSkills`.
+   */
+  async oasfSkills(params?: {
+    key?: string;
+    nameKey?: string;
+    category?: string;
+    extendsKey?: string;
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+    orderDirection?: string;
+  }): Promise<OasfSkill[]> {
+    const query = `
+      query OasfSkills(
+        $key: String
+        $nameKey: String
+        $category: String
+        $extendsKey: String
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        oasfSkills(
+          key: $key
+          nameKey: $nameKey
+          category: $category
+          extendsKey: $extendsKey
+          limit: $limit
+          offset: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          key
+          nameKey
+          uid
+          caption
+          extendsKey
+          category
+        }
+      }
+    `;
+
+    try {
+      const data = await this.client.request<{ oasfSkills?: OasfSkill[] }>(query, {
+        key: params?.key ?? null,
+        nameKey: params?.nameKey ?? null,
+        category: params?.category ?? null,
+        extendsKey: params?.extendsKey ?? null,
+        limit: typeof params?.limit === 'number' ? params.limit : 10000,
+        offset: typeof params?.offset === 'number' ? params.offset : 0,
+        orderBy: params?.orderBy ?? 'category',
+        orderDirection: params?.orderDirection ?? 'ASC',
+      });
+      return Array.isArray(data?.oasfSkills) ? data.oasfSkills : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      // If the backend schema doesn't expose the field, treat it as "unsupported".
+      if (message.includes('Cannot query field "oasfSkills"')) {
+        return [];
+      }
+      console.warn('[AIAgentDiscoveryClient] oasfSkills query failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch OASF domains taxonomy from the discovery GraphQL endpoint (best-effort).
+   * Returns [] if the backend does not expose `oasfDomains`.
+   */
+  async oasfDomains(params?: {
+    key?: string;
+    nameKey?: string;
+    category?: string;
+    extendsKey?: string;
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+    orderDirection?: string;
+  }): Promise<OasfDomain[]> {
+    const query = `
+      query OasfDomains(
+        $key: String
+        $nameKey: String
+        $category: String
+        $extendsKey: String
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        oasfDomains(
+          key: $key
+          nameKey: $nameKey
+          category: $category
+          extendsKey: $extendsKey
+          limit: $limit
+          offset: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          key
+          nameKey
+          uid
+          caption
+          extendsKey
+          category
+        }
+      }
+    `;
+
+    try {
+      const data = await this.client.request<{ oasfDomains?: OasfDomain[] }>(query, {
+        key: params?.key ?? null,
+        nameKey: params?.nameKey ?? null,
+        category: params?.category ?? null,
+        extendsKey: params?.extendsKey ?? null,
+        limit: typeof params?.limit === 'number' ? params.limit : 10000,
+        offset: typeof params?.offset === 'number' ? params.offset : 0,
+        orderBy: params?.orderBy ?? 'category',
+        orderDirection: params?.orderDirection ?? 'ASC',
+      });
+      return Array.isArray(data?.oasfDomains) ? data.oasfDomains : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Cannot query field "oasfDomains"')) {
+        return [];
+      }
+      console.warn('[AIAgentDiscoveryClient] oasfDomains query failed:', error);
+      throw error;
     }
   }
 

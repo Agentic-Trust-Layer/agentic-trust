@@ -32,6 +32,8 @@ export interface AgentRegistrationInfo {
     endpoint: string;
     version?: string;
     capabilities?: Record<string, any>;
+    a2aSkills?: string[];
+    mcpSkills?: string[];
   }>;
 
   /**
@@ -65,6 +67,13 @@ export interface AgentRegistrationInfo {
    * Not in ERC-8004 spec but used by our discovery/indexer.
    */
   agentCategory?: string;
+
+  /**
+   * Registry metadata fields
+   */
+  registeredBy?: string;
+  registryNamespace?: string;
+  uaid?: string;
 
   /**
    * Legacy fields for backward compatibility

@@ -82,7 +82,6 @@ export function createRegistrationJSON(params: {
   agentAccount: `0x${string}`;
   agentId?: string | number;
   active?: boolean;
-  agentCategory?: string;
   description?: string;
   image?: string;
   agentUrl?: string;
@@ -94,7 +93,10 @@ export function createRegistrationJSON(params: {
     endpoint: string;
     version?: string;
     capabilities?: Record<string, any>;
+    a2aSkills?: string[];
+    mcpSkills?: string[];
   }>;
+  uaid?: string;
   // Legacy fields
   metadata?: Record<string, string>;
   external_url?: string;
@@ -105,7 +107,9 @@ export function createRegistrationJSON(params: {
     endpoint: string;
     version?: string;
     capabilities?: Record<string, any>;
-  }> = params.endpoints || [];
+    a2aSkills?: string[];
+    mcpSkills?: string[];
+  }> = params.endpoints ? params.endpoints.map(e => ({ ...e })) : [];
   
   // If agentUrl is provided, automatically create A2A and MCP endpoints
   if (params.agentUrl) {
@@ -125,12 +129,13 @@ export function createRegistrationJSON(params: {
         });
       }
       existingA2A.endpoint = a2aEndpoint;
-      existingA2A.version = existingA2A.version || '0.3.0';
+      existingA2A.version = existingA2A.version || '0.30';
+      // Preserve a2aSkills if already set
     } else {
       endpoints.push({
         name: 'A2A',
         endpoint: a2aEndpoint,
-        version: '0.3.0',
+        version: '0.30',
       });
     }
     
@@ -148,6 +153,7 @@ export function createRegistrationJSON(params: {
       }
       existingMCP.endpoint = mcpEndpoint;
       existingMCP.version = existingMCP.version || '2025-06-18';
+      // Preserve mcpSkills if already set
     } else {
       endpoints.push({
         name: 'MCP',
@@ -180,13 +186,16 @@ export function createRegistrationJSON(params: {
   const registration: AgentRegistrationInfo = {
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: params.name,
-    agentCategory: params.agentCategory,
     description: params.description,
     image: params.image,
     active: typeof params.active === 'boolean' ? params.active : true,
     endpoints: endpoints.length > 0 ? endpoints : undefined,
     registrations: registrations.length > 0 ? registrations : undefined,
     agentAccount: params.agentAccount,
+    // Registry metadata fields
+    registeredBy: 'agentic-trust',
+    registryNamespace: 'agentic-trust',
+    uaid: params.uaid,
     // Legacy fields
     metadata: params.metadata,
     external_url: params.external_url,

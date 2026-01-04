@@ -93,7 +93,6 @@ export default function AgentRegistrationPage() {
   const [createForm, setCreateForm] = useState({
     agentName: '',
     agentAccount: '',
-    agentCategory: '',
     description: '',
     image: getDefaultImageUrl(),
     agentUrl: '',
@@ -108,15 +107,67 @@ export default function AgentRegistrationPage() {
   const handleImagePreviewError = useCallback(() => setImagePreviewError(true), []);
   const [ensExisting, setEnsExisting] = useState<{ image: string | null; url: string | null; description: string | null } | null>(null);
   const [createStep, setCreateStep] = useState(0);
-  const [protocolSettings, setProtocolSettings] = useState({
-    publishA2A: true,
-    publishMcp: true,
+  const [protocolSettings, setProtocolSettings] = useState<{
+    protocol: 'A2A' | 'MCP' | null;
+    a2aEndpoint: string;
+    mcpEndpoint: string;
+    a2aSkills: string[];
+    a2aDomains: string[];
+    mcpSkills: string[];
+    mcpDomains: string[];
+  }>({
+    protocol: 'A2A',
     a2aEndpoint: '',
     mcpEndpoint: '',
+    a2aSkills: [],
+    a2aDomains: [],
+    mcpSkills: [],
+    mcpDomains: [],
   });
   const [registering, setRegistering] = useState(false);
   const [registerProgress, setRegisterProgress] = useState(0);
   const registerTimerRef = useRef<number | null>(null);
+  const [uaid, setUaid] = useState<string | null>(null);
+  const [uaidLoading, setUaidLoading] = useState(false);
+  const [oasfSkills, setOasfSkills] = useState<Array<{ id: string; label: string; description?: string; category?: string }>>([]);
+  const [oasfDomains, setOasfDomains] = useState<Array<{ id: string; label: string; description?: string; category?: string }>>([]);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+  const [loadingDomains, setLoadingDomains] = useState(false);
+  const [oasfSkillsError, setOasfSkillsError] = useState<string | null>(null);
+  const [oasfDomainsError, setOasfDomainsError] = useState<string | null>(null);
+
+  const renderCategorizedOptions = useCallback(
+    (
+      items: Array<{ id: string; label: string; category?: string }>,
+      selectedIds: string[],
+    ) => {
+      const remaining = items.filter((it) => !selectedIds.includes(it.id));
+      const groups = new Map<string, Array<{ id: string; label: string; category?: string }>>();
+
+      for (const item of remaining) {
+        const category = (item.category || 'Uncategorized').trim() || 'Uncategorized';
+        const list = groups.get(category) || [];
+        list.push(item);
+        groups.set(category, list);
+      }
+
+      const categories = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+
+      return categories.map((category) => {
+        const list = (groups.get(category) || []).sort((a, b) => a.label.localeCompare(b.label));
+        return (
+          <optgroup key={category} label={category}>
+            {list.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.label}
+              </option>
+            ))}
+          </optgroup>
+        );
+      });
+    },
+    [],
+  );
   const [walletConfirmOpen, setWalletConfirmOpen] = useState(false);
   const [walletConfirmPayload, setWalletConfirmPayload] = useState<{
     chainLabel: string;
@@ -139,6 +190,100 @@ export default function AgentRegistrationPage() {
     onResize();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Fetch OASF skills and domains from API
+  useEffect(() => {
+    const fetchSkills = async () => {
+      setLoadingSkills(true);
+      setOasfSkillsError(null);
+      try {
+        const response = await fetch('/api/oasf/skills');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setOasfSkills([]);
+          setOasfSkillsError(
+            typeof (data as any)?.message === 'string'
+              ? (data as any).message
+              : 'Failed to load OASF skills from discovery endpoint.',
+          );
+          return;
+        }
+
+        if (Array.isArray((data as any).skills)) {
+          const normalized = (data as any).skills
+            .map((s: any) => {
+              const idRaw = s?.id ?? s?.key;
+              const id = idRaw == null ? '' : String(idRaw);
+              const labelRaw = s?.label ?? s?.caption ?? s?.key ?? s?.id ?? '';
+              return {
+                id,
+                label: String(labelRaw),
+                description: typeof s?.description === 'string' ? s.description : undefined,
+                category: typeof s?.category === 'string' ? s.category : undefined,
+              };
+            })
+            .filter((s: any) => s.id);
+          setOasfSkills(normalized);
+        } else {
+          setOasfSkills([]);
+          setOasfSkillsError('OASF skills response is missing `skills` array.');
+        }
+      } catch (error) {
+        console.warn('[AgentRegistration] Failed to fetch OASF skills:', error);
+        setOasfSkills([]);
+        setOasfSkillsError('Failed to load OASF skills from discovery endpoint.');
+      } finally {
+        setLoadingSkills(false);
+      }
+    };
+
+    const fetchDomains = async () => {
+      setLoadingDomains(true);
+      setOasfDomainsError(null);
+      try {
+        const response = await fetch('/api/oasf/domains');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setOasfDomains([]);
+          setOasfDomainsError(
+            typeof (data as any)?.message === 'string'
+              ? (data as any).message
+              : 'Failed to load OASF domains from discovery endpoint.',
+          );
+          return;
+        }
+
+        if (Array.isArray((data as any).domains)) {
+          const normalized = (data as any).domains
+            .map((d: any) => {
+              const idRaw = d?.id ?? d?.key;
+              const id = idRaw == null ? '' : String(idRaw);
+              const labelRaw = d?.label ?? d?.caption ?? d?.key ?? d?.id ?? '';
+              return {
+                id,
+                label: String(labelRaw),
+                description: typeof d?.description === 'string' ? d.description : undefined,
+                category: typeof d?.category === 'string' ? d.category : undefined,
+              };
+            })
+            .filter((d: any) => d.id);
+          setOasfDomains(normalized);
+        } else {
+          setOasfDomains([]);
+          setOasfDomainsError('OASF domains response is missing `domains` array.');
+        }
+      } catch (error) {
+        console.warn('[AgentRegistration] Failed to fetch OASF domains:', error);
+        setOasfDomains([]);
+        setOasfDomainsError('Failed to load OASF domains from discovery endpoint.');
+      } finally {
+        setLoadingDomains(false);
+      }
+    };
+
+    fetchSkills();
+    fetchDomains();
   }, []);
   const getStepLabel = useCallback(
     (label: (typeof CREATE_STEPS)[number]) => {
@@ -770,13 +915,13 @@ export default function AgentRegistrationPage() {
         if (!baseUrl) {
           return { valid: false, message: 'Agent URL is required (or set an agent name to auto-generate).' };
         }
-        if (!protocolSettings.publishA2A && !protocolSettings.publishMcp) {
-          return { valid: false, message: 'Enable at least one protocol (A2A or MCP).' };
+        if (!protocolSettings.protocol) {
+          return { valid: false, message: 'Select a protocol (A2A or MCP).' };
         }
-        if (protocolSettings.publishA2A && !((protocolSettings.a2aEndpoint || '').trim() || baseUrl)) {
+        if (protocolSettings.protocol === 'A2A' && !((protocolSettings.a2aEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an A2A agent card URL (agent.json).' };
         }
-        if (protocolSettings.publishMcp && !((protocolSettings.mcpEndpoint || '').trim() || baseUrl)) {
+        if (protocolSettings.protocol === 'MCP' && !((protocolSettings.mcpEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an MCP protocol endpoint URL.' };
         }
         if (!ensOrgName.trim()) {
@@ -794,8 +939,7 @@ export default function AgentRegistrationPage() {
     createForm.agentAccount,
     createForm.description,
     createForm.agentUrl,
-    protocolSettings.publishA2A,
-    protocolSettings.publishMcp,
+    protocolSettings.protocol,
     protocolSettings.a2aEndpoint,
     protocolSettings.mcpEndpoint,
     ensOrgName,
@@ -822,8 +966,38 @@ export default function AgentRegistrationPage() {
     if (!validateCurrentStep()) {
       return;
     }
-    setCreateStep(prev => Math.min(prev + 1, totalCreateSteps - 1));
-  }, [validateCurrentStep, totalCreateSteps]);
+    const nextStep = Math.min(createStep + 1, totalCreateSteps - 1);
+    setCreateStep(nextStep);
+    
+    // Generate UAID when entering review step (step 4)
+    if (nextStep === 4 && createForm.agentAccount) {
+      setUaidLoading(true);
+      (async () => {
+        try {
+          const response = await fetch('/api/agents/generate-uaid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentAccount: createForm.agentAccount,
+              chainId: selectedChainId,
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setUaid(data.uaid || null);
+          } else {
+            console.warn('Failed to generate UAID:', response.status);
+            setUaid(null);
+          }
+        } catch (error) {
+          console.warn('Error generating UAID:', error);
+          setUaid(null);
+        } finally {
+          setUaidLoading(false);
+        }
+      })();
+    }
+  }, [validateCurrentStep, totalCreateSteps, createStep, createForm.agentAccount, selectedChainId]);
 
   const handlePrevStep = useCallback(() => {
     setError(null);
@@ -858,10 +1032,10 @@ export default function AgentRegistrationPage() {
 
       const baseUrl = resolveAgentBaseUrl();
       const resolvedA2A =
-        protocolSettings.publishA2A &&
+        protocolSettings.protocol === 'A2A' &&
         (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/.well-known/agent-card.json` : ''));
       const resolvedMcp =
-        protocolSettings.publishMcp &&
+        protocolSettings.protocol === 'MCP' &&
         (protocolSettings.mcpEndpoint.trim() || (baseUrl ? `${baseUrl}/api/mcp` : ''));
 
       if (!privateKeyMode) {
@@ -970,19 +1144,21 @@ export default function AgentRegistrationPage() {
           startRegistrationProgress();
           // Server-only path (admin private key signs on server)
           // Build endpoints array using provided values or auto-generated defaults
-          const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
-          if (protocolSettings.publishA2A && resolvedA2A) {
+          const endpoints: Array<{ name: string; endpoint: string; version?: string; a2aSkills?: string[]; mcpSkills?: string[] }> = [];
+          if (protocolSettings.protocol === 'A2A' && resolvedA2A) {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
-              version: '0.3.0',
+              version: '0.30',
+              a2aSkills: protocolSettings.a2aSkills.length > 0 ? protocolSettings.a2aSkills : undefined,
             });
           }
-          if (protocolSettings.publishMcp && resolvedMcp) {
+          if (protocolSettings.protocol === 'MCP' && resolvedMcp) {
             endpoints.push({
               name: 'MCP',
               endpoint: resolvedMcp,
               version: '2025-06-18',
+              mcpSkills: protocolSettings.mcpSkills.length > 0 ? protocolSettings.mcpSkills : undefined,
             });
           }
 
@@ -990,7 +1166,6 @@ export default function AgentRegistrationPage() {
             mode: 'smartAccount',
             agentName: createForm.agentName,
             agentAccount: agentAccountToUse,
-            agentCategory: createForm.agentCategory || undefined,
             supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
             description: createForm.description || undefined,
             image: createForm.image || undefined,
@@ -1026,19 +1201,21 @@ export default function AgentRegistrationPage() {
         } else {
           // Client path (requires connected wallet/provider)
           // Build endpoints array using provided values or auto-generated defaults
-          const endpoints: Array<{ name: string; endpoint: string; version?: string }> = [];
-          if (protocolSettings.publishA2A && resolvedA2A) {
+          const endpoints: Array<{ name: string; endpoint: string; version?: string; a2aSkills?: string[]; mcpSkills?: string[] }> = [];
+          if (protocolSettings.protocol === 'A2A' && resolvedA2A) {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
-              version: '0.3.0',
+              version: '0.30',
+              a2aSkills: protocolSettings.a2aSkills.length > 0 ? protocolSettings.a2aSkills : undefined,
             });
           }
-          if (protocolSettings.publishMcp && resolvedMcp) {
+          if (protocolSettings.protocol === 'MCP' && resolvedMcp) {
             endpoints.push({
               name: 'MCP',
               endpoint: resolvedMcp,
               version: '2025-06-18',
+              mcpSkills: protocolSettings.mcpSkills.length > 0 ? protocolSettings.mcpSkills : undefined,
             });
           }
 
@@ -1065,7 +1242,6 @@ export default function AgentRegistrationPage() {
                 agentData: {
                   agentName: createForm.agentName,
                   agentAccount: agentAccountToUse,
-                  agentCategory: createForm.agentCategory || undefined,
                   supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
                   description: createForm.description || undefined,
                   image: createForm.image || undefined,
@@ -1113,12 +1289,12 @@ export default function AgentRegistrationPage() {
 
       
       
-      setCreateForm({ agentName: '', agentAccount: '', agentCategory: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
+      setCreateForm({ agentName: '', agentAccount: '', description: '', image: getDefaultImageUrl(), agentUrl: '' });
       setSupportedTrust([]);
       setAgentUrlAutofillDisabled(false);
       setAaAddress(null);
       setCreateStep(0);
-      setProtocolSettings({ publishA2A: true, publishMcp: true, a2aEndpoint: '', mcpEndpoint: '' });
+      setProtocolSettings({ protocol: 'A2A', a2aEndpoint: '', mcpEndpoint: '', a2aSkills: [], a2aDomains: [], mcpSkills: [], mcpDomains: [] });
 
       // Refresh owned agents cache so new agents appear in dropdowns immediately
       await refreshOwnedAgents();
@@ -1210,14 +1386,14 @@ export default function AgentRegistrationPage() {
     setProtocolSettings(prev => {
       const next: typeof prev = { ...prev };
       let changed = false;
-      if (prev.publishA2A && defaultA2AEndpoint) {
+      if (prev.protocol === 'A2A' && defaultA2AEndpoint) {
         const shouldUpdate = !prev.a2aEndpoint || prev.a2aEndpoint === prevDefaults.a2a;
         if (shouldUpdate) {
           next.a2aEndpoint = defaultA2AEndpoint;
           changed = true;
         }
       }
-      if (prev.publishMcp && defaultMcpEndpoint) {
+      if (prev.protocol === 'MCP' && defaultMcpEndpoint) {
         const shouldUpdate = !prev.mcpEndpoint || prev.mcpEndpoint === prevDefaults.mcp;
         if (shouldUpdate) {
           next.mcpEndpoint = defaultMcpEndpoint;
@@ -1478,23 +1654,6 @@ export default function AgentRegistrationPage() {
       case 2:
         return (
           <>
-            <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
-                Agent Category
-              </label>
-              <select
-                value={createForm.agentCategory}
-                onChange={(e) => setCreateForm({ ...createForm, agentCategory: e.target.value })}
-                style={{ width: '100%', padding: '0.5rem', border: '1px solid #dcdcdc', borderRadius: '4px', marginBottom: '1rem' }}
-              >
-                {AGENT_CATEGORY_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            
             <div style={{ marginBottom: '1rem' }}>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 'bold' }}>
                 Supported Trust Mechanisms (optional)
@@ -1609,29 +1768,44 @@ export default function AgentRegistrationPage() {
               </p>
             </div>
             <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={protocolSettings.publishA2A}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setProtocolSettings(prev => ({
-                      ...prev,
-                      publishA2A: checked,
-                      a2aEndpoint: checked
-                        ? prev.a2aEndpoint || defaultA2AEndpoint || prev.a2aEndpoint
-                        : prev.a2aEndpoint,
-                    }));
-                  }}
-                />
-                <span style={{ fontWeight: 600 }}>A2A Protocol Endpoint</span>
+              <label style={{ display: 'block', marginBottom: '0.75rem', fontWeight: 600 }}>
+                Select Protocol *
               </label>
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#4f4f4f' }}>
-                {defaultA2AEndpoint
-                  ? `Default: ${defaultA2AEndpoint}`
-                  : 'Set an Agent URL above to preview the agent card endpoint.'}
-              </p>
-              {protocolSettings.publishA2A && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.protocol === 'A2A' ? '#e3f2fd' : 'transparent' }}>
+                  <input
+                    type="radio"
+                    name="protocol"
+                    value="A2A"
+                    checked={protocolSettings.protocol === 'A2A'}
+                    onChange={(e) => {
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        protocol: 'A2A',
+                        a2aEndpoint: prev.a2aEndpoint || defaultA2AEndpoint || '',
+                      }));
+                    }}
+                  />
+                  <span style={{ fontWeight: 600 }}>A2A Protocol</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.protocol === 'MCP' ? '#e3f2fd' : 'transparent' }}>
+                  <input
+                    type="radio"
+                    name="protocol"
+                    value="MCP"
+                    checked={protocolSettings.protocol === 'MCP'}
+                    onChange={(e) => {
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        protocol: 'MCP',
+                        mcpEndpoint: prev.mcpEndpoint || defaultMcpEndpoint || '',
+                      }));
+                    }}
+                  />
+                  <span style={{ fontWeight: 600 }}>MCP Protocol</span>
+                </label>
+              </div>
+              {protocolSettings.protocol === 'A2A' && (
                 <div style={{ marginTop: '0.75rem' }}>
                   <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
                     Endpoint URL
@@ -1681,49 +1855,381 @@ export default function AgentRegistrationPage() {
                     }
                     return null;
                   })()}
+                  <div style={{ marginTop: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                      OASF Skills
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem', minHeight: '2rem' }}>
+                      {protocolSettings.a2aSkills.map((skillId) => {
+                        const skill = oasfSkills.find(s => s.id === skillId);
+                        return (
+                          <span
+                            key={skillId}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              padding: '0.25rem 0.5rem',
+                              backgroundColor: '#e3f2fd',
+                              border: '1px solid #90caf9',
+                              borderRadius: '16px',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            <span>
+                              {skill?.category ? `${skill.category}: ` : ''}
+                              {skill ? skill.label : skillId}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProtocolSettings(prev => ({
+                                  ...prev,
+                                  a2aSkills: prev.a2aSkills.filter(s => s !== skillId),
+                                }));
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                                margin: 0,
+                                fontSize: '1rem',
+                                lineHeight: 1,
+                                color: '#1976d2',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const skillId = e.target.value;
+                          if (skillId && !protocolSettings.a2aSkills.includes(skillId)) {
+                            setProtocolSettings(prev => ({
+                              ...prev,
+                              a2aSkills: [...prev.a2aSkills, skillId],
+                            }));
+                          }
+                          e.target.value = '';
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '0.5rem',
+                          border: '1px solid #d7d7d7',
+                          borderRadius: '4px',
+                          fontSize: '0.9rem',
+                        }}
+                        disabled={loadingSkills || oasfSkills.length === 0}
+                      >
+                        <option value="">
+                          {loadingSkills
+                            ? 'Loading skills...'
+                            : oasfSkills.length === 0
+                              ? 'No skills loaded from discovery'
+                              : '+ Add skill...'}
+                        </option>
+                        {renderCategorizedOptions(oasfSkills, protocolSettings.a2aSkills)}
+                      </select>
+                    </div>
+                    {oasfSkillsError && (
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#b00020' }}>
+                        {oasfSkillsError}
+                      </p>
+                    )}
+                  </div>
+                  <div style={{ marginTop: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                      OASF Domains
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem', minHeight: '2rem' }}>
+                      {protocolSettings.a2aDomains.map((domainId) => {
+                        const domain = oasfDomains.find(d => d.id === domainId);
+                        return (
+                          <span
+                            key={domainId}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.5rem',
+                              padding: '0.25rem 0.5rem',
+                              backgroundColor: '#e3f2fd',
+                              border: '1px solid #90caf9',
+                              borderRadius: '16px',
+                              fontSize: '0.85rem',
+                            }}
+                          >
+                            <span>
+                              {domain?.category ? `${domain.category}: ` : ''}
+                              {domain ? domain.label : domainId}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProtocolSettings(prev => ({
+                                  ...prev,
+                                  a2aDomains: prev.a2aDomains.filter(d => d !== domainId),
+                                }));
+                              }}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: 0,
+                                margin: 0,
+                                fontSize: '1rem',
+                                lineHeight: 1,
+                                color: '#1976d2',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                      <select
+                        value=""
+                        onChange={(e) => {
+                          const domainId = e.target.value;
+                          if (domainId && !protocolSettings.a2aDomains.includes(domainId)) {
+                            setProtocolSettings(prev => ({
+                              ...prev,
+                              a2aDomains: [...prev.a2aDomains, domainId],
+                            }));
+                          }
+                          e.target.value = '';
+                        }}
+                        style={{
+                          flex: 1,
+                          padding: '0.5rem',
+                          border: '1px solid #d7d7d7',
+                          borderRadius: '4px',
+                          fontSize: '0.9rem',
+                        }}
+                        disabled={loadingDomains || oasfDomains.length === 0}
+                      >
+                        <option value="">
+                          {loadingDomains
+                            ? 'Loading domains...'
+                            : oasfDomains.length === 0
+                              ? 'No domains loaded from discovery'
+                              : '+ Add domain...'}
+                        </option>
+                        {renderCategorizedOptions(oasfDomains, protocolSettings.a2aDomains)}
+                      </select>
+                    </div>
+                    {oasfDomainsError && (
+                      <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#b00020' }}>
+                        {oasfDomainsError}
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
-            <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #f6f6f6' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            {protocolSettings.protocol === 'MCP' && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                  Endpoint URL
+                </label>
                 <input
-                  type="checkbox"
-                  checked={protocolSettings.publishMcp}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setProtocolSettings(prev => ({
-                      ...prev,
-                      publishMcp: checked,
-                      mcpEndpoint: checked
-                        ? prev.mcpEndpoint || defaultMcpEndpoint || prev.mcpEndpoint
-                        : prev.mcpEndpoint,
-                    }));
-                  }}
+                  type="url"
+                  value={protocolSettings.mcpEndpoint}
+                  onChange={(e) =>
+                    setProtocolSettings(prev => ({ ...prev, mcpEndpoint: e.target.value }))
+                  }
+                  placeholder={defaultMcpEndpoint || 'https://agent.example.com/api/mcp'}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                 />
-                <span style={{ fontWeight: 600 }}>MCP Protocol Endpoint</span>
-              </label>
-              <p style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: '#4c4c4c' }}>
-                {defaultMcpEndpoint
-                  ? `Default: ${defaultMcpEndpoint}`
-                  : 'Set an Agent URL above to preview the MCP endpoint.'}
-              </p>
-              {protocolSettings.publishMcp && (
-                <div style={{ marginTop: '0.75rem' }}>
-                  <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
-                    Endpoint URL
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                    OASF Skills
                   </label>
-                  <input
-                    type="url"
-                    value={protocolSettings.mcpEndpoint}
-                    onChange={(e) =>
-                      setProtocolSettings(prev => ({ ...prev, mcpEndpoint: e.target.value }))
-                    }
-                    placeholder={defaultMcpEndpoint || 'https://agent.example.com/api/mcp'}
-                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
-                  />
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem', minHeight: '2rem' }}>
+                    {protocolSettings.mcpSkills.map((skillId) => {
+                      const skill = oasfSkills.find(s => s.id === skillId);
+                      return (
+                        <span
+                          key={skillId}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.25rem 0.5rem',
+                            backgroundColor: '#e3f2fd',
+                            border: '1px solid #90caf9',
+                            borderRadius: '16px',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          <span>
+                            {skill?.category ? `${skill.category}: ` : ''}
+                            {skill ? skill.label : skillId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProtocolSettings(prev => ({
+                                ...prev,
+                                mcpSkills: prev.mcpSkills.filter(s => s !== skillId),
+                              }));
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                              margin: 0,
+                              fontSize: '1rem',
+                              lineHeight: 1,
+                              color: '#1976d2',
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const skillId = e.target.value;
+                        if (skillId && !protocolSettings.mcpSkills.includes(skillId)) {
+                          setProtocolSettings(prev => ({
+                            ...prev,
+                            mcpSkills: [...prev.mcpSkills, skillId],
+                          }));
+                        }
+                        e.target.value = '';
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '0.5rem',
+                        border: '1px solid #d7d7d7',
+                        borderRadius: '4px',
+                        fontSize: '0.9rem',
+                      }}
+                      disabled={loadingSkills || oasfSkills.length === 0}
+                    >
+                      <option value="">
+                        {loadingSkills
+                          ? 'Loading skills...'
+                          : oasfSkills.length === 0
+                            ? 'No skills loaded from discovery'
+                            : '+ Add skill...'}
+                      </option>
+                      {renderCategorizedOptions(oasfSkills, protocolSettings.mcpSkills)}
+                    </select>
+                  </div>
+                  {oasfSkillsError && (
+                    <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#b00020' }}>
+                      {oasfSkillsError}
+                    </p>
+                  )}
                 </div>
-              )}
-            </div>
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
+                    OASF Domains
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem', minHeight: '2rem' }}>
+                    {protocolSettings.mcpDomains.map((domainId) => {
+                      const domain = oasfDomains.find(d => d.id === domainId);
+                      return (
+                        <span
+                          key={domainId}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.5rem',
+                            padding: '0.25rem 0.5rem',
+                            backgroundColor: '#e3f2fd',
+                            border: '1px solid #90caf9',
+                            borderRadius: '16px',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          <span>
+                            {domain?.category ? `${domain.category}: ` : ''}
+                            {domain ? domain.label : domainId}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setProtocolSettings(prev => ({
+                                ...prev,
+                                mcpDomains: prev.mcpDomains.filter(d => d !== domainId),
+                              }));
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              padding: 0,
+                              margin: 0,
+                              fontSize: '1rem',
+                              lineHeight: 1,
+                              color: '#1976d2',
+                              fontWeight: 'bold',
+                            }}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const domainId = e.target.value;
+                        if (domainId && !protocolSettings.mcpDomains.includes(domainId)) {
+                          setProtocolSettings(prev => ({
+                            ...prev,
+                            mcpDomains: [...prev.mcpDomains, domainId],
+                          }));
+                        }
+                        e.target.value = '';
+                      }}
+                      style={{
+                        flex: 1,
+                        padding: '0.5rem',
+                        border: '1px solid #d7d7d7',
+                        borderRadius: '4px',
+                        fontSize: '0.9rem',
+                      }}
+                    disabled={loadingDomains || oasfDomains.length === 0}
+                    >
+                    <option value="">
+                      {loadingDomains
+                        ? 'Loading domains...'
+                        : oasfDomains.length === 0
+                          ? 'No domains loaded from discovery'
+                          : '+ Add domain...'}
+                    </option>
+                    {renderCategorizedOptions(oasfDomains, protocolSettings.mcpDomains)}
+                    </select>
+                  </div>
+                {oasfDomainsError && (
+                  <p style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#b00020' }}>
+                    {oasfDomainsError}
+                  </p>
+                )}
+                </div>
+              </div>
+            )}
           </>
         );
       case 4: {
@@ -1771,19 +2277,42 @@ export default function AgentRegistrationPage() {
                   )}
                 </div>
               )}
-              <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}>
-                <strong>Category:</strong> {createForm.agentCategory || '—'}
-              </p>
               <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}><strong>Description:</strong> {createForm.description || '—'}</p>
             </div>
             <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>
               <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#2f2f2f' }}>Protocols</h3>
               <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
-                <strong>Agent Card:</strong> {protocolSettings.publishA2A ? protocolSettings.a2aEndpoint || defaultA2AEndpoint || 'Pending Agent URL' : 'Disabled'}
+                <strong>Protocol:</strong> {protocolSettings.protocol || 'Not selected'}
               </p>
-              <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
-                <strong>MCP:</strong> {protocolSettings.publishMcp ? protocolSettings.mcpEndpoint || defaultMcpEndpoint || 'Pending Agent URL' : 'Disabled'}
-              </p>
+              {protocolSettings.protocol === 'A2A' && (
+                <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                  <strong>Agent Card:</strong> {protocolSettings.a2aEndpoint || defaultA2AEndpoint || 'Pending Agent URL'}
+                </p>
+              )}
+              {protocolSettings.protocol === 'MCP' && (
+                <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                  <strong>MCP Endpoint:</strong> {protocolSettings.mcpEndpoint || defaultMcpEndpoint || 'Pending Agent URL'}
+                </p>
+              )}
+            </div>
+            <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#2f2f2f' }}>UAID (HCS-14 Identifier)</h3>
+              {uaidLoading ? (
+                <p style={{ margin: '0.25rem 0', color: '#4f4f4f' }}>Generating UAID...</p>
+              ) : uaid ? (
+                <div>
+                  <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                    <strong>UAID:</strong>
+                  </p>
+                  <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: '0.9rem', wordBreak: 'break-all', backgroundColor: '#fff', padding: '0.5rem', borderRadius: '4px', display: 'block', border: '1px solid #ddd' }}>{uaid}</span>
+                  </p>
+                </div>
+              ) : (
+                <p style={{ margin: '0.25rem 0', color: '#666', fontSize: '0.9rem' }}>
+                  UAID will be generated during registration
+                </p>
+              )}
             </div>
             <p style={{ marginTop: '1rem', fontSize: '0.95rem', color: '#4f4f4f' }}>
               Review the details above. When ready, click <strong>Register Agent</strong> to publish this agent to the selected chain.

@@ -57,6 +57,26 @@ export interface SemanticAgentSearchResult {
     total: number;
     matches: SemanticAgentMatch[];
 }
+
+/**
+ * OASF taxonomy types (served by discovery GraphQL when enabled)
+ */
+export interface OasfSkill {
+    key: string;
+    nameKey?: string | null;
+    uid?: number | null;
+    caption?: string | null;
+    extendsKey?: string | null;
+    category?: string | null;
+}
+export interface OasfDomain {
+    key: string;
+    nameKey?: string | null;
+    uid?: number | null;
+    caption?: string | null;
+    extendsKey?: string | null;
+    category?: string | null;
+}
 /**
  * Discovery query response types
  */
@@ -203,6 +223,36 @@ export declare class AIAgentDiscoveryClient {
     semanticAgentSearch(params: {
         text: string;
     }): Promise<SemanticAgentSearchResult>;
+
+    /**
+     * Fetch OASF skills taxonomy from the discovery GraphQL endpoint (best-effort).
+     * Returns [] if the backend does not expose `oasfSkills`.
+     */
+    oasfSkills(params?: {
+        key?: string;
+        nameKey?: string;
+        category?: string;
+        extendsKey?: string;
+        limit?: number;
+        offset?: number;
+        orderBy?: string;
+        orderDirection?: string;
+    }): Promise<OasfSkill[]>;
+
+    /**
+     * Fetch OASF domains taxonomy from the discovery GraphQL endpoint (best-effort).
+     * Returns [] if the backend does not expose `oasfDomains`.
+     */
+    oasfDomains(params?: {
+        key?: string;
+        nameKey?: string;
+        category?: string;
+        extendsKey?: string;
+        limit?: number;
+        offset?: number;
+        orderBy?: string;
+        orderDirection?: string;
+    }): Promise<OasfDomain[]>;
     searchAgentsAdvanced(options: SearchAgentsAdvancedOptions): Promise<{
         agents: AgentData[];
         total?: number | null;
