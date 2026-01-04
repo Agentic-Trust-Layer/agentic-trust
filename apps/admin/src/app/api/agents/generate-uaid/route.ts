@@ -6,11 +6,11 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { agentAccount, chainId, uid } = body;
+    const { agentId, chainId, uid } = body;
 
-    if (!agentAccount || typeof agentAccount !== 'string') {
+    if (!agentId || typeof agentId !== 'string') {
       return NextResponse.json(
-        { error: 'agentAccount is required' },
+        { error: 'agentId is required' },
         { status: 400 }
       );
     }
@@ -23,18 +23,17 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      const uaidValue = await generateHcs14UaidDidTarget({
-        chainId,
-        account: agentAccount as `0x${string}`,
+      const nativeId = chainId + ":" + agentId;
+      const { uaid } = await generateHcs14UaidDidTarget({
         routing: {
-          registry: 'agentic-trust',
+          registry: 'erc-8004',
           proto: 'a2a',
-          nativeId: String(agentAccount).toLowerCase(),
+          nativeId: nativeId,
           uid: typeof uid === 'string' && uid.trim() ? uid.trim() : undefined,
         },
       });
 
-      return NextResponse.json({ uaid: uaidValue });
+      return NextResponse.json({ uaid });
     } catch (error) {
       console.warn('[generate-uaid] Failed to generate UAID:', error);
       return NextResponse.json({ uaid: null }, { status: 200 });

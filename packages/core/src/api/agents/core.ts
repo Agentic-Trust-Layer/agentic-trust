@@ -286,6 +286,23 @@ export async function updateAgentRegistrationCore(
   })();
 
   const registrationObject = normalizeRegistrationPayload(input.registration);
+
+  // If the caller is updating a registration JSON that already includes a registrations[]
+  // array, ensure the agentId is populated (common for "finalize after create" flows).
+  try {
+    const maybeRegistrations = (registrationObject as any)?.registrations;
+    if (Array.isArray(maybeRegistrations)) {
+      for (const entry of maybeRegistrations) {
+        if (!entry || typeof entry !== 'object') continue;
+        if (entry.agentId === null || typeof entry.agentId === 'undefined') {
+          entry.agentId = parsed.agentId;
+        }
+      }
+    }
+  } catch {
+    // best-effort only; never fail the update due to payload shape
+  }
+
   const uploadResult = await uploadRegistration(registrationObject as any);
 
   const client = await resolveClient(ctx);

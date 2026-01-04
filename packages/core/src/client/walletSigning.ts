@@ -1138,6 +1138,59 @@ async function createAgentWithWalletAA(
   // Refresh GraphQL indexer
   if (agentId) {
     await refreshAgentInIndexer(agentId, chain.id);
+
+    // Finalize UAID now that we have a real on-chain agentId, and write it back by updating tokenUri.
+    try {
+      onStatusUpdate?.('Finalizing UAID and updating registration tokenUri...');
+
+      const uaidResp = await fetch('/api/agents/generate-uaid', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: String(agentId),
+          chainId: chain.id,
+          // Requested routing (matches server-side nativeId/uid pattern)
+          uid: `${chain.id}:${agentId}`,
+        }),
+      });
+
+      if (uaidResp.ok) {
+        const uaidData = await uaidResp.json().catch(() => ({}));
+        const uaid = typeof uaidData?.uaid === 'string' && uaidData.uaid.trim() ? uaidData.uaid.trim() : null;
+
+        if (uaid) {
+          const did8004 = `did:8004:${chain.id}:${agentId}`;
+          const registrationUpdate = {
+            type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+            name: agentData.agentName,
+            description: agentData.description,
+            image: agentData.image,
+            agentUrl: agentData.agentUrl,
+            endpoints: agentData.endpoints,
+            supportedTrust: agentData.supportedTrust,
+            active: true,
+            registeredBy: 'agentic-trust',
+            registryNamespace: 'agentic-trust',
+            uaid,
+          };
+
+          await updateAgentRegistrationWithWallet({
+            did8004,
+            chain,
+            accountClient: agentAccountClient,
+            registration: registrationUpdate,
+            onStatusUpdate,
+          });
+        } else {
+          console.warn('[createAgentWithWalletAA] UAID endpoint returned no uaid value');
+        }
+      } else {
+        const err = await uaidResp.json().catch(() => ({}));
+        console.warn('[createAgentWithWalletAA] UAID endpoint failed:', err);
+      }
+    } catch (uaidErr) {
+      console.warn('[createAgentWithWalletAA] Failed to finalize UAID + registration update:', uaidErr);
+    }
   } else {
     onStatusUpdate?.('Refreshing GraphQL indexer...');
     console.log(

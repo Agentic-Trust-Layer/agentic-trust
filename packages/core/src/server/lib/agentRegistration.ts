@@ -113,9 +113,11 @@ export function createRegistrationJSON(params: {
     a2aDomains?: string[];
     mcpSkills?: string[];
     mcpDomains?: string[];
-  }> = params.endpoints ? params.endpoints.map(e => ({ ...e })) : [];
+  }> = (params.endpoints ? params.endpoints.map(e => ({ ...e })) : [])
+    // Never include MCP endpoint entries in registration JSON.
+    .filter(e => e.name !== 'MCP');
   
-  // If agentUrl is provided, automatically create A2A and MCP endpoints
+  // If agentUrl is provided, automatically create an A2A endpoint
   if (params.agentUrl) {
     const baseUrl = params.agentUrl.replace(/\/$/, ''); // Remove trailing slash
     
@@ -142,35 +144,12 @@ export function createRegistrationJSON(params: {
         version: '0.30',
       });
     }
-    
-    // Upsert MCP endpoint (always align to agentUrl).
-    // Default to /api/mcp.
-    const mcpEndpoint = `${baseUrl}/api/mcp`;
-    const existingMCP = endpoints.find(e => e.name === 'MCP');
-    if (existingMCP) {
-      if (existingMCP.endpoint !== mcpEndpoint) {
-        console.warn('[createRegistrationJSON] Overriding MCP endpoint to match agentUrl:', {
-          agentUrl: baseUrl,
-          previous: existingMCP.endpoint,
-          next: mcpEndpoint,
-        });
-      }
-      existingMCP.endpoint = mcpEndpoint;
-      existingMCP.version = existingMCP.version || '2025-06-18';
-      // Preserve mcpSkills if already set
-    } else {
-      endpoints.push({
-        name: 'MCP',
-        endpoint: mcpEndpoint,
-        version: '2025-06-18',
-      });
-    }
   }
   
-  // Build registrations array (agentId is intentionally null in registration JSON;
-  // callers may not know the agentId at publish time, but registry+timestamp are still valuable).
+  // Build registrations array.
+  // If agentId is known (post-create update), populate it; otherwise leave null.
   const registrations: Array<{
-    agentId: null;
+    agentId: string | number | null;
     agentRegistry: string;
     registeredAt: string;
   }> = [];
@@ -181,7 +160,7 @@ export function createRegistrationJSON(params: {
 
   if (params.chainId && registryAddress) {
     registrations.push({
-      agentId: null,
+      agentId: params.agentId ?? null,
       agentRegistry: `eip155:${params.chainId}:${String(registryAddress)}`,
       registeredAt: new Date().toISOString(),
     });

@@ -509,6 +509,39 @@ export class AgentsAPI {
     // Use direct EOA transaction path (existing behavior)
     const result = await identityClient.registerWithMetadata(tokenUri, metadata);
 
+    // After we have an agentId, generate UAID (random aidValue + routing) and write it back by updating tokenUri.
+    try {
+      const agentIdStr = result.agentId.toString();
+      const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
+      const nativeId = `${chainId}:${agentIdStr}`;
+      const { uaid } = await generateHcs14UaidDidTarget({
+        routing: {
+          registry: 'erc-8004',
+          proto: 'a2a',
+          nativeId,
+          uid,
+        },
+      });
+
+      const updatedRegistrationJSON = createRegistrationJSON({
+        name: params.agentName,
+        agentAccount: params.agentAccount,
+        agentId: agentIdStr,
+        description: params.description,
+        image: params.image,
+        agentUrl: params.agentUrl,
+        chainId,
+        identityRegistry: identityRegistryHex as `0x${string}`,
+        supportedTrust: params.supportedTrust,
+        endpoints: params.endpoints,
+        uaid,
+      });
+      const updatedUpload = await uploadRegistration(updatedRegistrationJSON);
+      await identityClient.setAgentUri(BigInt(agentIdStr), updatedUpload.tokenUri);
+    } catch (uaidError) {
+      console.warn('[agents.createAgentWithEOAOwnerUsingWallet] Failed to finalize UAID + tokenUri update:', uaidError);
+    }
+
     // Refresh the agent in the GraphQL indexer
     try {
       const discoveryClient = await getDiscoveryClient();
@@ -594,6 +627,39 @@ export class AgentsAPI {
     // Execute registration
     const result = await identityClient.registerWithMetadata(tokenUri, metadata);
 
+    // After we have an agentId, generate UAID (random aidValue + routing) and write it back by updating tokenUri.
+    try {
+      const agentIdStr = result.agentId.toString();
+      const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
+      const nativeId = `${targetChainId}:${agentIdStr}`;
+      const { uaid } = await generateHcs14UaidDidTarget({
+        routing: {
+          registry: 'erc-8004',
+          proto: 'a2a',
+          nativeId,
+          uid,
+        },
+      });
+
+      const updatedRegistrationJSON = createRegistrationJSON({
+        name: params.agentName,
+        agentAccount: params.agentAccount,
+        agentId: agentIdStr,
+        description: params.description,
+        image: params.image,
+        agentUrl: params.agentUrl,
+        chainId: targetChainId,
+        identityRegistry: identityRegistryHex as `0x${string}`,
+        supportedTrust: params.supportedTrust,
+        endpoints: params.endpoints,
+        uaid,
+      });
+      const updatedUpload = await uploadRegistration(updatedRegistrationJSON);
+      await identityClient.setAgentUri(BigInt(agentIdStr), updatedUpload.tokenUri);
+    } catch (uaidError) {
+      console.warn('[agents.createAgentWithEOAOwnerUsingPrivateKey] Failed to finalize UAID + tokenUri update:', uaidError);
+    }
+
     // Refresh in indexer (best-effort)
     try {
       const discoveryClient = await getDiscoveryClient();
@@ -608,6 +674,11 @@ export class AgentsAPI {
   async createAgentWithSmartAccountOwnerUsingWallet(params: {
     agentName: string;
     agentAccount: `0x${string}`;
+    /**
+     * Optional agentId (only available after the agent has been registered on-chain).
+     * When present, we can generate a UAID that includes chainId:agentId in routing params.
+     */
+    agentId?: string;
     agentCategory?: string;
     description?: string;
     image?: string;
@@ -646,24 +717,25 @@ export class AgentsAPI {
       ? identityRegistry 
       : `0x${identityRegistry}`;
 
-    // Generate UAID using HCS-14 DID target form (uaid:did: wrapping did:ethr of the agent account)
+    // UAID routing requested (erc-8004 / nativeId=chainId:agentId / uid=chainId:agentId)
+    // Note: agentId is only available after on-chain registration.
     let uaid: string | undefined;
     try {
-      const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
-      uaid = await generateHcs14UaidDidTarget({
-        chainId,
-        account: params.agentAccount,
-        routing: {
-          registry: 'agentic-trust',
-          proto: 'a2a',
-          nativeId: params.agentAccount.toLowerCase(),
-          uid,
-        },
-      });
-      console.log('[agents.createAgentWithSmartAccountOwnerUsingWallet] Generated UAID:', uaid);
+      if (params.agentId?.trim()) {
+        const uid = `${chainId}:${params.agentId}`;
+        const nativeId = `${chainId}:${params.agentId}`;
+        const result = await generateHcs14UaidDidTarget({
+          routing: {
+            registry: 'erc-8004',
+            proto: 'a2a',
+            nativeId,
+            uid,
+          },
+        });
+        uaid = result.uaid;
+      }
     } catch (error) {
       console.warn('[agents.createAgentWithSmartAccountOwnerUsingWallet] Failed to generate UAID:', error);
-      // Continue without UAID - it's optional
     }
 
     // Create registration JSON and upload to IPFS
@@ -719,7 +791,7 @@ export class AgentsAPI {
     const additionalMetadata = [
       ...(params.agentCategory ? [{ key: 'agentCategory', value: params.agentCategory }] : []),
       { key: 'registeredBy', value: 'agentic-trust' },
-      { key: 'registryNamespace', value: 'agentic-trust' },
+      { key: 'registryNamespace', value: 'erc-8004' },
       ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
     ];
     const { calls: registerCalls } = await aiIdentityClient.prepareRegisterCalls(
@@ -833,6 +905,57 @@ export class AgentsAPI {
       const id = await this.extractAgentIdFromReceipt(receipt, chainId);
       if (id) agentId = id;
     } catch {}
+
+    // If we have an agentId, finalize UAID + update tokenUri on-chain.
+    if (agentId) {
+      try {
+        const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
+        const nativeId = `${chainId}:${agentId}`;
+        const { uaid } = await generateHcs14UaidDidTarget({
+          routing: {
+            registry: 'erc-8004',
+            proto: 'a2a',
+            nativeId,
+            uid,
+          },
+        });
+
+        const identityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
+        const identityRegistryHex = identityRegistry.startsWith('0x') ? identityRegistry : `0x${identityRegistry}`;
+
+        const updatedRegistrationJSON = createRegistrationJSON({
+          name: params.agentName,
+          agentAccount: params.agentAccount,
+          agentId,
+          description: params.description,
+          image: params.image,
+          agentUrl: params.agentUrl,
+          chainId,
+          identityRegistry: identityRegistryHex as `0x${string}`,
+          supportedTrust: params.supportedTrust,
+          endpoints: params.endpoints,
+          uaid,
+        });
+
+        const updatedUpload = await uploadRegistration(updatedRegistrationJSON);
+        const preparedUpdate = await this.admin.prepareUpdateAgent({
+          agentId,
+          tokenUri: updatedUpload.tokenUri,
+          chainId,
+        });
+
+        const nextNonce = await getAccountNonce(accountClient);
+        await sendUserOpWithTimeout({
+          bundlerUrl,
+          chain,
+          accountClient,
+          calls: preparedUpdate.calls,
+          nonce: nextNonce,
+        });
+      } catch (uaidError) {
+        console.warn('[createAgentWithSmartAccountOwnerUsingPrivateKey] Failed to finalize UAID + tokenUri update:', uaidError);
+      }
+    }
 
     if (params.ensOptions?.enabled && params.ensOptions.orgName) {
       try {
@@ -1749,34 +1872,13 @@ export class AgentsAPI {
         identityRegistryHex as `0x${string}`
       );
 
-      // Generate UAID using HCS-14 DID target form (uaid:did: wrapping did:ethr of the agent account)
-      let uaid: string | undefined;
-      try {
-        const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
-        uaid = await generateHcs14UaidDidTarget({
-          chainId,
-          account: params.agentAccount,
-          routing: {
-            registry: 'agentic-trust',
-            proto: 'a2a',
-            nativeId: params.agentAccount.toLowerCase(),
-            uid,
-          },
-        });
-        console.log('[agents.prepareCreateAgentTransaction] Generated UAID:', uaid);
-      } catch (error) {
-        console.warn('[agents.prepareCreateAgentTransaction] Failed to generate UAID:', error);
-        // Continue without UAID - it's optional
-      }
-
       // Build metadata array
       const metadata = [
         { key: 'agentName', value: params.agentName ? String(params.agentName) : '' },
         { key: 'agentAccount', value: params.agentAccount ? String(params.agentAccount) : '' },
         ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
         { key: 'registeredBy', value: 'agentic-trust' },
-        { key: 'registryNamespace', value: 'agentic-trust' },
-        ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
+        { key: 'registryNamespace', value: 'erc-8004' },
       ].filter(m => m.value !== '');
 
       // Create registration JSON and upload to IPFS
@@ -1792,8 +1894,7 @@ export class AgentsAPI {
           chainId,
           identityRegistry: identityRegistryHex as `0x${string}`,
           supportedTrust: params.supportedTrust,
-          endpoints: params.endpoints,
-          uaid,
+          endpoints: params.endpoints
         });
         
         const uploadResult = await uploadRegistration(registrationJSON);
