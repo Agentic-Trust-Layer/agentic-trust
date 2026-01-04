@@ -78,6 +78,7 @@ import {
 } from './chainConfig';
 import { parseEthrDid } from './accounts';
 import { uploadRegistration, createRegistrationJSON } from './agentRegistration';
+import { generateHcs14UaidDidTarget } from './uaid';
 import { createPublicClient, encodeFunctionData, http } from 'viem';
 import type { Address } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
@@ -349,6 +350,10 @@ export class AgentsAPI {
       endpoint: string;
       version?: string;
       capabilities?: Record<string, any>;
+      a2aSkills?: string[];
+      a2aDomains?: string[];
+      mcpSkills?: string[];
+      mcpDomains?: string[];
     }>;
     chainId?: number;
 
@@ -534,6 +539,10 @@ export class AgentsAPI {
       endpoint: string;
       version?: string;
       capabilities?: Record<string, any>;
+      a2aSkills?: string[];
+      a2aDomains?: string[];
+      mcpSkills?: string[];
+      mcpDomains?: string[];
     }>;
     chainId?: number;
   }): Promise<{ agentId: bigint; txHash: string }> {
@@ -609,6 +618,10 @@ export class AgentsAPI {
       endpoint: string;
       version?: string;
       capabilities?: Record<string, any>;
+      a2aSkills?: string[];
+      a2aDomains?: string[];
+      mcpSkills?: string[];
+      mcpDomains?: string[];
     }>;
     chainId?: number;
 
@@ -633,22 +646,20 @@ export class AgentsAPI {
       ? identityRegistry 
       : `0x${identityRegistry}`;
 
-    // Generate UAID using HCS14Client
+    // Generate UAID using HCS-14 DID target form (uaid:did: wrapping did:ethr of the agent account)
     let uaid: string | undefined;
     try {
-      const { HCS14Client } = await import('@hashgraphonline/standards-sdk');
-      const hcs14 = new HCS14Client();
-      uaid = await (hcs14.createUaid as any)(
-        {
+      const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
+      uaid = await generateHcs14UaidDidTarget({
+        chainId,
+        account: params.agentAccount,
+        routing: {
           registry: 'agentic-trust',
-          name: params.agentName,
-          version: '1.0.0',
-          protocol: 'a2a',
+          proto: 'a2a',
           nativeId: params.agentAccount.toLowerCase(),
-          skills: [],
+          uid,
         },
-        { uid: params.agentName.toLowerCase().replace(/\s+/g, '-') }
-      );
+      });
       console.log('[agents.createAgentWithSmartAccountOwnerUsingWallet] Generated UAID:', uaid);
     } catch (error) {
       console.warn('[agents.createAgentWithSmartAccountOwnerUsingWallet] Failed to generate UAID:', error);
@@ -746,6 +757,10 @@ export class AgentsAPI {
       endpoint: string;
       version?: string;
       capabilities?: Record<string, any>;
+      a2aSkills?: string[];
+      a2aDomains?: string[];
+      mcpSkills?: string[];
+      mcpDomains?: string[];
     }>;
     chainId?: number;
     ensOptions?: {
@@ -1688,6 +1703,10 @@ export class AgentsAPI {
         endpoint: string;
         version?: string;
         capabilities?: Record<string, any>;
+        a2aSkills?: string[];
+        a2aDomains?: string[];
+        mcpSkills?: string[];
+        mcpDomains?: string[];
       }>;
       chainId?: number;
     }): Promise<{
@@ -1730,22 +1749,20 @@ export class AgentsAPI {
         identityRegistryHex as `0x${string}`
       );
 
-      // Generate UAID using HCS14Client
+      // Generate UAID using HCS-14 DID target form (uaid:did: wrapping did:ethr of the agent account)
       let uaid: string | undefined;
       try {
-        const { HCS14Client } = await import('@hashgraphonline/standards-sdk');
-        const hcs14 = new HCS14Client();
-        uaid = await (hcs14.createUaid as any)(
-          {
+        const uid = params.agentName.toLowerCase().replace(/\s+/g, '-');
+        uaid = await generateHcs14UaidDidTarget({
+          chainId,
+          account: params.agentAccount,
+          routing: {
             registry: 'agentic-trust',
-            name: params.agentName,
-            version: '1.0.0',
-            protocol: 'a2a',
+            proto: 'a2a',
             nativeId: params.agentAccount.toLowerCase(),
-            skills: [],
+            uid,
           },
-          { uid: params.agentName.toLowerCase().replace(/\s+/g, '-') }
-        );
+        });
         console.log('[agents.prepareCreateAgentTransaction] Generated UAID:', uaid);
       } catch (error) {
         console.warn('[agents.prepareCreateAgentTransaction] Failed to generate UAID:', error);

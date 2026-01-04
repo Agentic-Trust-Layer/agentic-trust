@@ -970,7 +970,9 @@ export default function AgentRegistrationPage() {
     setCreateStep(nextStep);
     
     // Generate UAID when entering review step (step 4)
-    if (nextStep === 4 && createForm.agentAccount) {
+    // Use the Smart Account address (AA) when available so UAID is based on the associated smart account did:ethr.
+    const uaidAccount = (aaAddress || createForm.agentAccount || '').trim();
+    if (nextStep === 4 && uaidAccount) {
       setUaidLoading(true);
       (async () => {
         try {
@@ -978,8 +980,9 @@ export default function AgentRegistrationPage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              agentAccount: createForm.agentAccount,
+              agentAccount: uaidAccount,
               chainId: selectedChainId,
+              uid: createForm.agentName ? `${createForm.agentName.toLowerCase().replace(/\s+/g, '-')}.${ensOrgName.toLowerCase()}.eth` : undefined,
             }),
           });
           if (response.ok) {
@@ -997,7 +1000,7 @@ export default function AgentRegistrationPage() {
         }
       })();
     }
-  }, [validateCurrentStep, totalCreateSteps, createStep, createForm.agentAccount, selectedChainId]);
+  }, [validateCurrentStep, totalCreateSteps, createStep, aaAddress, createForm.agentAccount, createForm.agentName, ensOrgName, selectedChainId]);
 
   const handlePrevStep = useCallback(() => {
     setError(null);
@@ -1144,13 +1147,22 @@ export default function AgentRegistrationPage() {
           startRegistrationProgress();
           // Server-only path (admin private key signs on server)
           // Build endpoints array using provided values or auto-generated defaults
-          const endpoints: Array<{ name: string; endpoint: string; version?: string; a2aSkills?: string[]; mcpSkills?: string[] }> = [];
+          const endpoints: Array<{
+            name: string;
+            endpoint: string;
+            version?: string;
+            a2aSkills?: string[];
+            a2aDomains?: string[];
+            mcpSkills?: string[];
+            mcpDomains?: string[];
+          }> = [];
           if (protocolSettings.protocol === 'A2A' && resolvedA2A) {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
               version: '0.30',
               a2aSkills: protocolSettings.a2aSkills.length > 0 ? protocolSettings.a2aSkills : undefined,
+              a2aDomains: protocolSettings.a2aDomains.length > 0 ? protocolSettings.a2aDomains : undefined,
             });
           }
           if (protocolSettings.protocol === 'MCP' && resolvedMcp) {
@@ -1159,6 +1171,7 @@ export default function AgentRegistrationPage() {
               endpoint: resolvedMcp,
               version: '2025-06-18',
               mcpSkills: protocolSettings.mcpSkills.length > 0 ? protocolSettings.mcpSkills : undefined,
+              mcpDomains: protocolSettings.mcpDomains.length > 0 ? protocolSettings.mcpDomains : undefined,
             });
           }
 
@@ -1201,13 +1214,22 @@ export default function AgentRegistrationPage() {
         } else {
           // Client path (requires connected wallet/provider)
           // Build endpoints array using provided values or auto-generated defaults
-          const endpoints: Array<{ name: string; endpoint: string; version?: string; a2aSkills?: string[]; mcpSkills?: string[] }> = [];
+          const endpoints: Array<{
+            name: string;
+            endpoint: string;
+            version?: string;
+            a2aSkills?: string[];
+            a2aDomains?: string[];
+            mcpSkills?: string[];
+            mcpDomains?: string[];
+          }> = [];
           if (protocolSettings.protocol === 'A2A' && resolvedA2A) {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
               version: '0.30',
               a2aSkills: protocolSettings.a2aSkills.length > 0 ? protocolSettings.a2aSkills : undefined,
+              a2aDomains: protocolSettings.a2aDomains.length > 0 ? protocolSettings.a2aDomains : undefined,
             });
           }
           if (protocolSettings.protocol === 'MCP' && resolvedMcp) {
@@ -1216,6 +1238,7 @@ export default function AgentRegistrationPage() {
               endpoint: resolvedMcp,
               version: '2025-06-18',
               mcpSkills: protocolSettings.mcpSkills.length > 0 ? protocolSettings.mcpSkills : undefined,
+              mcpDomains: protocolSettings.mcpDomains.length > 0 ? protocolSettings.mcpDomains : undefined,
             });
           }
 

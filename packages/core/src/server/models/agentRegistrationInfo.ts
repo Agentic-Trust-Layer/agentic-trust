@@ -33,7 +33,9 @@ export interface AgentRegistrationInfo {
     version?: string;
     capabilities?: Record<string, any>;
     a2aSkills?: string[];
+    a2aDomains?: string[];
     mcpSkills?: string[];
+    mcpDomains?: string[];
   }>;
 
   /**

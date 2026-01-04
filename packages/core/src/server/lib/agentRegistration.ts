@@ -94,7 +94,9 @@ export function createRegistrationJSON(params: {
     version?: string;
     capabilities?: Record<string, any>;
     a2aSkills?: string[];
+    a2aDomains?: string[];
     mcpSkills?: string[];
+    mcpDomains?: string[];
   }>;
   uaid?: string;
   // Legacy fields
@@ -108,7 +110,9 @@ export function createRegistrationJSON(params: {
     version?: string;
     capabilities?: Record<string, any>;
     a2aSkills?: string[];
+    a2aDomains?: string[];
     mcpSkills?: string[];
+    mcpDomains?: string[];
   }> = params.endpoints ? params.endpoints.map(e => ({ ...e })) : [];
   
   // If agentUrl is provided, automatically create A2A and MCP endpoints
