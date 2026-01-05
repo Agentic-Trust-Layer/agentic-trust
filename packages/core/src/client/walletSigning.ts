@@ -1147,10 +1147,22 @@ async function createAgentWithWalletAA(
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          agentId: String(agentId),
+          agentAccount: agentData.agentAccount,
           chainId: chain.id,
-          // Requested routing (matches server-side nativeId/uid pattern)
-          uid: `${chain.id}:${agentId}`,
+          // Use did:ethr for uid (not ENS)
+          uid: `did:ethr:${chain.id}:${agentData.agentAccount}`,
+          proto: 'a2a',
+          registry: 'erc-8004',
+          domain:
+            typeof agentData.agentUrl === 'string' && agentData.agentUrl.trim()
+              ? (() => {
+                  try {
+                    return new URL(agentData.agentUrl).hostname;
+                  } catch {
+                    return undefined;
+                  }
+                })()
+              : undefined,
         }),
       });
 

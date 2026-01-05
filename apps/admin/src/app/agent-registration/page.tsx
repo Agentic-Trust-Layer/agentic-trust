@@ -982,7 +982,8 @@ export default function AgentRegistrationPage() {
             body: JSON.stringify({
               agentAccount: uaidAccount,
               chainId: selectedChainId,
-              uid: createForm.agentName ? `${createForm.agentName.toLowerCase().replace(/\s+/g, '-')}.${ensOrgName.toLowerCase()}.eth` : undefined,
+                // Use did:ethr for uid (not ENS)
+                uid: `did:ethr:${selectedChainId}:${uaidAccount}`,
             }),
           });
           if (response.ok) {
