@@ -147,7 +147,8 @@ export default function AgentDetailsPageContent({
   } | null>(null);
 
   useEffect(() => {
-    if (!agent.agentAccount) {
+    const account = agent.agentAccount;
+    if (!account) {
       setDerivedAssociationCounts(null);
       return;
     }
@@ -156,7 +157,7 @@ export default function AgentDetailsPageContent({
     (async () => {
       try {
         const res = await fetch(
-          `/api/associations?account=${encodeURIComponent(agent.agentAccount)}&chainId=${chainId}`,
+          `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`,
           { cache: 'no-store' },
         );
         const json = await res.json().catch(() => null);
@@ -165,7 +166,7 @@ export default function AgentDetailsPageContent({
           setDerivedAssociationCounts(null);
           return;
         }
-        const centerLower = agent.agentAccount.toLowerCase();
+        const centerLower = account.toLowerCase();
         let initiated = 0;
         let approved = 0;
         for (const a of json.associations as any[]) {
@@ -937,11 +938,11 @@ export default function AgentDetailsPageContent({
             />
           </Box>
 
-          {agentCard?.skills && agentCard.skills.length > 0 && (
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" sx={{ mb: 1 }}>
-                Skill (optional)
-              </Typography>
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Skill (optional)
+            </Typography>
+            {agentCard?.skills && agentCard.skills.length > 0 ? (
               <TextField
                 select
                 fullWidth
@@ -951,6 +952,7 @@ export default function AgentDetailsPageContent({
                 SelectProps={{
                   native: true,
                 }}
+                helperText="Select the skill you’re giving feedback on."
               >
                 <option value="">Select a skill…</option>
                 {agentCard.skills.map((skill: any) => (
@@ -959,8 +961,17 @@ export default function AgentDetailsPageContent({
                   </option>
                 ))}
               </TextField>
-            </Box>
-          )}
+            ) : (
+              <TextField
+                fullWidth
+                value={feedbackSkillId}
+                onChange={(e) => setFeedbackSkillId(e.target.value)}
+                disabled={submittingFeedback}
+                placeholder="e.g. oasf:trust.feedback.authorization"
+                helperText="This agent card didn’t publish a skill list—enter a skill id manually (optional)."
+              />
+            )}
+          </Box>
 
           <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
             <TextField

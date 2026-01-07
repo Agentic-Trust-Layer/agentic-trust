@@ -696,10 +696,37 @@ const serveAgentCard = async (c: HonoContext) => {
     }
   }
 
-  const skills =
-    configuredSkillIds && configuredSkillIds.length > 0
-      ? skillsAll.filter((s: any) => configuredSkillIds!.includes(String(s?.id)))
-      : skillsAll;
+  const skills = (() => {
+    if (!configuredSkillIds || configuredSkillIds.length === 0) return skillsAll;
+
+    const wanted = configuredSkillIds.map((s) => String(s).trim()).filter(Boolean);
+    const wantedSet = new Set(wanted);
+
+    const matches = (skill: any): boolean => {
+      const id = String(skill?.id || '').trim();
+      if (id && wantedSet.has(id)) return true;
+
+      const tags: string[] = Array.isArray(skill?.tags) ? skill.tags.map((t: any) => String(t)) : [];
+      for (const w of wanted) {
+        if (!w) continue;
+        // Allow matching by explicit tag strings (e.g. "oasf:trust.feedback.authorization")
+        if (tags.includes(w)) return true;
+        // Allow matching by OASF skill taxonomy without prefix (e.g. "trust.feedback.authorization")
+        if (!w.includes(':') && tags.includes(`oasf:${w}`)) return true;
+      }
+      return false;
+    };
+
+    const filtered = skillsAll.filter((s: any) => matches(s));
+    if (filtered.length === 0 && skillsAll.length > 0) {
+      console.warn('[ATP Agent Worker] agent_card_json skill filter produced 0 skills; falling back to full skill list', {
+        subdomain,
+        configuredSkillIds: wanted,
+      });
+      return skillsAll;
+    }
+    return filtered;
+  })();
 
   const agentCard = buildAgentCard({
     subdomain,
@@ -877,6 +904,12 @@ const handleA2A = async (c: HonoContext) => {
       timestamp: new Date().toISOString(),
     });
 
+    // Normalize skill id - we historically had a typo ('osaf:'), but the correct prefix is 'oasf:'.
+    // Accept both so callers using either spelling still hit the intended handler.
+    if (typeof skillId === 'string' && skillId.startsWith('osaf:')) {
+      skillId = `oasf:${skillId.slice('osaf:'.length)}`;
+    }
+
     // Handle skill-based requests
     const responseContent: Record<string, unknown> = {
       received: true,
@@ -887,7 +920,10 @@ const handleA2A = async (c: HonoContext) => {
 
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
+      // Back-compat for historical typo:
+      'osaf:trust.feedback.authorization',
       'oasf:trust.feedback.authorization',
+      'osaf:trust.validation.attestation',
       'oasf:trust.validation.attestation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
