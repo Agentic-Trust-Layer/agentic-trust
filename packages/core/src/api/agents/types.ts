@@ -91,6 +91,7 @@ export interface RequestFeedbackAuthResult {
   feedbackAuthId: string;
   agentId: string;
   chainId: number;
+  delegationAssociation?: unknown;
 }
 
 export interface PrepareFeedbackPayload {

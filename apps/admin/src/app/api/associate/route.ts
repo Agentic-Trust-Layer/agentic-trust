@@ -21,7 +21,6 @@ export async function POST(req: Request) {
       mode?: 'smartAccount' | 'eoa';
 
       // Back-compat fields from the previous server-send implementation:
-      initiatorAddress?: string;
       approverAddressLegacy?: string;
     };
 

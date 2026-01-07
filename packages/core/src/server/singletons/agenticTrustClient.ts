@@ -24,7 +24,7 @@ import { createVeramoAgentForClient } from '../lib/veramoFactory';
 import { getChainEnvVar, DEFAULT_CHAIN_ID } from '../lib/chainConfig';
 import { Agent, loadAgentDetail } from '../lib/agent';
 import type { AgentDetail } from '../models/agentDetail';
-import { createFeedbackAuth } from '../lib/agentFeedback';
+import { createFeedbackAuth, createFeedbackAuthWithDelegation, type CreateFeedbackAuthWithDelegationResult } from '../lib/agentFeedback';
 import type { RequestAuthParams } from '../lib/agentFeedback';
 import { parseDid8004 } from '@agentic-trust/8004-ext-sdk';
 
@@ -318,6 +318,16 @@ export class AgenticTrustClient {
    */
   async createFeedbackAuth(params: RequestAuthParams): Promise<`0x${string}`> {
     return createFeedbackAuth(params);
+  }
+
+  /**
+   * Create a feedbackAuth and also produce a pre-signed ERC-8092 delegation association
+   * payload (approver signature only).
+   */
+  async createFeedbackAuthWithDelegation(
+    params: RequestAuthParams,
+  ): Promise<CreateFeedbackAuthWithDelegationResult> {
+    return createFeedbackAuthWithDelegation(params);
   }
 
   /**

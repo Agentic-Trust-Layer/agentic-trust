@@ -19,6 +19,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
 import type { Address } from 'viem';
+import { getAddress } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -29,6 +30,17 @@ import CloseIcon from '@mui/icons-material/Close';
 import AutoGraphIcon from '@mui/icons-material/AutoGraph';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import { finalizeAssociationWithWallet } from '@agentic-trust/core/client';
+
+function ipfsToHttp(uri: string): string {
+  const trimmed = String(uri || '').trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('ipfs://')) {
+    const cid = trimmed.replace(/^ipfs:\/\//, '');
+    return `https://w3s.link/ipfs/${cid}`;
+  }
+  return trimmed;
+}
 
 type AgentDetailsPageContentProps = {
   agent: AgentsPageAgent;
@@ -1091,6 +1103,7 @@ export default function AgentDetailsPageContent({
                 const feedbackAuthId = feedbackAuthData.feedbackAuthId;
                 const resolvedAgentId = feedbackAuthData.agentId || agentId;
                 const resolvedChainId = feedbackAuthData.chainId || chainId;
+                const delegationAssociation = (feedbackAuthData as any)?.delegationAssociation ?? null;
 
                 if (!feedbackAuthId) {
                   throw new Error('No feedbackAuth returned by provider');
@@ -1098,6 +1111,73 @@ export default function AgentDetailsPageContent({
 
                 if (!resolvedAgentId) {
                   throw new Error('Agent ID is required');
+                }
+
+                // If the agent returned a delegationAssociation, complete the initiator signature (wallet)
+                // and store the ERC-8092 association on-chain (so the client is memorialized as having
+                // rights to give feedback).
+                if (delegationAssociation && eip1193Provider) {
+                  try {
+                    const assocId = String(delegationAssociation.associationId || '').trim() as `0x${string}`;
+                    const approverAddress = getAddress(String(delegationAssociation.approverAddress || '')) as `0x${string}`;
+                    const initiatorAddress = getAddress(String(delegationAssociation.initiatorAddress || clientAddress)) as `0x${string}`;
+                    const data = String(delegationAssociation.data || '').trim() as `0x${string}`;
+                    const validAt = Number(delegationAssociation.validAt ?? 0);
+                    const approverSignature = String(delegationAssociation.approverSignature || '').trim() as `0x${string}`;
+
+                    if (assocId && assocId !== '0x' && data && data !== '0x' && approverSignature && approverSignature !== '0x') {
+                      // Ensure initiator is the connected wallet.
+                      if (initiatorAddress.toLowerCase() !== clientAddress.toLowerCase()) {
+                        throw new Error(`delegationAssociation initiatorAddress (${initiatorAddress}) does not match wallet (${clientAddress})`);
+                      }
+
+                      // ERC-8092 requires signing the raw digest (EIP-712 hash). Use eth_sign, NOT personal_sign.
+                      const initiatorSignature = (await eip1193Provider.request?.({
+                        method: 'eth_sign',
+                        params: [clientAddress, assocId],
+                      })) as `0x${string}`;
+
+                      await finalizeAssociationWithWallet({
+                        chain: chainFor(Number(resolvedChainId)),
+                        mode: 'eoa',
+                        ethereumProvider: eip1193Provider,
+                        account: getAddress(clientAddress) as `0x${string}`,
+                        requesterDid: did8004,
+                        initiatorAddress: getAddress(clientAddress) as `0x${string}`,
+                        approverAddress,
+                        assocType: 1,
+                        description: 'feedbackAuth delegation',
+                        validAt,
+                        data,
+                        initiatorSignature,
+                        approverSignature,
+                      } as any);
+                    }
+                  } catch (assocErr: any) {
+                    console.warn('[AgentDetails] Failed to store feedbackAuth delegation association:', assocErr);
+                    // Do not fail feedback submission if association storage fails.
+                  }
+                }
+
+                // Use the delegation payload pointer embedded in the ERC-8092 association (IPFS) as the
+                // capability/context for this feedback submission.
+                // This lets feedback submissions reference the exact delegation that granted rights.
+                let delegationPayloadUri: string | null = null;
+                try {
+                  const payloadUriRaw =
+                    (delegationAssociation as any)?.delegation?.payloadUri ??
+                    (delegationAssociation as any)?.payloadUri ??
+                    null;
+                  if (typeof payloadUriRaw === 'string' && payloadUriRaw.trim()) {
+                    delegationPayloadUri = payloadUriRaw.trim();
+                    // Best-effort fetch (useful for debugging / future server-side enforcement).
+                    const httpUrl = ipfsToHttp(delegationPayloadUri);
+                    if (httpUrl) {
+                      await fetch(httpUrl, { cache: 'no-store' }).then(() => null).catch(() => null);
+                    }
+                  }
+                } catch {
+                  // ignore
                 }
 
                 // Submit feedback to the API
@@ -1121,6 +1201,12 @@ export default function AgentDetailsPageContent({
                     ...(feedbackSkillId && { skill: feedbackSkillId }),
                     ...(feedbackContext && { context: feedbackContext }),
                     ...(feedbackCapability && { capability: feedbackCapability }),
+                    ...(!feedbackCapability && delegationPayloadUri
+                      ? { capability: `delegationPayloadUri:${delegationPayloadUri}` }
+                      : {}),
+                    ...(!feedbackContext && delegationAssociation?.associationId
+                      ? { context: `erc8092:${String(delegationAssociation.associationId)}` }
+                      : {}),
                   }),
                 });
 

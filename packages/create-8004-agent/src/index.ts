@@ -856,7 +856,14 @@ async function handleA2A(c: any) {
         expirySeconds,
         skillId,
       });
-      return c.json(a2aOk({ feedbackAuth: issued.feedbackAuth, agentId: issued.agentId, chainId }));
+      return c.json(
+        a2aOk({
+          feedbackAuth: issued.feedbackAuth,
+          agentId: issued.agentId,
+          chainId,
+          ...(issued.delegationAssociation ? { delegationAssociation: issued.delegationAssociation } : {}),
+        }),
+      );
     } catch (e: any) {
       const err = a2aErr(e?.message || 'Failed to create feedbackAuth', 500);
       return c.json(err.body, err.status);

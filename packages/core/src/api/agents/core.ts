@@ -399,6 +399,7 @@ export async function requestFeedbackAuthCore(
       feedbackAuthId: feedbackAuth.feedbackAuthId,
       agentId: feedbackAuth.agentId,
       chainId: feedbackAuth.chainId,
+      delegationAssociation: (feedbackAuth.payload as any)?.delegationAssociation,
     };
   } catch (error) {
     return {

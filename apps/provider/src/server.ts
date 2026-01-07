@@ -542,6 +542,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           responseContent.agentId = feedbackAuthResponse.agentId;
           responseContent.clientAddress = feedbackAuthResponse.clientAddress;
           responseContent.skill = feedbackAuthResponse.skill;
+          if ((feedbackAuthResponse as any)?.delegationAssociation) {
+            (responseContent as any).delegationAssociation = (feedbackAuthResponse as any).delegationAssociation;
+          }
         } catch (error: any) {
           console.error('Error creating feedback auth:', error);
           responseContent.error = error?.message || 'Failed to create feedback auth';

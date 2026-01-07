@@ -673,6 +673,7 @@ export class Agent {
     agentId: string;
     clientAddress: `0x${string}`;
     skill: string;
+    delegationAssociation?: unknown;
   }> {
     // Use SessionPackage from agent instance if set, otherwise use singleton providerApp
     let providerApp: {
@@ -709,7 +710,7 @@ export class Agent {
         ? BigInt(this.data.agentId)
         : providerApp.agentId;
 
-    const feedbackAuth = await this.client.createFeedbackAuth({
+    const issued = await this.client.createFeedbackAuthWithDelegation({
       publicClient: providerApp.publicClient,
       agentId,
       clientAddress,
@@ -719,7 +720,8 @@ export class Agent {
     });
 
     return {
-      feedbackAuth,
+      feedbackAuth: issued.feedbackAuth,
+      delegationAssociation: (issued as any).delegationAssociation,
       agentId: agentId.toString(),
       clientAddress,
       skill: params.skillId || 'oasf:trust.feedback.authorization',

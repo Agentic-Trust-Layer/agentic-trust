@@ -1299,6 +1299,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.agentId = feedbackAuthResponse.agentId;
         responseContent.clientAddress = feedbackAuthResponse.clientAddress;
         responseContent.skill = feedbackAuthResponse.skill;
+        if ((feedbackAuthResponse as any)?.delegationAssociation) {
+          responseContent.delegationAssociation = (feedbackAuthResponse as any).delegationAssociation;
+        }
 
         // If this auth is in response to a stored feedback request, persist it and notify requester
         if (requestRecord && feedbackRequestId && Number.isFinite(feedbackRequestId)) {

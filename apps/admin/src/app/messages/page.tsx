@@ -663,6 +663,53 @@ export default function MessagesPage() {
         throw new Error('No feedbackAuth returned');
       }
 
+      // If the agent returned a delegationAssociation, complete initiator signature and store on-chain.
+      // This uses ERC-8092 digest signing (eth_sign) and the existing /api/associate prepare endpoint.
+      const delegationAssociation =
+        data?.response?.delegationAssociation ??
+        data?.delegationAssociation ??
+        null;
+      if (delegationAssociation && eip1193Provider) {
+        try {
+          const assocId = String(delegationAssociation.associationId || '').trim() as `0x${string}`;
+          const approverAddress = getAddress(String(delegationAssociation.approverAddress || '')) as `0x${string}`;
+          const initiatorAddress = getAddress(String(delegationAssociation.initiatorAddress || walletAddress)) as `0x${string}`;
+          const assocData = String(delegationAssociation.data || '').trim() as `0x${string}`;
+          const validAt = Number(delegationAssociation.validAt ?? 0);
+          const approverSignature = String(delegationAssociation.approverSignature || '').trim() as `0x${string}`;
+
+          if (initiatorAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+            throw new Error(`delegationAssociation initiatorAddress (${initiatorAddress}) does not match wallet (${walletAddress})`);
+          }
+          if (assocId && assocId !== '0x' && assocData && assocData !== '0x' && approverSignature && approverSignature !== '0x') {
+            const initiatorSignature = (await eip1193Provider.request?.({
+              method: 'eth_sign',
+              params: [walletAddress, assocId],
+            })) as `0x${string}`;
+
+            await finalizeAssociationWithWallet({
+              chain: getChainById(selectedMessageTargetParsed.chainId) as any,
+              mode: 'eoa',
+              ethereumProvider: eip1193Provider as any,
+              account: getAddress(walletAddress) as `0x${string}`,
+              requesterDid: selectedMessageTargetDid,
+              initiatorAddress: getAddress(walletAddress) as `0x${string}`,
+              approverAddress,
+              assocType: AssocType.Delegation,
+              description: 'feedbackAuth delegation',
+              validAt,
+              data: assocData,
+              initiatorSignature,
+              approverSignature,
+              onStatusUpdate: (msg: string) => console.log('[feedbackAuth delegation]', msg),
+            } as any);
+          }
+        } catch (assocErr: any) {
+          console.warn('[Messages] Failed to store feedbackAuth delegation association:', assocErr);
+          // Don't fail feedbackAuth issuance UI on association storage failure.
+        }
+      }
+
       setFeedbackAuthValue(String(auth));
     } catch (err: any) {
       setFeedbackAuthError(err?.message || 'Failed to request feedback authorization');
@@ -675,6 +722,7 @@ export default function MessagesPage() {
     selectedMessageTargetParsed,
     selectedMessageFeedbackRequestId,
     walletAddress,
+    eip1193Provider,
   ]);
 
   // Check if validation request exists in Validation Registry
