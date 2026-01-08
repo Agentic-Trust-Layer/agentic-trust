@@ -11,7 +11,7 @@ type AgenticTrustClient = {
   getDiscoveryClient(): Promise<{
     getAgentByName(agentName: string): Promise<{
       agentAccount?: string | null;
-      agentAccountEndpoint?: string | null;
+      eoaAgentAccount?: string | null;
       rawJson?: string | null;
       a2aEndpoint?: string | null;
     } | null>;

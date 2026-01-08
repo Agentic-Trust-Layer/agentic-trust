@@ -1409,7 +1409,10 @@ export class AgentsAPI {
     }
 
     if (params.accounts && params.accounts.length > 0) {
-      where.agentOwner_in = params.accounts.map((addr) => addr.toLowerCase());
+      // New discovery schema: owned-by-EOA filter is `eoaAgentIdentityOwnerAccount`.
+      (where as any).eoaAgentIdentityOwnerAccount_in = params.accounts.map((addr) =>
+        addr.toLowerCase(),
+      );
     }
 
     if (params.operators && params.operators.length > 0) {
@@ -1426,17 +1429,13 @@ export class AgentsAPI {
       }
     }
 
-    if (params.ens?.trim()) {
-      where.ensEndpoint_contains_nocase = params.ens.trim();
-    }
-
     if (params.did?.trim()) {
       where.did_contains_nocase = params.did.trim();
     }
 
     if (params.agentAccount) {
-      // Treat the agent account as the owner in the indexer schema.
-      where.agentOwner = params.agentAccount.toLowerCase();
+      // New discovery schema: filter by agent account EOA via `eoaAgentAccount`.
+      (where as any).eoaAgentAccount = params.agentAccount.toLowerCase();
     }
 
     if (params.supportedTrust && params.supportedTrust.length > 0) {
@@ -1547,13 +1546,13 @@ export class AgentsAPI {
           typeof data.agentId === 'number' ? data.agentId.toString() : data.agentId,
           data.agentName,
           data.agentAccount,
-          data.agentOwner,
+          data.agentIdentityOwnerAccount,
+          data.eoaAgentIdentityOwnerAccount,
+          data.eoaAgentAccount,
           data.description,
           data.type,
           data.a2aEndpoint,
-          data.ensEndpoint,
-          data.agentAccountEndpoint,
-          data.tokenUri,
+          data.agentUri,
           data.supportedTrust,
           data.rawJson,
         ]
@@ -1638,23 +1637,18 @@ export class AgentsAPI {
     }
 
     if (params.accounts && params.accounts.length > 0) {
-      const owner = agent.agentOwner?.toLowerCase();
-      if (!owner || !params.accounts.some((addr) => addr.toLowerCase() === owner)) {
+      const owner = (agent as any).eoaAgentIdentityOwnerAccount?.toLowerCase?.();
+      if (
+        !owner ||
+        !params.accounts.some((addr) => addr.toLowerCase() === owner)
+      ) {
         return false;
       }
     }
 
     if (params.agentAccount) {
-      const accountValue = agent.agentAccount;
-      const wallet = typeof accountValue === 'string' ? accountValue.toLowerCase() : undefined;
+      const wallet = (agent as any).eoaAgentAccount?.toLowerCase?.();
       if (!wallet || wallet !== params.agentAccount.toLowerCase()) {
-        return false;
-      }
-    }
-
-    if (params.ens) {
-      const ensEndpoint = agent.ensEndpoint ?? '';
-      if (!ensEndpoint.toLowerCase().includes(params.ens.trim().toLowerCase())) {
         return false;
       }
     }

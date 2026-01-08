@@ -154,27 +154,47 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   const agentImage = (agent as any).image ?? 
                      ((agent as any).data?.image) ?? 
                      null;
-  const agentTokenUri = (agent as any).tokenUri ?? 
-                        ((agent as any).data?.tokenUri) ?? 
-                        null;
+  const agentUriFromAgent =
+    (agent as any).agentUri ??
+    ((agent as any).data?.agentUri) ??
+    null;
 
-  // Extract MCP endpoint from registration
-  let mcpEndpoint: string | null = null;
-  if (agentTokenUri) {
+  /**
+   * Avoid blocking SSR on external IPFS gateways.
+   *
+   * `client.getAgentDetails()` already attempts to load registration JSON (via `ipfsStorage.getJson` with timeouts).
+   * Re-fetching the registration URI here via a generic `fetch()` can hang and keep the Agents list stuck on
+   * "Loading agent details..." during navigation.
+   */
+  const safeParseJson = (raw: unknown): any | null => {
+    if (typeof raw !== 'string' || !raw.trim()) return null;
     try {
-      const registration = await getRegistration(agentTokenUri);
-      if (registration?.endpoints && Array.isArray(registration.endpoints)) {
-        const mcpEndpointEntry = registration.endpoints.find(
-          (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp')
-        );
-        if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
-          mcpEndpoint = mcpEndpointEntry.endpoint;
-        }
-      }
-    } catch (error) {
-      // Silently fail - registration might not be available
-      console.warn('[AgentDetailsPage] Failed to load registration for MCP endpoint:', error);
+      return JSON.parse(raw);
+    } catch {
+      return null;
     }
+  };
+
+  const registrationFromDetail = safeParseJson(agentDetail.rawJson);
+
+  // Extract MCP endpoint from already-loaded registration JSON (best-effort).
+  let mcpEndpoint: string | null = null;
+  try {
+    const endpoints = Array.isArray(registrationFromDetail?.endpoints)
+      ? (registrationFromDetail.endpoints as any[])
+      : [];
+    const mcpEndpointEntry = endpoints.find(
+      (ep: any) =>
+        ep &&
+        typeof ep.name === 'string' &&
+        (ep.name === 'MCP' || ep.name === 'mcp') &&
+        typeof ep.endpoint === 'string',
+    );
+    if (mcpEndpointEntry?.endpoint) {
+      mcpEndpoint = String(mcpEndpointEntry.endpoint);
+    }
+  } catch (error) {
+    console.warn('[AgentDetailsPage] Failed to parse registration for MCP endpoint:', error);
   }
 
   // Get metadata from agentDetail (already fetched from GraphQL via loadAgentDetail)
@@ -197,17 +217,14 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
                   (agent as any).data?.owner ??
                   agentDetail.agentAccount ??
                   null,
-    ownerAddress: ownerAddress ??
-                  (agent as any).ownerAddress ??
-                  (agent as any).data?.ownerAddress ??
-                  agentDetail.agentOwner ??
-                  null,
-    tokenUri: agentTokenUri ?? agentDetail.tokenUri ?? null,
+    agentIdentityOwnerAccount: agentDetail.agentIdentityOwnerAccount ?? null,
+    eoaAgentIdentityOwnerAccount: agentDetail.eoaAgentIdentityOwnerAccount ?? null,
+    eoaAgentAccount: agentDetail.eoaAgentAccount ?? null,
+    agentUri: agentUriFromAgent ?? agentDetail.agentUri ?? null,
     description: (agent as any).description ?? agentDetail.description ?? null,
     image: agentImage ?? agentDetail.image ?? null,
     contractAddress: (agent as any).contractAddress ?? agentDetail.contractAddress ?? null,
     a2aEndpoint: (agent as any).a2aEndpoint ?? agentDetail.a2aEndpoint ?? null,
-    agentAccountEndpoint: (agent as any).agentAccountEndpoint ?? agentDetail.agentAccountEndpoint ?? null,
     mcpEndpoint: mcpEndpoint,
     did: (agent as any).did ?? agentDetail.did ?? null,
     createdAtTime: agentDetail.createdAtTime ?? (agent as any).createdAtTime ?? null,
@@ -336,9 +353,15 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   const did8004 = buildDid8004(chainId, Number(numericAgentId));
   const shadowAgentSrc =
     (ShadowAgentImage as unknown as { src?: string }).src ?? '/8004ShadowAgent.png';
-  const heroImageSrc = (await getAgentHeroImage(serializedAgent)) ?? shadowAgentSrc;
+
+  // Best-effort hero image: use already-known fields; avoid fetching tokenUri here.
+  const registrationImage =
+    typeof registrationFromDetail?.image === 'string' ? registrationFromDetail.image : null;
+  const heroImageSrc =
+    normalizeResourceUrl(serializedAgent.image ?? registrationImage) ?? shadowAgentSrc;
   const ownerDisplaySource =
-    serializedAgent.ownerAddress ??
+    serializedAgent.eoaAgentIdentityOwnerAccount ??
+    serializedAgent.agentIdentityOwnerAccount ??
     serializedAgent.agentAccount ??
     null;
   const ownerDisplay =
@@ -384,37 +407,6 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   );
 }
 
-async function getAgentHeroImage(agent: AgentsPageAgent): Promise<string | null> {
-  // First, try direct image field (same as AgentsPage does)
-  if (typeof agent.image === 'string' && agent.image.trim()) {
-    const normalized = normalizeResourceUrl(agent.image.trim());
-    if (normalized) {
-      return normalized;
-    }
-  }
-  
-  // Fallback: try to fetch from tokenUri metadata
-  const tokenUri = normalizeResourceUrl(agent.tokenUri);
-  if (!tokenUri) {
-    return null;
-  }
-  try {
-    const response = await fetch(tokenUri, { cache: 'no-store' });
-    if (!response.ok) {
-      return null;
-    }
-    const metadata = await response.json().catch(() => null);
-    if (!metadata || typeof metadata !== 'object') {
-      return null;
-    }
-    const fromMetadata = extractImageFromMetadata(metadata);
-    return normalizeResourceUrl(fromMetadata);
-  } catch (error) {
-    console.warn('[Agent Details] Failed to load tokenUri metadata for image', error);
-    return null;
-  }
-}
-
 function extractImageFromMetadata(metadata: Record<string, unknown>): string | null {
   const candidates: Array<unknown> = [
     metadata.image,
@@ -448,7 +440,8 @@ function normalizeResourceUrl(src?: string | null): string | null {
   }
   if (value.startsWith('ipfs://')) {
     const path = value.slice('ipfs://'.length).replace(/^ipfs\//i, '');
-    return `https://ipfs.io/ipfs/${path}`;
+    // Prefer a more reliable gateway than ipfs.io for UI rendering.
+    return `https://w3s.link/ipfs/${path}`;
   }
   if (value.startsWith('ar://')) {
     return `https://arweave.net/${value.slice('ar://'.length)}`;

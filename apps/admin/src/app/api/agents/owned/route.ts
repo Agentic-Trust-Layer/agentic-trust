@@ -44,7 +44,19 @@ export async function GET(request: Request) {
     const agents = await discoveryClient.getOwnedAgents(eoaAddress, {
       limit,
       offset,
-      orderBy: orderBy as 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner',
+      orderBy: orderBy as
+        | 'agentId'
+        | 'agentName'
+        | 'createdAtTime'
+        | 'createdAtBlock'
+        | 'agentIdentityOwnerAccount'
+        | 'eoaAgentIdentityOwnerAccount'
+        | 'eoaAgentAccount'
+        | 'agentCategory'
+        | 'trustLedgerScore'
+        | 'trustLedgerBadgeCount'
+        | 'trustLedgerOverallRank'
+        | 'trustLedgerCapabilityRank',
       orderDirection,
     });
 

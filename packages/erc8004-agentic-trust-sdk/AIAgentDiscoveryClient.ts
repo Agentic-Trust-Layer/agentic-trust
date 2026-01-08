@@ -15,13 +15,14 @@ export interface AgentData {
   agentName?: string;
   chainId?: number;
   agentAccount?: string;
-  agentOwner?: string;
-  eoaOwner?: string | null;
+  agentIdentityOwnerAccount?: string;
+  eoaAgentIdentityOwnerAccount?: string | null;
+  eoaAgentAccount?: string | null;
   agentCategory?: string | null;
   didIdentity?: string | null;
   didAccount?: string | null;
   didName?: string | null;
-  tokenUri?: string;
+  agentUri?: string | null;
   createdAtBlock?: number;
   createdAtTime?: string | number;
   updatedAtTime?: string | number;
@@ -29,14 +30,14 @@ export interface AgentData {
   description?: string | null;
   image?: string | null;
   a2aEndpoint?: string | null; // URL to agent.json
-  ensEndpoint?: string | null;
-  agentAccountEndpoint?: string | null;
   did?: string | null;
   mcp?: boolean | null;
   x402support?: boolean | null;
   active?: boolean | null;
   supportedTrust?: string | null;
   rawJson?: string | null;
+  agentCardJson?: string | null;
+  agentCardReadAt?: number | null;
   feedbackCount?: number | null;
   feedbackAverageScore?: number | null;
   validationPendingCount?: number | null;
@@ -273,7 +274,7 @@ export interface GetAgentByNameResponse {
 }
 
 export interface SearchAgentsResponse {
-  agents: AgentData[];
+  searchAgents: AgentData[];
 }
 
 export interface SearchAgentsAdvancedOptions {
@@ -516,14 +517,19 @@ export class AIAgentDiscoveryClient {
       normalized.agentAccount = agentAccount;
     }
 
-    const agentOwner = toOptionalString(record.agentOwner);
-    if (agentOwner !== undefined) {
-      normalized.agentOwner = agentOwner;
+    const agentIdentityOwnerAccount = toOptionalString(record.agentIdentityOwnerAccount);
+    if (agentIdentityOwnerAccount !== undefined) {
+      normalized.agentIdentityOwnerAccount = agentIdentityOwnerAccount;
     }
 
-    const eoaOwner = toOptionalStringOrNull(record.eoaOwner);
-    if (eoaOwner !== undefined) {
-      normalized.eoaOwner = eoaOwner;
+    const eoaAgentIdentityOwnerAccount = toOptionalStringOrNull(record.eoaAgentIdentityOwnerAccount);
+    if (eoaAgentIdentityOwnerAccount !== undefined) {
+      normalized.eoaAgentIdentityOwnerAccount = eoaAgentIdentityOwnerAccount;
+    }
+
+    const eoaAgentAccount = toOptionalStringOrNull(record.eoaAgentAccount);
+    if (eoaAgentAccount !== undefined) {
+      normalized.eoaAgentAccount = eoaAgentAccount;
     }
 
     const agentCategory = toOptionalStringOrNull(record.agentCategory);
@@ -546,9 +552,9 @@ export class AIAgentDiscoveryClient {
       normalized.didName = didName;
     }
 
-    const tokenUri = toOptionalString(record.tokenUri);
-    if (tokenUri !== undefined) {
-      normalized.tokenUri = tokenUri;
+    const agentUri = toOptionalStringOrNull(record.agentUri);
+    if (agentUri !== undefined) {
+      normalized.agentUri = agentUri;
     }
 
     const validationPendingCount = toOptionalNumberOrNull(record.validationPendingCount);
@@ -636,14 +642,14 @@ export class AIAgentDiscoveryClient {
       normalized.a2aEndpoint = a2aEndpoint;
     }
 
-    const ensEndpoint = toOptionalStringOrNull(record.ensEndpoint);
-    if (ensEndpoint !== undefined) {
-      normalized.ensEndpoint = ensEndpoint;
+    const agentCardJson = toOptionalStringOrNull(record.agentCardJson);
+    if (agentCardJson !== undefined) {
+      normalized.agentCardJson = agentCardJson;
     }
 
-    const agentAccountEndpoint = toOptionalStringOrNull(record.agentAccountEndpoint);
-    if (agentAccountEndpoint !== undefined) {
-      normalized.agentAccountEndpoint = agentAccountEndpoint;
+    const agentCardReadAt = toOptionalNumberOrNull(record.agentCardReadAt);
+    if (agentCardReadAt !== undefined) {
+      normalized.agentCardReadAt = agentCardReadAt;
     }
 
     const supportedTrust = toOptionalString(record.supportedTrust);
@@ -722,15 +728,16 @@ export class AIAgentDiscoveryClient {
         agents(limit: $limit, offset: $offset) {
           chainId
           agentId
-          agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentAccount
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -738,14 +745,30 @@ export class AIAgentDiscoveryClient {
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
+          feedbackCount
+          feedbackAverageScore
+          validationPendingCount
+          validationCompletedCount
+          validationRequestedCount
+          initiatedAssociationCount
+          approvedAssociationCount
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -822,15 +845,16 @@ export class AIAgentDiscoveryClient {
         agent {
           chainId
           agentId
-          agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentAccount
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -838,10 +862,10 @@ export class AIAgentDiscoveryClient {
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
           did
           mcp
           x402support
@@ -1144,15 +1168,16 @@ export class AIAgentDiscoveryClient {
               searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
                 chainId
                 agentId
-                agentAccount
-                agentOwner
-                eoaOwner
                 agentName
+                agentAccount
+                agentIdentityOwnerAccount
+                eoaAgentIdentityOwnerAccount
+                eoaAgentAccount
                 agentCategory
                 didIdentity
                 didAccount
                 didName
-                tokenUri
+                agentUri
                 createdAtBlock
                 createdAtTime
                 updatedAtTime
@@ -1160,14 +1185,30 @@ export class AIAgentDiscoveryClient {
                 description
                 image
                 a2aEndpoint
-                ensEndpoint
-                agentAccountEndpoint
                 did
                 mcp
                 x402support
                 active
                 supportedTrust
                 rawJson
+                agentCardJson
+                agentCardReadAt
+                feedbackCount
+                feedbackAverageScore
+                validationPendingCount
+                validationCompletedCount
+                validationRequestedCount
+                initiatedAssociationCount
+                approvedAssociationCount
+                atiOverallScore
+                atiOverallConfidence
+                atiVersion
+                atiComputedAt
+                atiBundleJson
+                trustLedgerScore
+                trustLedgerBadgeCount
+                trustLedgerOverallRank
+                trustLedgerCapabilityRank
               }
             }
           `;
@@ -1264,14 +1305,6 @@ export class AIAgentDiscoveryClient {
                     : Number(b.createdAtBlock ?? 0) || 0;
                 return orderDirection === 'ASC' ? bA - bB : bB - bA;
               });
-            } else if (orderBy === 'agentOwner') {
-              normalizedList.sort((a, b) => {
-                const aOwner = (a.agentOwner ?? '').toLowerCase();
-                const bOwner = (b.agentOwner ?? '').toLowerCase();
-                return orderDirection === 'ASC'
-                  ? aOwner.localeCompare(bOwner)
-                  : bOwner.localeCompare(aOwner);
-              });
             }
             console.log('>>>>>>>>>>>>>>>>>> 345 AdvancedSearch', normalizedList);
             return { agents: normalizedList, total: undefined };
@@ -1291,15 +1324,16 @@ export class AIAgentDiscoveryClient {
     const agentSelection = `
       chainId
       agentId
-      agentAccount
-      agentOwner
-      eoaOwner
       agentName
+      agentAccount
+      agentIdentityOwnerAccount
+      eoaAgentIdentityOwnerAccount
+      eoaAgentAccount
       agentCategory
       didIdentity
       didAccount
       didName
-      tokenUri
+      agentUri
       createdAtBlock
       createdAtTime
       updatedAtTime
@@ -1307,8 +1341,6 @@ export class AIAgentDiscoveryClient {
       description
       image
       a2aEndpoint
-      ensEndpoint
-      agentAccountEndpoint
       did
       mcp
       x402support
@@ -1399,14 +1431,15 @@ export class AIAgentDiscoveryClient {
               chainId
               agentId
               agentAccount
-              agentOwner
-              eoaOwner
               agentName
+              agentIdentityOwnerAccount
+              eoaAgentIdentityOwnerAccount
+              eoaAgentAccount
               agentCategory
               didIdentity
               didAccount
               didName
-              tokenUri
+              agentUri
               createdAtBlock
               createdAtTime
               updatedAtTime
@@ -1414,14 +1447,14 @@ export class AIAgentDiscoveryClient {
               description
               image
               a2aEndpoint
-              ensEndpoint
-              agentAccountEndpoint
               did
               mcp
               x402support
               active
               supportedTrust
               rawJson
+              agentCardJson
+              agentCardReadAt
             }
           }
         }
@@ -1521,7 +1554,19 @@ export class AIAgentDiscoveryClient {
     where?: Record<string, unknown>;
     first?: number;
     skip?: number;
-    orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner';
+    orderBy?:
+      | 'agentId'
+      | 'agentName'
+      | 'createdAtTime'
+      | 'createdAtBlock'
+      | 'agentIdentityOwnerAccount'
+      | 'eoaAgentIdentityOwnerAccount'
+      | 'eoaAgentAccount'
+      | 'agentCategory'
+      | 'trustLedgerScore'
+      | 'trustLedgerBadgeCount'
+      | 'trustLedgerOverallRank'
+      | 'trustLedgerCapabilityRank';
     orderDirection?: 'ASC' | 'DESC';
   }): Promise<{ agents: AgentData[]; total: number; hasMore: boolean }> {
     const query = `
@@ -1543,14 +1588,15 @@ export class AIAgentDiscoveryClient {
             chainId
             agentId
             agentAccount
-            agentOwner
-            eoaOwner
             agentName
+            agentIdentityOwnerAccount
+            eoaAgentIdentityOwnerAccount
+            eoaAgentAccount
             agentCategory
             didIdentity
             didAccount
             didName
-            tokenUri
+            agentUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -1558,10 +1604,10 @@ export class AIAgentDiscoveryClient {
             description
             image
             a2aEndpoint
-            ensEndpoint
-            agentAccountEndpoint
             supportedTrust
             rawJson
+            agentCardJson
+            agentCardReadAt
             did
             mcp
             x402support
@@ -2017,14 +2063,15 @@ export class AIAgentDiscoveryClient {
             chainId
             agentId
             agentAccount
-            agentOwner
-            eoaOwner
             agentName
+            agentIdentityOwnerAccount
+            eoaAgentIdentityOwnerAccount
+            eoaAgentAccount
             agentCategory
             didIdentity
             didAccount
             didName
-            tokenUri
+            agentUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -2032,14 +2079,14 @@ export class AIAgentDiscoveryClient {
             description
             image
             a2aEndpoint
-            ensEndpoint
-            agentAccountEndpoint
             did
             mcp
             x402support
             active
             supportedTrust
             rawJson
+            agentCardJson
+            agentCardReadAt
             feedbackCount
             feedbackAverageScore
             validationPendingCount
@@ -2069,12 +2116,14 @@ ${metadataSelection}
             chainId?: number;
             agentId?: string | number;
             agentAccount?: string;
-            agentOwner?: string;
             agentName?: string;
+            agentIdentityOwnerAccount?: string;
+            eoaAgentIdentityOwnerAccount?: string | null;
+            eoaAgentAccount?: string | null;
             didIdentity?: string | null;
             didAccount?: string | null;
             didName?: string | null;
-            tokenUri?: string;
+            agentUri?: string | null;
             createdAtBlock?: number;
             createdAtTime?: string | number;
             updatedAtTime?: string | number;
@@ -2082,14 +2131,14 @@ ${metadataSelection}
             description?: string | null;
             image?: string | null;
             a2aEndpoint?: string | null;
-            ensEndpoint?: string | null;
-            agentAccountEndpoint?: string | null;
             did?: string | null;
             mcp?: boolean | null;
             x402support?: boolean | null;
             active?: boolean | null;
             supportedTrust?: string | null;
             rawJson?: string | null;
+            agentCardJson?: string | null;
+            agentCardReadAt?: number | null;
             metadata?: Array<{
               key: string;
               valueText: string;
@@ -2141,14 +2190,15 @@ ${metadataSelection}
           chainId
           agentId
           agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -2156,14 +2206,14 @@ ${metadataSelection}
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
           atiOverallScore
           atiOverallConfidence
           atiVersion
@@ -2201,14 +2251,15 @@ ${metadataSelection}
           chainId
           agentId
           agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
       didAccount
       didName
-      tokenUri
+      agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -2216,14 +2267,14 @@ ${metadataSelection}
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
           atiOverallScore
           atiOverallConfidence
           atiVersion
@@ -2262,19 +2313,20 @@ ${metadataSelection}
    */
   async searchAgents(searchTerm: string, limit?: number): Promise<AgentData[]> {
     const query = `
-      query SearchAgents($searchTerm: String!, $limit: Int) {
-        agents(searchTerm: $searchTerm, limit: $limit) {
+      query SearchAgents($query: String!, $limit: Int) {
+        searchAgents(query: $query, limit: $limit) {
           chainId
           agentId
           agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -2282,14 +2334,14 @@ ${metadataSelection}
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
           atiOverallScore
           atiOverallConfidence
           atiVersion
@@ -2305,11 +2357,11 @@ ${metadataSelection}
 
     try {
       const data = await this.client.request<SearchAgentsResponse>(query, {
-        searchTerm,
+        query: searchTerm,
         limit: limit || 100,
       });
 
-      const agents = data.agents || [];
+      const agents = data.searchAgents || [];
       return agents.map((agent) => this.normalizeAgent(agent));
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.searchAgents] Error searching agents:', error);
@@ -2542,7 +2594,19 @@ ${metadataSelection}
     options?: {
       limit?: number;
       offset?: number;
-      orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner';
+      orderBy?:
+        | 'agentId'
+        | 'agentName'
+        | 'createdAtTime'
+        | 'createdAtBlock'
+        | 'agentIdentityOwnerAccount'
+        | 'eoaAgentIdentityOwnerAccount'
+        | 'eoaAgentAccount'
+        | 'agentCategory'
+        | 'trustLedgerScore'
+        | 'trustLedgerBadgeCount'
+        | 'trustLedgerOverallRank'
+        | 'trustLedgerCapabilityRank';
       orderDirection?: 'ASC' | 'DESC';
     }
   ): Promise<AgentData[]> {
@@ -2556,14 +2620,6 @@ ${metadataSelection}
     const addrCandidates: string[] = [];
     addrCandidates.push(eoaAddress);
     if (addrLower !== eoaAddress) addrCandidates.push(addrLower);
-    try {
-      // viem getAddress normalizes to checksum format
-      const { getAddress } = await import('viem');
-      const checksum = getAddress(addrLower);
-      if (checksum !== eoaAddress && checksum !== addrLower) addrCandidates.push(checksum);
-    } catch {
-      // ignore; keep candidates we already have
-    }
 
     const limit = options?.limit ?? 100;
     const offset = options?.offset ?? 0;
@@ -2589,13 +2645,15 @@ ${metadataSelection}
             chainId
             agentId
             agentAccount
-            agentOwner
             agentName
             agentCategory
             didIdentity
             didAccount
             didName
-            tokenUri
+            agentIdentityOwnerAccount
+            eoaAgentIdentityOwnerAccount
+            eoaAgentAccount
+            agentUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -2603,10 +2661,10 @@ ${metadataSelection}
             description
             image
             a2aEndpoint
-            ensEndpoint
-            agentAccountEndpoint
             supportedTrust
             rawJson
+            agentCardJson
+            agentCardReadAt
             did
             mcp
             x402support
@@ -2656,9 +2714,9 @@ ${metadataSelection}
         return (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
       };
 
-      // 1) Try eoaOwner_in: [candidates]
+      // 1) Try eoaAgentIdentityOwnerAccount_in: [candidates]
       try {
-        const owned = await tryQuery({ eoaOwner_in: addrCandidates });
+        const owned = await tryQuery({ eoaAgentIdentityOwnerAccount_in: addrCandidates });
         if (owned.length > 0) return owned;
       } catch (e: any) {
         const responseErrors = e?.response?.errors;
@@ -2667,8 +2725,8 @@ ${metadataSelection}
           responseErrors.some(
             (err) =>
               typeof err?.message === 'string' &&
-              (err.message.includes('eoaOwner_in') ||
-                err.message.includes('Field "eoaOwner_in"') ||
+              (err.message.includes('eoaAgentIdentityOwnerAccount_in') ||
+                err.message.includes('Field "eoaAgentIdentityOwnerAccount_in"') ||
                 err.message.includes('Unknown argument') ||
                 err.message.includes('Cannot query field')),
           );
@@ -2679,7 +2737,7 @@ ${metadataSelection}
 
       // 2) Exact match attempts
       for (const candidate of addrCandidates) {
-        const owned = await tryQuery({ eoaOwner: candidate });
+        const owned = await tryQuery({ eoaAgentIdentityOwnerAccount: candidate });
         if (owned.length > 0) return owned;
       }
 

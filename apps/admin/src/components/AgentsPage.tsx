@@ -26,16 +26,16 @@ export type AgentsPageAgent = {
   chainId: number;
   agentName?: string | null;
   agentAccount?: string | null;
+  agentIdentityOwnerAccount?: string | null;
+  eoaAgentIdentityOwnerAccount?: string | null;
+  eoaAgentAccount?: string | null;
   agentCategory?: string | null;
   active?: boolean | null;
-  eoaOwner?: string | null;
-  ownerAddress?: string | null;
-  tokenUri?: string | null;
+  agentUri?: string | null;
   description?: string | null;
   image?: string | null;
   contractAddress?: string | null;
   a2aEndpoint?: string | null;
-  agentAccountEndpoint?: string | null;
   mcpEndpoint?: string | null; // MCP endpoint URL from registration
   did?: string | null;
   supportedTrust?: string | null;
@@ -230,6 +230,12 @@ export function AgentsPage({
   const router = useRouter();
   const [tokenUriLoading, setTokenUriLoading] = useState(false);
   const [navigatingToAgent, setNavigatingToAgent] = useState<string | null>(null);
+  // Safety: if the destination route hangs (e.g. tokenUri/IPFS gateway issues), don't lock the user on a blocking overlay forever.
+  useEffect(() => {
+    if (!navigatingToAgent) return;
+    const t = setTimeout(() => setNavigatingToAgent(null), 20_000);
+    return () => clearTimeout(t);
+  }, [navigatingToAgent]);
   const [a2aPreview, setA2APreview] = useState<{
     key: string | null;
     loading: boolean;
@@ -418,10 +424,15 @@ export function AgentsPage({
         // Fallback (best-effort) if a parent route didn't provide ownedMap.
         const eoa = normalizeAddr(walletAddress);
         result = result.filter((agent) => {
-          const eoaOwner = normalizeAddr(agent.eoaOwner);
-          const agentOwner = normalizeAddr((agent as any).agentOwner);
-          const ownerAddress = normalizeAddr((agent as any).ownerAddress);
-          return Boolean(eoa) && (eoaOwner === eoa || agentOwner === eoa || ownerAddress === eoa);
+          const identityOwnerEoa = normalizeAddr(agent.eoaAgentIdentityOwnerAccount);
+          const agentAccountEoa = normalizeAddr(agent.eoaAgentAccount);
+          const identityOwnerAccount = normalizeAddr(agent.agentIdentityOwnerAccount);
+          return (
+            Boolean(eoa) &&
+            (identityOwnerEoa === eoa ||
+              agentAccountEoa === eoa ||
+              identityOwnerAccount === eoa)
+          );
         });
       }
 
@@ -444,8 +455,7 @@ export function AgentsPage({
       result = result.filter(agent => {
         const haystack = [
           agent.a2aEndpoint ?? '',
-          agent.agentAccountEndpoint ?? '',
-          agent.tokenUri ?? '',
+          agent.agentUri ?? '',
           agent.description ?? '',
         ]
           .join(' ')
@@ -684,9 +694,9 @@ export function AgentsPage({
         cancelled = true;
       };
     } else {
-      // For regular registration view, use agent.tokenUri from props
-      const tokenUri = agent.tokenUri;
-      if (!tokenUri) {
+      // For regular registration view, use discovery-provided agentUri
+      const agentUri = agent.agentUri;
+      if (!agentUri) {
         setRegistrationPreview({
           key,
           loading: false,
@@ -704,7 +714,7 @@ export function AgentsPage({
       });
       (async () => {
         try {
-          const text = await loadRegistrationContent(tokenUri);
+          const text = await loadRegistrationContent(agentUri);
           if (cancelled) return;
           setRegistrationPreview({
             key,
@@ -1202,16 +1212,16 @@ export function AgentsPage({
             <p style={{ marginTop: 0 }}>
               The registration (tokenUri) reference for this agent.
             </p>
-            {agent.tokenUri ? (
+            {agent.agentUri ? (
               <a
-                href={agent.tokenUri}
+                href={agent.agentUri}
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{ color: palette.accent, wordBreak: 'break-all' }}
               >
-                {agent.tokenUri.length > 100
-                  ? `${agent.tokenUri.slice(0, 100)}...`
-                  : agent.tokenUri}
+                {agent.agentUri.length > 100
+                  ? `${agent.agentUri.slice(0, 100)}...`
+                  : agent.agentUri}
               </a>
             ) : (
               <p style={{ color: palette.dangerText }}>No registration URI available.</p>
@@ -4035,11 +4045,11 @@ export function AgentsPage({
                         backgroundColor: palette.surface,
                         fontSize: '0.7rem',
                         fontWeight: 600,
-                        cursor: agent.tokenUri ? 'pointer' : 'not-allowed',
-                        opacity: agent.tokenUri ? 1 : 0.5,
+                        cursor: agent.agentUri ? 'pointer' : 'not-allowed',
+                        opacity: agent.agentUri ? 1 : 0.5,
                         color: palette.textPrimary,
                       }}
-                      disabled={!agent.tokenUri}
+                      disabled={!agent.agentUri}
                     >
                       {ACTION_LABELS.registration}
                     </button>

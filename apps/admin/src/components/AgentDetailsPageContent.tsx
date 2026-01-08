@@ -503,17 +503,29 @@ export default function AgentDetailsPageContent({
   }, []);
 
   useEffect(() => {
+    const agentOwnerAddress =
+      agent.eoaAgentIdentityOwnerAccount ?? agent.agentIdentityOwnerAccount ?? null;
     console.log('[AgentDetails] Ownership debug:', {
       isConnected,
       walletAddress,
-      agentOwnerAddress: agent.ownerAddress,
+      agentOwnerAddress,
       agentAccount: agent.agentAccount,
       showManageButton,
       ownershipVerified,
       ownershipChecking,
       agentId: agent.agentId
     });
-  }, [isConnected, walletAddress, agent.ownerAddress, agent.agentAccount, showManageButton, ownershipVerified, ownershipChecking, agent.agentId]);
+  }, [
+    isConnected,
+    walletAddress,
+    agent.eoaAgentIdentityOwnerAccount,
+    agent.agentIdentityOwnerAccount,
+    agent.agentAccount,
+    showManageButton,
+    ownershipVerified,
+    ownershipChecking,
+    agent.agentId,
+  ]);
 
   // Use cached owned agents for feedback-request dialog (refresh only if empty)
   useEffect(() => {
@@ -982,9 +994,9 @@ export default function AgentDetailsPageContent({
   }, []);
 
   const handleOpenRegistrationEdit = useCallback(() => {
-    if (!agent.tokenUri) return;
+    if (!agent.agentUri) return;
     router.push(`/admin-tools/${encodeURIComponent(did8004)}?tab=registration`);
-  }, [agent.tokenUri, did8004, router]);
+  }, [agent.agentUri, did8004, router]);
 
   const handleGiveFeedback = useCallback(() => {
     if (!feedbackAuth) {

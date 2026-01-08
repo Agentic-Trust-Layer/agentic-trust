@@ -6,18 +6,28 @@ export interface AgentInfo {
   agentId: string;
   agentName: string;
   chainId: number;
+  /**
+   * Agent's configured account (signing/execution), stored as "{chainId}:{0x...}".
+   */
   agentAccount: string;
+  /**
+   * ERC-721 NFT owner account (identity owner), stored as "{chainId}:{0x...}".
+   */
+  agentIdentityOwnerAccount: string;
   agentCategory?: string | null;
   /**
-   * EOA owner address (if indexed). Used for "My Agents" filtering.
+   * EOA for the identity owner (if indexed). Used for "My Agents" filtering.
    */
-  eoaOwner?: string | null;
-  agentOwner: string;
+  eoaAgentIdentityOwnerAccount?: string | null;
+  /**
+   * EOA for the agent account (if indexed).
+   */
+  eoaAgentAccount?: string | null;
   contractAddress?: string | null;
   didIdentity?: string | null;
   didAccount?: string | null;
   didName?: string | null;
-  tokenUri?: string | null;
+  agentUri?: string | null;
   createdAtBlock: number;
   createdAtTime: number;
   updatedAtTime?: number | null;
@@ -25,11 +35,11 @@ export interface AgentInfo {
   description?: string | null;
   image?: string | null;
   a2aEndpoint?: string | null;
-  ensEndpoint?: string | null;
-  agentAccountEndpoint?: string | null;
   mcpEndpoint?: string | null; // MCP endpoint URL from registration
   supportedTrust?: string | null;
   rawJson?: string | null;
+  agentCardJson?: string | null;
+  agentCardReadAt?: number | null;
   did?: string | null;
   mcp?: boolean | null;
   x402support?: boolean | null;

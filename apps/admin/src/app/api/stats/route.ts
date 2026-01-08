@@ -88,8 +88,8 @@ export async function GET() {
           agentName
           description
           image
-          tokenUri
-          ensEndpoint
+          agentUri
+          didName
           createdAtTime
         }
       }
@@ -144,8 +144,8 @@ export async function GET() {
     const chains = Object.keys(chainGroups).map(chainIdStr => {
       const chainId = parseInt(chainIdStr);
       const chainAgents = chainGroups[chainId];
-      const withMetadata = chainAgents.filter((a: any) => a.tokenUri).length;
-      const withENS = chainAgents.filter((a: any) => a.ensEndpoint).length;
+      const withMetadata = chainAgents.filter((a: any) => a.agentUri).length;
+      const withENS = chainAgents.filter((a: any) => a.didName).length;
       const recent = chainAgents.filter((a: any) => a.createdAtTime > last24Hours).length;
 
       return {
@@ -184,7 +184,7 @@ export async function GET() {
         chainName: getChainName(agent.chainId),
         agentId: agent.agentId,
         agentName: agent.agentName || 'Unnamed',
-        ensName: agent.ensEndpoint || null
+        ensName: agent.didName || null
       }))
       .sort((a, b) => a.chainId - b.chainId);
 

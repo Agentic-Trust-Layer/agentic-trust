@@ -60,13 +60,14 @@ type SemanticMatch = {
     agentId?: string | number | null;
     agentName?: string | null;
     agentAccount?: string | null;
-    agentOwner?: string | null;
-    tokenUri?: string | null;
+    agentIdentityOwnerAccount?: string | null;
+    eoaAgentIdentityOwnerAccount?: string | null;
+    eoaAgentAccount?: string | null;
+    agentUri?: string | null;
     description?: string | null;
     image?: string | null;
     contractAddress?: string | null;
     a2aEndpoint?: string | null;
-    agentAccountEndpoint?: string | null;
     mcpEndpoint?: string | null;
     did?: string | null;
     supportedTrust?: string | null;
@@ -290,13 +291,14 @@ export default function AgentDiscoveryRoute() {
             agentName,
             agentAccount: agent.agentAccount ?? null,
             agentCategory: null,
-            ownerAddress: agent.agentOwner ?? null,
-            tokenUri: agent.tokenUri ?? null,
+            agentIdentityOwnerAccount: agent.agentIdentityOwnerAccount ?? null,
+            eoaAgentIdentityOwnerAccount: agent.eoaAgentIdentityOwnerAccount ?? null,
+            eoaAgentAccount: agent.eoaAgentAccount ?? null,
+            agentUri: agent.agentUri ?? null,
             description: agent.description ?? null,
             image: agent.image ?? null,
             contractAddress: agent.contractAddress ?? null,
             a2aEndpoint: agent.a2aEndpoint ?? null,
-            agentAccountEndpoint: agent.agentAccountEndpoint ?? null,
             mcpEndpoint: agent.mcpEndpoint ?? null,
             did: agent.did ?? null,
             supportedTrust: agent.supportedTrust ?? null,

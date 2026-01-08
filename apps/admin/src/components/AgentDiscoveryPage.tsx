@@ -30,7 +30,9 @@ type DiscoveryAgent = {
   agentName: string;
   chainId: number;
   agentAccount: string;
-  agentOwner: string;
+  agentIdentityOwnerAccount: string;
+  eoaAgentIdentityOwnerAccount?: string | null;
+  eoaAgentAccount?: string | null;
   agentCategory?: string | null;
   didName?: string | null;
   did?: string | null;
@@ -54,7 +56,9 @@ type SemanticMatch = {
     agentId?: string | number | null;
     agentName?: string | null;
     agentAccount?: string | null;
-    agentOwner?: string | null;
+    agentIdentityOwnerAccount?: string | null;
+    eoaAgentIdentityOwnerAccount?: string | null;
+    eoaAgentAccount?: string | null;
     didName?: string | null;
     did?: string | null;
     description?: string | null;
@@ -150,7 +154,9 @@ export function AgentDiscoveryPage() {
             agentId,
             agentName: agent.agentName ?? 'Unnamed Agent',
             agentAccount: agent.agentAccount ?? '',
-            agentOwner: agent.agentOwner ?? '',
+            agentIdentityOwnerAccount: agent.agentIdentityOwnerAccount ?? '',
+            eoaAgentIdentityOwnerAccount: agent.eoaAgentIdentityOwnerAccount ?? null,
+            eoaAgentAccount: agent.eoaAgentAccount ?? null,
             agentCategory: null,
             didName: agent.didName ?? null,
             did: agent.did ?? null,
@@ -427,9 +433,9 @@ export function AgentDiscoveryPage() {
                         fontFamily: 'monospace',
                         fontSize: '0.75rem',
                       }}
-                      title={agent.agentOwner}
+                      title={agent.agentIdentityOwnerAccount}
                     >
-                      {agent.agentOwner}
+                      {agent.agentIdentityOwnerAccount}
                     </Typography>
                   </TableCell>
                   <TableCell>

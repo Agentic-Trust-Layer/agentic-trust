@@ -141,32 +141,27 @@ export async function discoverAgents(
         agentId: stringOrNull(raw?.agentId) ?? '',
         createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,
         agentAccount: String(raw?.agentAccount ?? ''),
-        agentOwner: String(raw?.agentOwner ?? ''),
-        eoaOwner:
-          stringOrNull(
-            (raw as any)?.eoaOwner ??
-              (raw as any)?.eoa_owner ??
-              (raw as any)?.eoaAddress ??
-              (raw as any)?.eoa_address,
-          ) ?? undefined,
+        agentIdentityOwnerAccount: String(raw?.agentIdentityOwnerAccount ?? ''),
+        eoaAgentIdentityOwnerAccount: stringOrNull(raw?.eoaAgentIdentityOwnerAccount) ?? undefined,
+        eoaAgentAccount: stringOrNull(raw?.eoaAgentAccount) ?? undefined,
         contractAddress: stringOrNull(raw?.contractAddress) ?? undefined,
         agentName: String(raw?.agentName ?? ''),
         agentCategory: agentCategory, // Add extracted agentCategory
         didIdentity: stringOrNull(raw?.didIdentity) ?? undefined,
         didAccount: stringOrNull(raw?.didAccount) ?? undefined,
         didName: stringOrNull(raw?.didName) ?? undefined,
-        tokenUri: stringOrNull(raw?.tokenUri) ?? undefined,
+        agentUri: stringOrNull(raw?.agentUri) ?? undefined,
         createdAtBlock: numeric(raw?.createdAtBlock, 0) ?? 0,
         updatedAtTime: numeric(raw?.updatedAtTime, null),
         type: stringOrNull(raw?.type) ?? undefined,
         description: stringOrNull(raw?.description) ?? undefined,
         image: stringOrNull(raw?.image) ?? undefined,
         a2aEndpoint: stringOrNull(raw?.a2aEndpoint) ?? undefined,
-        ensEndpoint: stringOrNull(raw?.ensEndpoint) ?? undefined,
-        agentAccountEndpoint: stringOrNull(raw?.agentAccountEndpoint) ?? undefined,
         mcpEndpoint: mcpEndpoint, // Add extracted MCP endpoint
         supportedTrust: stringOrNull(raw?.supportedTrust) ?? undefined,
         rawJson: stringOrNull(raw?.rawJson) ?? undefined,
+        agentCardJson: stringOrNull(raw?.agentCardJson) ?? undefined,
+        agentCardReadAt: numeric(raw?.agentCardReadAt, null),
         did: stringOrNull(raw?.did) ?? undefined,
         mcp: booleanish(raw?.mcp) ?? undefined,
         x402support: booleanish(raw?.x402support) ?? undefined,

@@ -151,15 +151,20 @@ export function extractAgentAccountFromDiscovery(agent: unknown): `0x${string}` 
 
   const record = agent as Record<string, unknown>;
 
+  // New discovery schema prefers explicit EOA for the agent account.
+  const eoaAccount = record.eoaAgentAccount;
+  if (isValidAddress(eoaAccount)) {
+    return eoaAccount;
+  }
+
   const directAccount = record.agentAccount;
   if (isValidAddress(directAccount)) {
     return directAccount;
   }
 
-  const endpoint = record.agentAccountEndpoint;
-  if (typeof endpoint === 'string' && endpoint.includes(':')) {
-    const parts = endpoint.split(':');
-    const maybeAccount = parts[parts.length - 1];
+  // `agentAccount` is stored as "{chainId}:{0x...}" in the discovery schema.
+  if (typeof directAccount === 'string' && directAccount.includes(':')) {
+    const maybeAccount = directAccount.split(':').pop();
     if (isValidAddress(maybeAccount)) {
       return maybeAccount as `0x${string}`;
     }

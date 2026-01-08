@@ -153,10 +153,10 @@ export class Agent {
   }
 
   /**
-   * Get agent owner address
+   * Get agent identity owner account (stored as "{chainId}:{0x...}")
    */
-  get agentOwner(): string | undefined {
-    const owner = this.data.agentOwner;
+  get agentIdentityOwnerAccount(): string | undefined {
+    const owner = (this.data as Record<string, unknown>).agentIdentityOwnerAccount;
     if (typeof owner === 'string' && owner.trim().length > 0) {
       return owner;
     }
@@ -1192,9 +1192,9 @@ export async function loadAgentDetail(
     }
 
     // Fill in any other discovery fields that aren't already set
-    // Exclude tokenUri and rawJson - these should come from on-chain sources only
+    // Exclude agentUri and rawJson - these should come from on-chain sources only
     Object.keys(discoveryRecord).forEach((key) => {
-      if (key !== 'agentId' && key !== 'tokenUri' && key !== 'rawJson' && flattened[key] === undefined) {
+      if (key !== 'agentId' && key !== 'agentUri' && key !== 'rawJson' && flattened[key] === undefined) {
         flattened[key] = discoveryRecord[key];
       }
     });
@@ -1219,8 +1219,8 @@ export async function loadAgentDetail(
     (discoveryRecord.agentAccount as string | undefined) ??
     '';
 
-  const agentOwnerValue =
-    (discoveryRecord.agentOwner as string | undefined) ?? '';
+  const agentIdentityOwnerAccountValue =
+    (discoveryRecord.agentIdentityOwnerAccount as string | undefined) ?? '';
 
   const detail: AgentDetail = {
     // AgentInfo fields
@@ -1228,11 +1228,14 @@ export async function loadAgentDetail(
     agentName: agentNameValue,
     chainId: resolvedChainId,
     agentAccount: agentAccountValue,
-    agentOwner: agentOwnerValue,
+    agentIdentityOwnerAccount: agentIdentityOwnerAccountValue,
+    eoaAgentIdentityOwnerAccount:
+      (discoveryRecord.eoaAgentIdentityOwnerAccount as string | null | undefined) ?? null,
+    eoaAgentAccount: (discoveryRecord.eoaAgentAccount as string | null | undefined) ?? null,
     didIdentity: (discoveryRecord.didIdentity as string | null | undefined) ?? null,
     didAccount: (discoveryRecord.didAccount as string | null | undefined) ?? null,
     didName: (discoveryRecord.didName as string | null | undefined) ?? null,
-    // tokenUri and rawJson will be set after the spread to ensure they're not overwritten
+    // agentUri and rawJson will be set after the spread to ensure they're not overwritten
     createdAtBlock:
       typeof discoveryRecord.createdAtBlock === 'number' ? discoveryRecord.createdAtBlock : 0,
     createdAtTime:
@@ -1257,14 +1260,16 @@ export async function loadAgentDetail(
       (flattened.a2aEndpoint as string | undefined) ??
       (discoveryRecord.a2aEndpoint as string | undefined) ??
       null,
-    ensEndpoint: (discoveryRecord.ensEndpoint as string | null | undefined) ?? null,
-    agentAccountEndpoint:
-      (discoveryRecord.agentAccountEndpoint as string | null | undefined) ?? null,
     // Prioritize: flattened (from tokenUri/IPFS) > discoveryRecord
     supportedTrust:
       (flattened.supportedTrust as string | undefined) ??
       (discoveryRecord.supportedTrust as string | undefined) ??
       null,
+    agentCardJson: (discoveryRecord.agentCardJson as string | null | undefined) ?? null,
+    agentCardReadAt:
+      typeof discoveryRecord.agentCardReadAt === 'number'
+        ? discoveryRecord.agentCardReadAt
+        : (discoveryRecord.agentCardReadAt as number | null | undefined) ?? null,
     did: (discoveryRecord.did as string | null | undefined) ?? null,
     mcp:
       typeof discoveryRecord.mcp === 'boolean'
@@ -1289,12 +1294,12 @@ export async function loadAgentDetail(
     ...flattened,
   };
 
-  // Set tokenUri and rawJson AFTER spread to ensure on-chain values take precedence
-  // Use on-chain tokenUri as primary source (from contract), fallback to discovery only if on-chain is null/undefined
-  // Use identityMetadata.tokenUri to ensure we're using the value retrieved from contract
-  detail.tokenUri = (identityMetadata.tokenUri !== null && identityMetadata.tokenUri !== undefined) 
-    ? identityMetadata.tokenUri 
-    : ((discoveryRecord.tokenUri as string | null | undefined) ?? null);
+  // Set agentUri and rawJson AFTER spread to ensure on-chain values take precedence.
+  // Use on-chain tokenUri as primary source (from contract); in the new discovery schema, this is exposed as `agentUri`.
+  detail.agentUri =
+    identityMetadata.tokenUri !== null && identityMetadata.tokenUri !== undefined
+      ? identityMetadata.tokenUri
+      : ((discoveryRecord.agentUri as string | null | undefined) ?? null);
   
   // Use registration JSON from tokenUri/IPFS as primary source, fallback to discovery
   detail.rawJson = identityRegistration?.registration

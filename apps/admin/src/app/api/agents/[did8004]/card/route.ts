@@ -20,7 +20,6 @@ export async function GET(
 
     const a2aEndpoint =
       (agentDetail as Record<string, unknown>).a2aEndpoint ??
-      (agentDetail as Record<string, unknown>).agentAccountEndpoint ??
       null;
 
     if (typeof a2aEndpoint !== 'string' || a2aEndpoint.length === 0) {

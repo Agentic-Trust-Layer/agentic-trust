@@ -299,10 +299,12 @@ const AgentDetailsTabs = ({
 
   // Load registration data when registration tab is selected
   useEffect(() => {
-    if (activeTab === 'registration' && agent.tokenUri && !registrationData && !registrationLoading) {
+    // If we already failed once, don't spin in a retry loop.
+    // Users can refresh the page if they want to retry, or we can add an explicit retry button later.
+    if (activeTab === 'registration' && agent.agentUri && !registrationData && !registrationLoading && !registrationError) {
       setRegistrationLoading(true);
       setRegistrationError(null);
-      const normalizedUri = normalizeResourceUrl(agent.tokenUri);
+      const normalizedUri = normalizeResourceUrl(agent.agentUri);
       if (!normalizedUri) {
         setRegistrationError('Invalid token URI');
         setRegistrationLoading(false);
@@ -354,7 +356,10 @@ const AgentDetailsTabs = ({
         }
       }
 
-      fetch(normalizedUri)
+      // Add a short timeout so a bad gateway can't hang the UI.
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 10_000);
+      fetch(normalizedUri, { signal: ctrl.signal })
         .then((response) => {
           if (!response.ok) {
             throw new Error('Failed to fetch registration data');
@@ -369,9 +374,10 @@ const AgentDetailsTabs = ({
           console.error('Failed to load registration:', error);
           setRegistrationError(error instanceof Error ? error.message : 'Failed to load registration data');
           setRegistrationLoading(false);
-        });
+        })
+        .finally(() => clearTimeout(timeout));
     }
-  }, [activeTab, agent.tokenUri, registrationData, registrationLoading, normalizeResourceUrl]);
+  }, [activeTab, agent.agentUri, registrationData, registrationLoading, registrationError, normalizeResourceUrl]);
 
   return (
     <section
@@ -613,11 +619,11 @@ const AgentDetailsTabs = ({
                     </a>
                   </div>
                 )}
-                {agent.tokenUri && (
+                {agent.agentUri && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
                     <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: palette.textPrimary, fontSize: '0.85rem' }}>
-                      {agent.tokenUri}
+                      {agent.agentUri}
                     </div>
                   </div>
                 )}
@@ -677,7 +683,7 @@ const AgentDetailsTabs = ({
 
         {activeTab === 'registration' && (
           <div>
-            {!agent.tokenUri ? (
+            {!agent.agentUri ? (
               <p style={{ color: palette.textSecondary, margin: 0 }}>
                 No registration data available for this agent.
               </p>
