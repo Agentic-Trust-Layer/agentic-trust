@@ -169,7 +169,7 @@ export class AIAgentValidationClient extends BaseValidationClient {
     const { ethers } = await import('ethers');
     const responseUri = params.responseUri || '';
     const responseHash = params.responseHash || ethers.ZeroHash;
-    const tag = params.tag ? ethers.id(params.tag).slice(0, 66) : ethers.ZeroHash;
+    const tag = params.tag || '';
 
     // Encode the validation response call
     const data = await this.accountProvider?.encodeFunctionData({

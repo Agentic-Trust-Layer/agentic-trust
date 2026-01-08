@@ -11,11 +11,15 @@ import { ethers } from 'ethers';
 export interface GiveFeedbackParams {
   agentId: bigint;
   score: number; // MUST be 0-100
-  tag1?: string; // OPTIONAL (bytes32)
-  tag2?: string; // OPTIONAL (bytes32)
-  feedbackUri?: string; // OPTIONAL
-  feedbackHash?: string; // OPTIONAL (bytes32, KECCAK-256 of feedbackUri content)
-  feedbackAuth: string; // Signed feedbackAuth
+  // Updated ABI uses string tags
+  tag1?: string; // OPTIONAL (string)
+  tag2?: string; // OPTIONAL (string)
+  // Updated ABI includes endpoint + feedbackURI + feedbackHash
+  endpoint?: string; // OPTIONAL (string)
+  feedbackUri?: string; // OPTIONAL (string)
+  feedbackHash?: string; // OPTIONAL (bytes32, keccak256 of feedback content)
+  // Deprecated (no longer used by updated on-chain ABI)
+  feedbackAuth?: string;
 }
 
 import type { Address } from 'viem';
@@ -102,7 +106,8 @@ export class ReputationClient {
 
   /**
    * Submit feedback for an agent
-   * Spec: function giveFeedback(uint256 agentId, uint8 score, bytes32 tag1, bytes32 tag2, string calldata feedbackUri, bytes32 calldata feedbackHash, bytes memory feedbackAuth)
+   * Updated ABI:
+   *   giveFeedback(uint256 agentId, uint8 score, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)
    *
    * @param params - Feedback parameters (score is MUST, others are OPTIONAL)
    * @returns Transaction result
@@ -113,9 +118,9 @@ export class ReputationClient {
       throw new Error('Score MUST be between 0 and 100');
     }
 
-    // Convert optional string parameters to bytes32 (or empty bytes32 if not provided)
-    const tag1 = params.tag1 ? ethers.id(params.tag1).slice(0, 66) : ethers.ZeroHash;
-    const tag2 = params.tag2 ? ethers.id(params.tag2).slice(0, 66) : ethers.ZeroHash;
+    const tag1 = params.tag1 || '';
+    const tag2 = params.tag2 || '';
+    const endpoint = params.endpoint || '';
     const feedbackHash = params.feedbackHash || ethers.ZeroHash;
     const feedbackUri = params.feedbackUri || '';
 
@@ -128,9 +133,9 @@ export class ReputationClient {
         params.score,
         tag1,
         tag2,
+        endpoint,
         feedbackUri,
         feedbackHash,
-        params.feedbackAuth,
       ]
     );
 
@@ -199,7 +204,7 @@ export class ReputationClient {
 
   /**
    * Get reputation summary for an agent
-   * Spec: function getSummary(uint256 agentId, address[] calldata clientAddresses, bytes32 tag1, bytes32 tag2) returns (uint64 count, uint8 averageScore)
+   * Updated ABI: getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2)
    * Note: agentId is ONLY mandatory parameter, others are OPTIONAL filters
    *
    * @param agentId - The agent ID (MANDATORY)
@@ -214,8 +219,8 @@ export class ReputationClient {
     tag2?: string
   ): Promise<{ count: bigint; averageScore: number }> {
     const clients = clientAddresses || [];
-    const t1 = tag1 ? ethers.id(tag1).slice(0, 66) : ethers.ZeroHash;
-    const t2 = tag2 ? ethers.id(tag2).slice(0, 66) : ethers.ZeroHash;
+    const t1 = tag1 || '';
+    const t2 = tag2 || '';
 
     const result = await this.adapter.call<any>(
       this.contractAddress,
@@ -232,7 +237,7 @@ export class ReputationClient {
 
   /**
    * Read a specific feedback entry
-   * Spec: function readFeedback(uint256 agentId, address clientAddress, uint64 index) returns (uint8 score, bytes32 tag1, bytes32 tag2, bool isRevoked)
+   * Updated ABI: readFeedback(...) returns (uint8 score, string tag1, string tag2, bool isRevoked)
    *
    * @param agentId - The agent ID
    * @param clientAddress - Client who gave feedback
@@ -252,15 +257,17 @@ export class ReputationClient {
 
     return {
       score: Number(result.score || result[0]),
-      tag1: result.tag1 || result[1],
-      tag2: result.tag2 || result[2],
+      tag1: String(result.tag1 || result[1] || ''),
+      tag2: String(result.tag2 || result[2] || ''),
       isRevoked: Boolean(result.isRevoked || result[3]),
     };
   }
 
   /**
    * Read all feedback for an agent with optional filters
-   * Spec: function readAllFeedback(uint256 agentId, address[] calldata clientAddresses, bytes32 tag1, bytes32 tag2, bool includeRevoked) returns arrays
+   * Updated ABI:
+   *   readAllFeedback(uint256 agentId, address[] clientAddresses, string tag1, string tag2, bool includeRevoked)
+   *   returns (address[] clients, uint64[] feedbackIndexes, uint8[] scores, string[] tag1s, string[] tag2s, bool[] revokedStatuses)
    * Note: agentId is ONLY mandatory parameter
    *
    * @param agentId - The agent ID (MANDATORY)
@@ -277,14 +284,15 @@ export class ReputationClient {
     includeRevoked?: boolean
   ): Promise<{
     clientAddresses: string[];
+    indexes: bigint[];
     scores: number[];
     tag1s: string[];
     tag2s: string[];
     revokedStatuses: boolean[];
   }> {
     const clients = clientAddresses || [];
-    const t1 = tag1 ? ethers.id(tag1).slice(0, 66) : ethers.ZeroHash;
-    const t2 = tag2 ? ethers.id(tag2).slice(0, 66) : ethers.ZeroHash;
+    const t1 = tag1 || '';
+    const t2 = tag2 || '';
     const includeRev = includeRevoked || false;
 
     const result = await this.adapter.call<any>(
@@ -295,11 +303,12 @@ export class ReputationClient {
     );
 
     return {
-      clientAddresses: result.clientAddresses || result[0],
-      scores: (result.scores || result[1]).map(Number),
-      tag1s: result.tag1s || result[2],
-      tag2s: result.tag2s || result[3],
-      revokedStatuses: (result.revokedStatuses || result[4]).map(Boolean),
+      clientAddresses: (result.clients || result[0]) as string[],
+      indexes: ((result.feedbackIndexes || result[1]) as any[]).map((i: any) => BigInt(i)),
+      scores: ((result.scores || result[2]) as any[]).map((s: any) => Number(s)),
+      tag1s: ((result.tag1s || result[3]) as any[]).map((t: any) => String(t ?? '')),
+      tag2s: ((result.tag2s || result[4]) as any[]).map((t: any) => String(t ?? '')),
+      revokedStatuses: ((result.revokedStatuses || result[5]) as any[]).map((b: any) => Boolean(b)),
     };
   }
 

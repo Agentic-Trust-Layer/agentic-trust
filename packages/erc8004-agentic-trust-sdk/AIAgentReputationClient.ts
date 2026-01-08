@@ -23,6 +23,7 @@ export interface GiveFeedbackParams {
   metadata?: MetadataEntry[];
   tag1?: string;
   tag2?: string;
+  endpoint?: string;
   feedbackHash?: string;
   feedbackUri?: string;
   agentId?: string;
@@ -135,7 +136,8 @@ export class AIAgentReputationClient extends BaseReputationClient {
 
   /**
    * Submit feedback for an agent
-   * Spec: function giveFeedback(uint256 agentId, uint8 score, bytes32 tag1, bytes32 tag2, string calldata feedbackUri, bytes32 calldata feedbackHash, bytes memory feedbackAuth)
+   * Updated ABI:
+   *   giveFeedback(uint256 agentId, uint8 score, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)
    *
    * @param params - Feedback parameters (score is MUST, others are OPTIONAL)
    * @returns Transaction result
@@ -146,10 +148,9 @@ export class AIAgentReputationClient extends BaseReputationClient {
       throw new Error('Score MUST be between 0 and 100');
     }
 
-    // Convert optional string parameters to bytes32 (or empty bytes32 if not provided)
-    // Use ethers.id() to hash strings to bytes32 (keccak256), matching base ReputationClient behavior
-    const tag1 = params.tag1 ? (ethers.id(params.tag1).slice(0, 66) as `0x${string}`) : (ethers.ZeroHash as `0x${string}`);
-    const tag2 = params.tag2 ? (ethers.id(params.tag2).slice(0, 66) as `0x${string}`) : (ethers.ZeroHash as `0x${string}`);
+    const tag1 = params.tag1 || '';
+    const tag2 = params.tag2 || '';
+    const endpoint = params.endpoint || '';
     const feedbackHash = params.feedbackHash || (ethers.ZeroHash as `0x${string}`);
     const feedbackUri = params.feedbackUri || '';
 
@@ -177,9 +178,9 @@ export class AIAgentReputationClient extends BaseReputationClient {
         params.score,
         tag1,
         tag2,
+        endpoint,
         feedbackUri,
         feedbackHash,
-        params.feedbackAuth,
       ],
     });
 
@@ -207,16 +208,10 @@ export class AIAgentReputationClient extends BaseReputationClient {
     if (!params.agentId) {
       throw new Error('agentId is required');
     }
-    if (!params.feedbackAuth) {
-      throw new Error('feedbackAuth is required');
-    }
 
-    const tag1 = params.tag1
-      ? (ethers.id(params.tag1).slice(0, 66) as `0x${string}`)
-      : (ethers.ZeroHash as `0x${string}`);
-    const tag2 = params.tag2
-      ? (ethers.id(params.tag2).slice(0, 66) as `0x${string}`)
-      : (ethers.ZeroHash as `0x${string}`);
+    const tag1 = params.tag1 || '';
+    const tag2 = params.tag2 || '';
+    const endpoint = params.endpoint || '';
     const feedbackHash = params.feedbackHash || (ethers.ZeroHash as `0x${string}`);
     const feedbackUri = params.feedbackUri || '';
     const agentId = BigInt(params.agentId);
@@ -229,9 +224,9 @@ export class AIAgentReputationClient extends BaseReputationClient {
         params.score,
         tag1,
         tag2,
+        endpoint,
         feedbackUri,
         feedbackHash,
-        params.feedbackAuth,
       ],
     });
 

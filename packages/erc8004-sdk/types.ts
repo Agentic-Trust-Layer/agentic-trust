@@ -107,7 +107,7 @@ export interface ValidationStatus {
   agentId: bigint;
   response: number; // 0-100
   responseHash?: string; // bytes32 (optional for backward compatibility)
-  tag: string; // bytes32
+  tag: string; // string (newer contracts) or bytes32-hex string (older contracts)
   lastUpdate: bigint;
 }
 

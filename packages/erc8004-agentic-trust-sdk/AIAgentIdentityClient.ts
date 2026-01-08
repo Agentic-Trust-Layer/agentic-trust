@@ -337,8 +337,9 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       // Convert to hex string (Viem requires hex strings, not Uint8Array)
       const hexString = (this as any).bytesToHex(bytes);
       return {
-        key: m.key,
-        value: hexString as `0x${string}`,
+        // Updated ABI uses struct fields: { metadataKey, metadataValue }
+        metadataKey: m.key,
+        metadataValue: hexString as `0x${string}`,
       };
     });
     
@@ -375,7 +376,8 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
   async encodeSetRegistrationUri(agentId: bigint, uri: string): Promise<`0x${string}`>  {
     const data = await this.accountProvider.encodeFunctionData({
       abi: IdentityRegistryABI as any,
-      functionName: 'setAgentUri',
+      // Updated ABI name is setAgentURI (capital URI)
+      functionName: 'setAgentURI',
       args: [agentId, uri],
     });
     return data as `0x${string}`;

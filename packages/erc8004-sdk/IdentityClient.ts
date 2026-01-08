@@ -81,8 +81,9 @@ export class IdentityClient {
       // Convert Uint8Array to hex string for viem compatibility
       const hexString = this.bytesToHex(bytes);
       return {
-        key: m.key,
-        value: hexString
+        // Updated ABI uses struct fields: { metadataKey, metadataValue }
+        metadataKey: m.key,
+        metadataValue: hexString
       };
     });
 
@@ -90,6 +91,7 @@ export class IdentityClient {
     const result = await this.adapter.send(
       this.contractAddress,
       IdentityRegistryABI as any,
+      // Updated ABI uses tuple[] with struct fields (metadataKey, metadataValue)
       'register(string,(string,bytes)[])',
       [tokenUri, metadataFormatted] as any
     );
@@ -129,7 +131,8 @@ export class IdentityClient {
     const result = await this.adapter.send(
       this.contractAddress,
       IdentityRegistryABI as any,
-      'setAgentUri',
+      // Updated ABI name is setAgentURI (capital URI)
+      'setAgentURI',
       [agentId, uri]
     );
 

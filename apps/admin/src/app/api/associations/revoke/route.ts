@@ -9,9 +9,22 @@ import { privateKeyToAccount } from "viem/accounts";
 import { createBundlerClient } from "viem/account-abstraction";
 import { Implementation, toMetaMaskSmartAccount } from "@metamask/smart-accounts-kit";
 import { getChainBundlerUrl, sepolia } from "@agentic-trust/core/server";
-import { createPimlicoClient } from "permissionless/clients/pimlico";
 
 const ASSOCIATIONS_ABI = ["function revokeAssociation(bytes32 associationId, uint40 revokedAt)"] as const;
+
+async function jsonRpc<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
+  const res = await fetch(rpcUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+  });
+  const body = (await res.json()) as any;
+  if (!res.ok || body?.error) {
+    const msg = body?.error?.message || `RPC error calling ${method}`;
+    throw new Error(msg);
+  }
+  return body.result as T;
+}
 
 export async function POST(req: Request) {
   try {
@@ -51,12 +64,19 @@ export async function POST(req: Request) {
     });
 
     // Pimlico sponsorship flow (pm_sponsorUserOperation) to avoid ERC-7677 `pm_getPaymasterStubData`.
-    const pimlicoClient = createPimlicoClient({ transport: http(bundlerUrl), chain: sepolia } as any);
     const bundlerClient = createBundlerClient({
       transport: http(bundlerUrl),
       chain: sepolia,
     });
-    const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
+    const gasPrice = await jsonRpc<{ fast?: { maxFeePerGas: string; maxPriorityFeePerGas: string } }>(
+      bundlerUrl,
+      "pimlico_getUserOperationGasPrice",
+      [],
+    );
+    const fee = gasPrice?.fast;
+    if (!fee?.maxFeePerGas || !fee?.maxPriorityFeePerGas) {
+      throw new Error("Missing gas price data from pimlico_getUserOperationGasPrice");
+    }
 
     // IMPORTANT: do NOT call `sendUserOperation` before sponsorship.
     // `sendUserOperation` runs simulation; if the account has 0 ETH and paymaster isn't attached yet,
@@ -71,11 +91,11 @@ export async function POST(req: Request) {
       parameters: ["factory", "fees", "nonce", "signature"],
     } as any);
 
-    const sponsored = await (pimlicoClient as any).sponsorUserOperation({
-      userOperation: baseRequest,
-      paymasterContext: { mode: "SPONSORED" },
-      entryPoint: (smartAccount as any).entryPoint,
-    });
+    const sponsored = await jsonRpc<any>(bundlerUrl, "pm_sponsorUserOperation", [
+      baseRequest,
+      (smartAccount as any).entryPoint?.address,
+      { mode: "SPONSORED" },
+    ]);
 
     // Defensive check: if the bundler URL isn't a Pimlico-compatible paymaster endpoint,
     // `sponsorUserOperation` may return something without any paymaster fields, and the

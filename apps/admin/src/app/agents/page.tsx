@@ -314,6 +314,7 @@ export default function AgentsRoute() {
       minValidations: '',
       minAssociations: '',
       minAvgRating: '',
+      minAtiOverallScore: '',
       createdWithinDays: '',
     };
     setFilters(defaultFilters);

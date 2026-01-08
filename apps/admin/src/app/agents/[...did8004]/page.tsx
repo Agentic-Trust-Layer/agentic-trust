@@ -273,15 +273,18 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     const maybeBothZero =
       (serializedAgent.initiatedAssociationCount ?? 0) === 0 &&
       (serializedAgent.approvedAssociationCount ?? 0) === 0;
-    const canCompute = typeof serializedAgent.agentAccount === 'string' && serializedAgent.agentAccount.startsWith('0x');
+    const agentAccount =
+      typeof serializedAgent.agentAccount === 'string' && serializedAgent.agentAccount.startsWith('0x')
+        ? serializedAgent.agentAccount
+        : null;
 
-    if ((!hasGraphCounts || maybeBothZero) && canCompute) {
+    if ((!hasGraphCounts || maybeBothZero) && agentAccount) {
       const associationsClient = await getAssociationsClient(chainId);
       const assocResp = await associationsClient.getAssociationsForEvmAccount({
         chainId,
-        accountAddress: serializedAgent.agentAccount,
+        accountAddress: agentAccount,
       });
-      const centerLower = serializedAgent.agentAccount.toLowerCase();
+      const centerLower = agentAccount.toLowerCase();
       const list = Array.isArray((assocResp as any)?.associations) ? ((assocResp as any).associations as any[]) : [];
       let initiated = 0;
       let approved = 0;

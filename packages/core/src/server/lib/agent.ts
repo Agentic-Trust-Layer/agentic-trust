@@ -827,6 +827,8 @@ export class Agent {
       feedback: params.feedback ?? 'Feedback submitted via Agentic Trust admin app.',
       tag1: params.tag1,
       tag2: params.tag2,
+      // Updated reputation ABI requires an endpoint string (we treat it as optional in the app layer).
+      endpoint: this.endpoint?.url ?? this.data.a2aEndpoint ?? '',
       feedbackUri: feedbackUriFromIpfs,
       feedbackHash: feedbackHashFromIpfs,
       agentId,

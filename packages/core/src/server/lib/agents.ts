@@ -1839,7 +1839,8 @@ export class AgentsAPI {
       if (params.tokenUri !== undefined) {
         const data = encodeFunctionData({
           abi: identityRegistryAbi as any,
-          functionName: 'setAgentUri',
+          // Updated ABI name is setAgentURI (capital URI)
+          functionName: 'setAgentURI',
           args: [agentId, params.tokenUri],
         });
         calls.push({
