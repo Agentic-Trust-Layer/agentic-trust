@@ -6,7 +6,7 @@
 import { ethers } from 'ethers';
 
 const DEFAULTS = {
-  associationsStoreProxy: '0xaF7428906D31918dDA2986D1405E2Ded06561E59', // Default deployed address from deployment logs
+  associationsStoreProxy: '0xaF7428906D31918dDA2986D1405E2Ded06561E59', // Correct deployed address on Sepolia - matches core
 } as const;
 
 /**
@@ -15,16 +15,10 @@ const DEFAULTS = {
  * Matches the pattern used in other apps: uses ASSOCIATIONS_STORE_PROXY env var
  */
 export function getAssociationsProxyAddress(): string {
-  const raw = (process.env.ASSOCIATIONS_STORE_PROXY ?? DEFAULTS.associationsStoreProxy).trim();
-  console.log('[getAssociationsProxyAddress] Resolving proxy address:', {
-    envVar: process.env.ASSOCIATIONS_STORE_PROXY,
-    default: DEFAULTS.associationsStoreProxy,
-    raw,
-  });
-  // Accept lowercase or mixed case; normalize to a checksummed address for ethers.
-  const address = ethers.getAddress(raw.toLowerCase());
-  console.log('[getAssociationsProxyAddress] Resolved to:', address);
-  return address;
+  // TEMPORARY: Use the correct deployed address, ignoring any bad env vars
+  const correctAddress = '0xaF7428906D31918dDA2986D1405E2Ded06561E59';
+  console.log('[getAssociationsProxyAddress] Using correct deployed address:', correctAddress);
+  return ethers.getAddress(correctAddress);
 }
 
 /**

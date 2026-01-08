@@ -901,12 +901,6 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
 
-    // Normalize skill id - we historically had a typo ('osaf:'), but the correct prefix is 'oasf:'.
-    // Accept both so callers using either spelling still hit the intended handler.
-    if (typeof skillId === 'string' && skillId.startsWith('osaf:')) {
-      skillId = `oasf:${skillId.slice('osaf:'.length)}`;
-    }
-
     // Handle skill-based requests
     const responseContent: Record<string, unknown> = {
       received: true,
@@ -917,10 +911,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
-      // Back-compat for historical typo:
-      'osaf:trust.feedback.authorization',
       'oasf:trust.feedback.authorization',
-      'osaf:trust.validation.attestation',
       'oasf:trust.validation.attestation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',

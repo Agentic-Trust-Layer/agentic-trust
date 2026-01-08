@@ -220,6 +220,7 @@ export async function signAndSendTransaction(
     account,
     chain,
     ethereumProvider,
+    rpcUrl,
     onStatusUpdate,
     extractAgentId = false,
   } = options;
@@ -250,6 +251,141 @@ export async function signAndSendTransaction(
     transport: custom(provider),
   });
 
+  // Prefer a real RPC for reads (Web3Auth/OpenLogin providers often return opaque "internal JSON-RPC error"
+  // for eth_getCode / eth_estimateGas / waitForReceipt).
+  const rpcForReads =
+    rpcUrl ||
+    chain?.rpcUrls?.default?.http?.[0] ||
+    chain?.rpcUrls?.public?.http?.[0];
+  const readClient = createPublicClient({
+    chain,
+    transport: rpcForReads ? http(rpcForReads) : custom(provider),
+  });
+
+  // Web3Auth/OpenLogin providers can be on a different chain than our UI selection.
+  // If we don't enforce chain alignment, sendTransaction can fail with opaque internal errors.
+  try {
+    const currentChainIdHex = (await provider.request?.({ method: 'eth_chainId', params: [] })) as
+      | string
+      | undefined;
+    if (currentChainIdHex && typeof currentChainIdHex === 'string' && currentChainIdHex.startsWith('0x')) {
+      const current = Number.parseInt(currentChainIdHex, 16);
+      if (Number.isFinite(current) && current !== chain.id) {
+        throw new Error(
+          `Wallet is on chainId ${current} but this transaction targets chainId ${chain.id}. Please switch networks in Web3Auth and retry.`,
+        );
+      }
+    }
+  } catch (e) {
+    // If eth_chainId itself fails, continue; other checks will still surface errors.
+  }
+
+  // Preflight: ensure target has code + estimate gas (so we can surface reverts early and
+  // avoid wallet-side estimation failures).
+  let estimatedGas: bigint | null = null;
+  if (transaction?.to) {
+    const code = await readClient.getBytecode({ address: transaction.to as any });
+    if (!code || code === '0x') {
+      throw new Error(
+        `Target contract is not deployed at ${String(transaction.to)} on chainId ${chain.id}. Check addresses/config.`,
+      );
+    }
+    try {
+      estimatedGas = await readClient.estimateGas({
+        account,
+        to: transaction.to as any,
+        data: transaction.data as any,
+        value: BigInt(transaction.value ?? 0),
+      } as any);
+    } catch (estimateErr: any) {
+      // Try to extract revert reason from eth_call simulation
+      let revertReason = 'unknown reason';
+      try {
+        await readClient.call({
+          account,
+          to: transaction.to as any,
+          data: transaction.data as any,
+          value: BigInt(transaction.value ?? 0),
+        } as any);
+      } catch (callErr: any) {
+        // Try multiple ways to extract revert reason
+        const data = callErr?.data || callErr?.cause?.data || callErr?.details || callErr?.body?.error?.data || '';
+        const shortMsg = callErr?.shortMessage || callErr?.message || '';
+        
+        // Standard Solidity revert: Error(string) selector 0x08c379a0
+        if (typeof data === 'string' && data.startsWith('0x08c379a0')) {
+          try {
+            const { decodeAbiParameters } = await import('viem');
+            const decoded = decodeAbiParameters(
+              [{ type: 'string', name: 'reason' }],
+              `0x${data.slice(10)}` as any,
+            );
+            revertReason = decoded[0] as string;
+          } catch {
+            revertReason = 'reverted with Error(string) (decode failed)';
+          }
+        } else if (typeof data === 'string' && data.length > 2 && data.startsWith('0x')) {
+          // If we have hex data but it's not Error(string), show first bytes
+          revertReason = `reverted with data: ${data.slice(0, 130)}`;
+        } else if (shortMsg && !shortMsg.includes('unknown')) {
+          revertReason = shortMsg;
+        }
+        
+        // Log full error for debugging
+        const errorMessage = callErr?.message || '';
+        console.warn('[signAndSendTransaction] Full eth_call error details:', {
+          data,
+          shortMessage: shortMsg,
+          message: errorMessage,
+          cause: callErr?.cause,
+          body: callErr?.body,
+          stack: callErr?.stack?.split('\n').slice(0, 5),
+        });
+
+        // Try to decode Error(string) from the data if available
+        if (data && typeof data === 'string' && data.startsWith('0x') && data.length >= 10) {
+          try {
+            // Check if it's an Error(string) - selector is 0x08c379a0
+            if (data.startsWith('0x08c379a0')) {
+              const { decodeAbiParameters } = await import('viem');
+              const decoded = decodeAbiParameters(
+                [{ type: 'string', name: 'reason' }],
+                `0x${data.slice(10)}` as any,
+              );
+              console.warn('[signAndSendTransaction] Decoded Error(string) revert reason:', decoded[0]);
+              revertReason = decoded[0] as string;
+            } else {
+              // Try to decode as raw string data
+              const { decodeAbiParameters } = await import('viem');
+              try {
+                const decoded = decodeAbiParameters(
+                  [{ type: 'string', name: 'reason' }],
+                  data as any,
+                );
+                if (decoded[0]) {
+                  console.warn('[signAndSendTransaction] Decoded raw revert reason:', decoded[0]);
+                  revertReason = decoded[0] as string;
+                }
+              } catch {
+                // If that fails, show first part of hex data
+                console.warn('[signAndSendTransaction] Raw revert data (first 100 chars):', data.slice(0, 100));
+              }
+            }
+          } catch (decodeErr) {
+            console.warn('[signAndSendTransaction] Failed to decode revert data:', decodeErr);
+          }
+        }
+
+        // Try additional error message extraction
+        if (errorMessage && errorMessage.includes('revert')) {
+          revertReason = errorMessage;
+        }
+      }
+      const msg = estimateErr?.shortMessage || estimateErr?.message || String(estimateErr);
+      throw new Error(`Transaction would fail (estimateGas): Execution reverted: ${revertReason}. ${msg}`);
+    }
+  }
+
   // Update status
   onStatusUpdate?.('Transaction prepared. Please confirm in your wallet...');
 
@@ -261,6 +397,12 @@ export async function signAndSendTransaction(
 
   if (transaction.gas) {
     txParams.gas = BigInt(transaction.gas);
+  } else if (estimatedGas) {
+    // Pad estimate to avoid underestimation; some wallets struggle to estimate internally.
+    // IMPORTANT: keep this integer-safe; BigInt() cannot take fractional numbers.
+    // Use pure BigInt math to apply a 20% buffer.
+    const eg = typeof estimatedGas === 'bigint' ? estimatedGas : BigInt(estimatedGas as any);
+    txParams.gas = (eg * 120n) / 100n;
   }
   if (transaction.gasPrice) {
     txParams.gasPrice = BigInt(transaction.gasPrice);
@@ -272,21 +414,57 @@ export async function signAndSendTransaction(
     txParams.maxPriorityFeePerGas = BigInt(transaction.maxPriorityFeePerGas);
   }
 
+  // If fees are not provided, estimate them via RPC. This avoids Web3Auth internal errors
+  // during wallet-side fee estimation.
+  if (!txParams.gasPrice && !txParams.maxFeePerGas && !txParams.maxPriorityFeePerGas) {
+    try {
+      const fees = await readClient.estimateFeesPerGas();
+      if (fees?.maxFeePerGas && fees?.maxPriorityFeePerGas) {
+        txParams.maxFeePerGas = fees.maxFeePerGas;
+        txParams.maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+      } else {
+        const gp = await readClient.getGasPrice();
+        txParams.gasPrice = gp;
+      }
+    } catch {
+      // Ignore; wallet may still handle fee estimation.
+    }
+  }
+
   // Sign and send transaction
-  const hash = await walletClient.sendTransaction(txParams);
+  // NOTE: Web3Auth (OpenLogin) sometimes fails to surface the approval modal when using walletClient.sendTransaction.
+  // We keep the viem path first, but add a fallback to eth_sendTransaction which tends to reliably trigger the UI.
+  let hash: any;
+  try {
+    hash = await walletClient.sendTransaction(txParams);
+  } catch (sendErr: any) {
+    console.warn('[signAndSendTransaction] walletClient.sendTransaction failed; attempting eth_sendTransaction fallback', sendErr);
+    try {
+      const from = (account as any) || txParams.account;
+      const txForProvider: any = {
+        from,
+        to: txParams.to,
+        data: txParams.data,
+        value: `0x${BigInt(txParams.value ?? 0n).toString(16)}`,
+      };
+      if (txParams.gas) txForProvider.gas = `0x${BigInt(txParams.gas).toString(16)}`;
+      if (txParams.gasPrice) txForProvider.gasPrice = `0x${BigInt(txParams.gasPrice).toString(16)}`;
+      if (txParams.maxFeePerGas) txForProvider.maxFeePerGas = `0x${BigInt(txParams.maxFeePerGas).toString(16)}`;
+      if (txParams.maxPriorityFeePerGas) txForProvider.maxPriorityFeePerGas = `0x${BigInt(txParams.maxPriorityFeePerGas).toString(16)}`;
+      hash = await provider.request?.({ method: 'eth_sendTransaction', params: [txForProvider] });
+    } catch (fallbackErr: any) {
+      console.warn('[signAndSendTransaction] eth_sendTransaction fallback failed', fallbackErr);
+      throw sendErr;
+    }
+  }
 
   // Update status
   onStatusUpdate?.(
     `Transaction submitted! Hash: ${hash}. Waiting for confirmation...`
   );
 
-  // Wait for transaction receipt
-  const publicClient = createPublicClient({
-    chain,
-    transport: custom(ethereumProvider),
-  });
-
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  // Wait for transaction receipt (use RPC, not wallet provider)
+  const receipt = await readClient.waitForTransactionReceipt({ hash });
 
   // Extract agentId if requested (for agent creation transactions)
   let agentId: string | undefined;

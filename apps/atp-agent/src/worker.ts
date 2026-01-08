@@ -13,6 +13,9 @@ import {
   isENSNameAvailable,
   DEFAULT_CHAIN_ID,
   type SessionPackage,
+  buildDelegationSetup,
+  buildAgentAccountFromSession,
+  createDelegationAssociationWithIpfs,
 } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 import { getD1Database, getIndexerD1Database, type D1Database } from './lib/d1-wrapper';
@@ -259,7 +262,16 @@ function syncEnvVars(env: Env) {
     // Some bundlers polyfill `process` but not `process.env`
     (process as any).env = (process as any).env || {};
     for (const [key, value] of Object.entries(env)) {
-      if (typeof value === 'string' && key.startsWith('AGENTIC_TRUST_')) {
+      if (
+        typeof value === 'string' &&
+        (key.startsWith('AGENTIC_TRUST_') ||
+          key === 'PINATA_JWT' ||
+          key === 'PINATA_API_KEY' ||
+          key === 'PINATA_API_SECRET' ||
+          key === 'WEB3_STORAGE_TOKEN' ||
+          key === 'WEB3_STORAGE_API_KEY' ||
+          key === 'IPFS_GATEWAY_URL')
+      ) {
         process.env[key] = value;
       }
     }
@@ -268,7 +280,16 @@ function syncEnvVars(env: Env) {
   // Also stash on globalThis so core singletons (e.g. ensClient) can hydrate on-demand.
   (globalThis as any).__agenticTrustEnv = (globalThis as any).__agenticTrustEnv || {};
   for (const [key, value] of Object.entries(env)) {
-    if (typeof value === 'string' && key.startsWith('AGENTIC_TRUST_')) {
+    if (
+      typeof value === 'string' &&
+      (key.startsWith('AGENTIC_TRUST_') ||
+        key === 'PINATA_JWT' ||
+        key === 'PINATA_API_KEY' ||
+        key === 'PINATA_API_SECRET' ||
+        key === 'WEB3_STORAGE_TOKEN' ||
+        key === 'WEB3_STORAGE_API_KEY' ||
+        key === 'IPFS_GATEWAY_URL')
+    ) {
       (globalThis as any).__agenticTrustEnv[key] = value;
     }
   }
@@ -457,6 +478,16 @@ const buildSkills = (subdomain: string | null | undefined) => {
       inputModes: ['text', 'json'],
       outputModes: ['text', 'json'],
       description: 'Submit a validation response (attestation) using a configured session package.',
+    },
+    {
+      id: 'oasf:trust.validation.delegation',
+      name: 'oasf:trust.validation.delegation',
+      tags: ['erc8092', 'delegation', 'validation', 'a2a'],
+      examples: ['Issue an ERC-8092 delegation allowing validator to respond to a validation request'],
+      inputModes: ['json'],
+      outputModes: ['json'],
+      description:
+        'Issue an approver-signed ERC-8092 delegation association payload (with IPFS pointer) for a validation request.',
     },
     {
       id: 'atp.account.addOrUpdate',
@@ -904,12 +935,6 @@ const handleA2A = async (c: HonoContext) => {
       timestamp: new Date().toISOString(),
     });
 
-    // Normalize skill id - we historically had a typo ('osaf:'), but the correct prefix is 'oasf:'.
-    // Accept both so callers using either spelling still hit the intended handler.
-    if (typeof skillId === 'string' && skillId.startsWith('osaf:')) {
-      skillId = `oasf:${skillId.slice('osaf:'.length)}`;
-    }
-
     // Handle skill-based requests
     const responseContent: Record<string, unknown> = {
       received: true,
@@ -920,11 +945,9 @@ const handleA2A = async (c: HonoContext) => {
 
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
-      // Back-compat for historical typo:
-      'osaf:trust.feedback.authorization',
       'oasf:trust.feedback.authorization',
-      'osaf:trust.validation.attestation',
       'oasf:trust.validation.attestation',
+      'oasf:trust.validation.delegation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
       'atp.agent.get',

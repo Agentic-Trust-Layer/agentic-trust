@@ -98,6 +98,14 @@ export type {
 } from './lib/agentFeedback';
 
 export {
+  createDelegationAssociationWithIpfs,
+} from './lib/delegationAssociation';
+
+export type {
+  DelegationAssociationResult,
+} from './lib/delegationAssociation';
+
+export {
   encodeAssociationData,
   decodeAssociationData,
 } from './lib/association';

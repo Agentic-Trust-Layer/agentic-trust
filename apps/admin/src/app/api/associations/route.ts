@@ -2,8 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { ethers } from "ethers";
-import { getAssociationsClient } from "@agentic-trust/core/server";
 import { associationIdFromRecord } from "@associatedaccounts/erc8092-sdk";
+import { getAssociationsProxyAddress } from "../../../lib/config";
 
 function normalizeEvmAddress(input: string): string {
   // ethers.getAddress rejects invalid mixed-case checksums.
@@ -70,13 +70,10 @@ export async function GET(request: Request) {
       );
     }
 
-    const associationsClient = await getAssociationsClient(chainId);
-    const result = await associationsClient.getSignedAssociationsForEvmAccount({
-      chainId,
-      accountAddress: addr,
-    });
+    // Use admin app's resolved associations proxy address (guards against misconfigured env vars in core singleton).
+    const associationsProxyAddress = getAssociationsProxyAddress();
 
-    // Server-side verification (limited to known key types)
+    // RPC URL (used for both read ops and verification below)
     const rpcUrl =
       (chainId === 11155111
         ? process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA || process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA
@@ -87,6 +84,34 @@ export async function GET(request: Request) {
             : undefined) ||
       process.env.AGENTIC_TRUST_RPC_URL ||
       process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL;
+
+    if (!rpcUrl) {
+      return NextResponse.json(
+        { ok: false, error: "RPC URL not configured for associations lookup" },
+        { status: 500 },
+      );
+    }
+
+    // Build a minimal associations client pointed at the admin-configured proxy.
+    const associationsClient = await (async () => {
+      const { AIAgentAssociationClient } = await import("@agentic-trust/8004-ext-sdk");
+      const { encodeFunctionData } = await import("viem");
+      const accountProvider = {
+        chain: () => ({ id: chainId, rpcUrl }),
+        encodeFunctionData: async (params: any) => encodeFunctionData(params) as any,
+        send: async () => {
+          throw new Error("Not implemented");
+        },
+      };
+      return AIAgentAssociationClient.create(accountProvider as any, associationsProxyAddress as `0x${string}`);
+    })();
+
+    const result = await associationsClient.getSignedAssociationsForEvmAccount({
+      chainId,
+      accountAddress: addr,
+    });
+
+    // Server-side verification (limited to known key types)
     const provider = rpcUrl ? new ethers.JsonRpcProvider(rpcUrl) : null;
     const ERC1271_ABI = ["function isValidSignature(bytes32, bytes) view returns (bytes4)"] as const;
     const ERC1271_MAGIC = "0x1626ba7e";

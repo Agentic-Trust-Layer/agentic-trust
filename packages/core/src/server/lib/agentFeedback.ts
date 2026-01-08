@@ -185,8 +185,9 @@ export async function createFeedbackAuthWithDelegation(
     const approverAddress = ethers.getAddress(String(params.signer?.address || '')) as `0x${string}`;
     const initiatorAddress = ethers.getAddress(params.clientAddress) as `0x${string}`;
 
-    const nowSec = Math.floor(Date.now() / 1000);
-    const validAt = clampU40(nowSec);
+    // NOTE: We use validAt=0 to avoid "validAt in the future" edge-cases during on-chain store,
+    // where some ERC-8092 store implementations may reject records with validAt > block.timestamp.
+    const validAt = 0;
     // IMPORTANT: keep validUntil=0 for compatibility with the current server-side association store prep,
     // which always uses record.validUntil=0. Expiry is still embedded in the delegation payload.
     const validUntil = 0;
@@ -248,9 +249,31 @@ export async function createFeedbackAuthWithDelegation(
       throw new Error('walletClient is required to sign delegation association');
     }
 
-    const approverSignature = (await params.walletClient.signMessage({
+    // IMPORTANT:
+    // Sign using EIP-712 typed data so the signature validates against the raw EIP-712 digest (no EIP-191 prefix).
+    // Our digest scheme uses ONLY domain {name, version} (no chainId/verifyingContract).
+    const approverSignature = (await params.walletClient.signTypedData({
       account: params.signer,
-      message: { raw: ethers.getBytes(associationId) },
+      domain: { name: 'AssociatedAccounts', version: '1' },
+      types: {
+        AssociatedAccountRecord: [
+          { name: 'initiator', type: 'bytes' },
+          { name: 'approver', type: 'bytes' },
+          { name: 'validAt', type: 'uint40' },
+          { name: 'validUntil', type: 'uint40' },
+          { name: 'interfaceId', type: 'bytes4' },
+          { name: 'data', type: 'bytes' },
+        ],
+      },
+      primaryType: 'AssociatedAccountRecord',
+      message: {
+        initiator: record.initiator,
+        approver: record.approver,
+        validAt: BigInt(record.validAt),
+        validUntil: BigInt(record.validUntil),
+        interfaceId: record.interfaceId,
+        data: record.data,
+      },
     })) as `0x${string}`;
 
     const sar = {

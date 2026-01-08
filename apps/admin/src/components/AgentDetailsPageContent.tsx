@@ -19,7 +19,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
 import type { Address } from 'viem';
-import { getAddress } from 'viem';
+import { decodeAbiParameters, getAddress, parseAbiParameters, recoverAddress } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -40,6 +40,244 @@ function ipfsToHttp(uri: string): string {
     return `https://w3s.link/ipfs/${cid}`;
   }
   return trimmed;
+}
+
+function jsonSafe(value: any): any {
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) return value.map(jsonSafe);
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const [k, v] of Object.entries(value)) out[k] = jsonSafe(v);
+    return out;
+  }
+  return value;
+}
+
+async function signErc8092Digest(params: {
+  provider: any;
+  signerAddress: `0x${string}`;
+  digest: `0x${string}`;
+  typedData?: any;
+}): Promise<`0x${string}`> {
+  const { provider, signerAddress, digest, typedData } = params;
+  // Prefer typed-data signing (EIP-712) so the signature validates against the raw digest.
+  const tryV4 = async () =>
+    (await provider.request?.({
+      method: 'eth_signTypedData_v4',
+      params: [signerAddress, JSON.stringify(typedData)],
+    })) as `0x${string}`;
+  const tryV3 = async () =>
+    (await provider.request?.({
+      method: 'eth_signTypedData_v3',
+      params: [signerAddress, JSON.stringify(typedData)],
+    })) as `0x${string}`;
+  const tryEthSign = async () =>
+    (await provider.request?.({ method: 'eth_sign', params: [signerAddress, digest] })) as `0x${string}`;
+
+  const normalizeSigV = (sig: `0x${string}`): `0x${string}` => {
+    const s = String(sig || '') as `0x${string}`;
+    if (!s || s === '0x') return sig;
+    const hex = s.slice(2);
+    // Expect 65-byte sig (r,s,v) => 130 hex chars.
+    if (hex.length !== 130) return sig;
+    const vHex = hex.slice(128, 130);
+    const v = Number.parseInt(vHex, 16);
+    if (v === 0 || v === 1) {
+      const vOut = (v + 27).toString(16).padStart(2, '0');
+      return (`0x${hex.slice(0, 128)}${vOut}`) as `0x${string}`;
+    }
+    return sig;
+  };
+
+  const verify = async (sig: `0x${string}`): Promise<`0x${string}`> => {
+    const normalized = normalizeSigV(sig);
+    const recovered = await recoverAddress({ hash: digest, signature: normalized });
+    if (recovered.toLowerCase() !== signerAddress.toLowerCase()) {
+      throw new Error(`Bad signature: recovered ${recovered} (expected ${signerAddress})`);
+    }
+    return normalized;
+  };
+
+  let lastErr: any = null;
+  if (typedData) {
+    try {
+      const sig = await tryV4();
+      if (sig && sig !== '0x') return await verify(sig);
+    } catch (e) {
+      lastErr = e;
+    }
+    try {
+      const sig = await tryV3();
+      if (sig && sig !== '0x') return await verify(sig);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  try {
+    const sig = await tryEthSign();
+    if (sig && sig !== '0x') return await verify(sig);
+  } catch (e) {
+    lastErr = e;
+  }
+  throw lastErr ?? new Error('Failed to sign ERC-8092 digest (typedData / eth_sign unsupported)');
+}
+
+async function storeErc8092SarOnChainEoa(params: {
+  did8004: string;
+  chainId: number;
+  provider: any;
+  account: `0x${string}`;
+  sar: any;
+}): Promise<void> {
+  const { did8004, chainId, provider, account, sar } = params;
+  // NOTE: We do NOT modify record.validAt here because:
+  // 1. The associationId (digest) was computed from the original record
+  // 2. The signatures (initiator + approver) were computed for that digest
+  // 3. Changing validAt would change the digest, making signatures invalid
+  // If the agent returns validAt in the future, it will revert - that's expected until the agent is updated.
+  const normalizedSar = sar;
+  
+  // Check if association already exists before attempting to store
+  const associationId = sar?.associationId || normalizedSar?.associationId;
+  console.log('[storeErc8092SarOnChainEoa] Checking for existing association:', {
+    associationId,
+    account,
+    chainId,
+  });
+  if (associationId) {
+    try {
+      const checkResp = await fetch(`/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`);
+      if (checkResp.ok) {
+        const checkData = await checkResp.json().catch(() => ({}));
+        console.log('[storeErc8092SarOnChainEoa] Existing associations check:', {
+          found: checkData.associations?.length || 0,
+          associationIds: (checkData.associations || []).map((a: any) => a.associationId),
+          lookingFor: associationId,
+        });
+        const existing = (checkData.associations || []).find((a: any) => 
+          String(a.associationId || '').toLowerCase() === String(associationId).toLowerCase()
+        );
+        if (existing) {
+          console.log('[storeErc8092SarOnChainEoa] Association already exists on-chain, skipping store:', {
+            associationId,
+            existing: {
+              revokedAt: existing.revokedAt,
+              initiatorAddress: existing.initiatorAddress,
+              approverAddress: existing.approverAddress,
+            },
+          });
+          return; // Already stored, no-op
+        }
+      } else {
+        console.warn('[storeErc8092SarOnChainEoa] Association check request failed:', checkResp.status);
+      }
+    } catch (checkErr) {
+      console.warn('[storeErc8092SarOnChainEoa] Failed to check existing associations (continuing):', checkErr);
+    }
+  }
+  
+  console.log('[storeErc8092SarOnChainEoa] Preparing to store association:', {
+    associationId,
+    initiatorAddress: normalizedSar?.initiatorAddress || sar?.initiatorAddress,
+    approverAddress: normalizedSar?.approverAddress || sar?.approverAddress,
+    record: {
+      validAt: normalizedSar?.record?.validAt,
+      validUntil: normalizedSar?.record?.validUntil,
+      initiator: normalizedSar?.record?.initiator ? `${normalizedSar.record.initiator.slice(0, 20)}...` : 'missing',
+      approver: normalizedSar?.record?.approver ? `${normalizedSar.record.approver.slice(0, 20)}...` : 'missing',
+      interfaceId: normalizedSar?.record?.interfaceId,
+      data: normalizedSar?.record?.data ? `${normalizedSar.record.data.slice(0, 40)}...` : 'missing',
+    },
+    hasInitiatorSig: !!(normalizedSar?.initiatorSignature && normalizedSar.initiatorSignature !== '0x'),
+    hasApproverSig: !!(normalizedSar?.approverSignature && normalizedSar.approverSignature !== '0x'),
+    initiatorKeyType: normalizedSar?.initiatorKeyType,
+    approverKeyType: normalizedSar?.approverKeyType,
+    revokedAt: normalizedSar?.revokedAt,
+  });
+  
+  // Verify required fields before attempting to store
+  if (!normalizedSar?.approverSignature || normalizedSar.approverSignature === '0x') {
+    throw new Error('Missing approverSignature in SAR');
+  }
+  if (!normalizedSar?.record) {
+    throw new Error('Missing record in SAR');
+  }
+  // Note: initiatorSignature can be empty ('0x') - it gets signed client-side
+  
+  const chain =
+    chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
+  console.log('[storeErc8092SarOnChainEoa] Calling /api/associate with:', {
+    did8004: decodeURIComponent(String(did8004 || '')),
+    mode: 'eoa',
+    sarKeys: Object.keys(normalizedSar),
+    sarSummary: {
+      hasAssociationId: !!normalizedSar.associationId,
+      hasInitiatorAddress: !!normalizedSar.initiatorAddress,
+      hasApproverAddress: !!normalizedSar.approverAddress,
+      hasApproverSignature: !!(normalizedSar.approverSignature && normalizedSar.approverSignature !== '0x'),
+      hasRecord: !!normalizedSar.record,
+      recordValidAt: normalizedSar.record?.validAt,
+      recordValidUntil: normalizedSar.record?.validUntil,
+    },
+  });
+
+  const resp = await fetch('/api/associate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      did8004: decodeURIComponent(String(did8004 || '')),
+      mode: 'eoa',
+      sar: jsonSafe(normalizedSar),
+    }),
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err?.error || err?.message || 'Failed to prepare ERC-8092 storeAssociation tx');
+  }
+  const plan = await resp.json().catch(() => null) as any;
+  const tx = plan?.transaction;
+  if (!tx?.to || !tx?.data) {
+    throw new Error('Invalid /api/associate response (missing transaction)');
+  }
+
+  console.log('[storeErc8092SarOnChainEoa] Prepared transaction:', {
+    to: tx.to,
+    dataLength: tx.data?.length || 0,
+    dataPrefix: tx.data?.slice(0, 20) + '...',
+    value: tx.value,
+    chainId: tx.chainId,
+  });
+  const result = await signAndSendTransaction({
+    transaction: tx as PreparedTransaction,
+    account,
+    chain,
+    ethereumProvider: provider,
+  });
+  console.log('[storeErc8092SarOnChainEoa] Transaction result:', {
+    hash: result?.hash,
+    receiptStatus: result?.receipt?.status,
+    blockNumber: result?.receipt?.blockNumber,
+  });
+
+  // Immediately re-check associations so the UI/user can see the new record
+  try {
+    const checkRes = await fetch(
+      `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`,
+      { cache: 'no-store' },
+    );
+    const checkJson = await checkRes.json().catch(() => null);
+    console.log('[storeErc8092SarOnChainEoa] Post-store associations check:', {
+      ok: checkRes.ok,
+      hasOk: typeof checkJson?.ok === 'boolean' ? checkJson.ok : undefined,
+      count: Array.isArray(checkJson?.associations) ? checkJson.associations.length : undefined,
+      lookingFor: associationId,
+      found: Array.isArray(checkJson?.associations)
+        ? checkJson.associations.some((a: any) => String(a?.associationId).toLowerCase() === String(associationId).toLowerCase())
+        : false,
+    });
+  } catch (e) {
+    console.warn('[storeErc8092SarOnChainEoa] Post-store associations check failed:', e);
+  }
 }
 
 type AgentDetailsPageContentProps = {
@@ -332,6 +570,97 @@ export default function AgentDetailsPageContent({
 
     (async () => {
       try {
+        // First: check for an existing ERC-8092 delegation that contains the feedbackAuth payload.
+        // If it exists, use it and avoid calling the agent for feedbackAuth again.
+        try {
+          if (agent.agentAccount) {
+            const assocResp = await fetch(
+              `/api/associations?account=${encodeURIComponent(walletAddress)}&chainId=${encodeURIComponent(String(chainId))}`,
+              { cache: 'no-store' },
+            );
+            if (!cancelled && assocResp.ok) {
+              const assocJson = await assocResp.json().catch(() => null) as any;
+              const associations: any[] = Array.isArray(assocJson?.associations) ? assocJson.associations : [];
+              const nowSec = Math.floor(Date.now() / 1000);
+
+              const agentAccountLower = String(agent.agentAccount).toLowerCase();
+              const walletLower = String(walletAddress).toLowerCase();
+
+              for (const a of associations) {
+                // must be an active, unrevoked delegation association
+                const revokedAt = Number(a?.revokedAt ?? 0);
+                if (revokedAt && revokedAt > 0) continue;
+                const validAt = Number(a?.record?.validAt ?? a?.validAt ?? 0);
+                const validUntil = Number(a?.record?.validUntil ?? a?.validUntil ?? 0);
+                if (Number.isFinite(validAt) && validAt > 0 && validAt > nowSec) continue;
+                if (Number.isFinite(validUntil) && validUntil > 0 && validUntil < nowSec) continue;
+
+                const initiatorAddr = String(a?.initiatorAddress ?? a?.initiator ?? '').toLowerCase();
+                const approverAddr = String(a?.approverAddress ?? a?.approver ?? '').toLowerCase();
+                if (!initiatorAddr || !approverAddr) continue;
+
+                // require this delegation be between current wallet (initiator) and the agent account (approver)
+                if (initiatorAddr !== walletLower) continue;
+                if (approverAddr !== agentAccountLower) continue;
+
+                const dataHex = String(a?.record?.data ?? a?.data ?? '').trim();
+                if (!dataHex || !dataHex.startsWith('0x')) continue;
+
+                // Decode assocType + description
+                let assocType: number | null = null;
+                let description = '';
+                try {
+                  const [t, d] = decodeAbiParameters(
+                    parseAbiParameters('uint8 assocType, string description'),
+                    dataHex as `0x${string}`,
+                  ) as any;
+                  assocType = Number(t);
+                  description = String(d ?? '');
+                } catch {
+                  continue;
+                }
+                if (assocType !== 1) continue;
+
+                let payloadUri: string | null = null;
+                try {
+                  const parsed = JSON.parse(description || '{}');
+                  if (parsed?.type === 'erc8004.feedbackAuth.delegation' && typeof parsed?.payloadUri === 'string') {
+                    payloadUri = parsed.payloadUri;
+                  }
+                } catch {
+                  // ignore
+                }
+                if (!payloadUri) continue;
+
+                // Fetch delegation payload from IPFS and extract feedbackAuth
+                try {
+                  const httpUrl = ipfsToHttp(payloadUri);
+                  const payload = httpUrl ? await fetch(httpUrl, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null) : null;
+                  const feedbackAuthId =
+                    typeof payload?.feedbackAuth === 'string'
+                      ? String(payload.feedbackAuth).trim()
+                      : null;
+                  const payloadAgentId = payload?.agentId != null ? String(payload.agentId) : null;
+                  const payloadChainId = payload?.chainId != null ? Number(payload.chainId) : null;
+                  if (
+                    feedbackAuthId &&
+                    feedbackAuthId.startsWith('0x') &&
+                    payloadAgentId === String(agent.agentId) &&
+                    payloadChainId === Number(chainId)
+                  ) {
+                    setFeedbackAuth(feedbackAuthId);
+                    return;
+                  }
+                } catch {
+                  // ignore and fall back to requesting feedbackAuth
+                }
+              }
+            }
+          }
+        } catch {
+          // ignore and fall back to requesting feedbackAuth
+        }
+
         const params = new URLSearchParams({
           clientAddress: walletAddress,
           agentId: agent.agentId.toString(),
@@ -353,6 +682,7 @@ export default function AgentDetailsPageContent({
             (data?.feedbackAuthId as string | undefined) ??
             (data?.feedbackAuth as string | undefined) ??
             null;
+          const delegationAssociation = (data as any)?.delegationAssociation ?? null;
 
           if (feedbackAuthId === '0x0') {
             setFeedbackAuth(null);
@@ -362,6 +692,262 @@ export default function AgentDetailsPageContent({
             setFeedbackAuth(feedbackAuthId);
           } else {
             setFeedbackAuth(null);
+          }
+
+          // If we had to call the agent for feedbackAuth (i.e. no on-chain delegation found above),
+          // and the agent returned a delegationAssociation, store it on-chain now so refreshes will
+          // pick it up without re-requesting feedbackAuth.
+          if (feedbackAuthId && delegationAssociation && eip1193Provider) {
+            try {
+              const assocId = String(delegationAssociation.associationId || '').trim() as `0x${string}`;
+              const approverAddress = getAddress(String(delegationAssociation.approverAddress || '')) as `0x${string}`;
+              const initiatorAddress = getAddress(String(delegationAssociation.initiatorAddress || walletAddress)) as `0x${string}`;
+              const assocData = String(delegationAssociation.data || '').trim() as `0x${string}`;
+              const validAt = Number(delegationAssociation.validAt ?? 0);
+              const approverSignature = String(delegationAssociation.approverSignature || '').trim() as `0x${string}`;
+              const sarRecord = (delegationAssociation as any)?.sar?.record;
+
+              if (
+                assocId &&
+                assocId !== '0x' &&
+                approverSignature &&
+                approverSignature !== '0x' &&
+                assocData &&
+                assocData !== '0x'
+              ) {
+                if (initiatorAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+                  throw new Error(`delegationAssociation initiatorAddress (${initiatorAddress}) does not match wallet (${walletAddress})`);
+                }
+
+                // Switch chain before signing/sending
+                try {
+                  const targetHex = `0x${Number(chainId).toString(16)}`;
+                  await eip1193Provider.request?.({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: targetHex }],
+                  });
+                } catch {
+                  // ignore
+                }
+
+                const typedData =
+                  sarRecord && typeof sarRecord === 'object'
+                    ? {
+                        types: {
+                          EIP712Domain: [
+                            { name: 'name', type: 'string' },
+                            { name: 'version', type: 'string' },
+                          ],
+                          AssociatedAccountRecord: [
+                            { name: 'initiator', type: 'bytes' },
+                            { name: 'approver', type: 'bytes' },
+                            { name: 'validAt', type: 'uint40' },
+                            { name: 'validUntil', type: 'uint40' },
+                            { name: 'interfaceId', type: 'bytes4' },
+                            { name: 'data', type: 'bytes' },
+                          ],
+                        },
+                        primaryType: 'AssociatedAccountRecord',
+                        domain: { name: 'AssociatedAccounts', version: '1' },
+                        message: {
+                          initiator: String(sarRecord.initiator),
+                          approver: String(sarRecord.approver),
+                          validAt: Number(sarRecord.validAt),
+                          validUntil: Number(sarRecord.validUntil ?? 0),
+                          interfaceId: String(sarRecord.interfaceId),
+                          data: String(sarRecord.data),
+                        },
+                      }
+                    : undefined;
+
+                const initiatorSignature = await signErc8092Digest({
+                  provider: eip1193Provider,
+                  signerAddress: getAddress(walletAddress) as `0x${string}`,
+                  digest: assocId,
+                });
+
+                // Merge the agent's delegationAssociation fields into the SAR
+                const agentSar = (delegationAssociation as any)?.sar;
+                if (!agentSar) {
+                  throw new Error('Agent did not provide a complete SAR in delegationAssociation');
+                }
+                // The SAR from the agent is missing top-level fields, so we need to add them
+                const sar = {
+                  associationId: delegationAssociation.associationId,
+                  initiatorAddress: delegationAssociation.initiatorAddress,
+                  approverAddress: delegationAssociation.approverAddress,
+                  ...agentSar,
+                };
+                // Validate the SAR before storing
+                console.log('[AgentDetails] Final SAR being sent to contract:', {
+                  associationId: sar.associationId,
+                  revokedAt: sar.revokedAt,
+                  initiatorKeyType: sar.initiatorKeyType,
+                  approverKeyType: sar.approverKeyType,
+                  hasInitiatorSig: !!(sar.initiatorSignature && sar.initiatorSignature !== '0x'),
+                  hasApproverSig: !!(sar.approverSignature && sar.approverSignature !== '0x'),
+                  record: sar.record ? {
+                    validAt: sar.record.validAt,
+                    validUntil: sar.record.validUntil,
+                    interfaceId: sar.record.interfaceId,
+                    initiator: sar.record.initiator ? `${sar.record.initiator.slice(0, 20)}...` : 'missing',
+                    approver: sar.record.approver ? `${sar.record.approver.slice(0, 20)}...` : 'missing',
+                    dataLength: sar.record.data?.length || 0,
+                  } : 'missing',
+                });
+
+                // Validate record data format and fix types if needed
+                if (sar.record) {
+                  const issues = [];
+                  if (typeof sar.record.validAt !== 'bigint') {
+                    issues.push(`validAt should be bigint, got ${typeof sar.record.validAt}`);
+                    sar.record.validAt = BigInt(sar.record.validAt);
+                  }
+                  if (typeof sar.record.validUntil !== 'bigint') {
+                    issues.push(`validUntil should be bigint, got ${typeof sar.record.validUntil}`);
+                    sar.record.validUntil = BigInt(sar.record.validUntil);
+                  }
+                  if (!sar.record.interfaceId || !sar.record.interfaceId.startsWith('0x')) issues.push(`interfaceId invalid: ${sar.record.interfaceId}`);
+                  if (!sar.record.initiator || !sar.record.initiator.startsWith('0x')) issues.push(`initiator invalid: ${sar.record.initiator}`);
+                  if (!sar.record.approver || !sar.record.approver.startsWith('0x')) issues.push(`approver invalid: ${sar.record.approver}`);
+                  if (issues.length > 0) {
+                    console.warn('[AgentDetails] SAR record validation issues (fixed):', issues);
+                  }
+                }
+
+                // Sign the initiator signature if it's empty
+                if (!sar.initiatorSignature || sar.initiatorSignature === '0x') {
+                  console.log('[AgentDetails] Signing initiator signature for association...');
+                  try {
+                    const sarRecord = sar.record!;
+                    const typedData = {
+                      types: {
+                        EIP712Domain: [
+                          { name: 'name', type: 'string' },
+                          { name: 'version', type: 'string' },
+                        ],
+                        AssociatedAccountRecord: [
+                          { name: 'initiator', type: 'bytes' },
+                          { name: 'approver', type: 'bytes' },
+                          { name: 'validAt', type: 'uint40' },
+                          { name: 'validUntil', type: 'uint40' },
+                          { name: 'interfaceId', type: 'bytes4' },
+                          { name: 'data', type: 'bytes' },
+                        ],
+                      },
+                      primaryType: 'AssociatedAccountRecord',
+                      domain: { name: 'AssociatedAccounts', version: '1' },
+                      // JSON-safe values for eth_signTypedData_v4/v3
+                      message: {
+                        initiator: String(sarRecord.initiator),
+                        approver: String(sarRecord.approver),
+                        validAt: Number(sarRecord.validAt),
+                        validUntil: Number(sarRecord.validUntil),
+                        interfaceId: String(sarRecord.interfaceId),
+                        data: String(sarRecord.data),
+                      },
+                    };
+
+                    const signature = await signErc8092Digest({
+                      provider: eip1193Provider,
+                      signerAddress: getAddress(walletAddress) as `0x${string}`,
+                      digest: sar.associationId as `0x${string}`,
+                      typedData,
+                    });
+                    sar.initiatorSignature = signature;
+                    console.log('[AgentDetails] Initiator signature signed successfully:', {
+                      signature: signature.slice(0, 20) + '...',
+                      signatureLength: signature.length,
+                      associationId: sar.associationId,
+                    });
+
+                    // Signature is verified inside signErc8092Digest (recoverAddress on digest)
+                  } catch (signError) {
+                    console.error('[AgentDetails] Failed to sign initiator signature:', signError);
+                    throw signError;
+                  }
+                }
+
+                // Validate associationId matches record
+                if (sar.record && sar.associationId) {
+                  try {
+                    const ethers = await import('ethers');
+                    const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+                      if (n === 0n) return new Uint8Array([0]);
+                      let hex = n.toString(16);
+                      if (hex.length % 2) hex = `0${hex}`;
+                      return ethers.getBytes(`0x${hex}`);
+                    };
+                    const formatEvmV1 = (chainId: number, address: string): string => {
+                      const addr = ethers.getAddress(address);
+                      const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+                      const head = ethers.getBytes('0x00010000');
+                      const out = ethers.concat([
+                        head,
+                        new Uint8Array([chainRef.length]),
+                        chainRef,
+                        new Uint8Array([20]),
+                        ethers.getBytes(addr),
+                      ]);
+                      return ethers.hexlify(out);
+                    };
+
+                    const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
+                    const NAME_HASH = ethers.id('AssociatedAccounts');
+                    const VERSION_HASH = ethers.id('1');
+                    const MESSAGE_TYPEHASH = ethers.id(
+                      'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+                    );
+                    const domainSeparator = ethers.keccak256(
+                      ethers.AbiCoder.defaultAbiCoder().encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
+                    );
+
+                    const hashStruct = ethers.keccak256(
+                      ethers.AbiCoder.defaultAbiCoder().encode(
+                        ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
+                        [
+                          MESSAGE_TYPEHASH,
+                          ethers.keccak256(sar.record.initiator),
+                          ethers.keccak256(sar.record.approver),
+                          sar.record.validAt,
+                          sar.record.validUntil,
+                          sar.record.interfaceId,
+                          ethers.keccak256(sar.record.data),
+                        ],
+                      ),
+                    );
+                    const computedDigest = ethers.keccak256(
+                      ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
+                    );
+
+                    console.log('[AgentDetails] AssociationId validation:', {
+                      provided: sar.associationId,
+                      computedDigest,
+                      matches: sar.associationId === computedDigest,
+                    });
+
+                    if (sar.associationId !== computedDigest) {
+                      console.warn('[AgentDetails] AssociationId mismatch! Using computed digest instead.');
+                      sar.associationId = computedDigest;
+                    }
+                  } catch (err) {
+                    console.warn('[AgentDetails] Failed to validate associationId:', err);
+                  }
+                }
+
+                await storeErc8092SarOnChainEoa({
+                  did8004,
+                  chainId: Number(chainId),
+                  provider: eip1193Provider,
+                  account: getAddress(walletAddress) as `0x${string}`,
+                  sar,
+                });
+              }
+            } catch (assocErr: any) {
+              const msg = assocErr?.message || String(assocErr);
+              console.warn('[AgentDetails] Failed to store feedbackAuth delegation association (page-load):', assocErr);
+              setFeedbackAuthError(`Failed to store ERC-8092 delegation: ${msg}`);
+            }
           }
         } else {
           setFeedbackAuth(null);
@@ -1124,6 +1710,7 @@ export default function AgentDetailsPageContent({
                     const data = String(delegationAssociation.data || '').trim() as `0x${string}`;
                     const validAt = Number(delegationAssociation.validAt ?? 0);
                     const approverSignature = String(delegationAssociation.approverSignature || '').trim() as `0x${string}`;
+                    const sarRecord = (delegationAssociation as any)?.sar?.record;
 
                     if (assocId && assocId !== '0x' && data && data !== '0x' && approverSignature && approverSignature !== '0x') {
                       // Ensure initiator is the connected wallet.
@@ -1131,31 +1718,74 @@ export default function AgentDetailsPageContent({
                         throw new Error(`delegationAssociation initiatorAddress (${initiatorAddress}) does not match wallet (${clientAddress})`);
                       }
 
-                      // ERC-8092 requires signing the raw digest (EIP-712 hash). Use eth_sign, NOT personal_sign.
-                      const initiatorSignature = (await eip1193Provider.request?.({
-                        method: 'eth_sign',
-                        params: [clientAddress, assocId],
-                      })) as `0x${string}`;
+                      // Switch chain before signing/sending, otherwise the tx can be submitted to the wrong chain.
+                      try {
+                        const targetHex = `0x${Number(resolvedChainId).toString(16)}`;
+                        await eip1193Provider.request?.({
+                          method: 'wallet_switchEthereumChain',
+                          params: [{ chainId: targetHex }],
+                        });
+                      } catch {
+                        // non-fatal; some providers don't support switching
+                      }
 
-                      await finalizeAssociationWithWallet({
-                        chain: chainFor(Number(resolvedChainId)),
-                        mode: 'eoa',
-                        ethereumProvider: eip1193Provider,
-                        account: getAddress(clientAddress) as `0x${string}`,
-                        requesterDid: did8004,
-                        initiatorAddress: getAddress(clientAddress) as `0x${string}`,
-                        approverAddress,
-                        assocType: 1,
-                        description: 'feedbackAuth delegation',
-                        validAt,
-                        data,
+                      const typedData =
+                        sarRecord && typeof sarRecord === 'object'
+                          ? {
+                              types: {
+                                EIP712Domain: [
+                                  { name: 'name', type: 'string' },
+                                  { name: 'version', type: 'string' },
+                                ],
+                                AssociatedAccountRecord: [
+                                  { name: 'initiator', type: 'bytes' },
+                                  { name: 'approver', type: 'bytes' },
+                                  { name: 'validAt', type: 'uint40' },
+                                  { name: 'validUntil', type: 'uint40' },
+                                  { name: 'interfaceId', type: 'bytes4' },
+                                  { name: 'data', type: 'bytes' },
+                                ],
+                              },
+                              primaryType: 'AssociatedAccountRecord',
+                              domain: { name: 'AssociatedAccounts', version: '1' },
+                              message: {
+                                initiator: String(sarRecord.initiator),
+                                approver: String(sarRecord.approver),
+                                validAt: Number(sarRecord.validAt),
+                                validUntil: Number(sarRecord.validUntil ?? 0),
+                                interfaceId: String(sarRecord.interfaceId),
+                                data: String(sarRecord.data),
+                              },
+                            }
+                          : undefined;
+
+                      const initiatorSignature = await signErc8092Digest({
+                        provider: eip1193Provider,
+                        signerAddress: getAddress(clientAddress) as `0x${string}`,
+                        digest: assocId,
+                      });
+
+                      const sar = {
+                        revokedAt: 0,
+                        initiatorKeyType: '0x0001',
+                        approverKeyType: '0x0001',
                         initiatorSignature,
                         approverSignature,
-                      } as any);
+                        record: sarRecord,
+                      };
+                      await storeErc8092SarOnChainEoa({
+                        did8004,
+                        chainId: Number(resolvedChainId),
+                        provider: eip1193Provider,
+                        account: getAddress(clientAddress) as `0x${string}`,
+                        sar,
+                      });
                     }
                   } catch (assocErr: any) {
+                    // Don't fail feedback submission, but DO surface this so it's debuggable.
+                    const msg = assocErr?.message || String(assocErr);
                     console.warn('[AgentDetails] Failed to store feedbackAuth delegation association:', assocErr);
-                    // Do not fail feedback submission if association storage fails.
+                    setFeedbackAuthError(`Failed to store ERC-8092 delegation: ${msg}`);
                   }
                 }
 
