@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { ethers } from "ethers";
-import { associationIdFromRecord } from "@associatedaccounts/erc8092-sdk";
+import { associationIdFromRecord, formatEvmV1, tryParseEvmV1 } from "@associatedaccounts/erc8092-sdk";
 import { getAssociationsProxyAddress } from "../../../lib/config";
 
 function normalizeEvmAddress(input: string): string {
@@ -52,6 +52,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const account = searchParams.get("account");
     const chainIdParam = searchParams.get("chainId");
+    const sourceParam = (searchParams.get("source") || "").trim().toLowerCase();
     
     if (!account) return NextResponse.json({ ok: false, error: "Missing account" }, { status: 400 });
 
@@ -72,6 +73,129 @@ export async function GET(request: Request) {
 
     // Use admin app's resolved associations proxy address (guards against misconfigured env vars in core singleton).
     const associationsProxyAddress = getAssociationsProxyAddress();
+
+    // Prefer the discovery/indexer view when available (fast + matches the "associations table" data).
+    // Allow forcing the on-chain path with `?source=chain`.
+    const canUseDiscovery = sourceParam !== "chain";
+    const interoperableAccount =
+      addr.startsWith("0x") && /^0x[0-9a-fA-F]{40}$/.test(addr) ? formatEvmV1(chainId, addr) : null;
+
+    const discoveryUrlRaw = process.env.AGENTIC_TRUST_DISCOVERY_URL;
+    const discoveryApiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
+    const discoveryUrl =
+      discoveryUrlRaw && discoveryUrlRaw.length > 0
+        ? discoveryUrlRaw.endsWith("/graphql")
+          ? discoveryUrlRaw
+          : `${discoveryUrlRaw.replace(/\/$/, "")}/graphql`
+        : null;
+
+    const debug: Record<string, unknown> = {
+      requested: { account, chainId, source: sourceParam || undefined },
+      normalized: { addr, interoperableAccount },
+      discovery: {
+        enabled: canUseDiscovery,
+        urlConfigured: !!discoveryUrl,
+        hasApiKey: !!discoveryApiKey,
+      },
+    };
+
+    if (canUseDiscovery && discoveryUrl && interoperableAccount) {
+      try {
+        const query = `
+          query Associations($where: AssociationWhereInput, $first: Int, $skip: Int) {
+            associations(where: $where, first: $first, skip: $skip) {
+              chainId
+              associationId
+              initiator
+              approver
+              validAt
+              validUntil
+              interfaceId
+              data
+              initiatorKeyType
+              approverKeyType
+              initiatorSignature
+              approverSignature
+              revokedAt
+              createdTxHash
+              createdBlockNumber
+              createdTimestamp
+              lastUpdatedTxHash
+              lastUpdatedBlockNumber
+              lastUpdatedTimestamp
+            }
+          }
+        `;
+
+        const fetchOneSide = async (where: any) => {
+          const res = await fetch(discoveryUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(discoveryApiKey
+                ? {
+                    Authorization: `Bearer ${discoveryApiKey}`,
+                    "X-API-Key": discoveryApiKey,
+                  }
+                : {}),
+            },
+            body: JSON.stringify({ query, variables: { where, first: 500, skip: 0 } }),
+            // Don't cache: the whole point is to reflect the indexer quickly.
+            cache: "no-store",
+          });
+          const json = await res.json().catch(() => null) as any;
+          if (!res.ok) {
+            throw new Error(json?.error || json?.message || `Discovery GraphQL HTTP ${res.status}`);
+          }
+          if (json?.errors?.length) {
+            throw new Error(json.errors[0]?.message || "Discovery GraphQL query failed");
+          }
+          return Array.isArray(json?.data?.associations) ? (json.data.associations as any[]) : [];
+        };
+
+        // Some deployments interpret `revoked` inconsistently; omit it for maximum compatibility.
+        const a = await fetchOneSide({ chainId, initiatorAccountId: interoperableAccount });
+        const b = await fetchOneSide({ chainId, approverAccountId: interoperableAccount });
+        debug.discovery = {
+          ...(debug.discovery as any),
+          initiatorCount: a.length,
+          approverCount: b.length,
+        };
+        const merged = [...a, ...b];
+        const byId = new Map<string, any>();
+        for (const item of merged) {
+          const id = String(item?.associationId || "");
+          if (!id) continue;
+          byId.set(id.toLowerCase(), item);
+        }
+        const rows = Array.from(byId.values());
+
+        // Enrich with best-effort parsed EVM addresses (helps clients that expect initiatorAddress/approverAddress).
+        const enriched = rows.map((row) => {
+          const initiatorParsed = typeof row?.initiator === "string" ? tryParseEvmV1(row.initiator) : null;
+          const approverParsed = typeof row?.approver === "string" ? tryParseEvmV1(row.approver) : null;
+          return {
+            ...row,
+            initiatorAddress: initiatorParsed?.address,
+            approverAddress: approverParsed?.address,
+          };
+        });
+
+        return NextResponse.json({
+          ok: true,
+          chainId,
+          account: addr,
+          interoperableAccount,
+          source: "discovery_graphql",
+          debug,
+          associations: enriched,
+        });
+      } catch (e: any) {
+        // Fall through to on-chain read.
+        (debug.discovery as any).error = e?.message || String(e);
+        console.warn("[/api/associations] discovery lookup failed; falling back to chain:", e?.message || e);
+      }
+    }
 
     // RPC URL (used for both read ops and verification below)
     const rpcUrl =
@@ -201,7 +325,15 @@ export async function GET(request: Request) {
       })),
     );
 
-    return NextResponse.json({ ok: true, chainId: result.chainId, account: result.account, associations: verified });
+    return NextResponse.json({
+      ok: true,
+      chainId: result.chainId,
+      account: result.account,
+      source: "chain",
+      associationsProxyAddress,
+      debug,
+      associations: verified,
+    });
   } catch (e: any) {
     const msg = e instanceof Error ? e.message : "Unknown error";
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });

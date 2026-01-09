@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { DiscoverParams, DiscoverResponse } from '@agentic-trust/core/server';
+import type { DiscoverResponse } from '@agentic-trust/core/server';
 import { discoverAgents, type DiscoverRequest, getAgenticTrustClient } from '@agentic-trust/core/server';
 import {
   Alert,
@@ -135,9 +135,13 @@ function normalizeAgent(agent: CoreAgent): NormalizedAgent {
         ? agent.agentAccount
         : null,
     owner:
-      typeof agent.agentOwner === 'string' && agent.agentOwner.trim().length > 0
-        ? agent.agentOwner
-        : null,
+      typeof agent.eoaAgentIdentityOwnerAccount === 'string' &&
+      agent.eoaAgentIdentityOwnerAccount.trim().length > 0
+        ? agent.eoaAgentIdentityOwnerAccount.trim()
+        : typeof agent.agentIdentityOwnerAccount === 'string' &&
+            agent.agentIdentityOwnerAccount.trim().length > 0
+          ? agent.agentIdentityOwnerAccount.trim()
+          : null,
     chainId: typeof agent.chainId === 'number' ? agent.chainId : null,
     type:
       typeof agent.type === 'string' && agent.type.trim().length > 0 ? agent.type.trim() : null,

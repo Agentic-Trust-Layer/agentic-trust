@@ -199,7 +199,7 @@ export default function TrustGraphModal({
         if (!agentAccount) return;
         const chainId = agent.chainId || 11155111;
         const res = await fetch(
-          `/api/associations?account=${encodeURIComponent(agentAccount)}&chainId=${chainId}`,
+          `/api/associations?account=${encodeURIComponent(agentAccount)}&chainId=${chainId}&source=chain`,
           { cache: 'no-store' }
         );
         const json = (await res.json()) as AssociationsResp;
@@ -236,7 +236,7 @@ export default function TrustGraphModal({
       const results = await Promise.allSettled(
         firstHops.map(async (addr) => {
           const res = await fetch(
-            `/api/associations?account=${encodeURIComponent(addr)}&chainId=${chainId}`,
+            `/api/associations?account=${encodeURIComponent(addr)}&chainId=${chainId}&source=chain`,
             { cache: 'no-store' }
           );
           const json = (await res.json()) as AssociationsResp;

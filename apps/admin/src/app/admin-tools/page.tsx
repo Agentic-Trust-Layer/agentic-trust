@@ -1929,19 +1929,24 @@ export default function AdminPage() {
 
       (async () => {
         try {
+
+          console.log('fetching NFT operator for agent', finalAgentId, finalChainId);
         const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
+        console.log('get operator for did8004', did8004);
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
-        
+        console.log('response', response);
         if (cancelled) return;
-        
+        console.log('response ok', response.ok);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           throw new Error(errorData.error || 'Failed to fetch NFT operator');
         }
 
         const data = await response.json();
+        console.log('data for operator just retrieved', data);
         if (cancelled) return;
 
+        console.log('setting NFT operator', data.operatorAddress);
         setNftOperator({
           loading: false,
           error: null,

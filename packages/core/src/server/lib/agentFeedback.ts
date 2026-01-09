@@ -88,6 +88,50 @@ function clampU40(n: number): number {
   return Math.min(Math.floor(n), U40_MAX);
 }
 
+function parseAgentAccountMetadata(value: unknown): `0x${string}` | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (!v) return null;
+  // Supports CAIP-10: "eip155:<chainId>:0x..."
+  if (v.startsWith('eip155:')) {
+    const parts = v.split(':');
+    const addr = parts[2];
+    if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr)) return ethers.getAddress(addr) as `0x${string}`;
+  }
+  if (/^0x[a-fA-F0-9]{40}$/.test(v)) return ethers.getAddress(v) as `0x${string}`;
+  return null;
+}
+
+function tryDecodeMetadataString(raw: unknown): string | null {
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s) return null;
+    // Many `getMetadata` implementations return bytes (0x...) that represent a UTF-8 string.
+    // Try to decode that to a normal string first.
+    if (s.startsWith('0x')) {
+      try {
+        return ethers.toUtf8String(ethers.getBytes(s));
+      } catch {
+        // Fall back to the raw hex string.
+        return s;
+      }
+    }
+    return s;
+  }
+
+  // Some decoders may return Uint8Array-like bytes.
+  try {
+    if (raw && typeof raw === 'object' && 'length' in (raw as any)) {
+      return ethers.toUtf8String(raw as any);
+    }
+  } catch {
+    // ignore
+  }
+
+  if (raw === null || raw === undefined) return null;
+  return String(raw);
+}
+
 function toMinimalBigEndianBytes(n: bigint): Uint8Array {
   if (n === 0n) return new Uint8Array([0]);
   let hex = n.toString(16);
@@ -174,6 +218,7 @@ export async function createFeedbackAuthWithDelegation(
     indexLimit,
     expiry,
     identityRegistry,
+    authorityAddress,
   } = await createFeedbackAuthInternal(params);
 
   // Best-effort: build delegation association. If it fails, still return feedbackAuth.
@@ -182,7 +227,10 @@ export async function createFeedbackAuthWithDelegation(
     if (!Number.isFinite(chainIdNum) || chainIdNum <= 0) {
       throw new Error(`Invalid chainId for delegation association: ${String(chainId)}`);
     }
-    const approverAddress = ethers.getAddress(String(params.signer?.address || '')) as `0x${string}`;
+    // Approver is the *authority* we want the signature to be attributed to (agentAccount smart account).
+    // The actual signature bytes are produced by `params.signer` and must validate via the authority's ERC-1271.
+    const approverAddress =
+      ethers.getAddress(String(authorityAddress || params.signer?.address || '')) as `0x${string}`;
     const initiatorAddress = ethers.getAddress(params.clientAddress) as `0x${string}`;
 
     // NOTE: We use validAt=0 to avoid "validAt in the future" edge-cases during on-chain store,
@@ -201,7 +249,11 @@ export async function createFeedbackAuthWithDelegation(
       indexLimit: indexLimit.toString(),
       expiry: expiry.toString(),
       identityRegistry,
+      // Authority address (agentAccount) that the on-chain verifier should attribute the delegation/auth to.
       signerAddress: approverAddress,
+      // The key that produced the raw signature bytes (useful for debugging); the verifier should still
+      // treat the signature as coming from `signerAddress` via ERC-1271.
+      operatorAddress: ethers.getAddress(String(params.signer?.address || '')) as `0x${string}`,
       createdAt: new Date().toISOString(),
     };
 
@@ -249,10 +301,58 @@ export async function createFeedbackAuthWithDelegation(
       throw new Error('walletClient is required to sign delegation association');
     }
 
+    // If approverAddress is a smart account (ERC-1271), the signature bytes must be something
+    // that approverAddress will accept for `isValidSignature(digest, signature)`.
+    // Different account implementations expect different signature schemes (EIP-712 digest-signing vs EIP-191 personal_sign).
+    // We'll generate a small set of candidates and pick the one that validates via ERC-1271.
+    const selectApproverSignature = async (candidates: Array<{ scheme: string; sig: `0x${string}` }>) => {
+      try {
+        const code = await params.publicClient.getBytecode({ address: approverAddress });
+        // If not a contract, don't attempt ERC-1271 selection.
+        if (!code || code === '0x') {
+          return { selected: candidates[0]!, checked: false, reason: 'approver has no code (EOA/counterfactual)' };
+        }
+        const ERC1271_MAGIC = '0x1626ba7e' as const;
+        const ERC1271_ABI = [
+          {
+            type: 'function',
+            name: 'isValidSignature',
+            stateMutability: 'view',
+            inputs: [
+              { name: 'hash', type: 'bytes32' },
+              { name: 'signature', type: 'bytes' },
+            ],
+            outputs: [{ name: 'magicValue', type: 'bytes4' }],
+          },
+        ] as const;
+
+        for (const c of candidates) {
+          try {
+            const magic = (await params.publicClient.readContract({
+              address: approverAddress,
+              abi: ERC1271_ABI as any,
+              functionName: 'isValidSignature',
+              args: [associationId, c.sig],
+            })) as `0x${string}`;
+            if (String(magic).toLowerCase() === ERC1271_MAGIC) {
+              return { selected: c, checked: true, reason: 'erc1271 magic matched' };
+            }
+          } catch {
+            // try next
+          }
+        }
+        return { selected: candidates[0]!, checked: true, reason: 'no candidate validated via ERC-1271' };
+      } catch (e: any) {
+        return { selected: candidates[0]!, checked: false, reason: e?.message || String(e) };
+      }
+    };
+
     // IMPORTANT:
     // Sign using EIP-712 typed data so the signature validates against the raw EIP-712 digest (no EIP-191 prefix).
     // Our digest scheme uses ONLY domain {name, version} (no chainId/verifyingContract).
-    const approverSignature = (await params.walletClient.signTypedData({
+    const sigEip712 = (await params.walletClient.signTypedData({
+      // NOTE: signature bytes are produced by `params.signer` (operator/session key),
+      // but validated against `approverAddress` (agentAccount) via ERC-1271.
       account: params.signer,
       domain: { name: 'AssociatedAccounts', version: '1' },
       types: {
@@ -275,6 +375,24 @@ export async function createFeedbackAuthWithDelegation(
         data: record.data,
       },
     })) as `0x${string}`;
+
+    // Candidate 2: EIP-191 personal_sign of the 32-byte digest (some smart accounts validate this scheme).
+    let sigPersonal: `0x${string}` = '0x';
+    try {
+      sigPersonal = (await params.walletClient.signMessage({
+        account: params.signer,
+        message: { raw: ethers.getBytes(associationId) },
+      })) as `0x${string}`;
+    } catch {
+      // ignore
+    }
+
+    const chosen = await selectApproverSignature([
+      { scheme: 'eip712', sig: sigEip712 },
+      ...(sigPersonal && sigPersonal !== '0x' ? [{ scheme: 'personal_sign', sig: sigPersonal } as const] : []),
+    ]);
+
+    const approverSignature = chosen.selected.sig;
 
     const sar = {
       revokedAt: 0,
@@ -302,7 +420,7 @@ export async function createFeedbackAuthWithDelegation(
           ...delegationRef,
           // Include the full payload inline too (best-effort convenience for clients),
           // but the canonical copy is the IPFS payload when available.
-          payload: delegation,
+          payload: { ...delegation, signatureScheme: (chosen as any).selected?.scheme, signatureChecked: (chosen as any).checked, signatureCheckReason: (chosen as any).reason },
         },
       },
     };
@@ -320,6 +438,7 @@ async function createFeedbackAuthInternal(params: RequestAuthParams): Promise<{
   indexLimit: bigint;
   expiry: bigint;
   identityRegistry: `0x${string}`;
+  authorityAddress: `0x${string}`;
 }> {
   const {
     publicClient,
@@ -374,6 +493,28 @@ async function createFeedbackAuthInternal(params: RequestAuthParams): Promise<{
     throw e;
   }
 
+  // Resolve the agentAccount authority address from on-chain metadata.
+  // This is the address we want verifiers to attribute feedbackAuth/delegations to.
+  let authorityAddress = signer.address as `0x${string}`;
+  try {
+    const agentAccountRaw = await publicClient.readContract({
+      address: identityReg as `0x${string}`,
+      abi: identityRegistryAbi as any,
+      functionName: 'getMetadata' as any,
+      args: [agentId, 'agentAccount'],
+    });
+    const agentAccountStr = tryDecodeMetadataString(agentAccountRaw);
+    const parsed = parseAgentAccountMetadata(agentAccountStr);
+    if (parsed) authorityAddress = parsed;
+    console.info('[FeedbackAuth] Resolved authorityAddress:', {
+      agentId: agentId.toString(),
+      authorityAddress,
+      agentAccountStr,
+    });
+  } catch (e) {
+    console.warn('[FeedbackAuth] Unable to resolve agentAccount from metadata; falling back to signer.address', e);
+  }
+
 
   const nowSec = BigInt(Math.floor(Date.now() / 1000));
   const chainId = BigInt(publicClient.chain?.id ??  0);
@@ -388,14 +529,15 @@ async function createFeedbackAuthInternal(params: RequestAuthParams): Promise<{
   }
 
   // Build FeedbackAuth struct via ReputationClient
-  console.info("create feedback auth structure: ", agentId, clientAddress, indexLimit, expiry, chainId, signer.address as `0x${string}`);
+  console.info("create feedback auth structure: ", agentId, clientAddress, indexLimit, expiry, chainId, authorityAddress);
   const authStruct = reputationClient.createFeedbackAuth(
     agentId,
     clientAddress,
     indexLimit,
     expiry,
     chainId,
-    signer.address as `0x${string}`,
+    // IMPORTANT: attribute auth to agentAccount authority, not the operator key.
+    authorityAddress,
   );
 
   // Note: log the struct directly; JSON.stringify cannot handle BigInt values.
@@ -437,5 +579,6 @@ async function createFeedbackAuthInternal(params: RequestAuthParams): Promise<{
     indexLimit,
     expiry,
     identityRegistry: identityReg as `0x${string}`,
+    authorityAddress,
   };
 }

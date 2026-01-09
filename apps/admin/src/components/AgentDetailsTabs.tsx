@@ -226,7 +226,7 @@ const AgentDetailsTabs = ({
           ? agent.agentAccount.split(':').pop() || agent.agentAccount
           : agent.agentAccount;
       const res = await fetch(
-        `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`,
+        `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}&source=chain`,
         {
           cache: 'no-store',
         }

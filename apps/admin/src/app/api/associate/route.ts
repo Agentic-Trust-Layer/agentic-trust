@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       // Also ensure bytes fields are proper hex strings.
       const normalizeSar = (sar: any): any => {
         if (!sar || typeof sar !== 'object') return sar;
-        return {
+        const normalized = {
           ...sar,
           revokedAt: typeof sar.revokedAt === 'string' ? Number(sar.revokedAt) : (typeof sar.revokedAt === 'number' ? sar.revokedAt : 0),
           validAt: typeof sar.validAt === 'string' ? Number(sar.validAt) : (typeof sar.validAt === 'number' ? sar.validAt : 0),
@@ -110,6 +110,34 @@ export async function POST(req: Request) {
             validUntil: typeof sar.record.validUntil === 'string' ? Number(sar.record.validUntil) : (typeof sar.record.validUntil === 'number' ? sar.record.validUntil : 0),
           } : sar.record,
         };
+        // Derive associationId + parsed addresses if missing (many clients only send record+signatures).
+        try {
+          const { associationIdFromRecord, tryParseEvmV1 } = require('@associatedaccounts/erc8092-sdk') as typeof import('@associatedaccounts/erc8092-sdk');
+          const record = normalized.record;
+          if (record && typeof record === 'object') {
+            if (!normalized.associationId && record.initiator && record.approver) {
+              normalized.associationId = associationIdFromRecord({
+                initiator: String(record.initiator),
+                approver: String(record.approver),
+                validAt: Number(record.validAt ?? 0),
+                validUntil: Number(record.validUntil ?? 0),
+                interfaceId: String(record.interfaceId ?? '0x00000000'),
+                data: String(record.data ?? '0x'),
+              } as any);
+            }
+            if (!normalized.initiatorAddress && typeof record.initiator === 'string') {
+              const parsed = tryParseEvmV1(record.initiator);
+              if (parsed?.address) normalized.initiatorAddress = parsed.address;
+            }
+            if (!normalized.approverAddress && typeof record.approver === 'string') {
+              const parsed = tryParseEvmV1(record.approver);
+              if (parsed?.address) normalized.approverAddress = parsed.address;
+            }
+          }
+        } catch {
+          // best-effort only
+        }
+        return normalized;
       };
       const normalizedSar = normalizeSar(body.sar);
       console.log('[API /associate] Normalized SAR:', {

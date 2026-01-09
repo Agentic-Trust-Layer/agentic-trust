@@ -827,8 +827,22 @@ export class Agent {
       feedback: params.feedback ?? 'Feedback submitted via Agentic Trust admin app.',
       tag1: params.tag1,
       tag2: params.tag2,
-      // Updated reputation ABI requires an endpoint string (we treat it as optional in the app layer).
-      endpoint: this.endpoint?.url ?? this.data.a2aEndpoint ?? '',
+      // Updated reputation ABI includes an `endpoint` string.
+      // IMPORTANT: Keep this short and stable. Some deployed registries are strict (and will revert)
+      // on unexpected long URLs or values here. Prefer the agent's A2A endpoint; otherwise fall back
+      // to a best-effort origin (no path/query) from any URL-like value we have.
+      endpoint: (() => {
+        const a2a = typeof (this.data as any)?.a2aEndpoint === 'string' ? String((this.data as any).a2aEndpoint) : '';
+        if (a2a.trim()) return a2a.trim();
+        const raw = typeof (this as any)?.endpoint?.url === 'string' ? String((this as any).endpoint.url) : '';
+        if (!raw.trim()) return '';
+        try {
+          const u = new URL(raw.trim());
+          return `${u.protocol}//${u.host}`;
+        } catch {
+          return '';
+        }
+      })(),
       feedbackUri: feedbackUriFromIpfs,
       feedbackHash: feedbackHashFromIpfs,
       agentId,

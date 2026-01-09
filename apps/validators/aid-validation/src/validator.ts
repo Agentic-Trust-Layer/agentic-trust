@@ -366,10 +366,14 @@ export async function processValidationRequests(
       console.log(`[Validator] ************ Agent: `, agent.data.tokenUri);
       
       // Get tokenUri to fetch registration
-      const tokenUri = agent.data.tokenUri;
+      const tokenUri =
+        typeof (agent.data as any)?.tokenUri === 'string'
+          ? ((agent.data as any).tokenUri as string).trim()
+          : '';
       if (!tokenUri) {
         errorCount++;
-        const error = `Agent ${agentId} has no tokenUri`;
+        const tokenUriType = typeof (agent.data as any)?.tokenUri;
+        const error = `Agent ${agentId} has no tokenUri (or tokenUri is not a string; got ${tokenUriType})`;
         console.error(`[Validator] ❌ ERROR: ${error}`);
         results.push({
           ...buildCommonResult({

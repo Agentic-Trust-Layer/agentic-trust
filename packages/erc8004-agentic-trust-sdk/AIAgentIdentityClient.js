@@ -539,6 +539,8 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
                 functionName: 'getApproved',
                 args: [agentId],
             });
+
+            console.log('operatorAddress', operatorAddress);
             // Check if operator is set (not zero address)
             if (operatorAddress && operatorAddress !== '0x0000000000000000000000000000000000000000') {
                 return operatorAddress;

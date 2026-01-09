@@ -31,6 +31,7 @@ import AutoGraphIcon from '@mui/icons-material/AutoGraph';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import { finalizeAssociationWithWallet } from '@agentic-trust/core/client';
+import { associationIdFromRecord, tryParseEvmV1 } from '@associatedaccounts/erc8092-sdk';
 
 function ipfsToHttp(uri: string): string {
   const trimmed = String(uri || '').trim();
@@ -135,7 +136,54 @@ async function storeErc8092SarOnChainEoa(params: {
   // 2. The signatures (initiator + approver) were computed for that digest
   // 3. Changing validAt would change the digest, making signatures invalid
   // If the agent returns validAt in the future, it will revert - that's expected until the agent is updated.
-  const normalizedSar = sar;
+  // Normalize: some SAR payloads omit derived fields (associationId, parsed addresses).
+  // Derive them from the record so downstream logic (dedupe + logging) is stable.
+  const normalizedSar = (() => {
+    const base = sar && typeof sar === 'object' ? { ...sar } : sar;
+    const record = base?.record;
+    if (!record || typeof record !== 'object') return base;
+
+    try {
+      if (!base.associationId && record.initiator && record.approver) {
+        const validAt =
+          typeof record.validAt === 'bigint'
+            ? Number(record.validAt)
+            : typeof record.validAt === 'string'
+              ? Number(record.validAt)
+              : typeof record.validAt === 'number'
+                ? record.validAt
+                : 0;
+        const validUntil =
+          typeof record.validUntil === 'bigint'
+            ? Number(record.validUntil)
+            : typeof record.validUntil === 'string'
+              ? Number(record.validUntil)
+              : typeof record.validUntil === 'number'
+                ? record.validUntil
+                : 0;
+        base.associationId = associationIdFromRecord({
+          initiator: String(record.initiator),
+          approver: String(record.approver),
+          validAt,
+          validUntil,
+          interfaceId: String(record.interfaceId ?? '0x00000000'),
+          data: String(record.data ?? '0x'),
+        });
+      }
+
+      if (!base.initiatorAddress && typeof record.initiator === 'string') {
+        const parsed = tryParseEvmV1(record.initiator);
+        if (parsed?.address) base.initiatorAddress = parsed.address;
+      }
+      if (!base.approverAddress && typeof record.approver === 'string') {
+        const parsed = tryParseEvmV1(record.approver);
+        if (parsed?.address) base.approverAddress = parsed.address;
+      }
+    } catch {
+      // best-effort only
+    }
+    return base;
+  })();
   
   // Check if association already exists before attempting to store
   const associationId = sar?.associationId || normalizedSar?.associationId;
@@ -262,7 +310,8 @@ async function storeErc8092SarOnChainEoa(params: {
   // Immediately re-check associations so the UI/user can see the new record
   try {
     const checkRes = await fetch(
-      `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`,
+      // Force on-chain read here: the discovery/indexer view can lag right after tx submission.
+      `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}&source=chain`,
       { cache: 'no-store' },
     );
     const checkJson = await checkRes.json().catch(() => null);
