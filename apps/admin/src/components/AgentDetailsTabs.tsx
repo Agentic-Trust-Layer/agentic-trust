@@ -39,10 +39,11 @@ export type AgentDetailsValidationsSummary = {
 };
 
 type AgentDetailsTabsProps = {
+  did8004: string;
   agent: AgentsPageAgent;
-  feedbackItems: unknown[];
-  feedbackSummary: AgentDetailsFeedbackSummary;
-  validations: AgentDetailsValidationsSummary | null;
+  feedbackItems?: unknown[];
+  feedbackSummary?: AgentDetailsFeedbackSummary;
+  validations?: AgentDetailsValidationsSummary | null;
   onChainMetadata?: Record<string, string>;
 };
 
@@ -84,16 +85,61 @@ const formatRelativeTime = (timestamp?: number | null) => {
 };
 
 const AgentDetailsTabs = ({
+  did8004,
   agent,
-  feedbackItems,
-  feedbackSummary,
-  validations,
-  onChainMetadata = {},
+  feedbackItems: initialFeedbackItems,
+  feedbackSummary: initialFeedbackSummary,
+  validations: initialValidations,
+  onChainMetadata: initialOnChainMetadata = {},
 }: AgentDetailsTabsProps) => {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [registrationData, setRegistrationData] = useState<string | null>(null);
   const [registrationLoading, setRegistrationLoading] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+
+  // Feedback + validations are lazy-loaded when their respective tabs are opened
+  const [feedbackItems, setFeedbackItems] = useState<unknown[]>(
+    Array.isArray(initialFeedbackItems) ? initialFeedbackItems : [],
+  );
+  const [feedbackSummary, setFeedbackSummary] = useState<AgentDetailsFeedbackSummary>(
+    initialFeedbackSummary ?? null,
+  );
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackLoaded, setFeedbackLoaded] = useState<boolean>(Array.isArray(initialFeedbackItems));
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  const [validations, setValidations] = useState<AgentDetailsValidationsSummary | null>(
+    initialValidations ?? null,
+  );
+  const [validationsLoading, setValidationsLoading] = useState(false);
+  const [validationsLoaded, setValidationsLoaded] = useState<boolean>(
+    initialValidations !== undefined && initialValidations !== null,
+  );
+  const [validationsError, setValidationsError] = useState<string | null>(null);
+
+  // On-chain metadata is shown in Overview pane; load on demand when Overview is opened
+  const [onChainMetadata, setOnChainMetadata] = useState<Record<string, string>>(initialOnChainMetadata ?? {});
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [metadataLoaded, setMetadataLoaded] = useState<boolean>(
+    initialOnChainMetadata && Object.keys(initialOnChainMetadata).length > 0,
+  );
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+
+  // Normalize DID to avoid double-encoding (e.g. did%253A8004...).
+  const canonicalDid8004 = useMemo(() => {
+    let v = String(did8004 || '');
+    for (let i = 0; i < 3; i++) {
+      if (!v.includes('%')) break;
+      try {
+        const dec = decodeURIComponent(v);
+        if (dec === v) break;
+        v = dec;
+      } catch {
+        break;
+      }
+    }
+    return v;
+  }, [did8004]);
   
   // Associations state
   const [associationsData, setAssociationsData] = useState<{
@@ -138,10 +184,7 @@ const AgentDetailsTabs = ({
   const [revokeError, setRevokeError] = useState<string | null>(null);
   const [agentInfoByAddress, setAgentInfoByAddress] = useState<Map<string, { agentId?: string; agentName?: string; agentAccount?: string }>>(new Map());
 
-  const feedbackList = useMemo(
-    () => (Array.isArray(feedbackItems) ? feedbackItems : []),
-    [feedbackItems],
-  );
+  const feedbackList = useMemo(() => (Array.isArray(feedbackItems) ? feedbackItems : []), [feedbackItems]);
 
   const pendingValidations = validations?.pending ?? [];
   const completedValidations = validations?.completed ?? [];
@@ -199,6 +242,199 @@ const AgentDetailsTabs = ({
       void refreshAssociations();
     }
   }, [activeTab, agent.agentAccount, associationsData, associationsLoading, refreshAssociations]);
+
+  // Lazy load feedback data when feedback tab is selected
+  useEffect(() => {
+    if (activeTab !== 'feedback') return;
+    if (feedbackLoaded || feedbackLoading) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+
+    (async () => {
+      setFeedbackLoading(true);
+      setFeedbackError(null);
+      try {
+        const res = await fetch(
+          `/api/agents/${encodeURIComponent(canonicalDid8004)}/feedback?includeRevoked=true&limit=200`,
+          { signal: controller.signal },
+        );
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          setFeedbackError((json as any)?.message || (json as any)?.error || `Failed to load feedback (${res.status})`);
+          setFeedbackLoaded(true);
+          return;
+        }
+
+        const feedbackPayload = json?.feedback;
+        const summaryPayload = json?.summary;
+        const items =
+          Array.isArray(feedbackPayload?.feedbacks)
+            ? feedbackPayload.feedbacks
+            : Array.isArray(feedbackPayload)
+              ? feedbackPayload
+              : Array.isArray(json?.feedbacks)
+                ? json.feedbacks
+                : [];
+
+        setFeedbackItems(items);
+
+        // Prefer server summary if present, otherwise derive.
+        if (summaryPayload && typeof summaryPayload === 'object') {
+          setFeedbackSummary({
+            count: (summaryPayload as any).count ?? items.length,
+            averageScore: (summaryPayload as any).averageScore ?? undefined,
+          });
+        } else {
+          const scores: number[] = items
+            .map((f: any) => Number(f?.score))
+            .filter((n: number) => Number.isFinite(n));
+          const avg = scores.length ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : undefined;
+          setFeedbackSummary({ count: items.length, averageScore: avg });
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setFeedbackError(e?.message || 'Failed to load feedback');
+        }
+      } finally {
+        if (!cancelled) {
+          setFeedbackLoaded(true); // mark loaded even on failure to avoid infinite retries
+          setFeedbackLoading(false);
+        }
+        clearTimeout(timeout);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [activeTab, canonicalDid8004, feedbackLoaded, feedbackLoading]);
+
+  // Lazy load validations data when validation tab is selected
+  useEffect(() => {
+    if (activeTab !== 'validation') return;
+    if (validationsLoaded || validationsLoading) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+
+    (async () => {
+      setValidationsLoading(true);
+      setValidationsError(null);
+      try {
+        const res = await fetch(
+          `/api/agents/${encodeURIComponent(canonicalDid8004)}/validations`,
+          { signal: controller.signal },
+        );
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          setValidationsError((json as any)?.message || (json as any)?.error || `Failed to load validations (${res.status})`);
+          setValidationsLoaded(true);
+          return;
+        }
+        const pendingRaw = Array.isArray(json?.pending) ? json.pending : [];
+        const completedRaw = Array.isArray(json?.completed) ? json.completed : [];
+        setValidations({
+          pending: pendingRaw.map((v: any) => ({
+            agentId: v?.agentId ?? null,
+            requestHash: v?.requestHash ?? null,
+            validatorAddress: v?.validatorAddress ?? null,
+            response: v?.response ?? null,
+            responseHash: v?.responseHash ?? null,
+            lastUpdate: v?.lastUpdate ?? null,
+            tag: v?.tag ?? null,
+          })),
+          completed: completedRaw.map((v: any) => ({
+            agentId: v?.agentId ?? null,
+            requestHash: v?.requestHash ?? null,
+            validatorAddress: v?.validatorAddress ?? null,
+            response: v?.response ?? null,
+            responseHash: v?.responseHash ?? null,
+            lastUpdate: v?.lastUpdate ?? null,
+            tag: v?.tag ?? null,
+          })),
+        });
+      } catch (e: any) {
+        if (!cancelled) {
+          setValidationsError(e?.message || 'Failed to load validations');
+        }
+      } finally {
+        if (!cancelled) {
+          setValidationsLoaded(true);
+          setValidationsLoading(false);
+        }
+        clearTimeout(timeout);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [activeTab, canonicalDid8004, validationsLoaded, validationsLoading]);
+
+  // Lazy load on-chain metadata when Overview tab is selected (shown in Metadata pane)
+  useEffect(() => {
+    if (activeTab !== 'overview') return;
+    if (metadataLoaded || metadataLoading) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+
+    (async () => {
+      setMetadataLoading(true);
+      setMetadataError(null);
+      try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(canonicalDid8004)}`, {
+          method: 'GET',
+          signal: controller.signal,
+        });
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          setMetadataError((json as any)?.message || (json as any)?.error || `Failed to load agent metadata (${res.status})`);
+          setMetadataLoaded(true);
+          return;
+        }
+        const meta =
+          json &&
+          typeof json === 'object' &&
+          (json as any).identityMetadata &&
+          typeof (json as any).identityMetadata === 'object' &&
+          (json as any).identityMetadata.metadata &&
+          typeof (json as any).identityMetadata.metadata === 'object'
+            ? ((json as any).identityMetadata.metadata as Record<string, string>)
+            : null;
+        if (meta) {
+          setOnChainMetadata(meta);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setMetadataError(e?.message || 'Failed to load on-chain metadata');
+        }
+      } finally {
+        if (!cancelled) {
+          setMetadataLoaded(true);
+          setMetadataLoading(false);
+        }
+        clearTimeout(timeout);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [activeTab, canonicalDid8004, metadataLoaded, metadataLoading]);
 
   // Fetch agent info for association addresses
   useEffect(() => {
@@ -676,6 +912,16 @@ const AgentDetailsTabs = ({
                     </div>
                   </div>
                 )}
+                {metadataLoading && (
+                  <div style={{ color: palette.textSecondary, fontSize: '0.85rem' }}>
+                    Loading on-chain metadata...
+                  </div>
+                )}
+                {metadataError && (
+                  <div style={{ color: palette.dangerText, fontSize: '0.85rem' }}>
+                    {metadataError}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -732,6 +978,16 @@ const AgentDetailsTabs = ({
             <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
               Feedback entries and aggregated reputation summary for this agent.
             </p>
+            {feedbackLoading && (
+              <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                Loading feedback...
+              </p>
+            )}
+            {feedbackError && (
+              <p style={{ color: palette.dangerText, marginTop: 0, marginBottom: '1rem' }}>
+                {feedbackError}
+              </p>
+            )}
             {feedbackSummary && (
               <div
                 style={{
@@ -916,6 +1172,16 @@ const AgentDetailsTabs = ({
               Pending and completed validations for this agent from the on-chain
               validation registry.
             </p>
+            {validationsLoading && (
+              <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                Loading validations...
+              </p>
+            )}
+            {validationsError && (
+              <p style={{ color: palette.dangerText, marginTop: 0, marginBottom: '1rem' }}>
+                {validationsError}
+              </p>
+            )}
             {!validations ? (
               <p style={{ color: palette.textSecondary }}>
                 Unable to load validation data.
