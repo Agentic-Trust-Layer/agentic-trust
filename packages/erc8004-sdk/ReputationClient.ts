@@ -222,12 +222,28 @@ export class ReputationClient {
     const t1 = tag1 || '';
     const t2 = tag2 || '';
 
-    const result = await this.adapter.call<any>(
-      this.contractAddress,
-      ReputationRegistryABI as any,
-      'getSummary',
-      [agentId, clients, t1, t2] as any
-    );
+    // Some deployed ReputationRegistry implementations revert on edge cases
+    // (e.g. empty clientAddresses / empty tags). Treat that as "no summary available"
+    // instead of failing the entire API response.
+    let result: any;
+    try {
+      result = await this.adapter.call<any>(
+        this.contractAddress,
+        ReputationRegistryABI as any,
+        'getSummary',
+        [agentId, clients, t1, t2] as any
+      );
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[ReputationClient.getSummary] getSummary reverted; returning default summary', {
+        agentId: agentId.toString(),
+        clientCount: clients.length,
+        tag1: t1,
+        tag2: t2,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { count: 0n, averageScore: 0 };
+    }
 
     return {
       count: BigInt(result.count || result[0]),

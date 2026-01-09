@@ -282,16 +282,15 @@ async function storeErc8092SarOnChainEoa(params: {
 
 type AgentDetailsPageContentProps = {
   agent: AgentsPageAgent;
-  feedbackItems: unknown[];
-  feedbackSummary: AgentDetailsFeedbackSummary;
-  validations: AgentDetailsValidationsSummary | null;
+  did8004: string;
+  feedbackItems?: unknown[];
+  feedbackSummary?: AgentDetailsFeedbackSummary;
+  validations?: AgentDetailsValidationsSummary | null;
   heroImageSrc: string;
   heroImageFallbackSrc: string;
   displayDid: string;
   chainId: number;
   ownerDisplay: string;
-  validationSummaryText: string;
-  reviewsSummaryText: string;
   onChainMetadata?: Record<string, string>;
 };
 
@@ -302,16 +301,15 @@ type DialogState = {
 
 export default function AgentDetailsPageContent({
   agent,
-  feedbackItems,
-  feedbackSummary,
-  validations,
+  did8004,
+  feedbackItems: initialFeedbackItems,
+  feedbackSummary: initialFeedbackSummary,
+  validations: initialValidations,
   heroImageSrc,
   heroImageFallbackSrc,
   displayDid,
   chainId,
   ownerDisplay,
-  validationSummaryText,
-  reviewsSummaryText,
   onChainMetadata = {},
 }: AgentDetailsPageContentProps) {
   const theme = useTheme();
@@ -347,6 +345,186 @@ export default function AgentDetailsPageContent({
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const [feedbackSuccess, setFeedbackSuccess] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  // Lazy-loaded detail data (avoid blocking SSR/navigation)
+  const [feedbackItems, setFeedbackItems] = useState<unknown[]>(
+    Array.isArray(initialFeedbackItems) ? initialFeedbackItems : [],
+  );
+  const [feedbackSummary, setFeedbackSummary] = useState<AgentDetailsFeedbackSummary>(
+    initialFeedbackSummary ?? null,
+  );
+  const [validations, setValidations] = useState<AgentDetailsValidationsSummary | null>(
+    initialValidations ?? null,
+  );
+  const [onChainMetadataState, setOnChainMetadataState] = useState<Record<string, string>>(
+    onChainMetadata ?? {},
+  );
+  const [detailsLoading, setDetailsLoading] = useState(false);
+
+  // Normalize DID to avoid double-encoding (e.g. did%253A8004...).
+  const canonicalDid8004 = useMemo(() => {
+    let v = String(did8004 || '');
+    for (let i = 0; i < 3; i++) {
+      if (!v.includes('%')) break;
+      try {
+        const dec = decodeURIComponent(v);
+        if (dec === v) break;
+        v = dec;
+      } catch {
+        break;
+      }
+    }
+    return v;
+  }, [did8004]);
+
+  // Explicit "loaded" flags so empty results don't refetch forever.
+  const [feedbackLoaded, setFeedbackLoaded] = useState<boolean>(
+    Array.isArray(initialFeedbackItems),
+  );
+  const [validationsLoaded, setValidationsLoaded] = useState<boolean>(
+    initialValidations !== undefined && initialValidations !== null,
+  );
+  const [metadataLoaded, setMetadataLoaded] = useState<boolean>(
+    onChainMetadata && Object.keys(onChainMetadata).length > 0,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+
+    async function loadDetails() {
+      // Load-once semantics per DID (even if the data is empty).
+      if (feedbackLoaded && validationsLoaded && metadataLoaded) return;
+
+      setDetailsLoading(true);
+      try {
+        const [feedbackRes, validationsRes, agentRes] = await Promise.all([
+          feedbackLoaded
+            ? Promise.resolve(null)
+            : fetch(
+                `/api/agents/${encodeURIComponent(canonicalDid8004)}/feedback?includeRevoked=true&limit=200`,
+                { signal: controller.signal },
+              ).catch(() => null),
+          validationsLoaded
+            ? Promise.resolve(null)
+            : fetch(
+                `/api/agents/${encodeURIComponent(canonicalDid8004)}/validations`,
+                { signal: controller.signal },
+              ).catch(() => null),
+          metadataLoaded
+            ? Promise.resolve(null)
+            : fetch(`/api/agents/${encodeURIComponent(canonicalDid8004)}`, {
+                method: 'GET',
+                signal: controller.signal,
+              }).catch(() => null),
+        ]);
+
+        if (cancelled) return;
+
+        if (feedbackRes && feedbackRes.ok) {
+          const json = await feedbackRes.json().catch(() => null);
+          const items = Array.isArray(json?.feedbacks) ? json.feedbacks : Array.isArray(json) ? json : [];
+          setFeedbackItems(items);
+
+          // Best-effort summary from items (keeps UI usable without extra endpoint)
+          const scores: number[] = items
+            .map((f: any) => Number(f?.score))
+            .filter((n: number) => Number.isFinite(n));
+          const avg =
+            scores.length ? scores.reduce((a: number, b: number) => a + b, 0) / scores.length : null;
+          setFeedbackSummary({
+            count: items.length,
+            averageScore: avg ?? undefined,
+          });
+          setFeedbackLoaded(true);
+        } else if (!feedbackLoaded) {
+          // Mark loaded even if empty / failed so we don't refetch forever.
+          setFeedbackLoaded(true);
+        }
+
+        if (validationsRes && validationsRes.ok) {
+          const json = await validationsRes.json().catch(() => null);
+          const pendingRaw = Array.isArray(json?.pending) ? json.pending : [];
+          const completedRaw = Array.isArray(json?.completed) ? json.completed : [];
+          setValidations({
+            pending: pendingRaw.map((v: any) => ({
+              agentId: v?.agentId ?? null,
+              requestHash: v?.requestHash ?? null,
+              validatorAddress: v?.validatorAddress ?? null,
+              response: v?.response ?? null,
+              responseHash: v?.responseHash ?? null,
+              lastUpdate: v?.lastUpdate ?? null,
+              tag: v?.tag ?? null,
+            })),
+            completed: completedRaw.map((v: any) => ({
+              agentId: v?.agentId ?? null,
+              requestHash: v?.requestHash ?? null,
+              validatorAddress: v?.validatorAddress ?? null,
+              response: v?.response ?? null,
+              responseHash: v?.responseHash ?? null,
+              lastUpdate: v?.lastUpdate ?? null,
+              tag: v?.tag ?? null,
+            })),
+          });
+          setValidationsLoaded(true);
+        } else if (!validationsLoaded) {
+          setValidationsLoaded(true);
+        }
+
+        if (agentRes && agentRes.ok) {
+          const json = await agentRes.json().catch(() => null);
+          const meta =
+            json &&
+            typeof json === 'object' &&
+            (json as any).identityMetadata &&
+            typeof (json as any).identityMetadata === 'object' &&
+            (json as any).identityMetadata.metadata &&
+            typeof (json as any).identityMetadata.metadata === 'object'
+              ? ((json as any).identityMetadata.metadata as Record<string, string>)
+              : null;
+          if (meta && Object.keys(meta).length > 0) {
+            setOnChainMetadataState(meta);
+          }
+          setMetadataLoaded(true);
+        } else if (!metadataLoaded) {
+          setMetadataLoaded(true);
+        }
+      } catch {
+        // ignore; keep showing what we have
+      } finally {
+        if (!cancelled) setDetailsLoading(false);
+      }
+    }
+
+    loadDetails();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canonicalDid8004, feedbackLoaded, validationsLoaded, metadataLoaded]);
+
+  const validationSummaryText = useMemo(() => {
+    const completed = validations?.completed?.length ?? 0;
+    const pending = validations?.pending?.length ?? 0;
+    return `${completed} completed · ${pending} pending`;
+  }, [validations]);
+
+  const reviewsSummaryText = useMemo(() => {
+    const count =
+      feedbackSummary && feedbackSummary.count != null
+        ? typeof feedbackSummary.count === 'string'
+          ? Number.parseInt(feedbackSummary.count, 10)
+          : Number(feedbackSummary.count)
+        : Array.isArray(feedbackItems)
+          ? feedbackItems.length
+          : 0;
+    const avg = feedbackSummary?.averageScore ?? null;
+    return count > 0 ? `${count} reviews · ${avg ?? 0} avg` : 'No reviews yet';
+  }, [feedbackItems, feedbackSummary]);
   const [agentCard, setAgentCard] = useState<any>(null);
   const [trustGraphModalOpen, setTrustGraphModalOpen] = useState(false);
   const [reviewsModalOpen, setReviewsModalOpen] = useState(false);
@@ -357,7 +535,8 @@ export default function AgentDetailsPageContent({
   const [feedbackRequestError, setFeedbackRequestError] = useState<string | null>(null);
   const [selectedFromAgentId, setSelectedFromAgentId] = useState<string>('');
 
-  const did8004 = useMemo(() => buildDid8004(chainId, Number(agent.agentId)), [chainId, agent.agentId]);
+  // NOTE: did8004 is provided by the server page to avoid recomputation and to keep the
+  // canonical route param around for API fetches.
   const chainFor = useCallback((id: number) => {
     switch (id) {
       case 11155111:
@@ -1424,12 +1603,12 @@ export default function AgentDetailsPageContent({
           </Stack>
         </Box>
 
-        <AgentDetailsTabs
+          <AgentDetailsTabs
           agent={agent}
           feedbackItems={feedbackItems}
           feedbackSummary={feedbackSummary}
           validations={validations}
-          onChainMetadata={onChainMetadata}
+            onChainMetadata={onChainMetadataState}
         />
       </Container>
 

@@ -16,6 +16,7 @@ import {
   type Hex,
 } from 'viem';
 import { http, isAddressEqual } from 'viem';
+import { AIAgentIdentityClient } from '@agentic-trust/8004-ext-sdk';
 import {
   getChainById,
   DEFAULT_CHAIN_ID,
@@ -780,6 +781,106 @@ async function createAgentWithWalletEOA(
   });
 
   if (result.agentId) {
+    // After registration, set agentWallet on-chain BEFORE notifying the indexer.
+    try {
+      const identityRegistry = plan.identityRegistry as `0x${string}` | undefined;
+      if (!identityRegistry) {
+        throw new Error('Missing identityRegistry in create-agent plan');
+      }
+
+      const viemWalletClient = createWalletClient({
+        account,
+        chain,
+        transport: custom(ethereumProvider),
+      });
+      const viemPublicClient = createPublicClient({
+        chain,
+        transport: custom(ethereumProvider),
+      });
+
+      const identityClient = new AIAgentIdentityClient({
+        publicClient: viemPublicClient as any,
+        walletClient: viemWalletClient as any,
+        identityRegistryAddress: identityRegistry,
+      });
+
+      const EIP712_DOMAIN_ABI = [
+        {
+          type: 'function',
+          name: 'eip712Domain',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [
+            { name: 'name', type: 'string' },
+            { name: 'version', type: 'string' },
+            { name: 'chainId', type: 'uint256' },
+            { name: 'verifyingContract', type: 'address' },
+            { name: 'salt', type: 'bytes32' },
+            { name: 'extensions', type: 'uint256[]' },
+          ],
+        },
+      ] as const;
+
+      const domainRaw = (await (viemPublicClient as any).readContract({
+        address: identityRegistry,
+        abi: EIP712_DOMAIN_ABI,
+        functionName: 'eip712Domain',
+        args: [],
+      })) as any;
+
+      const domain = {
+        name: String(domainRaw?.name ?? domainRaw?.[0] ?? ''),
+        version: String(domainRaw?.version ?? domainRaw?.[1] ?? ''),
+        chainId: Number(domainRaw?.chainId ?? domainRaw?.[2] ?? chain.id),
+        verifyingContract: (domainRaw?.verifyingContract ?? domainRaw?.[3]) as `0x${string}`,
+        salt: (domainRaw?.salt ?? domainRaw?.[4]) as `0x${string}` | undefined,
+      };
+
+      const agentIdBigInt = BigInt(result.agentId);
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // +1h
+      const newWallet = getAddress(account) as `0x${string}`;
+
+      onStatusUpdate?.('MetaMask signature: set agent wallet (IdentityRegistry)');
+      const signature = (await (viemWalletClient as any).signTypedData({
+        account,
+        domain,
+        primaryType: 'SetAgentWallet',
+        types: {
+          SetAgentWallet: [
+            { name: 'agentId', type: 'uint256' },
+            { name: 'newWallet', type: 'address' },
+            { name: 'deadline', type: 'uint256' },
+          ],
+        },
+        message: { agentId: agentIdBigInt, newWallet, deadline },
+      })) as `0x${string}`;
+
+      const { calls } = await identityClient.prepareSetAgentWalletCalls(
+        agentIdBigInt,
+        newWallet,
+        deadline,
+        signature,
+      );
+      const call = calls[0];
+      if (!call) throw new Error('prepareSetAgentWalletCalls returned no calls');
+
+      await signAndSendTransaction({
+        transaction: {
+          to: call.to,
+          data: call.data,
+          value: '0x0',
+          chainId: chain.id,
+        },
+        account,
+        chain,
+        ethereumProvider,
+        onStatusUpdate,
+        extractAgentId: false,
+      });
+    } catch (e) {
+      console.warn('[createAgentWithWalletEOA] setAgentWallet failed (non-fatal):', e);
+    }
+
     await refreshAgentInIndexer(result.agentId, plan.chainId);
   }
 
@@ -1315,6 +1416,94 @@ async function createAgentWithWalletAA(
 
   // Refresh GraphQL indexer
   if (agentId) {
+    // After registration, set agentWallet on-chain BEFORE notifying the indexer.
+    try {
+      const identityRegistry = (data as any).identityRegistry as `0x${string}` | undefined;
+      if (!identityRegistry) {
+        throw new Error('Missing identityRegistry in create-agent response');
+      }
+
+      const identityClient = new AIAgentIdentityClient({
+        publicClient: viemPublicClient as any,
+        walletClient: viemWalletClient as any,
+        identityRegistryAddress: identityRegistry,
+      });
+
+      const EIP712_DOMAIN_ABI = [
+        {
+          type: 'function',
+          name: 'eip712Domain',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [
+            { name: 'name', type: 'string' },
+            { name: 'version', type: 'string' },
+            { name: 'chainId', type: 'uint256' },
+            { name: 'verifyingContract', type: 'address' },
+            { name: 'salt', type: 'bytes32' },
+            { name: 'extensions', type: 'uint256[]' },
+          ],
+        },
+      ] as const;
+
+      const domainRaw = (await (viemPublicClient as any).readContract({
+        address: identityRegistry,
+        abi: EIP712_DOMAIN_ABI,
+        functionName: 'eip712Domain',
+        args: [],
+      })) as any;
+
+      const domain = {
+        name: String(domainRaw?.name ?? domainRaw?.[0] ?? ''),
+        version: String(domainRaw?.version ?? domainRaw?.[1] ?? ''),
+        chainId: Number(domainRaw?.chainId ?? domainRaw?.[2] ?? chain.id),
+        verifyingContract: (domainRaw?.verifyingContract ?? domainRaw?.[3]) as `0x${string}`,
+        salt: (domainRaw?.salt ?? domainRaw?.[4]) as `0x${string}` | undefined,
+      };
+
+      const agentIdBigInt = BigInt(agentId);
+      const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // +1h
+      const newWallet = getAddress(account) as `0x${string}`;
+
+      onStatusUpdate?.('MetaMask signature: set agent wallet (IdentityRegistry)');
+      const signature = (await (viemWalletClient as any).signTypedData({
+        account,
+        domain,
+        primaryType: 'SetAgentWallet',
+        types: {
+          SetAgentWallet: [
+            { name: 'agentId', type: 'uint256' },
+            { name: 'newWallet', type: 'address' },
+            { name: 'deadline', type: 'uint256' },
+          ],
+        },
+        message: { agentId: agentIdBigInt, newWallet, deadline },
+      })) as `0x${string}`;
+
+      const { calls } = await identityClient.prepareSetAgentWalletCalls(
+        agentIdBigInt,
+        newWallet,
+        deadline,
+        signature,
+      );
+      const call = calls[0];
+      if (!call) throw new Error('prepareSetAgentWalletCalls returned no calls');
+
+      const setWalletUserOpHash = await sendSponsoredUserOperation({
+        bundlerUrl,
+        chain: chain as any,
+        accountClient: agentAccountClient,
+        calls: [{ to: call.to, data: call.data, value: 0n }],
+      });
+      await waitForUserOperationReceipt({
+        bundlerUrl,
+        chain: chain as any,
+        hash: setWalletUserOpHash,
+      });
+    } catch (e) {
+      console.warn('[createAgentWithWalletAA] setAgentWallet failed (non-fatal):', e);
+    }
+
     await refreshAgentInIndexer(agentId, chain.id);
 
     // Finalize UAID now that we have a real on-chain agentId, and write it back by updating tokenUri.
