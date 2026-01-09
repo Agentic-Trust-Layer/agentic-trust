@@ -947,6 +947,13 @@ export async function loadAgentDetail(
   client: AgenticTrustClient,
   agentIdentifier: AgentIdentifier,
   chainId: number = DEFAULT_CHAIN_ID,
+  options?: {
+    /**
+     * If true, allow fetching the registration JSON from IPFS/tokenUri.
+     * Defaults to false to avoid UI hangs and unintended gateway dependency.
+     */
+    includeRegistration?: boolean;
+  },
 ): Promise<AgentDetail> {
   const isDid =
     typeof agentIdentifier === 'string' && agentIdentifier.trim().startsWith('did:8004:');
@@ -1034,22 +1041,9 @@ export async function loadAgentDetail(
     registration: Record<string, unknown> | null;
   } | null =
     null;
-  if (tokenUri) {
-    try {
-      const ipfsStorage = getIPFSStorage();
-      const registration = (await ipfsStorage.getJson(tokenUri)) as Record<string, unknown> | null;
-      identityRegistration = {
-        tokenUri,
-        registration,
-      };
-    } catch (error) {
-      console.warn('Failed to get IPFS registration:', error);
-      identityRegistration = {
-        tokenUri,
-        registration: null,
-      };
-    }
-  }
+  // IMPORTANT: By default, we do NOT fetch registration JSON from IPFS. UIs should only do that
+  // when the user explicitly opens the Registration tab.
+  const includeRegistration = options?.includeRegistration === true;
 
   let discovery: Record<string, unknown> | null = null;
   try {
@@ -1079,6 +1073,46 @@ export async function loadAgentDetail(
     // If it's not an access code error, just log and continue
     console.warn('Failed to get GraphQL agent data:', error);
     discovery = null;
+  }
+
+  // Prefer cached registration JSON from discovery row (rawJson) instead of hitting IPFS.
+  // This keeps "agent details" fast and avoids gateway dependency.
+  if (tokenUri) {
+    let registrationFromDiscovery: Record<string, unknown> | null = null;
+    try {
+      const rawJsonMaybe =
+        discovery && typeof (discovery as any).rawJson === 'string'
+          ? String((discovery as any).rawJson)
+          : null;
+      if (rawJsonMaybe && rawJsonMaybe.trim()) {
+        const parsed = JSON.parse(rawJsonMaybe);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          registrationFromDiscovery = parsed as Record<string, unknown>;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (registrationFromDiscovery) {
+      identityRegistration = { tokenUri, registration: registrationFromDiscovery };
+    } else if (includeRegistration) {
+      // Explicit opt-in: fetch from IPFS/tokenUri.
+      try {
+        const ipfsStorage = getIPFSStorage();
+        const registration = (await ipfsStorage.getJson(tokenUri)) as Record<string, unknown> | null;
+        identityRegistration = {
+          tokenUri,
+          registration,
+        };
+      } catch (error) {
+        console.warn('Failed to get IPFS registration:', error);
+        identityRegistration = {
+          tokenUri,
+          registration: null,
+        };
+      }
+    }
   }
 
   const flattened: Record<string, unknown> = {};

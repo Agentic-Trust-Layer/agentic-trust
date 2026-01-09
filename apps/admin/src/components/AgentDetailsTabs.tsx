@@ -221,8 +221,12 @@ const AgentDetailsTabs = ({
     try {
       // Include chainId in the request
       const chainId = agent.chainId || 11155111; // Default to Sepolia if not set
+      const account =
+        typeof agent.agentAccount === 'string' && agent.agentAccount.includes(':')
+          ? agent.agentAccount.split(':').pop() || agent.agentAccount
+          : agent.agentAccount;
       const res = await fetch(
-        `/api/associations?account=${encodeURIComponent(agent.agentAccount)}&chainId=${chainId}`,
+        `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`,
         {
           cache: 'no-store',
         }
@@ -312,7 +316,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalDid8004, feedbackLoaded, feedbackLoading]);
+  }, [activeTab, canonicalDid8004]);
 
   // Lazy load validations data when validation tab is selected
   useEffect(() => {
@@ -378,7 +382,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalDid8004, validationsLoaded, validationsLoading]);
+  }, [activeTab, canonicalDid8004]);
 
   // Lazy load on-chain metadata when Overview tab is selected (shown in Metadata pane)
   useEffect(() => {
@@ -434,7 +438,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalDid8004, metadataLoaded, metadataLoading]);
+  }, [activeTab, canonicalDid8004]);
 
   // Fetch agent info for association addresses
   useEffect(() => {
@@ -912,7 +916,7 @@ const AgentDetailsTabs = ({
                     </div>
                   </div>
                 )}
-                {metadataLoading && (
+                {metadataLoading && Object.keys(onChainMetadata).length === 0 && (
                   <div style={{ color: palette.textSecondary, fontSize: '0.85rem' }}>
                     Loading on-chain metadata...
                   </div>

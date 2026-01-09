@@ -11,7 +11,9 @@ export async function GET(
     const didAgent = decodeURIComponent(params.did8004);
 
     const client = await getAgenticTrustClient();
-    const agentInfo = await client.getAgentDetailsByDid(didAgent);
+    // Avoid fetching registration JSON from IPFS in this endpoint; it can take ~1min when gateways fail.
+    // The Registration tab fetches the tokenUri directly client-side with a short timeout.
+    const agentInfo = await client.getAgentDetailsByDid(didAgent, { includeRegistration: false });
 
     return NextResponse.json(agentInfo);
   } catch (error) {

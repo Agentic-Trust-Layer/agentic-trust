@@ -423,54 +423,8 @@ export default function AgentDetailsPageContent({
       ? (agent as any).approvedAssociationCount
       : null;
 
-  const [derivedAssociationCounts, setDerivedAssociationCounts] = useState<{
-    initiated: number;
-    approved: number;
-  } | null>(null);
-
-  useEffect(() => {
-    const account = agent.agentAccount;
-    if (!account) {
-      setDerivedAssociationCounts(null);
-      return;
-    }
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(
-          `/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`,
-          { cache: 'no-store' },
-        );
-        const json = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!json || json.ok === false || !Array.isArray(json.associations)) {
-          setDerivedAssociationCounts(null);
-          return;
-        }
-        const centerLower = account.toLowerCase();
-        let initiated = 0;
-        let approved = 0;
-        for (const a of json.associations as any[]) {
-          const initiator = typeof (a?.initiator ?? a?.initiatorAddress) === 'string'
-            ? String(a.initiator ?? a.initiatorAddress).toLowerCase()
-            : '';
-          const approver = typeof (a?.approver ?? a?.approverAddress) === 'string'
-            ? String(a.approver ?? a.approverAddress).toLowerCase()
-            : '';
-          if (initiator && initiator === centerLower) initiated += 1;
-          if (approver && approver === centerLower) approved += 1;
-        }
-        setDerivedAssociationCounts({ initiated, approved });
-      } catch {
-        if (!cancelled) setDerivedAssociationCounts(null);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [agent.agentAccount, chainId]);
+  // NOTE: Associations are now loaded lazily when the Associations tab is selected.
+  // We intentionally do not fetch /api/associations during initial page load.
 
   // Check if wallet owns the agent account using the isOwner API
   const checkOwnership = useCallback(async () => {
@@ -1417,14 +1371,12 @@ export default function AgentDetailsPageContent({
                 <StatPill
                   icon={<AutoGraphIcon fontSize="small" />}
                   label="Associations"
-                  value={`${(derivedAssociationCounts?.initiated ?? indexerInitiatedAssociationsCount ?? '—').toString()} initiated · ${(derivedAssociationCounts?.approved ?? indexerApprovedAssociationsCount ?? '—').toString()} approved`}
-                  title={`Derived from /api/associations: ${
-                    derivedAssociationCounts
-                      ? `${derivedAssociationCounts.initiated}/${derivedAssociationCounts.approved}`
-                      : '—'
-                  } · Indexer fields: ${
-                    indexerInitiatedAssociationsCount ?? '—'
-                  }/${indexerApprovedAssociationsCount ?? '—'}`}
+                  value={`${(indexerInitiatedAssociationsCount ?? '—').toString()} initiated · ${(indexerApprovedAssociationsCount ?? '—').toString()} approved`}
+                  title={
+                    indexerInitiatedAssociationsCount !== null || indexerApprovedAssociationsCount !== null
+                      ? `Indexer fields: ${indexerInitiatedAssociationsCount ?? 0}/${indexerApprovedAssociationsCount ?? 0}`
+                      : undefined
+                  }
                 />
               )}
             </Stack>

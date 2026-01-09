@@ -916,20 +916,7 @@ export class AgenticTrustClient {
       return false;
     }
 
-    // Get the agent account (which is the agent owner)
-    const agent = await this.getAgent(agentId, resolvedChainId);
-    if (!agent?.agentAccount) {
-      console.warn('[AgenticTrustClient.isOwner] Agent not found or no account:', did8004);
-      return false;
-    }
-
-    const agentAccount = agent.agentAccount;
     const lowerWallet = walletAddress.toLowerCase();
-
-    // Check if agent account is valid
-    if (!agentAccount || !agentAccount.startsWith('0x')) {
-      return false;
-    }
 
     try {
       // Create a client for the chain
@@ -945,6 +932,70 @@ export class AgenticTrustClient {
         chain,
         transport: http(rpcUrl),
       });
+
+      // Resolve identity registry + on-chain ownership without loading AgentDetail (no IPFS).
+      const identityClient = await getIdentityRegistryClient(resolvedChainId);
+      const identityRegistryAddress = (identityClient as any)?.identityRegistryAddress as Address | undefined;
+      if (!identityRegistryAddress) {
+        console.warn('[AgenticTrustClient.isOwner] Missing identityRegistryAddress');
+        return false;
+      }
+
+      const tokenId = BigInt(agentId);
+
+      const IDENTITY_ABI = [
+        {
+          type: 'function',
+          name: 'ownerOf',
+          stateMutability: 'view',
+          inputs: [{ name: 'tokenId', type: 'uint256' }],
+          outputs: [{ name: 'owner', type: 'address' }],
+        },
+        {
+          type: 'function',
+          name: 'getAgentWallet',
+          stateMutability: 'view',
+          inputs: [{ name: 'agentId', type: 'uint256' }],
+          outputs: [{ name: 'wallet', type: 'address' }],
+        },
+      ] as const;
+
+      // 1) Direct NFT owner check
+      let nftOwner: string | null = null;
+      try {
+        nftOwner = (await client.readContract({
+          address: identityRegistryAddress,
+          abi: IDENTITY_ABI,
+          functionName: 'ownerOf',
+          args: [tokenId],
+        })) as string;
+      } catch (e) {
+        console.warn('[AgenticTrustClient.isOwner] ownerOf failed:', e);
+        nftOwner = null;
+      }
+
+      if (nftOwner && nftOwner.toLowerCase() === lowerWallet) {
+        return true;
+      }
+
+      // 2) If not the NFT owner, check controller of configured agent wallet (AA)
+      let agentAccount: string | null = null;
+      try {
+        agentAccount = (await client.readContract({
+          address: identityRegistryAddress,
+          abi: IDENTITY_ABI,
+          functionName: 'getAgentWallet',
+          args: [tokenId],
+        })) as string;
+      } catch (e) {
+        // If getAgentWallet is unavailable on a deployment, fall back to false.
+        console.warn('[AgenticTrustClient.isOwner] getAgentWallet failed:', e);
+        agentAccount = null;
+      }
+
+      if (!agentAccount || !agentAccount.startsWith('0x')) {
+        return false;
+      }
 
       // Get bytecode to check if it's a contract
       const code = await client.getBytecode({ address: agentAccount as Address });
@@ -1057,9 +1108,12 @@ export class AgenticTrustClient {
   /**
    * Get a fully-hydrated AgentDetail for a given did:8004 identifier.
    */
-  async getAgentDetailsByDid(did8004: string): Promise<AgentDetail> {
+  async getAgentDetailsByDid(
+    did8004: string,
+    options?: { includeRegistration?: boolean },
+  ): Promise<AgentDetail> {
     // loadAgentDetail will parse did:8004 and derive chainId/agentId internally.
-    return loadAgentDetail(this, did8004, DEFAULT_CHAIN_ID);
+    return loadAgentDetail(this, did8004, DEFAULT_CHAIN_ID, options);
   }
 
   /**
