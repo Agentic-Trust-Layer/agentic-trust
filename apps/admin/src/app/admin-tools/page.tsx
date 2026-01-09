@@ -332,6 +332,21 @@ export default function AdminPage() {
     return formatJsonIfPossible(text);
   }
 
+  function getRegistrationUriFromAgentDetails(agentDetails: any): string | null {
+    if (!agentDetails) return null;
+    const fromTop =
+      (typeof agentDetails.agentUri === 'string' && agentDetails.agentUri.trim()) ||
+      (typeof agentDetails.tokenUri === 'string' && agentDetails.tokenUri.trim()) ||
+      null;
+    if (fromTop) return String(fromTop);
+    const fromIdentity =
+      agentDetails.identityMetadata && typeof agentDetails.identityMetadata === 'object'
+        ? ((agentDetails.identityMetadata as any).tokenUri ?? (agentDetails.identityMetadata as any).agentUri)
+        : null;
+    if (typeof fromIdentity === 'string' && fromIdentity.trim()) return fromIdentity.trim();
+    return null;
+  }
+
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
   // Parse DID from path or query if present
   let parsedDid: { chainId: number; agentId: string } | null = null;
@@ -597,7 +612,7 @@ export default function AdminPage() {
                 const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
                 if (agentResponse.ok) {
                   const agentDetails = await agentResponse.json().catch(() => ({}));
-                  const tokenUri: string | undefined = agentDetails.tokenUri;
+                  const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
                   setRegistrationLatestTokenUri(tokenUri ?? null);
 
                   if (tokenUri) {
@@ -994,7 +1009,7 @@ export default function AdminPage() {
         const agentDetails = await response.json();
         if (cancelled) return;
 
-        const tokenUri: string | undefined = agentDetails.tokenUri;
+        const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
         setRegistrationLatestTokenUri(tokenUri ?? null);
         setRegistrationTokenUriLoading(false);
 
@@ -1586,7 +1601,7 @@ export default function AdminPage() {
             throw new Error('Failed to load agent details to fetch registration JSON.');
           }
           const agentDetails = await agentResponse.json().catch(() => ({}));
-          const tokenUri: string | undefined = agentDetails?.tokenUri;
+          const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
           setRegistrationLatestTokenUri(tokenUri ?? null);
           if (!tokenUri) {
             throw new Error('Agent tokenUri is missing; cannot load registration JSON.');
@@ -2919,7 +2934,7 @@ export default function AdminPage() {
                                 }
 
                                 const agentDetails = await response.json();
-                                const tokenUri: string | undefined = agentDetails.tokenUri;
+                                const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
                                 setRegistrationLatestTokenUri(tokenUri ?? null);
                                 setRegistrationTokenUriLoading(false);
 

@@ -1061,6 +1061,11 @@ export class AIAgentDiscoveryClient {
       if (message.includes('Cannot query field "oasfSkills"')) {
         return [];
       }
+      // Some deployments expose the field but error due to resolver returning null for a non-null list.
+      // Treat this as "taxonomy unavailable" rather than failing the caller.
+      if (/Cannot return null for non-nullable field\s+Query\.oasfSkills\b/i.test(message)) {
+        return [];
+      }
       console.warn('[AIAgentDiscoveryClient] oasfSkills query failed:', error);
       throw error;
     }
@@ -1126,6 +1131,9 @@ export class AIAgentDiscoveryClient {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('Cannot query field "oasfDomains"')) {
+        return [];
+      }
+      if (/Cannot return null for non-nullable field\s+Query\.oasfDomains\b/i.test(message)) {
         return [];
       }
       console.warn('[AIAgentDiscoveryClient] oasfDomains query failed:', error);

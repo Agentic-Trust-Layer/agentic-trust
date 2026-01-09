@@ -42,27 +42,18 @@ export async function GET(request: NextRequest) {
     }
 
     const discovery = await getDiscoveryClient();
-    const raw = await (discovery as any).oasfSkills?.({
+    const hasMethod = typeof (discovery as any).oasfSkills === 'function';
+    const raw = hasMethod
+      ? await (discovery as any).oasfSkills({
       category: category || undefined,
       limit: 10000,
       offset: 0,
       orderBy: 'category',
       orderDirection: 'ASC',
-    });
+      })
+      : undefined;
 
     const list = Array.isArray(raw) ? raw : [];
-    // If we're querying the full taxonomy and got nothing back, treat it as a backend/config error.
-    // (Category-specific queries may legitimately return 0.)
-    if (!category && list.length === 0) {
-      return NextResponse.json(
-        {
-          error: 'OASF skills not available from discovery endpoint',
-          message:
-            'Discovery GraphQL did not return any OASF skills. Ensure the discovery deployment exposes Query.oasfSkills and the taxonomy is populated.',
-        },
-        { status: 503 },
-      );
-    }
 
     const skills: ApiSkill[] = list
       .map((s) => ({
@@ -77,28 +68,35 @@ export async function GET(request: NextRequest) {
       }))
       .filter((s) => s.id);
 
-    if (!category && skills.length === 0) {
-      return NextResponse.json(
-        {
-          error: 'OASF skills not available from discovery endpoint',
-          message:
-            'Discovery GraphQL returned 0 OASF skills after normalization. Check the taxonomy payload (expects key/caption/category).',
-        },
-        { status: 503 },
-      );
-    }
+    const warning =
+      !hasMethod
+        ? 'Discovery client does not expose oasfSkills(). Taxonomy is unavailable in this deployment.'
+        : !category && skills.length === 0
+          ? 'Discovery GraphQL returned 0 OASF skills. Taxonomy may be unavailable or not populated in this deployment.'
+          : null;
 
-    cacheByCategory.set(cacheKey, { at: now, skills });
+    // IMPORTANT: Do NOT cache empty results in production.
+    // If the taxonomy is temporarily unavailable (or being populated), CDN/in-memory caching would "lock in"
+    // an empty list and make it look like discovery is never queried.
+    const cacheable = skills.length > 0;
+    const cacheControl = cacheable
+      ? 'public, s-maxage=3600, stale-while-revalidate=86400'
+      : 'no-store';
+
+    if (cacheable) {
+      cacheByCategory.set(cacheKey, { at: now, skills });
+    }
 
     return NextResponse.json(
       {
         skills,
         count: skills.length,
         source: 'discovery_graphql',
+        warning,
       },
       {
         headers: {
-          'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+          'Cache-Control': cacheControl,
         },
       },
     );
