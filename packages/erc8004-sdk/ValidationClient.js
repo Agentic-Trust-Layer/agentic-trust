@@ -44,8 +44,10 @@ export class ValidationClient {
         // Convert optional parameters to proper format
         const responseUri = params.responseUri || '';
         const responseHash = params.responseHash || ethers.ZeroHash;
-        const tag = params.tag ? ethers.id(params.tag).slice(0, 66) : ethers.ZeroHash;
-        const result = await this.adapter.send(this.contractAddress, ValidationRegistryABI, 'validationResponse', [params.requestHash, params.response, responseUri, responseHash, tag]);
+        const tag = params.tag || '';
+        const result = await this.adapter.send(this.contractAddress, ValidationRegistryABI, 'validationResponse', 
+        // Updated ABI: (bytes32 requestHash, uint8 response, string responseURI, bytes32 responseHash, string tag)
+        [params.requestHash, params.response, responseUri, responseHash, tag]);
         return { txHash: result.hash || result.txHash };
     }
     /**
@@ -73,7 +75,7 @@ export class ValidationClient {
                 agentId: BigInt(result.agentId || result[1]),
                 response: Number(result.response || result[2]),
                 responseHash: result.responseHash || result[3],
-                tag: result.tag || result[4],
+                tag: String(result.tag ?? result[4] ?? ''),
                 lastUpdate: BigInt(result.lastUpdate || result[5]),
             };
         }
@@ -89,6 +91,7 @@ export class ValidationClient {
                             { internalType: 'address', name: 'validatorAddress', type: 'address' },
                             { internalType: 'uint256', name: 'agentId', type: 'uint256' },
                             { internalType: 'uint8', name: 'response', type: 'uint8' },
+                            // Old contracts used bytes32 tag
                             { internalType: 'bytes32', name: 'tag', type: 'bytes32' },
                             { internalType: 'uint256', name: 'lastUpdate', type: 'uint256' }
                         ],
@@ -102,7 +105,7 @@ export class ValidationClient {
                     agentId: BigInt(result.agentId || result[1]),
                     response: Number(result.response || result[2]),
                     responseHash: ethers.ZeroHash, // Default for old contracts
-                    tag: result.tag || result[3],
+                    tag: String(result.tag ?? result[3] ?? ''),
                     lastUpdate: BigInt(result.lastUpdate || result[4]),
                 };
             }
@@ -122,8 +125,10 @@ export class ValidationClient {
      */
     async getSummary(agentId, validatorAddresses, tag) {
         const validators = validatorAddresses || [];
-        const tagBytes = tag ? ethers.id(tag).slice(0, 66) : ethers.ZeroHash;
-        const result = await this.adapter.call(this.contractAddress, ValidationRegistryABI, 'getSummary', [agentId, validators, tagBytes]);
+        const tagValue = tag || '';
+        const result = await this.adapter.call(this.contractAddress, ValidationRegistryABI, 'getSummary', 
+        // Updated ABI: tag is string
+        [agentId, validators, tagValue]);
         return {
             count: BigInt(result.count || result[0]),
             avgResponse: Number(result.avgResponse || result[1]),

@@ -12,6 +12,7 @@ export { AIAgentL2ENSNamespaceClient } from './AIAgentL2ENSNamespaceClient';
 export { AIAgentIdentityClient } from './AIAgentIdentityClient';
 export { AIAgentReputationClient, type GiveFeedbackParams } from './AIAgentReputationClient';
 export { AIAgentValidationClient } from './AIAgentValidationClient';
+export { AIAgentAssociationClient } from './AIAgentAssociationClient';
 export { OrgIdentityClient } from './OrgIdentityClient';
 export { AIAgentDiscoveryClient, type AIAgentDiscoveryClientConfig, type AgentData, type ListAgentsResponse, type GetAgentResponse, type SearchAgentsResponse, type SearchAgentsAdvancedOptions, type RefreshAgentResponse, type SemanticAgentMetadataEntry, type SemanticAgentMatch, type SemanticAgentSearchResult, } from './AIAgentDiscoveryClient';
 export type { AccountProvider, ChainConfig, ReadClient, Signer, TxSender, TxRequest, GasPolicy, TxSendResult, PreparedCall, } from '@agentic-trust/8004-sdk';

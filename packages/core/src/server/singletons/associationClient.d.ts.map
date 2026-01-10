@@ -1,0 +1,1 @@
+{"version":3,"file":"associationClient.d.ts","sourceRoot":"","sources":["associationClient.ts"],"names":[],"mappings":"AAAA;;;;;GAKG;AAEH,OAAO,EAAE,wBAAwB,EAAE,MAAM,6BAA6B,CAAC;AAkEvE,wBAAsB,qBAAqB,CACzC,OAAO,CAAC,EAAE,MAAM,GACf,OAAO,CAAC,wBAAwB,CAAC,CAGnC;AAED,wBAAgB,+BAA+B,CAAC,OAAO,CAAC,EAAE,MAAM,GAAG,OAAO,CAGzE;AAED,wBAAgB,uBAAuB,CAAC,OAAO,CAAC,EAAE,MAAM,GAAG,IAAI,CAG9D"}

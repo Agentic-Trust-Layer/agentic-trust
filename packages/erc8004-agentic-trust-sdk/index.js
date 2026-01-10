@@ -12,6 +12,7 @@ export { AIAgentL2ENSNamespaceClient } from './AIAgentL2ENSNamespaceClient';
 export { AIAgentIdentityClient } from './AIAgentIdentityClient';
 export { AIAgentReputationClient } from './AIAgentReputationClient';
 export { AIAgentValidationClient } from './AIAgentValidationClient';
+export { AIAgentAssociationClient } from './AIAgentAssociationClient';
 export { OrgIdentityClient } from './OrgIdentityClient';
 export { AIAgentDiscoveryClient, } from './AIAgentDiscoveryClient';
 export { ViemAccountProvider, } from '@agentic-trust/8004-sdk';

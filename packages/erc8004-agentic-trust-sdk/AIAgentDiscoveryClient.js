@@ -110,6 +110,8 @@ export class AIAgentDiscoveryClient {
     searchStrategy;
     searchStrategyPromise;
     typeFieldsCache = new Map();
+    tokenMetadataCollectionSupported;
+    agentMetadataValueField;
     queryFieldsCache;
     queryFieldsPromise;
     constructor(config) {
@@ -215,13 +217,17 @@ export class AIAgentDiscoveryClient {
         if (agentAccount !== undefined) {
             normalized.agentAccount = agentAccount;
         }
-        const agentOwner = toOptionalString(record.agentOwner);
-        if (agentOwner !== undefined) {
-            normalized.agentOwner = agentOwner;
+        const agentIdentityOwnerAccount = toOptionalString(record.agentIdentityOwnerAccount);
+        if (agentIdentityOwnerAccount !== undefined) {
+            normalized.agentIdentityOwnerAccount = agentIdentityOwnerAccount;
         }
-        const eoaOwner = toOptionalStringOrNull(record.eoaOwner);
-        if (eoaOwner !== undefined) {
-            normalized.eoaOwner = eoaOwner;
+        const eoaAgentIdentityOwnerAccount = toOptionalStringOrNull(record.eoaAgentIdentityOwnerAccount);
+        if (eoaAgentIdentityOwnerAccount !== undefined) {
+            normalized.eoaAgentIdentityOwnerAccount = eoaAgentIdentityOwnerAccount;
+        }
+        const eoaAgentAccount = toOptionalStringOrNull(record.eoaAgentAccount);
+        if (eoaAgentAccount !== undefined) {
+            normalized.eoaAgentAccount = eoaAgentAccount;
         }
         const agentCategory = toOptionalStringOrNull(record.agentCategory);
         if (agentCategory !== undefined) {
@@ -239,9 +245,9 @@ export class AIAgentDiscoveryClient {
         if (didName !== undefined) {
             normalized.didName = didName;
         }
-        const tokenUri = toOptionalString(record.tokenUri);
-        if (tokenUri !== undefined) {
-            normalized.tokenUri = tokenUri;
+        const agentUri = toOptionalStringOrNull(record.agentUri);
+        if (agentUri !== undefined) {
+            normalized.agentUri = agentUri;
         }
         const validationPendingCount = toOptionalNumberOrNull(record.validationPendingCount);
         if (validationPendingCount !== undefined) {
@@ -255,6 +261,50 @@ export class AIAgentDiscoveryClient {
         if (validationRequestedCount !== undefined) {
             normalized.validationRequestedCount = validationRequestedCount;
         }
+        const initiatedAssociationCount = toOptionalNumberOrNull(record.initiatedAssociationCount);
+        if (initiatedAssociationCount !== undefined) {
+            normalized.initiatedAssociationCount = initiatedAssociationCount;
+        }
+        const approvedAssociationCount = toOptionalNumberOrNull(record.approvedAssociationCount);
+        if (approvedAssociationCount !== undefined) {
+            normalized.approvedAssociationCount = approvedAssociationCount;
+        }
+        const atiOverallScore = toOptionalNumberOrNull(record.atiOverallScore);
+        if (atiOverallScore !== undefined) {
+            normalized.atiOverallScore = atiOverallScore;
+        }
+        const atiOverallConfidence = toOptionalNumberOrNull(record.atiOverallConfidence);
+        if (atiOverallConfidence !== undefined) {
+            normalized.atiOverallConfidence = atiOverallConfidence;
+        }
+        const atiVersion = toOptionalStringOrNull(record.atiVersion);
+        if (atiVersion !== undefined) {
+            normalized.atiVersion = atiVersion;
+        }
+        const atiComputedAt = toOptionalNumberOrNull(record.atiComputedAt);
+        if (atiComputedAt !== undefined) {
+            normalized.atiComputedAt = atiComputedAt;
+        }
+        const atiBundleJson = toOptionalStringOrNull(record.atiBundleJson);
+        if (atiBundleJson !== undefined) {
+            normalized.atiBundleJson = atiBundleJson;
+        }
+        const trustLedgerScore = toOptionalNumberOrNull(record.trustLedgerScore);
+        if (trustLedgerScore !== undefined) {
+            normalized.trustLedgerScore = trustLedgerScore;
+        }
+        const trustLedgerBadgeCount = toOptionalNumberOrNull(record.trustLedgerBadgeCount);
+        if (trustLedgerBadgeCount !== undefined) {
+            normalized.trustLedgerBadgeCount = trustLedgerBadgeCount;
+        }
+        const trustLedgerOverallRank = toOptionalNumberOrNull(record.trustLedgerOverallRank);
+        if (trustLedgerOverallRank !== undefined) {
+            normalized.trustLedgerOverallRank = trustLedgerOverallRank;
+        }
+        const trustLedgerCapabilityRank = toOptionalNumberOrNull(record.trustLedgerCapabilityRank);
+        if (trustLedgerCapabilityRank !== undefined) {
+            normalized.trustLedgerCapabilityRank = trustLedgerCapabilityRank;
+        }
         const description = toOptionalStringOrNull(record.description);
         if (description !== undefined) {
             normalized.description = description;
@@ -267,13 +317,13 @@ export class AIAgentDiscoveryClient {
         if (a2aEndpoint !== undefined) {
             normalized.a2aEndpoint = a2aEndpoint;
         }
-        const ensEndpoint = toOptionalStringOrNull(record.ensEndpoint);
-        if (ensEndpoint !== undefined) {
-            normalized.ensEndpoint = ensEndpoint;
+        const agentCardJson = toOptionalStringOrNull(record.agentCardJson);
+        if (agentCardJson !== undefined) {
+            normalized.agentCardJson = agentCardJson;
         }
-        const agentAccountEndpoint = toOptionalStringOrNull(record.agentAccountEndpoint);
-        if (agentAccountEndpoint !== undefined) {
-            normalized.agentAccountEndpoint = agentAccountEndpoint;
+        const agentCardReadAt = toOptionalNumberOrNull(record.agentCardReadAt);
+        if (agentCardReadAt !== undefined) {
+            normalized.agentCardReadAt = agentCardReadAt;
         }
         const supportedTrust = toOptionalString(record.supportedTrust);
         if (supportedTrust !== undefined) {
@@ -346,15 +396,16 @@ export class AIAgentDiscoveryClient {
         agents(limit: $limit, offset: $offset) {
           chainId
           agentId
-          agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentAccount
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -362,14 +413,30 @@ export class AIAgentDiscoveryClient {
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
+          feedbackCount
+          feedbackAverageScore
+          validationPendingCount
+          validationCompletedCount
+          validationRequestedCount
+          initiatedAssociationCount
+          approvedAssociationCount
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -390,14 +457,6 @@ export class AIAgentDiscoveryClient {
                 return normalized;
             });
             allAgents = allAgents.concat(pageAgents);
-            console.log('[AIAgentDiscoveryClient.listAgents] Returning agents:', {
-                count: allAgents.length,
-                agentNames: allAgents.map(a => ({
-                    agentId: a.agentId,
-                    agentName: a.agentName,
-                    agentNameType: typeof a.agentName,
-                })),
-            });
             // Apply client-side ordering to ensure deterministic results,
             // since the base agents query may not support orderBy/orderDirection
             // arguments. Default is agentId DESC for "newest first".
@@ -424,73 +483,97 @@ export class AIAgentDiscoveryClient {
     async semanticAgentSearch(params) {
         const rawText = typeof params?.text === 'string' ? params.text : '';
         const text = rawText.trim();
-        if (!text) {
+        const rawIntentJson = typeof params?.intentJson === 'string' ? params.intentJson : '';
+        const intentJson = rawIntentJson.trim();
+        const topK = typeof params?.topK === 'number' && Number.isFinite(params.topK) && params.topK > 0
+            ? Math.floor(params.topK)
+            : undefined;
+        // Nothing to search.
+        if (!text && !intentJson) {
             return { total: 0, matches: [] };
         }
-        // Use JSON.stringify to safely escape the text for inclusion in the
-        // GraphQL query as a string literal.
-        const textLiteral = JSON.stringify(text);
-        const query = `
-      query SemanticAgentSearch {
-        semanticAgentSearch(
-          input: {
-            text: ${textLiteral}
-          }
-        ) {
-          total
-          matches {
-            score
-            matchReasons
-            agent {
-              chainId
-              agentId
-              agentAccount
-              agentOwner
-              eoaOwner
-              agentName
-              agentCategory
-              didIdentity
-              didAccount
-              didName
-              tokenUri
-              createdAtBlock
-              createdAtTime
-              updatedAtTime
-              type
-              description
-              image
-              a2aEndpoint
-              ensEndpoint
-              agentAccountEndpoint
-              supportedTrust
-              rawJson
-              did
-              mcp
-              x402support
-              active
-              feedbackCount
-              feedbackAverageScore
-              validationPendingCount
-              validationCompletedCount
-              validationRequestedCount
-              metadata {
-                key
-                valueText
-              }
-            }
+        const selection = `
+      total
+      matches {
+        score
+        matchReasons
+        agent {
+          chainId
+          agentId
+          agentName
+          agentAccount
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
+          agentCategory
+          didIdentity
+          didAccount
+          didName
+          agentUri
+          createdAtBlock
+          createdAtTime
+          updatedAtTime
+          type
+          description
+          image
+          a2aEndpoint
+          supportedTrust
+          rawJson
+          agentCardJson
+          agentCardReadAt
+          did
+          mcp
+          x402support
+          active
+          feedbackCount
+          feedbackAverageScore
+          validationPendingCount
+          validationCompletedCount
+          validationRequestedCount
+          initiatedAssociationCount
+          approvedAssociationCount
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
+          metadata {
+            key
+            valueText
           }
         }
       }
     `;
+        const query = intentJson
+            ? `
+        query SearchByIntent($intentJson: String!, $topK: Int) {
+          semanticAgentSearch(input: { intentJson: $intentJson, topK: $topK }) {
+            ${selection}
+          }
+        }
+      `
+            : `
+        query SearchByText($text: String!) {
+          semanticAgentSearch(input: { text: $text }) {
+            ${selection}
+          }
+        }
+      `;
         try {
-            const data = await this.client.request(query);
+            const data = await this.client.request(query, intentJson ? { intentJson, topK } : { text });
             const root = data.semanticAgentSearch;
             if (!root) {
                 return { total: 0, matches: [] };
             }
             const total = typeof root.total === 'number' && Number.isFinite(root.total) && root.total >= 0
                 ? root.total
-                : 0;
+                : Array.isArray(root.matches)
+                    ? root.matches.length
+                    : 0;
             const matches = [];
             const rawMatches = Array.isArray(root.matches) ? root.matches : [];
             for (const item of rawMatches) {
@@ -540,7 +623,6 @@ export class AIAgentDiscoveryClient {
             return { total: 0, matches: [] };
         }
     }
-
     /**
      * Fetch OASF skills taxonomy from the discovery GraphQL endpoint (best-effort).
      * Returns [] if the backend does not expose `oasfSkills`.
@@ -591,14 +673,19 @@ export class AIAgentDiscoveryClient {
         }
         catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            // If the backend schema doesn't expose the field, treat it as "unsupported".
             if (message.includes('Cannot query field "oasfSkills"')) {
+                return [];
+            }
+            // Some deployments expose the field but error due to resolver returning null for a non-null list.
+            // Treat this as "taxonomy unavailable" rather than failing the caller.
+            if (/Cannot return null for non-nullable field\s+Query\.oasfSkills\b/i.test(message)) {
                 return [];
             }
             console.warn('[AIAgentDiscoveryClient] oasfSkills query failed:', error);
             throw error;
         }
     }
-
     /**
      * Fetch OASF domains taxonomy from the discovery GraphQL endpoint (best-effort).
      * Returns [] if the backend does not expose `oasfDomains`.
@@ -652,11 +739,13 @@ export class AIAgentDiscoveryClient {
             if (message.includes('Cannot query field "oasfDomains"')) {
                 return [];
             }
+            if (/Cannot return null for non-nullable field\s+Query\.oasfDomains\b/i.test(message)) {
+                return [];
+            }
             console.warn('[AIAgentDiscoveryClient] oasfDomains query failed:', error);
             throw error;
         }
     }
-
     async searchAgentsAdvanced(options) {
         console.log('>>>>>>>>>>>>>>>>>> searchAgentsAdvanced', options);
         const strategy = await this.detectSearchStrategy();
@@ -685,15 +774,16 @@ export class AIAgentDiscoveryClient {
               searchAgents(query: $query, limit: $limit, offset: $offset, orderBy: $orderBy, orderDirection: $orderDirection) {
                 chainId
                 agentId
-                agentAccount
-                agentOwner
-                eoaOwner
                 agentName
+                agentAccount
+                agentIdentityOwnerAccount
+                eoaAgentIdentityOwnerAccount
+                eoaAgentAccount
                 agentCategory
                 didIdentity
                 didAccount
                 didName
-                tokenUri
+                agentUri
                 createdAtBlock
                 createdAtTime
                 updatedAtTime
@@ -701,14 +791,30 @@ export class AIAgentDiscoveryClient {
                 description
                 image
                 a2aEndpoint
-                ensEndpoint
-                agentAccountEndpoint
                 did
                 mcp
                 x402support
                 active
                 supportedTrust
                 rawJson
+                agentCardJson
+                agentCardReadAt
+                feedbackCount
+                feedbackAverageScore
+                validationPendingCount
+                validationCompletedCount
+                validationRequestedCount
+                initiatedAssociationCount
+                approvedAssociationCount
+                atiOverallScore
+                atiOverallConfidence
+                atiVersion
+                atiComputedAt
+                atiBundleJson
+                trustLedgerScore
+                trustLedgerBadgeCount
+                trustLedgerOverallRank
+                trustLedgerCapabilityRank
               }
             }
           `;
@@ -797,15 +903,6 @@ export class AIAgentDiscoveryClient {
                                 return orderDirection === 'ASC' ? bA - bB : bB - bA;
                             });
                         }
-                        else if (orderBy === 'agentOwner') {
-                            normalizedList.sort((a, b) => {
-                                const aOwner = (a.agentOwner ?? '').toLowerCase();
-                                const bOwner = (b.agentOwner ?? '').toLowerCase();
-                                return orderDirection === 'ASC'
-                                    ? aOwner.localeCompare(bOwner)
-                                    : bOwner.localeCompare(aOwner);
-                            });
-                        }
                         console.log('>>>>>>>>>>>>>>>>>> 345 AdvancedSearch', normalizedList);
                         return { agents: normalizedList, total: undefined };
                     }
@@ -823,15 +920,16 @@ export class AIAgentDiscoveryClient {
         const agentSelection = `
       chainId
       agentId
-      agentAccount
-      agentOwner
-      eoaOwner
       agentName
+      agentAccount
+      agentIdentityOwnerAccount
+      eoaAgentIdentityOwnerAccount
+      eoaAgentAccount
       agentCategory
       didIdentity
       didAccount
       didName
-      tokenUri
+      agentUri
       createdAtBlock
       createdAtTime
       updatedAtTime
@@ -839,8 +937,6 @@ export class AIAgentDiscoveryClient {
       description
       image
       a2aEndpoint
-      ensEndpoint
-      agentAccountEndpoint
       did
       mcp
       x402support
@@ -925,14 +1021,15 @@ export class AIAgentDiscoveryClient {
               chainId
               agentId
               agentAccount
-              agentOwner
-              eoaOwner
               agentName
+              agentIdentityOwnerAccount
+              eoaAgentIdentityOwnerAccount
+              eoaAgentAccount
               agentCategory
               didIdentity
               didAccount
               didName
-              tokenUri
+              agentUri
               createdAtBlock
               createdAtTime
               updatedAtTime
@@ -940,14 +1037,14 @@ export class AIAgentDiscoveryClient {
               description
               image
               a2aEndpoint
-              ensEndpoint
-              agentAccountEndpoint
               did
               mcp
               x402support
               active
               supportedTrust
               rawJson
+              agentCardJson
+              agentCardReadAt
             }
           }
         }
@@ -1057,14 +1154,15 @@ export class AIAgentDiscoveryClient {
             chainId
             agentId
             agentAccount
-            agentOwner
-            eoaOwner
             agentName
+            agentIdentityOwnerAccount
+            eoaAgentIdentityOwnerAccount
+            eoaAgentAccount
             agentCategory
             didIdentity
             didAccount
             didName
-            tokenUri
+            agentUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -1072,10 +1170,10 @@ export class AIAgentDiscoveryClient {
             description
             image
             a2aEndpoint
-            ensEndpoint
-            agentAccountEndpoint
             supportedTrust
             rawJson
+            agentCardJson
+            agentCardReadAt
             did
             mcp
             x402support
@@ -1085,6 +1183,17 @@ export class AIAgentDiscoveryClient {
             validationPendingCount
             validationCompletedCount
             validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
+            trustLedgerScore
+            trustLedgerBadgeCount
+            trustLedgerOverallRank
+            trustLedgerCapabilityRank
           }
           total
           hasMore
@@ -1285,6 +1394,44 @@ export class AIAgentDiscoveryClient {
         }
     }
     /**
+     * Some indexers expose `metadata { key valueText }`, others expose `metadata { key value }`.
+     * Introspect once and cache so we can query metadata reliably.
+     */
+    async getAgentMetadataValueField() {
+        if (this.agentMetadataValueField !== undefined) {
+            return this.agentMetadataValueField;
+        }
+        try {
+            const agentFields = await this.getTypeFields('Agent');
+            const metadataField = agentFields?.find((f) => f?.name === 'metadata');
+            const metadataType = unwrapType(metadataField?.type);
+            const metadataTypeName = metadataType?.name ?? null;
+            if (!metadataTypeName) {
+                this.agentMetadataValueField = null;
+                return null;
+            }
+            const metadataFields = await this.getTypeFields(metadataTypeName);
+            const fieldNames = new Set((metadataFields ?? [])
+                .map((f) => f?.name)
+                .filter((name) => typeof name === 'string' && name.length > 0));
+            if (fieldNames.has('valueText')) {
+                this.agentMetadataValueField = 'valueText';
+                return 'valueText';
+            }
+            if (fieldNames.has('value')) {
+                this.agentMetadataValueField = 'value';
+                return 'value';
+            }
+            this.agentMetadataValueField = null;
+            return null;
+        }
+        catch {
+            // If schema blocks introspection, fall back to historical `valueText`.
+            this.agentMetadataValueField = 'valueText';
+            return 'valueText';
+        }
+    }
+    /**
      * Get all token metadata from The Graph indexer for an agent
      * Uses tokenMetadata_collection query to get all metadata key-value pairs
      * Handles pagination if an agent has more than 1000 metadata entries
@@ -1293,17 +1440,23 @@ export class AIAgentDiscoveryClient {
      * @returns Record of all metadata key-value pairs, or null if not available
      */
     async getTokenMetadata(chainId, agentId) {
+        // If we already learned the GraphQL schema doesn't support this query field,
+        // skip to avoid repeated GRAPHQL_VALIDATION_FAILED warnings.
+        if (this.tokenMetadataCollectionSupported === false) {
+            return null;
+        }
         // Newer indexer schemas may not expose tokenMetadata_collection anymore.
         // Avoid spamming logs / failing requests by introspecting once and bailing out if unsupported.
         try {
             const queryFields = await this.getTypeFields('Query');
             const hasTokenMetadataCollection = Boolean(queryFields?.some((f) => f?.name === 'tokenMetadata_collection'));
             if (!hasTokenMetadataCollection) {
+                this.tokenMetadataCollectionSupported = false;
                 // tokenMetadataById may exist, but it doesn't help us enumerate all metadata pairs.
                 // We only use this method as a best-effort fallback, so return null when unsupported.
-                console.warn('[AIAgentDiscoveryClient.getTokenMetadata] tokenMetadata_collection not available in GraphQL schema; skipping token metadata lookup.');
                 return null;
             }
+            this.tokenMetadataCollectionSupported = true;
         }
         catch (e) {
             // If introspection fails, keep existing behavior (attempt the query; it will be caught below).
@@ -1356,6 +1509,22 @@ export class AIAgentDiscoveryClient {
                 }
             }
             catch (error) {
+                // Some indexers have evolved schema and removed `tokenMetadata_collection`.
+                // graphql-request surfaces this as GRAPHQL_VALIDATION_FAILED; treat it as "not supported"
+                // and disable future attempts for this client instance.
+                const responseErrors = error?.response?.errors;
+                const schemaDoesNotSupportCollection = Array.isArray(responseErrors) &&
+                    responseErrors.some((e) => typeof e?.message === 'string' &&
+                        e.message.includes('tokenMetadata_collection') &&
+                        (e?.extensions?.code === 'GRAPHQL_VALIDATION_FAILED' ||
+                            e.message.includes('Cannot query field')));
+                if (schemaDoesNotSupportCollection) {
+                    this.tokenMetadataCollectionSupported = false;
+                    if (Object.keys(metadata).length > 0) {
+                        return metadata;
+                    }
+                    return null;
+                }
                 console.warn('[AIAgentDiscoveryClient.getTokenMetadata] Error fetching token metadata from GraphQL:', error);
                 // If we got some metadata before the error, return what we have
                 if (Object.keys(metadata).length > 0) {
@@ -1373,6 +1542,20 @@ export class AIAgentDiscoveryClient {
      * @returns Agent data with metadata or null if not found
      */
     async getAgent(chainId, agentId) {
+        const metadataValueField = await this.getAgentMetadataValueField();
+        const metadataSelection = metadataValueField === 'valueText'
+            ? `
+            metadata {
+              key
+              valueText
+            }`
+            : metadataValueField === 'value'
+                ? `
+            metadata {
+              key
+              valueText: value
+            }`
+                : '';
         // Try searchAgentsGraph first to get metadata
         const graphQuery = `
       query GetAgentWithMetadata($where: AgentWhereInput, $first: Int) {
@@ -1384,14 +1567,15 @@ export class AIAgentDiscoveryClient {
             chainId
             agentId
             agentAccount
-            agentOwner
-            eoaOwner
             agentName
+            agentIdentityOwnerAccount
+            eoaAgentIdentityOwnerAccount
+            eoaAgentAccount
             agentCategory
             didIdentity
             didAccount
             didName
-            tokenUri
+            agentUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -1399,18 +1583,31 @@ export class AIAgentDiscoveryClient {
             description
             image
             a2aEndpoint
-            ensEndpoint
-            agentAccountEndpoint
             did
             mcp
             x402support
             active
             supportedTrust
             rawJson
-            metadata {
-              key
-              valueText
-            }
+            agentCardJson
+            agentCardReadAt
+            feedbackCount
+            feedbackAverageScore
+            validationPendingCount
+            validationCompletedCount
+            validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
+            trustLedgerScore
+            trustLedgerBadgeCount
+            trustLedgerOverallRank
+            trustLedgerCapabilityRank
+${metadataSelection}
           }
         }
       }
@@ -1458,14 +1655,15 @@ export class AIAgentDiscoveryClient {
           chainId
           agentId
           agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -1473,14 +1671,23 @@ export class AIAgentDiscoveryClient {
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -1506,14 +1713,15 @@ export class AIAgentDiscoveryClient {
           chainId
           agentId
           agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
       didAccount
       didName
-      tokenUri
+      agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -1521,14 +1729,23 @@ export class AIAgentDiscoveryClient {
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
@@ -1555,19 +1772,20 @@ export class AIAgentDiscoveryClient {
      */
     async searchAgents(searchTerm, limit) {
         const query = `
-      query SearchAgents($searchTerm: String!, $limit: Int) {
-        agents(searchTerm: $searchTerm, limit: $limit) {
+      query SearchAgents($query: String!, $limit: Int) {
+        searchAgents(query: $query, limit: $limit) {
           chainId
           agentId
           agentAccount
-          agentOwner
-          eoaOwner
           agentName
+          agentIdentityOwnerAccount
+          eoaAgentIdentityOwnerAccount
+          eoaAgentAccount
           agentCategory
           didIdentity
           didAccount
           didName
-          tokenUri
+          agentUri
           createdAtBlock
           createdAtTime
           updatedAtTime
@@ -1575,23 +1793,32 @@ export class AIAgentDiscoveryClient {
           description
           image
           a2aEndpoint
-          ensEndpoint
-          agentAccountEndpoint
           did
           mcp
           x402support
           active
           supportedTrust
           rawJson
+          agentCardJson
+          agentCardReadAt
+          atiOverallScore
+          atiOverallConfidence
+          atiVersion
+          atiComputedAt
+          atiBundleJson
+          trustLedgerScore
+          trustLedgerBadgeCount
+          trustLedgerOverallRank
+          trustLedgerCapabilityRank
         }
       }
     `;
         try {
             const data = await this.client.request(query, {
-                searchTerm,
+                query: searchTerm,
                 limit: limit || 100,
             });
-            const agents = data.agents || [];
+            const agents = data.searchAgents || [];
             return agents.map((agent) => this.normalizeAgent(agent));
         }
         catch (error) {
@@ -1798,8 +2025,13 @@ export class AIAgentDiscoveryClient {
         if (!eoaAddress || typeof eoaAddress !== 'string' || !eoaAddress.startsWith('0x')) {
             throw new Error('Invalid EOA address. Must be a valid Ethereum address starting with 0x');
         }
-        // Use the address as-is (don't normalize to lowercase) since the database may store it with mixed case
-        const normalizedAddress = eoaAddress;
+        // Indexer/storage can vary: some deployments store checksum addresses as strings; others store lowercased hex.
+        // Query defensively in a case-safe way.
+        const addrLower = eoaAddress.toLowerCase();
+        const addrCandidates = [];
+        addrCandidates.push(eoaAddress);
+        if (addrLower !== eoaAddress)
+            addrCandidates.push(addrLower);
         const limit = options?.limit ?? 100;
         const offset = options?.offset ?? 0;
         const orderBy = options?.orderBy ?? 'agentId';
@@ -1823,13 +2055,15 @@ export class AIAgentDiscoveryClient {
             chainId
             agentId
             agentAccount
-            agentOwner
             agentName
             agentCategory
             didIdentity
             didAccount
             didName
-            tokenUri
+            agentIdentityOwnerAccount
+            eoaAgentIdentityOwnerAccount
+            eoaAgentAccount
+            agentUri
             createdAtBlock
             createdAtTime
             updatedAtTime
@@ -1837,10 +2071,10 @@ export class AIAgentDiscoveryClient {
             description
             image
             a2aEndpoint
-            ensEndpoint
-            agentAccountEndpoint
             supportedTrust
             rawJson
+            agentCardJson
+            agentCardReadAt
             did
             mcp
             x402support
@@ -1850,35 +2084,63 @@ export class AIAgentDiscoveryClient {
             validationPendingCount
             validationCompletedCount
             validationRequestedCount
+            initiatedAssociationCount
+            approvedAssociationCount
+            atiOverallScore
+            atiOverallConfidence
+            atiVersion
+            atiComputedAt
+            atiBundleJson
+            trustLedgerScore
+            trustLedgerBadgeCount
+            trustLedgerOverallRank
+            trustLedgerCapabilityRank
           }
           total
           hasMore
         }
       }
     `;
-        const variables = {
-            where: {
-                eoaOwner: normalizedAddress,
-            },
-            first: limit,
-            skip: offset,
-            orderBy: orderBy,
-            orderDirection: orderDirection,
-        };
-        console.log('[AIAgentDiscoveryClient.getOwnedAgents] Query variables:', {
-            eoaAddress,
-            normalizedAddress,
-            where: { eoaOwner: normalizedAddress },
-            limit,
-            offset,
-            orderBy,
-            orderDirection,
-        });
         try {
-            const data = await this.client.request(query, variables);
-            const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
-            const agents = (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
-            return agents;
+            // Prefer _in filter (works for string fields and some bytes fields). If schema doesn't support it,
+            // fall back to exact-match attempts across candidates.
+            const tryQuery = async (where) => {
+                const variables = {
+                    where,
+                    first: limit,
+                    skip: offset,
+                    orderBy,
+                    orderDirection,
+                };
+                const data = await this.client.request(query, variables);
+                const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
+                return (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
+            };
+            // 1) Try eoaAgentIdentityOwnerAccount_in: [candidates]
+            try {
+                const owned = await tryQuery({ eoaAgentIdentityOwnerAccount_in: addrCandidates });
+                if (owned.length > 0)
+                    return owned;
+            }
+            catch (e) {
+                const responseErrors = e?.response?.errors;
+                const inNotSupported = Array.isArray(responseErrors) &&
+                    responseErrors.some((err) => typeof err?.message === 'string' &&
+                        (err.message.includes('eoaAgentIdentityOwnerAccount_in') ||
+                            err.message.includes('Field "eoaAgentIdentityOwnerAccount_in"') ||
+                            err.message.includes('Unknown argument') ||
+                            err.message.includes('Cannot query field')));
+                if (!inNotSupported) {
+                    throw e;
+                }
+            }
+            // 2) Exact match attempts
+            for (const candidate of addrCandidates) {
+                const owned = await tryQuery({ eoaAgentIdentityOwnerAccount: candidate });
+                if (owned.length > 0)
+                    return owned;
+            }
+            return [];
         }
         catch (error) {
             console.error('[AIAgentDiscoveryClient.getOwnedAgents] Error fetching owned agents:', error);

@@ -13,13 +13,14 @@ export interface AgentData {
     agentName?: string;
     chainId?: number;
     agentAccount?: string;
-    agentOwner?: string;
-    eoaOwner?: string | null;
+    agentIdentityOwnerAccount?: string;
+    eoaAgentIdentityOwnerAccount?: string | null;
+    eoaAgentAccount?: string | null;
     agentCategory?: string | null;
     didIdentity?: string | null;
     didAccount?: string | null;
     didName?: string | null;
-    tokenUri?: string;
+    agentUri?: string | null;
     createdAtBlock?: number;
     createdAtTime?: string | number;
     updatedAtTime?: string | number;
@@ -27,19 +28,30 @@ export interface AgentData {
     description?: string | null;
     image?: string | null;
     a2aEndpoint?: string | null;
-    ensEndpoint?: string | null;
-    agentAccountEndpoint?: string | null;
     did?: string | null;
     mcp?: boolean | null;
     x402support?: boolean | null;
     active?: boolean | null;
     supportedTrust?: string | null;
     rawJson?: string | null;
+    agentCardJson?: string | null;
+    agentCardReadAt?: number | null;
     feedbackCount?: number | null;
     feedbackAverageScore?: number | null;
     validationPendingCount?: number | null;
     validationCompletedCount?: number | null;
     validationRequestedCount?: number | null;
+    initiatedAssociationCount?: number | null;
+    approvedAssociationCount?: number | null;
+    atiOverallScore?: number | null;
+    atiOverallConfidence?: number | null;
+    atiVersion?: string | null;
+    atiComputedAt?: number | null;
+    atiBundleJson?: string | null;
+    trustLedgerScore?: number | null;
+    trustLedgerBadgeCount?: number | null;
+    trustLedgerOverallRank?: number | null;
+    trustLedgerCapabilityRank?: number | null;
     [key: string]: unknown;
 }
 export interface SemanticAgentMetadataEntry {
@@ -57,7 +69,6 @@ export interface SemanticAgentSearchResult {
     total: number;
     matches: SemanticAgentMatch[];
 }
-
 /**
  * OASF taxonomy types (served by discovery GraphQL when enabled)
  */
@@ -90,7 +101,7 @@ export interface GetAgentByNameResponse {
     agentByName: AgentData | null;
 }
 export interface SearchAgentsResponse {
-    agents: AgentData[];
+    searchAgents: AgentData[];
 }
 export interface SearchAgentsAdvancedOptions {
     query?: string;
@@ -202,7 +213,13 @@ export declare class AIAgentDiscoveryClient {
     private searchStrategy?;
     private searchStrategyPromise?;
     private typeFieldsCache;
+    private tokenMetadataCollectionSupported?;
+    private agentMetadataValueField?;
+    private queryFieldsCache?;
+    private queryFieldsPromise?;
     constructor(config: AIAgentDiscoveryClientConfig);
+    private getQueryFields;
+    private supportsQueryField;
     private normalizeAgent;
     /**
      * List agents with a deterministic default ordering (agentId DESC).
@@ -221,9 +238,10 @@ export declare class AIAgentDiscoveryClient {
      * throwing, so callers can fall back gracefully.
      */
     semanticAgentSearch(params: {
-        text: string;
+        text?: string;
+        intentJson?: string;
+        topK?: number;
     }): Promise<SemanticAgentSearchResult>;
-
     /**
      * Fetch OASF skills taxonomy from the discovery GraphQL endpoint (best-effort).
      * Returns [] if the backend does not expose `oasfSkills`.
@@ -238,7 +256,6 @@ export declare class AIAgentDiscoveryClient {
         orderBy?: string;
         orderDirection?: string;
     }): Promise<OasfSkill[]>;
-
     /**
      * Fetch OASF domains taxonomy from the discovery GraphQL endpoint (best-effort).
      * Returns [] if the backend does not expose `oasfDomains`.
@@ -266,7 +283,7 @@ export declare class AIAgentDiscoveryClient {
         where?: Record<string, unknown>;
         first?: number;
         skip?: number;
-        orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner';
+        orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentIdentityOwnerAccount' | 'eoaAgentIdentityOwnerAccount' | 'eoaAgentAccount' | 'agentCategory' | 'trustLedgerScore' | 'trustLedgerBadgeCount' | 'trustLedgerOverallRank' | 'trustLedgerCapabilityRank';
         orderDirection?: 'ASC' | 'DESC';
     }): Promise<{
         agents: AgentData[];
@@ -276,6 +293,11 @@ export declare class AIAgentDiscoveryClient {
     private detectSearchStrategy;
     private buildStrategyFromField;
     private getTypeFields;
+    /**
+     * Some indexers expose `metadata { key valueText }`, others expose `metadata { key value }`.
+     * Introspect once and cache so we can query metadata reliably.
+     */
+    private getAgentMetadataValueField;
     /**
      * Get all token metadata from The Graph indexer for an agent
      * Uses tokenMetadata_collection query to get all metadata key-value pairs
@@ -349,7 +371,7 @@ export declare class AIAgentDiscoveryClient {
     getOwnedAgents(eoaAddress: string, options?: {
         limit?: number;
         offset?: number;
-        orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentOwner' | 'eoaOwner';
+        orderBy?: 'agentId' | 'agentName' | 'createdAtTime' | 'createdAtBlock' | 'agentIdentityOwnerAccount' | 'eoaAgentIdentityOwnerAccount' | 'eoaAgentAccount' | 'agentCategory' | 'trustLedgerScore' | 'trustLedgerBadgeCount' | 'trustLedgerOverallRank' | 'trustLedgerCapabilityRank';
         orderDirection?: 'ASC' | 'DESC';
     }): Promise<AgentData[]>;
 }

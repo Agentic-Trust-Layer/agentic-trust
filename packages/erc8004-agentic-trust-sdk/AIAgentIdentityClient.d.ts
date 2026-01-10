@@ -75,6 +75,19 @@ export declare class AIAgentIdentityClient extends BaseIdentityClient {
         }[];
     }>;
     /**
+     * Encode `setAgentWallet` calldata without sending.
+     *
+     * IdentityRegistry ABI:
+     * setAgentWallet(uint256 agentId, address newWallet, uint256 deadline, bytes signature)
+     */
+    encodeSetAgentWallet(agentId: bigint, newWallet: `0x${string}`, deadline: bigint, signature: `0x${string}`): Promise<`0x${string}`>;
+    prepareSetAgentWalletCalls(agentId: bigint, newWallet: `0x${string}`, deadline: bigint, signature: `0x${string}`): Promise<{
+        calls: {
+            to: `0x${string}`;
+            data: `0x${string}`;
+        }[];
+    }>;
+    /**
      * Prepare a complete transaction for client-side signing (similar to prepareCall for bundlers)
      * All Ethereum logic (encoding, gas estimation, nonce) is handled server-side
      * Client only needs to sign and send with MetaMask

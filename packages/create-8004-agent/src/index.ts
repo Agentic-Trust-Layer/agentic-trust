@@ -32,7 +32,11 @@ const CHAIN_CHOICES: ChainChoice[] = [
 const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io';
 const DEFAULT_DISCOVERY_API_KEY =
   '9073051bb4bb81de87567794f24caf78f77d7985f79bc1cf6f79c33ce2cafdc3';
-const DEFAULT_IDENTITY_REGISTRY_ADDRESS = '0x8004a6090Cd10A7288092483047B097295Fb8847';
+
+// This package is a project generator; we intentionally do not hardcode a real on-chain registry address here.
+// The generated `.env*` files should be edited by the user for their target network/deployment.
+const DEFAULT_IDENTITY_REGISTRY_ADDRESS = '<IDENTITY_REGISTRY_ADDRESS>';
+
 
 function expandHomeDir(p: string): string {
   const input = String(p ?? '');
@@ -608,7 +612,7 @@ AGENTIC_TRUST_DISCOVERY_API_KEY = "${DEFAULT_DISCOVERY_API_KEY}"
 # Chain configuration (Sepolia defaults)
 # If you use Alchemy/Infura, override with your keyed RPC URL.
 AGENTIC_TRUST_RPC_URL_SEPOLIA = "https://rpc.sepolia.org"
-AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA = "${DEFAULT_IDENTITY_REGISTRY_ADDRESS}"
+
 AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA = "0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E"
 
 # Optional: these are also embedded in /.well-known/agent-card.json

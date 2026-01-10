@@ -112,7 +112,7 @@ contract AssociationsStoreWithDelegation {
     }
     
     /**
-     * @notice Validate approver signature with support for DELEGATED keyType
+     * @notice Validate approver signature with support for DELEGATED keyType and delegation-aware K1
      * @param approver The approver address (ERC-7930 format)
      * @param digest The message digest to validate
      * @param signature The signature bytes
@@ -128,7 +128,18 @@ contract AssociationsStoreWithDelegation {
         if (keyType == KEY_TYPE_DELEGATED) {
             return _validateDelegatedSignature(approver, digest, signature);
         } else if (keyType == KEY_TYPE_K1) {
-            return _validateK1Signature(approver, digest, signature);
+            // First try standard ERC-1271 validation
+            bool standardValidation = _validateK1Signature(approver, digest, signature);
+            if (standardValidation) {
+                return true;
+            }
+            
+            // If standard validation fails, check delegation chain
+            // This handles the case where:
+            // - Approver (agentAccount) delegates to a smart account (sessionAA)
+            // - Signer (operatorAddress) owns the delegated smart account
+            // - The validator doesn't automatically check ownership
+            return _validateK1WithDelegation(approver, digest, signature);
         } else {
             return false;
         }
@@ -171,6 +182,194 @@ contract AssociationsStoreWithDelegation {
     ) internal view returns (bool) {
         address accountAddress = _resolveEvmAddress(account);
         return SignatureChecker.isValidSignatureNow(accountAddress, digest, signature);
+    }
+    
+    /**
+     * @notice Validate K1 signature with delegation chain checking
+     * This handles cases where the approver (delegator) has delegated to a smart account,
+     * and the signer owns that delegated smart account. The standard ERC-1271 validator
+     * may not automatically check ownership, so we check it here.
+     * 
+     * Flow:
+     * 1. Extract signer from signature
+     * 2. Check if approver delegates to any smart account
+     * 3. Check if signer owns any of those delegated smart accounts
+     * 4. If yes, validate signature using that smart account's ERC-1271
+     * 
+     * @param approver The approver address (ERC-7930 format) - the delegator
+     * @param digest The message digest to validate
+     * @param signature The signature bytes (from the signer EOA)
+     * @return valid True if signature is valid through delegation chain
+     */
+    function _validateK1WithDelegation(
+        bytes calldata approver,
+        bytes32 digest,
+        bytes calldata signature
+    ) internal view returns (bool) {
+        address approverAddress = _resolveEvmAddress(approver);
+        
+        // Extract signer from signature
+        address signer;
+        try SignatureChecker.recover(digest, signature) returns (address recovered) {
+            signer = recovered;
+        } catch {
+            return false;
+        }
+        
+        // Check if approver is a contract (has code)
+        // If not, delegation-aware validation doesn't apply
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(approverAddress)
+        }
+        if (codeSize == 0) {
+            return false; // Approver is an EOA, no delegation to check
+        }
+        
+        // Try to find delegations from approver to smart accounts
+        // We'll check common delegation patterns:
+        // 1. Check if approver delegates to a smart account owned by signer
+        // 2. For MetaMask delegations, we might need to check DelegationManager
+        
+        // Approach: Try checking if any smart account owned by signer validates the signature
+        // and if there's a delegation from approver to that account
+        
+        // For now, we'll use a simplified approach:
+        // - Check if the signer's signature is valid for any account they own
+        // - Check if approver has a delegation to that account
+        // 
+        // However, we don't know all possible delegated accounts, so we'll try a different approach:
+        // Check if signer is an EOA and validate directly if delegation exists
+        
+        // Since we can't easily enumerate all delegations, we'll check:
+        // 1. If signer is an EOA (which it should be in our use case)
+        // 2. Try to find if approver delegates to a smart account
+        // 3. Check if that smart account's owner is the signer
+        // 4. If yes, validate signature using that smart account's ERC-1271
+        
+        // For MetaMask smart accounts, we can check if there's a delegation
+        // from approver to a smart account owned by signer
+        // This is a simplified check - in production, you might need to query DelegationManager
+        
+        // Try checking DelegationManager for delegations from approver
+        // If we find a delegation to an account owned by signer, validate using that account
+        (bool hasDelegation, address delegate) = _findDelegationToSignerAccount(approverAddress, signer);
+        
+        if (hasDelegation && delegate != address(0)) {
+            // Found a delegation from approver to an account owned by signer
+            // Validate signature using that delegated account's ERC-1271
+            return SignatureChecker.isValidSignatureNow(delegate, digest, signature);
+        }
+        
+        return false;
+    }
+    
+    /**
+     * @notice Find if approver delegates to an account owned by signer
+     * @param approver The delegator address  
+     * @param signer The signer (potential owner of delegate)
+     * @return found True if delegation found
+     * @return delegate The delegated account address (if found)
+     * 
+     * This function tries multiple strategies to find delegations:
+     * 1. Query DelegationManager using common interface patterns
+     * 2. Check if signer is an EOA and validate signature directly
+     * 3. For MetaMask smart accounts, check if approver has delegations
+     * 
+     * NOTE: This implementation tries common DelegationManager patterns.
+     * You may need to adjust based on the actual DelegationManager interface.
+     */
+    function _findDelegationToSignerAccount(
+        address approver,
+        address signer
+    ) internal view returns (bool found, address delegate) {
+        // Check if signer is an EOA (no code)
+        uint256 signerCodeSize;
+        assembly {
+            signerCodeSize := extcodesize(signer)
+        }
+        
+        if (signerCodeSize != 0) {
+            // Signer is a contract, not an EOA - delegation ownership check doesn't apply
+            return (false, address(0));
+        }
+        
+        // Try to query DelegationManager for delegations from approver
+        // Common DelegationManager interface patterns:
+        
+        // Pattern 1: getDelegations(delegator) returns (address[] delegates)
+        (bool success1, bytes memory data1) = delegationManager.staticcall(
+            abi.encodeWithSignature("getDelegations(address)", approver)
+        );
+        
+        if (success1 && data1.length > 0) {
+            try this.decodeDelegationsArray(data1) returns (address[] memory delegates) {
+                // Check each delegate to see if signer owns it
+                for (uint i = 0; i < delegates.length; i++) {
+                    address potentialDelegate = delegates[i];
+                    if (potentialDelegate != address(0)) {
+                        // Check if signer owns this delegate (check owner() function)
+                        address owner = _getAccountOwner(potentialDelegate);
+                        if (owner == signer) {
+                            return (true, potentialDelegate);
+                        }
+                    }
+                }
+            } catch {
+                // Decoding failed, try next pattern
+            }
+        }
+        
+        // Pattern 2: hasDelegation(delegator, delegate) returns (bool)
+        // Since we don't know all possible delegates, we can't use this directly
+        // But if we had a registry of possible delegates, we could check them
+        
+        // Pattern 3: For MetaMask smart accounts, delegations might be stored in the smart account itself
+        // We could check the smart account's storage, but this is complex and implementation-dependent
+        
+        return (false, address(0));
+    }
+    
+    /**
+     * @notice Helper function to decode delegations array (must be external for try-catch)
+     * @param data The encoded array data
+     * @return delegates Array of delegate addresses
+     */
+    function decodeDelegationsArray(bytes memory data) external pure returns (address[] memory delegates) {
+        return abi.decode(data, (address[]));
+    }
+    
+    /**
+     * @notice Get the owner of an account (smart account or EOA)
+     * @param account The account to check
+     * @return owner The owner address, or address(0) if not found or account is an EOA
+     */
+    function _getAccountOwner(address account) internal view returns (address owner) {
+        // Check if account has an owner() function (common in smart accounts)
+        (bool success, bytes memory data) = account.staticcall(
+            abi.encodeWithSignature("owner()")
+        );
+        
+        if (success && data.length >= 32) {
+            owner = abi.decode(data, (address));
+        } else {
+            // Account might not have owner() function, or it's an EOA
+            owner = address(0);
+        }
+        
+        // If owner is still 0, check if account is an EOA
+        // (EOAs don't have owners, so if it's a contract without owner, return 0)
+        uint256 codeSize;
+        assembly {
+            codeSize := extcodesize(account)
+        }
+        
+        if (codeSize == 0 && owner == address(0)) {
+            // Account is an EOA, so it's its own "owner"
+            return account;
+        }
+        
+        return owner;
     }
     
     /**

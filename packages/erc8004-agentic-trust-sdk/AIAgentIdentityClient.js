@@ -262,8 +262,9 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
             // Convert to hex string (Viem requires hex strings, not Uint8Array)
             const hexString = this.bytesToHex(bytes);
             return {
-                key: m.key,
-                value: hexString,
+                // Updated ABI uses struct fields: { metadataKey, metadataValue }
+                metadataKey: m.key,
+                metadataValue: hexString,
             };
         });
         // Use AccountProvider's encodeFunctionData
@@ -295,7 +296,8 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     async encodeSetRegistrationUri(agentId, uri) {
         const data = await this.accountProvider.encodeFunctionData({
             abi: IdentityRegistryABI,
-            functionName: 'setAgentUri',
+            // Updated ABI name is setAgentURI (capital URI)
+            functionName: 'setAgentURI',
             args: [agentId, uri],
         });
         return data;
@@ -306,6 +308,29 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
         calls.push({
             to: this.identityRegistryAddress,
             data: data
+        });
+        return { calls };
+    }
+    /**
+     * Encode `setAgentWallet` calldata without sending.
+     *
+     * IdentityRegistry ABI:
+     * setAgentWallet(uint256 agentId, address newWallet, uint256 deadline, bytes signature)
+     */
+    async encodeSetAgentWallet(agentId, newWallet, deadline, signature) {
+        const data = await this.accountProvider.encodeFunctionData({
+            abi: IdentityRegistryABI,
+            functionName: 'setAgentWallet',
+            args: [agentId, newWallet, deadline, signature],
+        });
+        return data;
+    }
+    async prepareSetAgentWalletCalls(agentId, newWallet, deadline, signature) {
+        const calls = [];
+        const data = await this.encodeSetAgentWallet(agentId, newWallet, deadline, signature);
+        calls.push({
+            to: this.identityRegistryAddress,
+            data,
         });
         return { calls };
     }
@@ -539,8 +564,6 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
                 functionName: 'getApproved',
                 args: [agentId],
             });
-
-            console.log('operatorAddress', operatorAddress);
             // Check if operator is set (not zero address)
             if (operatorAddress && operatorAddress !== '0x0000000000000000000000000000000000000000') {
                 return operatorAddress;

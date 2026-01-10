@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "composite": false,
+    "noEmit": false,
+    "skipLibCheck": true,
+    "noImplicitOverride": false
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "../../packages/erc8004-agentic-trust-sdk",
+    "../../packages/erc8004-sdk"
+  ]
+}
+

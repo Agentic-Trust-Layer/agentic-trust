@@ -7,6 +7,7 @@ export interface GiveFeedbackParams {
     metadata?: MetadataEntry[];
     tag1?: string;
     tag2?: string;
+    endpoint?: string;
     feedbackHash?: string;
     feedbackUri?: string;
     agentId?: string;
@@ -33,7 +34,8 @@ export declare class AIAgentReputationClient extends BaseReputationClient {
     static create(accountProvider: AccountProvider, identityRegistryAddress: `0x${string}`, registrationRegistryAddress: `0x${string}`, ensRegistryAddress: `0x${string}`): Promise<AIAgentReputationClient>;
     /**
      * Submit feedback for an agent
-     * Spec: function giveFeedback(uint256 agentId, uint8 score, bytes32 tag1, bytes32 tag2, string calldata feedbackUri, bytes32 calldata feedbackHash, bytes memory feedbackAuth)
+     * Updated ABI:
+     *   giveFeedback(uint256 agentId, uint8 score, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)
      *
      * @param params - Feedback parameters (score is MUST, others are OPTIONAL)
      * @returns Transaction result

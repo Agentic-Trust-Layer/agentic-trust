@@ -38,18 +38,7 @@ const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io';
 const DEFAULT_DISCOVERY_API_KEY =
   '9073051bb4bb81de87567794f24caf78f77d7985f79bc1cf6f79c33ce2cafdc3';
 
-// Best-known defaults (can be overridden by env vars or explicit params).
-const DEFAULT_REGISTRIES_BY_CHAIN: Record<number, { identityRegistry: `0x${string}`; reputationRegistry: `0x${string}` } | undefined> =
-  {
-    11155111: {
-      identityRegistry: '0x8004a6090Cd10A7288092483047B097295Fb8847',
-      reputationRegistry: '0x8004B8FD1A363aa02fDC07635C0c5F94f6Af5B7E',
-    },
-    84532: {
-      identityRegistry: '0x8004AA63c570c570eBF15376c0dB199918BFe9Fb',
-      reputationRegistry: '0x8004bd8daB57f14Ed299135749a5CB5c42d341BF',
-    },
-  };
+
 
 function as0xAddress(value: string | undefined): `0x${string}` | undefined {
   const v = String(value || '').trim();
@@ -137,12 +126,12 @@ export class AgenticTrustClient {
 
             const envIdentity = as0xAddress(getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId));
             const envReputation = as0xAddress(getChainEnvVar('AGENTIC_TRUST_REPUTATION_REGISTRY', chainId));
-            const baked = DEFAULT_REGISTRIES_BY_CHAIN[chainId];
+            //const baked = DEFAULT_REGISTRIES_BY_CHAIN[chainId];
 
             const identityRegistry =
-              params.identityRegistry || envIdentity || baked?.identityRegistry;
+              params.identityRegistry || envIdentity;
             const reputationRegistry =
-              params.reputationRegistry || envReputation || baked?.reputationRegistry;
+              params.reputationRegistry || envReputation;
 
             if (!identityRegistry || !reputationRegistry) {
               throw new Error(

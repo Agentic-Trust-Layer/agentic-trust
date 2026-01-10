@@ -22,8 +22,9 @@ export class BaseIdentityClient {
             const bytes = this.stringToBytes(m.value);
             const hexString = this.bytesToHex(bytes);
             return {
-                key: m.key,
-                value: hexString,
+                // Updated ABI uses struct fields: { metadataKey, metadataValue }
+                metadataKey: m.key,
+                metadataValue: hexString,
             };
         });
         // Encode function data
@@ -59,8 +60,9 @@ export class BaseIdentityClient {
             const bytes = this.stringToBytes(m.value);
             const hexString = this.bytesToHex(bytes);
             return {
-                key: m.key,
-                value: hexString,
+                // Updated ABI uses struct fields: { metadataKey, metadataValue }
+                metadataKey: m.key,
+                metadataValue: hexString,
             };
         });
         // Encode function data
@@ -185,7 +187,8 @@ export class BaseIdentityClient {
         }
         const data = await this.accountProvider.encodeFunctionData({
             abi: IdentityRegistryABI,
-            functionName: 'setAgentUri',
+            // Updated ABI name is setAgentURI (capital URI)
+            functionName: 'setAgentURI',
             args: [agentId, uri],
         });
         const txRequest = {

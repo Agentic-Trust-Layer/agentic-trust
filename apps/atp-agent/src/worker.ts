@@ -1771,9 +1771,9 @@ const handleA2A = async (c: HonoContext) => {
             const sar = {
               revokedAt: 0,
               initiatorKeyType: '0x0001', // K1/ECDSA for client EOA
-              // Use K1 (0x0001) for approver - ERC-8092 will call agent.isValidSignature(hash, signature)
-              // The delegation scope now includes isValidSignature selector, so delegation-aware validator should accept
-              approverKeyType: '0x0001' as `0x${string}`, // K1 - ERC-8092 calls agent.isValidSignature
+              // Use DELEGATED (0x8002) keyType to bypass ERC-1271 and validate delegation directly
+              // This checks if the agent account has delegated to the operator EOA directly
+              approverKeyType: '0x8002' as `0x${string}`, // DELEGATED - bypasses ERC-1271, validates delegation directly
               initiatorSignature: initiatorSignatureRaw,
               approverSignature,
               record,

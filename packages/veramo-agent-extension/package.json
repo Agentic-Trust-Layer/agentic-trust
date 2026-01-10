@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/veramo-agent-extension",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "description": "Veramo agent extensions for agent-to-agent and account abstraction support",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,7 +23,7 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },

@@ -9,9 +9,10 @@ export interface GiveFeedbackParams {
     score: number;
     tag1?: string;
     tag2?: string;
+    endpoint?: string;
     feedbackUri?: string;
     feedbackHash?: string;
-    feedbackAuth: string;
+    feedbackAuth?: string;
 }
 import type { Address } from 'viem';
 export declare class ReputationClient {
@@ -41,7 +42,8 @@ export declare class ReputationClient {
     signFeedbackAuth(auth: FeedbackAuth): Promise<string>;
     /**
      * Submit feedback for an agent
-     * Spec: function giveFeedback(uint256 agentId, uint8 score, bytes32 tag1, bytes32 tag2, string calldata feedbackUri, bytes32 calldata feedbackHash, bytes memory feedbackAuth)
+     * Updated ABI:
+     *   giveFeedback(uint256 agentId, uint8 score, string tag1, string tag2, string endpoint, string feedbackURI, bytes32 feedbackHash)
      *
      * @param params - Feedback parameters (score is MUST, others are OPTIONAL)
      * @returns Transaction result
@@ -79,7 +81,7 @@ export declare class ReputationClient {
     getIdentityRegistry(): Promise<string>;
     /**
      * Get reputation summary for an agent
-     * Spec: function getSummary(uint256 agentId, address[] calldata clientAddresses, bytes32 tag1, bytes32 tag2) returns (uint64 count, uint8 averageScore)
+     * Updated ABI: getSummary(uint256 agentId, address[] clientAddresses, string tag1, string tag2)
      * Note: agentId is ONLY mandatory parameter, others are OPTIONAL filters
      *
      * @param agentId - The agent ID (MANDATORY)
@@ -93,7 +95,7 @@ export declare class ReputationClient {
     }>;
     /**
      * Read a specific feedback entry
-     * Spec: function readFeedback(uint256 agentId, address clientAddress, uint64 index) returns (uint8 score, bytes32 tag1, bytes32 tag2, bool isRevoked)
+     * Updated ABI: readFeedback(...) returns (uint8 score, string tag1, string tag2, bool isRevoked)
      *
      * @param agentId - The agent ID
      * @param clientAddress - Client who gave feedback
@@ -107,7 +109,9 @@ export declare class ReputationClient {
     }>;
     /**
      * Read all feedback for an agent with optional filters
-     * Spec: function readAllFeedback(uint256 agentId, address[] calldata clientAddresses, bytes32 tag1, bytes32 tag2, bool includeRevoked) returns arrays
+     * Updated ABI:
+     *   readAllFeedback(uint256 agentId, address[] clientAddresses, string tag1, string tag2, bool includeRevoked)
+     *   returns (address[] clients, uint64[] feedbackIndexes, uint8[] scores, string[] tag1s, string[] tag2s, bool[] revokedStatuses)
      * Note: agentId is ONLY mandatory parameter
      *
      * @param agentId - The agent ID (MANDATORY)
@@ -118,6 +122,7 @@ export declare class ReputationClient {
      */
     readAllFeedback(agentId: bigint, clientAddresses?: string[], tag1?: string, tag2?: string, includeRevoked?: boolean): Promise<{
         clientAddresses: string[];
+        indexes: bigint[];
         scores: number[];
         tag1s: string[];
         tag2s: string[];

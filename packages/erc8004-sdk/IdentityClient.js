@@ -52,12 +52,15 @@ export class IdentityClient {
             // Convert Uint8Array to hex string for viem compatibility
             const hexString = this.bytesToHex(bytes);
             return {
-                key: m.key,
-                value: hexString
+                // Updated ABI uses struct fields: { metadataKey, metadataValue }
+                metadataKey: m.key,
+                metadataValue: hexString
             };
         });
         console.log('********************* registerWithMetadata: metadataFormatted', metadataFormatted);
-        const result = await this.adapter.send(this.contractAddress, IdentityRegistryABI, 'register(string,(string,bytes)[])', [tokenUri, metadataFormatted]);
+        const result = await this.adapter.send(this.contractAddress, IdentityRegistryABI, 
+        // Updated ABI uses tuple[] with struct fields (metadataKey, metadataValue)
+        'register(string,(string,bytes)[])', [tokenUri, metadataFormatted]);
         const agentId = this.extractAgentIdFromReceipt(result);
         return {
             agentId,
@@ -82,7 +85,9 @@ export class IdentityClient {
      * @param uri - New URI string
      */
     async setAgentUri(agentId, uri) {
-        const result = await this.adapter.send(this.contractAddress, IdentityRegistryABI, 'setAgentUri', [agentId, uri]);
+        const result = await this.adapter.send(this.contractAddress, IdentityRegistryABI, 
+        // Updated ABI name is setAgentURI (capital URI)
+        'setAgentURI', [agentId, uri]);
         return { txHash: result.hash || result.txHash };
     }
     /**

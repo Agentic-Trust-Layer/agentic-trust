@@ -10,6 +10,9 @@ import {
   custom,
   createPublicClient,
   getAddress,
+  hashMessage,
+  hashTypedData,
+  hexToBytes,
   toBytes,
   type Address,
   type Chain,
@@ -19,6 +22,7 @@ import { http, isAddressEqual } from 'viem';
 import { AIAgentIdentityClient } from '@agentic-trust/8004-ext-sdk';
 import {
   getChainById,
+  getChainConfig,
   DEFAULT_CHAIN_ID,
   getChainRpcUrl,
   getChainBundlerUrl,
@@ -783,9 +787,52 @@ async function createAgentWithWalletEOA(
   if (result.agentId) {
     // After registration, set agentWallet on-chain BEFORE notifying the indexer.
     try {
-      const identityRegistry = plan.identityRegistry as `0x${string}` | undefined;
+      // Get identityRegistry from plan response or fallback to environment variables
+      function normalizeHex(value?: string | null): `0x${string}` | undefined {
+        if (!value) return undefined;
+        const trimmed = value.trim();
+        if (!trimmed) return undefined;
+        return trimmed.startsWith('0x') 
+          ? (trimmed as `0x${string}`)
+          : (`0x${trimmed}` as `0x${string}`);
+      }
+
+      function getIdentityRegistryAddress(chainId: number): `0x${string}` | undefined {
+        const cfg = getChainConfig(chainId);
+        if (!cfg) return undefined;
+        const key = `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_${cfg.suffix}`;
+        let value: string | undefined;
+        if (typeof process !== 'undefined' && process?.env) {
+          value = (typeof process.env[key] === 'string' ? process.env[key] : undefined) || 
+                  (typeof process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY === 'string' 
+                    ? process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY 
+                    : undefined);
+        }
+        return normalizeHex(value);
+      }
+
+      // Try to get from plan response first, then fallback to environment variables
+      let identityRegistry: `0x${string}` | undefined = normalizeHex(plan.identityRegistry);
       if (!identityRegistry) {
-        throw new Error('Missing identityRegistry in create-agent plan');
+        identityRegistry = getIdentityRegistryAddress(plan.chainId);
+      }
+      
+      if (!identityRegistry) {
+        const cfg = getChainConfig(plan.chainId);
+        const expectedKey = cfg 
+          ? `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_${cfg.suffix}`
+          : 'NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY';
+        // Skip setAgentWallet if identityRegistry is not available
+        console.warn(
+          `[createAgentWithWalletEOA] Missing identityRegistry for chain ${plan.chainId}. ` +
+          `Skipping setAgentWallet step (non-fatal). ` +
+          `To enable this feature, set ${expectedKey} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY in your environment variables.`
+        );
+        throw new Error(
+          `Missing identityRegistry for chain ${plan.chainId}. ` +
+          `Set ${expectedKey} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY in your environment variables. ` +
+          `This step is optional and will be skipped.`
+        );
       }
 
       const viemWalletClient = createWalletClient({
@@ -811,6 +858,9 @@ async function createAgentWithWalletEOA(
           stateMutability: 'view',
           inputs: [],
           outputs: [
+            // EIP-5267 domain introspection format used by our IdentityRegistry:
+            // (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)
+            { name: 'fields', type: 'bytes1' },
             { name: 'name', type: 'string' },
             { name: 'version', type: 'string' },
             { name: 'chainId', type: 'uint256' },
@@ -828,31 +878,131 @@ async function createAgentWithWalletEOA(
         args: [],
       })) as any;
 
-      const domain = {
-        name: String(domainRaw?.name ?? domainRaw?.[0] ?? ''),
-        version: String(domainRaw?.version ?? domainRaw?.[1] ?? ''),
-        chainId: Number(domainRaw?.chainId ?? domainRaw?.[2] ?? chain.id),
-        verifyingContract: (domainRaw?.verifyingContract ?? domainRaw?.[3]) as `0x${string}`,
-        salt: (domainRaw?.salt ?? domainRaw?.[4]) as `0x${string}` | undefined,
-      };
+      // IMPORTANT: eip712Domain() is EIP-5267 introspection and returns a `fields` bitmask
+      // indicating which domain fields are actually used in the domain separator.
+      // If we include a field the contract does NOT include (e.g., salt), the signature will be invalid.
+      const fieldsHex = (domainRaw?.fields ?? domainRaw?.[0] ?? '0x00') as `0x${string}`;
+      const fields = Number(BigInt(fieldsHex));
+      // EIP-5267 bit flags:
+      const HAS_NAME = (fields & 0x01) !== 0;
+      const HAS_VERSION = (fields & 0x02) !== 0;
+      const HAS_CHAIN_ID = (fields & 0x04) !== 0;
+      const HAS_VERIFYING_CONTRACT = (fields & 0x08) !== 0;
+      const HAS_SALT = (fields & 0x10) !== 0;
+      // const HAS_EXTENSIONS = (fields & 0x20) !== 0; // not used for signing here
+
+      const domain: Record<string, unknown> = {};
+      if (HAS_NAME) domain.name = String(domainRaw?.name ?? domainRaw?.[1] ?? '');
+      if (HAS_VERSION) domain.version = String(domainRaw?.version ?? domainRaw?.[2] ?? '');
+      if (HAS_CHAIN_ID) domain.chainId = Number(domainRaw?.chainId ?? domainRaw?.[3] ?? chain.id);
+      if (HAS_VERIFYING_CONTRACT)
+        domain.verifyingContract = (domainRaw?.verifyingContract ?? domainRaw?.[4] ?? identityRegistry) as `0x${string}`;
+      if (HAS_SALT) domain.salt = (domainRaw?.salt ?? domainRaw?.[5]) as `0x${string}`;
 
       const agentIdBigInt = BigInt(result.agentId);
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // +1h
-      const newWallet = getAddress(account) as `0x${string}`;
+      // IdentityRegistry enforces an upper bound on deadline ("deadline too far").
+      // Use the on-chain timestamp and a short TTL to avoid bundler simulation reverts.
+      const latestBlock = await (viemPublicClient as any).getBlock({ blockTag: 'latest' });
+      const nowSec = BigInt(latestBlock?.timestamp ?? BigInt(Math.floor(Date.now() / 1000)));
+      // Keep this very short; IdentityRegistry enforces a strict max deadline window.
+      const deadline = nowSec + 60n; // +60 seconds
+      // In AA mode, the agent's wallet should be the agent smart account itself (not the connected EOA).
+      const newWallet = getAddress(agentData.agentAccount) as `0x${string}`;
+
+      // Ensure the currently-connected EOA can authorize this agent NFT.
+      // For AA flows the NFT owner is often a smart account; in that case the EOA must own that smart account.
+      try {
+        const IDENTITY_OWNER_ABI = [
+          {
+            type: 'function',
+            name: 'ownerOf',
+            stateMutability: 'view',
+            inputs: [{ name: 'tokenId', type: 'uint256' }],
+            outputs: [{ name: 'owner', type: 'address' }],
+          },
+        ] as const;
+        const tokenOwner = (await (viemPublicClient as any).readContract({
+          address: identityRegistry,
+          abi: IDENTITY_OWNER_ABI as any,
+          functionName: 'ownerOf',
+          args: [agentIdBigInt],
+        })) as `0x${string}`;
+        const ownerLower = String(tokenOwner).toLowerCase();
+        const signerLower = String(account).toLowerCase();
+        if (ownerLower !== signerLower) {
+          // If the owner is a smart account, check if it is owned by the connected EOA.
+          const OWNER_ABI = [
+            {
+              type: 'function',
+              name: 'owner',
+              stateMutability: 'view',
+              inputs: [],
+              outputs: [{ name: 'owner', type: 'address' }],
+            },
+          ] as const;
+          try {
+            const smartOwner = (await (viemPublicClient as any).readContract({
+              address: tokenOwner,
+              abi: OWNER_ABI as any,
+              functionName: 'owner',
+              args: [],
+            })) as `0x${string}`;
+            if (String(smartOwner).toLowerCase() !== signerLower) {
+              console.warn(
+                `[createAgentWithWalletEOA] Connected wallet ${account} is not authorized to sign for agentId ${agentIdBigInt}. ` +
+                  `NFT owner is ${tokenOwner} (smart account owner: ${smartOwner}). Skipping setAgentWallet (non-fatal).`,
+              );
+              throw new Error('Skip setAgentWallet: connected wallet not authorized for agent NFT');
+            }
+          } catch (e) {
+            console.warn(
+              `[createAgentWithWalletEOA] Connected wallet ${account} is not the NFT owner (owner is ${tokenOwner}) and owner() check failed. ` +
+                `Skipping setAgentWallet (non-fatal).`,
+              e,
+            );
+            throw new Error('Skip setAgentWallet: unable to verify smart account owner()');
+          }
+        }
+      } catch (ownerCheckErr) {
+        console.warn('[createAgentWithWalletEOA] ownerOf/owner check failed (skipping setAgentWallet):', ownerCheckErr);
+        throw new Error('Skip setAgentWallet: ownerOf/owner preflight failed');
+      }
 
       onStatusUpdate?.('MetaMask signature: set agent wallet (IdentityRegistry)');
       const signature = (await (viemWalletClient as any).signTypedData({
+        // Use the explicit account string we validated (avoids stale walletClient.account when user switches accounts)
         account,
         domain,
-        primaryType: 'SetAgentWallet',
+        primaryType: 'AgentWalletSet',
         types: {
-          SetAgentWallet: [
+          AgentWalletSet: [
             { name: 'agentId', type: 'uint256' },
             { name: 'newWallet', type: 'address' },
+            { name: 'owner', type: 'address' },
             { name: 'deadline', type: 'uint256' },
           ],
         },
-        message: { agentId: agentIdBigInt, newWallet, deadline },
+        // IdentityRegistry includes `owner` in the signed struct:
+        // keccak256(abi.encode(TYPEHASH, agentId, newWallet, owner, deadline))
+        message: {
+          agentId: agentIdBigInt,
+          newWallet,
+          owner: (await (viemPublicClient as any).readContract({
+            address: identityRegistry,
+            abi: [
+              {
+                type: 'function',
+                name: 'ownerOf',
+                stateMutability: 'view',
+                inputs: [{ name: 'tokenId', type: 'uint256' }],
+                outputs: [{ name: 'owner', type: 'address' }],
+              },
+            ] as const,
+            functionName: 'ownerOf',
+            args: [agentIdBigInt],
+          })) as `0x${string}`,
+          deadline,
+        },
       })) as `0x${string}`;
 
       const { calls } = await identityClient.prepareSetAgentWalletCalls(
@@ -995,9 +1145,15 @@ async function createAgentWithWalletAA(
     chain,
     transport: custom(ethereumProvider),
   });
+  // Prefer a dedicated RPC for public reads to avoid MetaMask surfacing "execution reverted" for readContract().
+  // Fall back to the wallet provider if no RPC URL is configured.
+  const resolvedRpcUrl =
+    (typeof providedRpcUrl === 'string' && providedRpcUrl.trim() ? providedRpcUrl.trim() : undefined) ||
+    getChainRpcUrl(chain.id) ||
+    chain.rpcUrls?.default?.http?.[0];
   const viemPublicClient = createPublicClient({
     chain,
-    transport: custom(ethereumProvider),
+    transport: resolvedRpcUrl ? http(resolvedRpcUrl) : custom(ethereumProvider),
   });
 
   // 1.  Need to create the Agent Account Abstraction (Account)
@@ -1363,6 +1519,16 @@ async function createAgentWithWalletAA(
     data: call.data as `0x${string}`,
     value: BigInt(call.value || '0'),
   }));
+  // The IdentityRegistry address used for minting is the `to` of the register call produced by the server.
+  // Using this avoids client env mismatches (e.g. NEXT_PUBLIC_* pointing at a different registry).
+  const identityRegistryFromPlan = (() => {
+    try {
+      const firstTo = createAgentIdentityCalls?.[0]?.to;
+      return firstTo ? (getAddress(firstTo) as `0x${string}`) : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
 
   // Send UserOperation via bundler
 
@@ -1418,9 +1584,76 @@ async function createAgentWithWalletAA(
   if (agentId) {
     // After registration, set agentWallet on-chain BEFORE notifying the indexer.
     try {
-      const identityRegistry = (data as any).identityRegistry as `0x${string}` | undefined;
+      // Get identityRegistry from chain config (client-side environment variables)
+      // This matches the pattern used in sessionPackageBuilder
+      function normalizeHex(value?: string | null): `0x${string}` | undefined {
+        if (!value) return undefined;
+        const trimmed = value.trim();
+        if (!trimmed) return undefined;
+        return trimmed.startsWith('0x') 
+          ? (trimmed as `0x${string}`)
+          : (`0x${trimmed}` as `0x${string}`);
+      }
+
+      function getIdentityRegistryAddress(chainId: number): `0x${string}` | undefined {
+        const cfg = getChainConfig(chainId);
+        if (!cfg) {
+          console.warn(`[createAgentWithWalletAA] No chain config found for chainId ${chainId}`);
+          return undefined;
+        }
+        const key = `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_${cfg.suffix}`;
+        // In Next.js, process.env is available at build time for NEXT_PUBLIC_* variables
+        // At runtime, they're replaced, so we check process.env directly
+        let value: string | undefined;
+        if (typeof process !== 'undefined' && process?.env) {
+          value = (typeof process.env[key] === 'string' ? process.env[key] : undefined) || 
+                  (typeof process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY === 'string' 
+                    ? process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY 
+                    : undefined);
+        }
+        if (!value) {
+          console.warn(`[createAgentWithWalletAA] Environment variable not found: ${key} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY`);
+        }
+        return normalizeHex(value);
+      }
+
+      let identityRegistry: `0x${string}` | undefined =
+        identityRegistryFromPlan || getIdentityRegistryAddress(chain.id);
+      
+      // Fallback: try to get from response (if it's ever added)
       if (!identityRegistry) {
-        throw new Error('Missing identityRegistry in create-agent response');
+        identityRegistry = (data as any).identityRegistry as `0x${string}` | undefined;
+      }
+
+      // Helpful warning if the env var points at a different registry than the one we actually minted on.
+      if (identityRegistryFromPlan && identityRegistry && !isAddressEqual(identityRegistryFromPlan, identityRegistry)) {
+        console.warn(
+          `[createAgentWithWalletAA] IdentityRegistry mismatch. Using server plan registry=${identityRegistryFromPlan}, ` +
+            `but env/response resolved identityRegistry=${identityRegistry}. ` +
+            `This would cause ownerOf(${agentId}) to revert on the wrong registry.`,
+        );
+        identityRegistry = identityRegistryFromPlan;
+      }
+      
+      if (!identityRegistry) {
+        const cfg = getChainConfig(chain.id);
+        const expectedKey = cfg 
+          ? `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_${cfg.suffix}`
+          : 'NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY';
+        // Skip setAgentWallet if identityRegistry is not available
+        // This is non-fatal - the agent was created successfully, just wallet setting is skipped
+        console.warn(
+          `[createAgentWithWalletAA] Missing identityRegistry for chain ${chain.id}. ` +
+          `Skipping setAgentWallet step (non-fatal). ` +
+          `To enable this feature, set ${expectedKey} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY in your environment variables.`
+        );
+        // Don't throw - just skip this step. The catch block is already set up to handle errors as non-fatal.
+        // By throwing here, we let the catch block handle it gracefully with the warning message.
+        throw new Error(
+          `Missing identityRegistry for chain ${chain.id}. ` +
+          `Set ${expectedKey} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY in your environment variables. ` +
+          `This step is optional and will be skipped.`
+        );
       }
 
       const identityClient = new AIAgentIdentityClient({
@@ -1436,6 +1669,9 @@ async function createAgentWithWalletAA(
           stateMutability: 'view',
           inputs: [],
           outputs: [
+            // EIP-5267 domain introspection format used by our IdentityRegistry:
+            // (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)
+            { name: 'fields', type: 'bytes1' },
             { name: 'name', type: 'string' },
             { name: 'version', type: 'string' },
             { name: 'chainId', type: 'uint256' },
@@ -1453,32 +1689,333 @@ async function createAgentWithWalletAA(
         args: [],
       })) as any;
 
-      const domain = {
-        name: String(domainRaw?.name ?? domainRaw?.[0] ?? ''),
-        version: String(domainRaw?.version ?? domainRaw?.[1] ?? ''),
-        chainId: Number(domainRaw?.chainId ?? domainRaw?.[2] ?? chain.id),
-        verifyingContract: (domainRaw?.verifyingContract ?? domainRaw?.[3]) as `0x${string}`,
-        salt: (domainRaw?.salt ?? domainRaw?.[4]) as `0x${string}` | undefined,
-      };
+      // IMPORTANT: eip712Domain() is EIP-5267 introspection and returns a `fields` bitmask
+      // indicating which domain fields are actually used in the domain separator.
+      // If we include a field the contract does NOT include (e.g., salt), the signature will be invalid.
+      const fieldsHex = (domainRaw?.fields ?? domainRaw?.[0] ?? '0x00') as `0x${string}`;
+      const fields = Number(BigInt(fieldsHex));
+      // EIP-5267 bit flags:
+      const HAS_NAME = (fields & 0x01) !== 0;
+      const HAS_VERSION = (fields & 0x02) !== 0;
+      const HAS_CHAIN_ID = (fields & 0x04) !== 0;
+      const HAS_VERIFYING_CONTRACT = (fields & 0x08) !== 0;
+      const HAS_SALT = (fields & 0x10) !== 0;
+      // const HAS_EXTENSIONS = (fields & 0x20) !== 0; // not used for signing here
+
+      const domain: Record<string, unknown> = {};
+      if (HAS_NAME) domain.name = String(domainRaw?.name ?? domainRaw?.[1] ?? '');
+      if (HAS_VERSION) domain.version = String(domainRaw?.version ?? domainRaw?.[2] ?? '');
+      if (HAS_CHAIN_ID) domain.chainId = Number(domainRaw?.chainId ?? domainRaw?.[3] ?? chain.id);
+      if (HAS_VERIFYING_CONTRACT)
+        domain.verifyingContract = (domainRaw?.verifyingContract ?? domainRaw?.[4] ?? identityRegistry) as `0x${string}`;
+      if (HAS_SALT) domain.salt = (domainRaw?.salt ?? domainRaw?.[5]) as `0x${string}`;
 
       const agentIdBigInt = BigInt(agentId);
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 60); // +1h
-      const newWallet = getAddress(account) as `0x${string}`;
+      // IdentityRegistry enforces an upper bound on deadline ("deadline too far").
+      // Use the on-chain timestamp and a short TTL to avoid bundler simulation reverts.
+      const latestBlock = await (viemPublicClient as any).getBlock({ blockTag: 'latest' });
+      const nowSec = BigInt(latestBlock?.timestamp ?? BigInt(Math.floor(Date.now() / 1000)));
+      // Keep this very short; IdentityRegistry enforces a strict max deadline window.
+      const deadline = nowSec + 60n; // +60 seconds
+      // In AA mode, setAgentWallet's `newWallet` should be the agent smart account.
+      const newWallet = getAddress(agentData.agentAccount) as `0x${string}`;
+
+      // Ensure account is authorized before signing (MetaMask requires explicit authorization)
+      // This is important because the authorization might have expired or been lost
+      // since the initial account authorization earlier in the flow
+      let authorizedAccount = account;
+      try {
+        // Re-authorize account to ensure MetaMask has permission
+        authorizedAccount = await ensureAuthorizedAccount(ethereumProvider);
+        
+        // Verify the account matches (in case user switched accounts)
+        if (authorizedAccount.toLowerCase() !== account.toLowerCase()) {
+          console.warn(
+            `[createAgentWithWalletAA] Account mismatch: expected ${account}, got ${authorizedAccount}. ` +
+            `Using the currently authorized account.`
+          );
+          account = authorizedAccount;
+        }
+      } catch (authError) {
+        console.warn('[createAgentWithWalletAA] Re-authorization failed, using existing account:', authError);
+        // Continue with existing account - if it fails, the error will be thrown below
+      }
 
       onStatusUpdate?.('MetaMask signature: set agent wallet (IdentityRegistry)');
-      const signature = (await (viemWalletClient as any).signTypedData({
-        account,
-        domain,
-        primaryType: 'SetAgentWallet',
-        types: {
-          SetAgentWallet: [
-            { name: 'agentId', type: 'uint256' },
-            { name: 'newWallet', type: 'address' },
-            { name: 'deadline', type: 'uint256' },
+      
+      // IMPORTANT: viemWalletClient.account can become stale if the user switches accounts mid-flow.
+      // Prefer the freshly-authorized account string.
+      const signingAccount = authorizedAccount;
+
+      // Fetch token owner once (used for both authorization preflight and EIP-712 message).
+      let tokenOwnerForSig: `0x${string}`;
+      try {
+        tokenOwnerForSig = (await (viemPublicClient as any).readContract({
+          address: identityRegistry,
+          abi: [
+            {
+              type: 'function',
+              name: 'ownerOf',
+              stateMutability: 'view',
+              inputs: [{ name: 'tokenId', type: 'uint256' }],
+              outputs: [{ name: 'owner', type: 'address' }],
+            },
+          ] as const,
+          functionName: 'ownerOf',
+          args: [agentIdBigInt],
+        })) as `0x${string}`;
+      } catch (ownerOfErr) {
+        console.warn(
+          `[createAgentWithWalletAA] ownerOf(${agentIdBigInt}) reverted on identityRegistry=${identityRegistry}. ` +
+            `This almost always means the client is pointing at the wrong IdentityRegistry for chain ${chain.id} (or agentId extraction is wrong).`,
+          ownerOfErr,
+        );
+        throw new Error('Skip setAgentWallet: ownerOf() reverted on identityRegistry');
+      }
+
+      // The contract uses `owner = ownerOf(agentId)` when hashing the typed data.
+      // Even if that owner is a smart account, the value in the struct is the smart account address itself.
+      const ownerForStruct = tokenOwnerForSig as `0x${string}`;
+
+      // Verify the currently-connected account can authorize the agent NFT before producing a signature.
+      // If the NFT owner is a smart account, ensure the connected EOA owns that smart account.
+      try {
+        const ownerLower = String(tokenOwnerForSig).toLowerCase();
+        const signerLower = String(signingAccount).toLowerCase();
+        if (ownerLower !== signerLower) {
+          const OWNER_ABI = [
+            {
+              type: 'function',
+              name: 'owner',
+              stateMutability: 'view',
+              inputs: [],
+              outputs: [{ name: 'owner', type: 'address' }],
+            },
+          ] as const;
+          try {
+            const smartOwner = (await (viemPublicClient as any).readContract({
+              address: tokenOwnerForSig,
+              abi: OWNER_ABI as any,
+              functionName: 'owner',
+              args: [],
+            })) as `0x${string}`;
+            if (String(smartOwner).toLowerCase() !== signerLower) {
+              console.warn(
+                `[createAgentWithWalletAA] Connected wallet ${signingAccount} is not authorized to sign for agentId ${agentIdBigInt}. ` +
+                  `NFT owner is ${tokenOwnerForSig} (smart account owner: ${smartOwner}). Skipping setAgentWallet (non-fatal).`,
+              );
+              throw new Error('Skip setAgentWallet: connected wallet not authorized for agent NFT');
+            }
+          } catch (e) {
+            console.warn(
+              `[createAgentWithWalletAA] Connected wallet ${signingAccount} is not the NFT owner (owner is ${tokenOwnerForSig}) and owner() check failed. ` +
+                `Skipping setAgentWallet (non-fatal).`,
+              e,
+            );
+            throw new Error('Skip setAgentWallet: unable to verify smart account owner()');
+          }
+        }
+      } catch (ownerCheckErr) {
+        console.warn('[createAgentWithWalletAA] ownerOf/owner check failed (skipping setAgentWallet):', ownerCheckErr);
+        throw new Error('Skip setAgentWallet: ownerOf/owner preflight failed');
+      }
+      
+      // --- Signature generation ---
+      // If the agent NFT is owned by a smart account, IdentityRegistry will validate via ERC-1271 on that owner.
+      // Many smart accounts require a specific signature format; a raw EOA EIP-712 signature may fail.
+      // We'll generate candidate signatures and (when possible) preflight them against owner.isValidSignature.
+
+      const SET_AGENT_WALLET_TYPES = {
+        // Must match IdentityRegistryUpgradeable AGENT_WALLET_SET_TYPEHASH:
+        // keccak256("AgentWalletSet(uint256 agentId,address newWallet,address owner,uint256 deadline)")
+        AgentWalletSet: [
+          { name: 'agentId', type: 'uint256' },
+          { name: 'newWallet', type: 'address' },
+          { name: 'owner', type: 'address' },
+          { name: 'deadline', type: 'uint256' },
+        ],
+      } as const;
+
+      const message = {
+        agentId: agentIdBigInt,
+        newWallet,
+        owner: ownerForStruct,
+        deadline,
+      } as const;
+
+      // Compute the EIP-712 digest that a typical contract would validate.
+      const digestEip712 = hashTypedData({
+        domain: domain as any,
+        types: SET_AGENT_WALLET_TYPES as any,
+        primaryType: 'AgentWalletSet',
+        message: message as any,
+      });
+      // Some contracts validate using eth_sign style over the digest.
+      const digestEthSign = hashMessage({ raw: hexToBytes(digestEip712) });
+
+      const ERC1271_ABI = [
+        {
+          type: 'function',
+          name: 'isValidSignature',
+          stateMutability: 'view',
+          inputs: [
+            { name: 'hash', type: 'bytes32' },
+            { name: 'signature', type: 'bytes' },
           ],
+          outputs: [{ name: 'magicValue', type: 'bytes4' }],
         },
-        message: { agentId: agentIdBigInt, newWallet, deadline },
+      ] as const;
+      const ERC1271_MAGIC = '0x1626ba7e' as const;
+
+      // Note: This signature must be produced by `newWallet` (EOA or ERC-1271 contract),
+      // not by the agent account or token owner. If newWallet is an EOA (expected here),
+      // we sign with the connected wallet.
+
+      // Candidate B: raw EOA EIP-712 typed data signature
+      const sigTyped = (await (viemWalletClient as any).signTypedData({
+        account: signingAccount,
+        domain: domain as any,
+        primaryType: 'AgentWalletSet',
+        types: SET_AGENT_WALLET_TYPES as any,
+        message: message as any,
       })) as `0x${string}`;
+
+      // Candidate C: personal_sign over the EIP-712 digest bytes (for contracts that eth_sign the digest)
+      let sigPersonal: `0x${string}` | null = null;
+      try {
+        sigPersonal = (await (viemWalletClient as any).signMessage({
+          account: signingAccount,
+          message: { raw: hexToBytes(digestEip712) },
+        })) as `0x${string}`;
+      } catch (e) {
+        console.warn('[createAgentWithWalletAA] signMessage(digest) failed:', e);
+      }
+
+      // Candidate D: some contract wallets apply an extra EIP-191 prefix internally during ERC-1271 checks.
+      // In that case they may expect a signature over hashMessage(digestEthSign). We can produce that by
+      // signing the digestEthSign bytes as the raw message.
+      let sigPersonalOnEthSignDigest: `0x${string}` | null = null;
+      try {
+        sigPersonalOnEthSignDigest = (await (viemWalletClient as any).signMessage({
+          account: signingAccount,
+          message: { raw: hexToBytes(digestEthSign) },
+        })) as `0x${string}`;
+      } catch (e) {
+        console.warn('[createAgentWithWalletAA] signMessage(digestEthSign) failed:', e);
+      }
+
+      const candidates: Array<{ label: string; sig: `0x${string}` }> = [
+        { label: 'eoa.signTypedData', sig: sigTyped },
+        ...(sigPersonal ? [{ label: 'eoa.signMessage(digest)', sig: sigPersonal }] : []),
+        ...(sigPersonalOnEthSignDigest
+          ? [{ label: 'eoa.signMessage(digestEthSign)', sig: sigPersonalOnEthSignDigest }]
+          : []),
+      ];
+
+      let signature: `0x${string}` = sigTyped;
+      console.info('[createAgentWithWalletAA] setAgentWallet signature context:', {
+        agentId: agentIdBigInt.toString(),
+        identityRegistry,
+        tokenOwnerForSig,
+        ownerForStruct,
+        newWallet,
+        signingAccount,
+        domain,
+        digestEip712,
+        digestEthSign,
+      });
+
+      // Best-effort: probe ERC-1271 validation directly to identify whether failure is digest mismatch
+      // (IdentityRegistry) or signature scheme mismatch (contract wallet validator).
+      try {
+        const probeTargets = Array.from(new Set([tokenOwnerForSig, newWallet])) as `0x${string}`[];
+        for (const target of probeTargets) {
+          const code = await (viemPublicClient as any).getBytecode({ address: target });
+          const isContract = typeof code === 'string' && code !== '0x';
+          if (!isContract) continue;
+
+          let ownerFn: `0x${string}` | null = null;
+          try {
+            ownerFn = (await (viemPublicClient as any).readContract({
+              address: target,
+              abi: [
+                {
+                  type: 'function',
+                  name: 'owner',
+                  stateMutability: 'view',
+                  inputs: [],
+                  outputs: [{ name: 'owner', type: 'address' }],
+                },
+              ] as const,
+              functionName: 'owner',
+              args: [],
+            })) as `0x${string}`;
+          } catch {
+            // ignore
+          }
+
+          for (const cand of candidates) {
+            for (const digest of [digestEip712, digestEthSign]) {
+              try {
+                const magic = (await (viemPublicClient as any).readContract({
+                  address: target,
+                  abi: ERC1271_ABI as any,
+                  functionName: 'isValidSignature',
+                  args: [digest, cand.sig],
+                })) as `0x${string}`;
+                console.info('[createAgentWithWalletAA] ERC-1271 probe:', {
+                  target,
+                  targetOwner: ownerFn,
+                  digest: digest === digestEip712 ? 'eip712' : 'ethSign',
+                  candidate: cand.label,
+                  magic,
+                  ok: String(magic).toLowerCase() === ERC1271_MAGIC,
+                });
+              } catch (e: any) {
+                console.info('[createAgentWithWalletAA] ERC-1271 probe error:', {
+                  target,
+                  targetOwner: ownerFn,
+                  digest: digest === digestEip712 ? 'eip712' : 'ethSign',
+                  candidate: cand.label,
+                  error: e?.shortMessage || e?.message || String(e),
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[createAgentWithWalletAA] ERC-1271 probe failed (non-fatal):', e);
+      }
+      // Preflight candidate signatures by simulating the *actual* IdentityRegistry.setAgentWallet call.
+      // This avoids guessing whether the registry validates against the token owner vs newWallet, and
+      // whether it expects EIP-712 vs eth_sign-style signatures.
+      {
+        let found = false;
+        for (const cand of candidates) {
+          try {
+            const data = await identityClient.encodeSetAgentWallet(agentIdBigInt, newWallet, deadline, cand.sig);
+            await (viemPublicClient as any).call({
+              account: tokenOwnerForSig, // msg.sender during the real call is the current token owner (often the AA)
+              to: identityRegistry,
+              data,
+            });
+            signature = cand.sig;
+            found = true;
+            console.info(`[createAgentWithWalletAA] ✓ setAgentWallet preflight ok using ${cand.label}`);
+            break;
+          } catch (e: any) {
+            // Keep trying candidates; common failure is "invalid wallet sig".
+            const msg = e?.shortMessage || e?.message || String(e);
+            console.warn(`[createAgentWithWalletAA] setAgentWallet preflight failed using ${cand.label}:`, msg);
+          }
+        }
+        if (!found) {
+          console.warn(
+            `[createAgentWithWalletAA] No signature candidate passed IdentityRegistry.setAgentWallet preflight. Skipping setAgentWallet (non-fatal).`,
+          );
+          throw new Error('Skip setAgentWallet: no signature candidate passed setAgentWallet preflight');
+        }
+      }
 
       const { calls } = await identityClient.prepareSetAgentWalletCalls(
         agentIdBigInt,

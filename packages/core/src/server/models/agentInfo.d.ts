@@ -1,0 +1,76 @@
+/**
+ * Core flattened Agent model used by discovery/search services.
+ * This is the standard data shape returned to clients.
+ */
+export interface AgentInfo {
+    agentId: string;
+    agentName: string;
+    chainId: number;
+    /**
+     * Agent's configured account (signing/execution), stored as "{chainId}:{0x...}".
+     */
+    agentAccount: string;
+    /**
+     * ERC-721 NFT owner account (identity owner), stored as "{chainId}:{0x...}".
+     */
+    agentIdentityOwnerAccount: string;
+    agentCategory?: string | null;
+    /**
+     * EOA for the identity owner (if indexed). Used for "My Agents" filtering.
+     */
+    eoaAgentIdentityOwnerAccount?: string | null;
+    /**
+     * EOA for the agent account (if indexed).
+     */
+    eoaAgentAccount?: string | null;
+    contractAddress?: string | null;
+    didIdentity?: string | null;
+    didAccount?: string | null;
+    didName?: string | null;
+    agentUri?: string | null;
+    createdAtBlock: number;
+    createdAtTime: number;
+    updatedAtTime?: number | null;
+    type?: string | null;
+    description?: string | null;
+    image?: string | null;
+    a2aEndpoint?: string | null;
+    mcpEndpoint?: string | null;
+    supportedTrust?: string | null;
+    rawJson?: string | null;
+    agentCardJson?: string | null;
+    agentCardReadAt?: number | null;
+    did?: string | null;
+    mcp?: boolean | null;
+    x402support?: boolean | null;
+    active?: boolean | null;
+    /**
+     * Aggregated reputation / validation metrics from the indexer.
+     */
+    feedbackCount?: number | null;
+    feedbackAverageScore?: number | null;
+    validationPendingCount?: number | null;
+    validationCompletedCount?: number | null;
+    validationRequestedCount?: number | null;
+    /**
+     * Aggregated association metrics from the indexer.
+     */
+    initiatedAssociationCount?: number | null;
+    approvedAssociationCount?: number | null;
+    /**
+     * Agentic Trust Index (ATI) metrics from the indexer.
+     */
+    atiOverallScore?: number | null;
+    atiOverallConfidence?: number | null;
+    atiVersion?: string | null;
+    atiComputedAt?: number | null;
+    atiBundleJson?: string | null;
+    /**
+     * Trust Ledger ranking metrics from the indexer.
+     */
+    trustLedgerScore?: number | null;
+    trustLedgerBadgeCount?: number | null;
+    trustLedgerOverallRank?: number | null;
+    trustLedgerCapabilityRank?: number | null;
+}
+//# sourceMappingURL=agentInfo.d.ts.map

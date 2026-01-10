@@ -411,9 +411,9 @@ export async function createFeedbackAuthWithDelegation(
       revokedAt: 0,
       // K1 (0x0001) for client EOA initiator signature
       initiatorKeyType: '0x0001' as `0x${string}`,
-      // K1 (0x0001) for approver - ERC-8092 will call agent.isValidSignature which validates delegations via DTK
-      // The delegation scope now includes isValidSignature selector, so delegation-aware validator should work
-      approverKeyType: '0x0001' as `0x${string}`,
+      // DELEGATED (0x8002) keyType to bypass ERC-1271 and validate delegation directly
+      // This checks if the agent account has delegated to the operator EOA directly
+      approverKeyType: '0x8002' as `0x${string}`,
       initiatorSignature: '0x' as `0x${string}`,
       approverSignature,
       record,

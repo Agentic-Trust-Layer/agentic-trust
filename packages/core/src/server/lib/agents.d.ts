@@ -1,0 +1,424 @@
+/**
+ * Agents API for AgenticTrust Client
+ */
+import type { AgenticTrustClient } from '../singletons/agenticTrustClient';
+import { type AgentData } from '@agentic-trust/8004-ext-sdk';
+import { Agent } from './agent';
+import type { AgentDetail } from '../models/agentDetail';
+import type { Address } from 'viem';
+export type { AgentData };
+export interface DiscoverParams {
+    chains?: number[] | 'all';
+    /**
+     * Agent name filter (maps to agentName_* in the indexer).
+     */
+    agentName?: string;
+    /**
+     * Agent category filter (maps to agentCategory_* in the indexer).
+     */
+    agentCategory?: string;
+    /**
+     * Exact agentId (string form).
+     * Used to build AgentWhereInput.agentId / agentId_in filters.
+     */
+    agentId?: string;
+    /**
+     * Single agent account (EOA/AA address).
+     * For discovery this is the primary "account" concept.
+     */
+    agentAccount?: Address;
+    /**
+     * Multiple account addresses to filter by.
+     * Maps to agentOwner_in in the indexer.
+     */
+    accounts?: Address[];
+    description?: string;
+    operators?: Address[];
+    mcp?: boolean;
+    a2a?: boolean;
+    ens?: string;
+    did?: string;
+    supportedTrust?: string[];
+    a2aSkills?: string[];
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    mcpResources?: string[];
+    active?: boolean;
+    x402support?: boolean;
+    /**
+     * Aggregated reputation / validation filters.
+     */
+    minFeedbackCount?: number;
+    minValidationCompletedCount?: number;
+    minFeedbackAverageScore?: number;
+    /**
+     * Minimum total associations (initiated + approved).
+     * Note: this is applied as a post-filter in the search route handler to avoid relying on
+     * indexer-specific AgentWhereInput fields.
+     */
+    minAssociations?: number;
+    /**
+     * Minimum ATI overall score (maps to atiOverallScore_gte in the indexer).
+     */
+    minAtiOverallScore?: number;
+    /**
+     * Restrict ATI results to those computed within the last N days.
+     * Maps to atiComputedAt_gte in the indexer (seconds since epoch).
+     */
+    atiComputedWithinDays?: number;
+    /**
+     * Restrict results to agents created within the last N days.
+     * Maps to createdAtTime_gte in the indexer.
+     */
+    createdWithinDays?: number;
+}
+export interface DiscoverAgentsOptions {
+    page?: number;
+    pageSize?: number;
+    query?: string;
+    params?: DiscoverParams;
+    orderBy?: string;
+    orderDirection?: 'ASC' | 'DESC';
+}
+export interface ListAgentsOptions extends DiscoverAgentsOptions {
+}
+export interface ListAgentsResponse {
+    agents: Agent[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+}
+export declare class AgentsAPI {
+    private client;
+    constructor(client: AgenticTrustClient);
+    /**
+     * List all agents
+     * Query uses the actual schema fields from the API
+     * Returns agents sorted by agentId in descending order
+     * Fetches all agents using pagination if needed
+     */
+    listAgents(options?: ListAgentsOptions): Promise<ListAgentsResponse>;
+    /**
+     * Get a single agent by ID
+     * @param agentId - The agent ID as a string
+     * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
+     */
+    getAgent(agentId: string, chainId?: number): Promise<Agent | null>;
+    getAgentByDid(did8004: string): Promise<Agent | null>;
+    /**
+     * Get a fully-hydrated AgentDetail for a given agentId and chainId.
+     * This method is kept for backwards compatibility but simply delegates
+     * to the top-level AgenticTrustClient.getAgentDetails helper.
+     */
+    getAgentDetails(agentId: string, chainId?: number): Promise<AgentDetail>;
+    /**
+     * Get raw agent data from discovery (for internal use)
+     * Returns the raw AgentData from the discovery indexer
+     */
+    getAgentFromDiscovery(chainId: number, agentId: string): Promise<AgentData | null>;
+    getAgentFromDiscoveryByDid(did8004: string): Promise<AgentData | null>;
+    /**
+     * Refresh/Index an agent in the GraphQL indexer
+     * Triggers the indexer to re-index the specified agent
+     * @param agentId - Agent ID to refresh (required)
+     * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
+     */
+    refreshAgent(agentId: string, chainId?: number): Promise<any>;
+    refreshAgentByDid(agentDid: string): Promise<any>;
+    /**
+     * Get the approved NFT operator address for an agent
+     * Returns the address approved to operate on the agent's NFT token, or null if no operator is set
+     *
+     * @param agentId - The agent ID (string or number)
+     * @param chainId - Optional chain ID (defaults to 11155111 for Sepolia)
+     * @returns The approved operator address, or null if no operator is set
+     */
+    getNFTOperator(agentId: string | number, chainId?: number): Promise<`0x${string}` | null>;
+    /**
+     * Create a new agent
+     * Requires AdminApp to be initialized (server-side)
+     * @param params - Agent creation parameters
+     * @returns Created agent ID and transaction hash, or prepared transaction for client-side signing
+     */
+    createAgentWithEOAOwnerUsingWallet(params: {
+        agentName: string;
+        agentAccount: `0x${string}`;
+        agentCategory?: string;
+        description?: string;
+        image?: string;
+        agentUrl?: string;
+        supportedTrust?: string[];
+        endpoints?: Array<{
+            name: string;
+            endpoint: string;
+            version?: string;
+            capabilities?: Record<string, any>;
+            a2aSkills?: string[];
+            a2aDomains?: string[];
+            mcpSkills?: string[];
+            mcpDomains?: string[];
+        }>;
+        chainId?: number;
+    }): Promise<{
+        agentId: bigint;
+        txHash: string;
+    } | {
+        requiresClientSigning: true;
+        transaction: {
+            to: `0x${string}`;
+            data: `0x${string}`;
+            value: string;
+            gas?: string;
+            gasPrice?: string;
+            maxFeePerGas?: string;
+            maxPriorityFeePerGas?: string;
+            nonce?: number;
+            chainId: number;
+        };
+        tokenUri: string;
+        metadata: Array<{
+            key: string;
+            value: string;
+        }>;
+    }>;
+    /**
+     * Create a new agent for EOA using the server admin private key.
+     * Same interface as createAgentWithEOAOwnerUsingWallet, but always executes the transaction server-side.
+     */
+    createAgentWithEOAOwnerUsingPrivateKey(params: {
+        agentName: string;
+        agentAccount: `0x${string}`;
+        agentCategory?: string;
+        description?: string;
+        image?: string;
+        agentUrl?: string;
+        supportedTrust?: string[];
+        endpoints?: Array<{
+            name: string;
+            endpoint: string;
+            version?: string;
+            capabilities?: Record<string, any>;
+            a2aSkills?: string[];
+            a2aDomains?: string[];
+            mcpSkills?: string[];
+            mcpDomains?: string[];
+        }>;
+        chainId?: number;
+    }): Promise<{
+        agentId: bigint;
+        txHash: string;
+    }>;
+    createAgentWithSmartAccountOwnerUsingWallet(params: {
+        agentName: string;
+        agentAccount: `0x${string}`;
+        /**
+         * Optional agentId (only available after the agent has been registered on-chain).
+         * When present, we can generate a UAID that includes chainId:agentId in routing params.
+         */
+        agentId?: string;
+        agentCategory?: string;
+        description?: string;
+        image?: string;
+        agentUrl?: string;
+        supportedTrust?: string[];
+        endpoints?: Array<{
+            name: string;
+            endpoint: string;
+            version?: string;
+            capabilities?: Record<string, any>;
+            a2aSkills?: string[];
+            a2aDomains?: string[];
+            mcpSkills?: string[];
+            mcpDomains?: string[];
+        }>;
+        chainId?: number;
+    }): Promise<{
+        success: true;
+        bundlerUrl: string;
+        tokenUri: string;
+        chainId: number;
+        calls: Array<{
+            to: `0x${string}`;
+            data: `0x${string}`;
+        }>;
+    }>;
+    /**
+     * Create a new agent for AA and execute via server admin private key (no client prompts).
+     * Same input interface as createAgentWithSmartAccountOwnerUsingWallet, but performs the UserOperation using the server key.
+     */
+    createAgentWithSmartAccountOwnerUsingPrivateKey(params: {
+        agentName: string;
+        agentAccount: `0x${string}`;
+        agentCategory?: string;
+        description?: string;
+        image?: string;
+        agentUrl?: string;
+        supportedTrust?: string[];
+        endpoints?: Array<{
+            name: string;
+            endpoint: string;
+            version?: string;
+            capabilities?: Record<string, any>;
+            a2aSkills?: string[];
+            a2aDomains?: string[];
+            mcpSkills?: string[];
+            mcpDomains?: string[];
+        }>;
+        chainId?: number;
+        ensOptions?: {
+            enabled?: boolean;
+            orgName?: string;
+        };
+    }): Promise<{
+        txHash: string;
+        agentId?: string;
+    }>;
+    extractAgentIdFromReceipt(receipt: any, chainId?: number): Promise<string | null>;
+    searchAgents(options?: DiscoverAgentsOptions | string): Promise<ListAgentsResponse>;
+    /**
+     * Map high-level DiscoverParams to the indexer's AgentWhereInput shape.
+     * This is used for the searchAgentsGraph(where: AgentWhereInput, ...) API.
+     */
+    private buildAgentWhereInput;
+    private applySearchAndPagination;
+    private matchesSearchParams;
+    /**
+     * Admin API for agent management
+     * These methods require AdminApp to be initialized
+     * Note: createAgent is now available directly on agents (not agents.admin)
+     */
+    admin: {
+        /**
+         * Prepare low-level contract calls to update an agent's token URI and/or
+         * on-chain metadata. These calls can be executed client-side via a bundler
+             * or wallet, similar to createAgentWithSmartAccountOwnerUsingWallet.
+         */
+        prepareUpdateAgent: (params: {
+            agentId: bigint | string;
+            tokenUri?: string;
+            metadata?: Array<{
+                key: string;
+                value: string;
+            }>;
+            chainId?: number;
+        }) => Promise<{
+            chainId: number;
+            identityRegistry: `0x${string}`;
+            bundlerUrl: string;
+            calls: Array<{
+                to: `0x${string}`;
+                data: `0x${string}`;
+                value?: bigint;
+            }>;
+        }>;
+        /**
+         * Prepare a create agent transaction for client-side signing
+         * Returns transaction data that can be signed and submitted by the client
+         */
+        prepareCreateAgentTransaction: (params: {
+            agentName: string;
+            agentAccount: `0x${string}`;
+            agentCategory?: string;
+            description?: string;
+            image?: string;
+            agentUrl?: string;
+            supportedTrust?: string[];
+            endpoints?: Array<{
+                name: string;
+                endpoint: string;
+                version?: string;
+                capabilities?: Record<string, any>;
+                a2aSkills?: string[];
+                a2aDomains?: string[];
+                mcpSkills?: string[];
+                mcpDomains?: string[];
+            }>;
+            chainId?: number;
+        }) => Promise<{
+            requiresClientSigning: true;
+            transaction: {
+                to: `0x${string}`;
+                data: `0x${string}`;
+                value: string;
+                gas?: string;
+                gasPrice?: string;
+                maxFeePerGas?: string;
+                maxPriorityFeePerGas?: string;
+                nonce?: number;
+                chainId: number;
+            };
+            tokenUri: string;
+            metadata: Array<{
+                key: string;
+                value: string;
+            }>;
+        }>;
+        /**
+         * Update an agent's token URI
+         * @param agentId - The agent ID to update
+         * @param tokenUri - New token URI
+         * @returns Transaction hash
+         */
+        /**
+         * Server-side helper that actually sends the prepared update calls using
+         * AdminApp's AccountProvider. For browser/bundler flows, prefer
+         * prepareUpdateAgent instead.
+         */
+        updateAgent: (params: {
+            agentId: bigint | string;
+            tokenUri?: string;
+            metadata?: Array<{
+                key: string;
+                value: string;
+            }>;
+            chainId?: number;
+        }) => Promise<{
+            txHash: string;
+        }>;
+        updateAgentByDid: (agentDid: string, params?: {
+            tokenUri?: string;
+            metadata?: Array<{
+                key: string;
+                value: string;
+            }>;
+            chainId?: number;
+        }) => Promise<{
+            txHash: string;
+        }>;
+        /**
+         * Delete an agent by transferring it to the zero address (burn)
+         * Note: This requires the contract to support transfers to address(0)
+         * @param agentId - The agent ID to delete
+         * @returns Transaction hash
+         */
+        deleteAgent: (params: {
+            agentId: bigint | string;
+            chainId?: number;
+        }) => Promise<{
+            txHash: string;
+        }>;
+        deleteAgentByDid: (agentDid: string, options?: {
+            chainId?: number;
+        }) => Promise<{
+            txHash: string;
+        }>;
+        /**
+         * Transfer an agent to a new owner
+         * @param agentId - The agent ID to transfer
+         * @param to - The new owner address
+         * @returns Transaction hash
+         */
+        transferAgent: (params: {
+            agentId: bigint | string;
+            to: `0x${string}`;
+            chainId?: number;
+        }) => Promise<{
+            txHash: string;
+        }>;
+        transferAgentByDid: (fromDid: string, toDid: string) => Promise<{
+            txHash: string;
+        }>;
+    };
+}
+//# sourceMappingURL=agents.d.ts.map

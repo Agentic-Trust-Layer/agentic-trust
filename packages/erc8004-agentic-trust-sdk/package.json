@@ -1,6 +1,6 @@
 {
   "name": "@agentic-trust/8004-ext-sdk",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "description": "ERC-8004 Agentic Trust SDK - A TypeScript SDK for managing AI agents with ENS integration, identity management, and reputation systems",
   "type": "module",
   "main": "./dist/index.js",
@@ -30,7 +30,7 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsc -b --watch",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
     "type-check": "tsc --noEmit",
     "prepublishOnly": "npm run clean && npm run build"
   },

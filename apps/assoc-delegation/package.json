@@ -1,0 +1,26 @@
+{
+  "name": "@agentic-trust/assoc-delegation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "@agentic-trust/core": "workspace:*",
+    "@associatedaccounts/erc8092-sdk": "workspace:*",
+    "@metamask/smart-accounts-kit": "^0.1.0",
+    "viem": "^2.42.0",
+    "ethers": "^6.13.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
+  }
+}
+

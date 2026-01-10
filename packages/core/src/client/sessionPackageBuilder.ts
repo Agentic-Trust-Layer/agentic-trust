@@ -313,12 +313,17 @@ export async function generateSessionPackage(
 
   // Create delegation scope that allows validationResponse (and a read-only test method) on ValidationRegistry
   // Also include ERC-8092 associations proxy to allow storeAssociation calls
+  // And include the agentAccount itself for ERC-1271 validation
   const targets: Array<`0x${string}`> = [];
   if (validationRegistry) {
     targets.push(validationRegistry);
   } else {
     throw new Error('validationRegistry address is required to build delegation scope');
   }
+
+  // Include agentAccount in targets for delegation-aware ERC-1271 validation
+  // This allows sessionAA to call isValidSignature on agentAccount
+  targets.push(agentAccount);
 
   // Add ERC-8092 associations proxy to allowed targets
   const associationsProxy = getAssociationsProxyAddress(chainId);
@@ -361,7 +366,7 @@ export async function generateSessionPackage(
       selectors,
     },
     from: agentAccount,
-    to: sessionAA,
+    to: sessionAA, // Keep sessionAA as delegate
     caveats: [],
   });
 
