@@ -175,6 +175,12 @@ export {
 } from './singletons/associationClient';
 
 export {
+  buildDelegatedAssociationContext,
+  storeErc8092AssociationWithSessionDelegation,
+  type DelegatedAssociationContext,
+} from './services/delegatedAssociation';
+
+export {
   getENSClient,
   isENSClientInitialized,
   resetENSClient,

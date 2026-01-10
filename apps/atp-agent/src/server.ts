@@ -25,9 +25,100 @@ import {
   getAgentValidationsSummary,
   DEFAULT_CHAIN_ID,
   type SessionPackage,
+  storeErc8092AssociationWithSessionDelegation,
+  buildDelegatedAssociationContext,
 } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 import { getD1Database, type D1Database } from './lib/d1-wrapper';
+import {
+  bytesToHex,
+  concatHex,
+  encodeAbiParameters,
+  getAddress,
+  hexToBytes,
+  keccak256,
+  stringToHex,
+} from 'viem';
+
+function tryParseEvmV1(interoperableHex: string): { chainId: number; address?: string } | null {
+  try {
+    const bytes = hexToBytes(interoperableHex as `0x${string}`);
+    if (bytes.length < 6) return null;
+    const version = (bytes[0]! << 8) | bytes[1]!;
+    if (version !== 0x0001) return null;
+    const chainType = (bytes[2]! << 8) | bytes[3]!;
+    if (chainType !== 0x0000) return null;
+    const chainRefLen = bytes[4]!;
+    if (bytes.length < 6 + chainRefLen) return null;
+    const chainRefStart = 5;
+    const chainRefEnd = chainRefStart + chainRefLen;
+    const addrLen = bytes[chainRefEnd]!;
+    const addrStart = chainRefEnd + 1;
+    const addrEnd = addrStart + addrLen;
+    if (bytes.length < addrEnd) return null;
+
+    let chainId = 0;
+    for (let i = chainRefStart; i < chainRefEnd; i++) chainId = (chainId << 8) + bytes[i]!;
+
+    if (addrLen === 20) {
+      const addrBytes = bytes.slice(addrStart, addrEnd);
+      return { chainId, address: getAddress(bytesToHex(addrBytes)) };
+    }
+    return { chainId };
+  } catch {
+    return null;
+  }
+}
+
+function associationIdFromRecord(rec: {
+  initiator: `0x${string}`;
+  approver: `0x${string}`;
+  validAt: number;
+  validUntil: number;
+  interfaceId: `0x${string}`;
+  data: `0x${string}`;
+}): `0x${string}` {
+  const DOMAIN_TYPEHASH = keccak256(stringToHex('EIP712Domain(string name,string version)'));
+  const NAME_HASH = keccak256(stringToHex('AssociatedAccounts'));
+  const VERSION_HASH = keccak256(stringToHex('1'));
+  const MESSAGE_TYPEHASH = keccak256(
+    stringToHex(
+      'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+    ),
+  );
+
+  const domainSeparator = keccak256(
+    encodeAbiParameters(
+      [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }],
+      [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH],
+    ),
+  );
+
+  const hashStruct = keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'uint40' },
+        { type: 'uint40' },
+        { type: 'bytes4' },
+        { type: 'bytes32' },
+      ],
+      [
+        MESSAGE_TYPEHASH,
+        keccak256(rec.initiator),
+        keccak256(rec.approver),
+        rec.validAt,
+        rec.validUntil,
+        rec.interfaceId as `0x${string}`,
+        keccak256(rec.data),
+      ],
+    ),
+  );
+
+  return keccak256(concatHex(['0x1901', domainSeparator, hashStruct])) as `0x${string}`;
+}
 
 /**
  * Recursively convert BigInt values to strings for JSON serialization
@@ -1274,8 +1365,178 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         // Set session package on agent instance (required for feedback auth)
-        console.log('[ATP Agent] Setting session package on agent instance');
+        console.log('*****************  [ATP Agent] Setting session package on agent instance');
         agent.setSessionPackage(sessionPackage);
+
+        // Debug: confirm whether we received a delegation SAR for this request (required to store ERC-8092 on-chain)
+        try {
+          console.log('**************** [ATP Agent] (payload as any): ', (payload as any));
+          const delegationSarDebug = (payload as any)?.delegationSar;
+          const keys =
+            delegationSarDebug && typeof delegationSarDebug === 'object'
+              ? Object.keys(delegationSarDebug as any)
+              : [];
+          console.log('[ATP Agent] delegationSar debug:', {
+            present: !!delegationSarDebug,
+            type: typeof delegationSarDebug,
+            keys,
+          });
+        } catch {
+          console.log('**************** [ATP Agent] No delegationSar provided');
+        }
+
+        // OPTIONAL: client-provided ERC-8092 delegation SAR payload (record + initiator signature).
+        // If present, we will complete approver signature (agentAccount via MetaMask delegation)
+        // and store the association on-chain BEFORE returning feedbackAuth.
+        const delegationSarRaw = (payload as any)?.delegationSar;
+        if (delegationSarRaw && typeof delegationSarRaw === 'object') {
+          console.log('[ATP Agent] delegationSar provided; will attempt to store on-chain before returning feedbackAuth');
+          try {
+            const chainIdForStore =
+              typeof (payload as any)?.chainId === 'number'
+                ? (payload as any).chainId
+                : Number.isFinite(Number((payload as any)?.chainId))
+                  ? Number((payload as any).chainId)
+                  : sessionPackage.chainId;
+
+            const recordRaw = (delegationSarRaw as any)?.record;
+            const initiatorSignatureRaw = String((delegationSarRaw as any)?.initiatorSignature || '').trim();
+            if (!recordRaw || typeof recordRaw !== 'object') {
+              throw new Error('delegationSar.record is required');
+            }
+            if (!initiatorSignatureRaw || initiatorSignatureRaw === '0x') {
+              throw new Error('delegationSar.initiatorSignature is required');
+            }
+
+            const record = {
+              initiator: String((recordRaw as any).initiator),
+              approver: String((recordRaw as any).approver),
+              validAt: Number((recordRaw as any).validAt ?? 0),
+              validUntil: Number((recordRaw as any).validUntil ?? 0),
+              interfaceId: String((recordRaw as any).interfaceId ?? '0x00000000'),
+              data: String((recordRaw as any).data ?? '0x'),
+            };
+
+            const initiatorParsed = tryParseEvmV1(record.initiator);
+            const approverParsed = tryParseEvmV1(record.approver);
+            const initiatorAddr = initiatorParsed?.address ? initiatorParsed.address.toLowerCase() : null;
+            const approverAddr = approverParsed?.address ? approverParsed.address.toLowerCase() : null;
+
+            if (!initiatorAddr || initiatorAddr !== String(clientAddress).toLowerCase()) {
+              throw new Error('delegationSar.record.initiator does not match clientAddress');
+            }
+            if (!approverAddr || approverAddr !== String(sessionPackage.aa).toLowerCase()) {
+              throw new Error('delegationSar.record.approver does not match sessionPackage.aa');
+            }
+
+            const associationId = associationIdFromRecord(record as any);
+
+            // Build delegated association context so we can sign approverSignature in a way
+            // that validates under the agentAccount's ERC-1271 (MetaMask delegation).
+            const { sessionAccountClient, publicClient } = await buildDelegatedAssociationContext(
+              sessionPackage,
+              chainIdForStore,
+            );
+
+            const typedData = {
+              domain: { name: 'AssociatedAccounts', version: '1' },
+              types: {
+                AssociatedAccountRecord: [
+                  { name: 'initiator', type: 'bytes' },
+                  { name: 'approver', type: 'bytes' },
+                  { name: 'validAt', type: 'uint40' },
+                  { name: 'validUntil', type: 'uint40' },
+                  { name: 'interfaceId', type: 'bytes4' },
+                  { name: 'data', type: 'bytes' },
+                ],
+              },
+              primaryType: 'AssociatedAccountRecord',
+              message: {
+                initiator: record.initiator,
+                approver: record.approver,
+                validAt: BigInt(record.validAt),
+                validUntil: BigInt(record.validUntil),
+                interfaceId: record.interfaceId,
+                data: record.data,
+              },
+            };
+
+            const signCandidate = async (): Promise<`0x${string}`> => {
+              if (typeof (sessionAccountClient as any).signTypedData === 'function') {
+                try {
+                  const sig = (await (sessionAccountClient as any).signTypedData(typedData)) as `0x${string}`;
+                  if (sig && sig !== '0x') return sig;
+                } catch {
+                  // fall through
+                }
+              }
+              if (typeof (sessionAccountClient as any).signMessage === 'function') {
+                const sig = (await (sessionAccountClient as any).signMessage({
+                  message: { raw: hexToBytes(associationId) },
+                })) as `0x${string}`;
+                return sig;
+              }
+              throw new Error('sessionAccountClient cannot sign messages');
+            };
+
+            const approverSignature = await signCandidate();
+
+            // Best-effort ERC-1271 preflight: ensure agentAccount accepts signature.
+            try {
+              const ERC1271_MAGIC = '0x1626ba7e' as const;
+              const ERC1271_ABI = [
+                {
+                  type: 'function',
+                  name: 'isValidSignature',
+                  stateMutability: 'view',
+                  inputs: [
+                    { name: 'hash', type: 'bytes32' },
+                    { name: 'signature', type: 'bytes' },
+                  ],
+                  outputs: [{ name: 'magicValue', type: 'bytes4' }],
+                },
+              ] as const;
+              const magic = (await publicClient.readContract({
+                address: sessionPackage.aa as `0x${string}`,
+                abi: ERC1271_ABI as any,
+                functionName: 'isValidSignature',
+                args: [associationId, approverSignature],
+              })) as `0x${string}`;
+              if (String(magic).toLowerCase() !== ERC1271_MAGIC) {
+                throw new Error(`ERC-1271 signature rejected (magic=${String(magic)})`);
+              }
+            } catch (e: any) {
+              console.warn('[ATP Agent] ERC-1271 preflight failed for approverSignature:', e?.message || e);
+            }
+
+            const sar = {
+              revokedAt: 0,
+              initiatorKeyType: '0x0001',
+              approverKeyType: '0x0001',
+              initiatorSignature: initiatorSignatureRaw,
+              approverSignature,
+              record,
+            };
+
+            console.log('[ATP Agent] Storing delegation association on-chain (ERC-8092 storeAssociation)', {
+              chainId: chainIdForStore,
+              associationId,
+              initiator: record.initiator,
+              approver: record.approver,
+            });
+            const { txHash } = await storeErc8092AssociationWithSessionDelegation({
+              sessionPackage,
+              chainId: chainIdForStore,
+              sar,
+            });
+            responseContent.delegationStoredTxHash = txHash;
+            responseContent.delegationStoredAssociationId = associationId;
+            console.log('[ATP Agent] ✓ Stored delegation association on-chain', { txHash, associationId });
+          } catch (storeErr: any) {
+            console.warn('[ATP Agent] Failed to store client delegation SAR on-chain:', storeErr);
+            responseContent.delegationStoreError = storeErr?.message || String(storeErr);
+          }
+        }
 
         console.info("oasf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 

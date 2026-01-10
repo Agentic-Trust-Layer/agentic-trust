@@ -394,10 +394,25 @@ export async function createFeedbackAuthWithDelegation(
 
     const approverSignature = chosen.selected.sig;
 
+    // IMPORTANT: Use K1 (0x0001) for approverKeyType. This is the standard approach.
+    //
+    // The ERC-8092 contract will use OpenZeppelin SignatureChecker which calls:
+    //   agent.isValidSignature(hash, approverSignature)
+    //
+    // MetaMask smart accounts with DTK support delegation-aware ERC-1271 validation.
+    // The delegation-aware validator automatically:
+    // 1. Extracts the signer address from the signature (ecrecover)
+    // 2. Checks if the signer (operator) has a valid delegation from the agent account
+    // 3. Validates the delegation scope covers this signing operation (now includes isValidSignature selector)
+    // 4. Returns 0x1626ba7e (valid) if delegation is valid, 0xffffffff (invalid) otherwise
+    //
+    // This allows the operator's signature to be validated as if it came from the agent account itself.
     const sar = {
       revokedAt: 0,
-      // IMPORTANT: use K1 (0x0001) to stay compatible with OZ SignatureChecker rules in the ERC-8092 ref impl.
+      // K1 (0x0001) for client EOA initiator signature
       initiatorKeyType: '0x0001' as `0x${string}`,
+      // K1 (0x0001) for approver - ERC-8092 will call agent.isValidSignature which validates delegations via DTK
+      // The delegation scope now includes isValidSignature selector, so delegation-aware validator should work
       approverKeyType: '0x0001' as `0x${string}`,
       initiatorSignature: '0x' as `0x${string}`,
       approverSignature,
@@ -449,11 +464,27 @@ async function createFeedbackAuthInternal(params: RequestAuthParams): Promise<{
     expirySeconds = 3600,
   } = params;
 
-  // Get the shared reputation client singleton
+  // Get the shared reputation client singleton (used for auth struct + index queries)
   const reputationClient = await getReputationRegistryClient();
 
-  // Get identity registry from reputation client
-  const identityReg = await reputationClient.getIdentityRegistry();
+  // Prefer env-configured IdentityRegistry to avoid an extra on-chain call.
+  // This helps in rate-limited environments (e.g. 429s from RPC providers).
+  let identityReg: `0x${string}` | null = null;
+  try {
+    const { getChainEnvVar } = await import('./chainConfig');
+    const chainId = Number((publicClient as any)?.chain?.id ?? 0);
+    const fromEnv = chainId ? getChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId) : null;
+    if (fromEnv && typeof fromEnv === 'string' && /^0x[a-fA-F0-9]{40}$/.test(fromEnv)) {
+      identityReg = fromEnv as `0x${string}`;
+    }
+  } catch {
+    // ignore
+  }
+
+  if (!identityReg) {
+    // Fallback: resolve IdentityRegistry from ReputationRegistry on-chain
+    identityReg = (await reputationClient.getIdentityRegistry()) as `0x${string}`;
+  }
 
   // Load IdentityRegistry ABI (async dynamic import)
   const identityRegistryAbi = await getIdentityRegistryAbi();

@@ -190,7 +190,13 @@ export function requestFeedbackAuthRouteHandler(
       const url = new URL(req.url);
       const params = url.searchParams;
 
+      const isPost = String(req.method || 'GET').toUpperCase() === 'POST';
+      const body = isPost
+        ? ((await req.json().catch(() => ({}))) as Record<string, unknown>)
+        : {};
+
       let agentIdParam =
+        (isPost && typeof body.agentId === 'string' ? (body.agentId as string) : null) ??
         params.get('agentId') ??
         (context?.params ? extractDidParam(context.params) : undefined);
 
@@ -200,15 +206,30 @@ export function requestFeedbackAuthRouteHandler(
           : null;
 
       const input: RequestFeedbackAuthPayload = {
-        clientAddress: params.get('clientAddress') ?? '',
+        clientAddress:
+          (isPost && typeof body.clientAddress === 'string' ? (body.clientAddress as string) : null) ??
+          params.get('clientAddress') ??
+          '',
         agentId: parsedDid ? parsedDid.agentId : (agentIdParam ?? ''),
         chainId: parsedDid
           ? parsedDid.chainId
-          : parseNumberParam(params.get('chainId')),
-        indexLimit: parseNumberParam(params.get('indexLimit')),
+          : (isPost && typeof body.chainId !== 'undefined'
+              ? parseNumberParam(String(body.chainId))
+              : parseNumberParam(params.get('chainId'))),
+        indexLimit:
+          isPost && typeof body.indexLimit !== 'undefined'
+            ? parseNumberParam(String(body.indexLimit))
+            : parseNumberParam(params.get('indexLimit')),
         expirySeconds:
+          (isPost && typeof body.expirySeconds !== 'undefined'
+            ? parseNumberParam(String(body.expirySeconds))
+            : undefined) ??
+          (isPost && typeof body.expirySec !== 'undefined'
+            ? parseNumberParam(String(body.expirySec))
+            : undefined) ??
           parseNumberParam(params.get('expirySec')) ??
           parseNumberParam(params.get('expirySeconds')),
+        delegationSar: isPost ? (body as any).delegationSar : undefined,
       };
 
       const ctx = createContext(req);

@@ -19,7 +19,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
 import type { Address } from 'viem';
-import { decodeAbiParameters, getAddress, parseAbiParameters, recoverAddress } from 'viem';
+import { decodeAbiParameters, encodeAbiParameters, getAddress, parseAbiParameters, recoverAddress } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -708,15 +708,130 @@ export default function AgentDetailsPageContent({
           // ignore and fall back to requesting feedbackAuth
         }
 
-        const params = new URLSearchParams({
-          clientAddress: walletAddress,
-          agentId: agent.agentId.toString(),
-          chainId: chainId.toString(),
-        });
+        const resolvePlainAddress = (value: unknown): `0x${string}` | null => {
+          if (typeof value !== 'string') return null;
+          const v = value.trim();
+          if (!v) return null;
+          if (v.startsWith('eip155:')) {
+            const parts = v.split(':');
+            const addr = parts[2];
+            if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
+          }
+          if (v.includes(':')) {
+            const parts = v.split(':');
+            const last = parts[parts.length - 1];
+            if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
+          }
+          if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
+          return null;
+        };
 
-        const response = await fetch(
-          `/api/agents/${encodeURIComponent(did8004)}/feedback-auth?${params.toString()}`,
-        );
+        // Build a client-side delegation SAR (record + initiator signature) so the provider
+        // can store it on-chain using its MetaMask delegation/session package.
+        const delegationSar = await (async (): Promise<any | null> => {
+          if (!eip1193Provider) return null;
+
+          const clientAddr = getAddress(walletAddress) as `0x${string}`;
+          const approverAddr =
+            resolvePlainAddress((agent as any).agentAccount) ??
+            resolvePlainAddress((onChainMetadata as any)?.agentAccount) ??
+            null;
+          if (!approverAddr) return null;
+
+          const description = JSON.stringify({
+            type: 'erc8004.feedbackAuth.delegation',
+            agentId: String(agent.agentId),
+            chainId: Number(chainId),
+            clientAddress: clientAddr,
+            createdAt: new Date().toISOString(),
+          });
+          const data = encodeAbiParameters(
+            parseAbiParameters('uint8 assocType, string description'),
+            [1, description],
+          ) as `0x${string}`;
+
+          // Re-use the same ERC-7930 EVM-v1 address encoding used elsewhere in the app.
+          const ethers = await import('ethers');
+          const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+            if (n === 0n) return new Uint8Array([0]);
+            let hex = n.toString(16);
+            if (hex.length % 2) hex = `0${hex}`;
+            return ethers.getBytes(`0x${hex}`);
+          };
+          const formatEvmV1 = (chainIdNum: number, address: string): string => {
+            const addr = ethers.getAddress(address);
+            const chainRef = toMinimalBigEndianBytes(BigInt(chainIdNum));
+            const head = ethers.getBytes('0x00010000');
+            const out = ethers.concat([
+              head,
+              new Uint8Array([chainRef.length]),
+              chainRef,
+              new Uint8Array([20]),
+              ethers.getBytes(addr),
+            ]);
+            return ethers.hexlify(out);
+          };
+
+          const record = {
+            initiator: formatEvmV1(Number(chainId), clientAddr),
+            approver: formatEvmV1(Number(chainId), approverAddr),
+            validAt: 0,
+            validUntil: 0,
+            interfaceId: '0x00000000',
+            data,
+          };
+
+          const associationId = associationIdFromRecord(record as any) as `0x${string}`;
+          const typedData = {
+            types: {
+              EIP712Domain: [
+                { name: 'name', type: 'string' },
+                { name: 'version', type: 'string' },
+              ],
+              AssociatedAccountRecord: [
+                { name: 'initiator', type: 'bytes' },
+                { name: 'approver', type: 'bytes' },
+                { name: 'validAt', type: 'uint40' },
+                { name: 'validUntil', type: 'uint40' },
+                { name: 'interfaceId', type: 'bytes4' },
+                { name: 'data', type: 'bytes' },
+              ],
+            },
+            primaryType: 'AssociatedAccountRecord',
+            domain: { name: 'AssociatedAccounts', version: '1' },
+            message: {
+              initiator: record.initiator,
+              approver: record.approver,
+              validAt: record.validAt,
+              validUntil: record.validUntil,
+              interfaceId: record.interfaceId,
+              data: record.data,
+            },
+          };
+
+          const initiatorSignature = await signErc8092Digest({
+            provider: eip1193Provider,
+            signerAddress: clientAddr,
+            digest: associationId,
+            typedData,
+          });
+
+          return {
+            record,
+            initiatorSignature,
+          };
+        })();
+
+        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clientAddress: walletAddress,
+            agentId: agent.agentId.toString(),
+            chainId: Number(chainId),
+            delegationSar,
+          }),
+        });
 
         
 
@@ -740,261 +855,12 @@ export default function AgentDetailsPageContent({
           } else {
             setFeedbackAuth(null);
           }
-
-          // If we had to call the agent for feedbackAuth (i.e. no on-chain delegation found above),
-          // and the agent returned a delegationAssociation, store it on-chain now so refreshes will
-          // pick it up without re-requesting feedbackAuth.
-          if (feedbackAuthId && delegationAssociation && eip1193Provider) {
-            try {
-              const assocId = String(delegationAssociation.associationId || '').trim() as `0x${string}`;
-              const approverAddress = getAddress(String(delegationAssociation.approverAddress || '')) as `0x${string}`;
-              const initiatorAddress = getAddress(String(delegationAssociation.initiatorAddress || walletAddress)) as `0x${string}`;
-              const assocData = String(delegationAssociation.data || '').trim() as `0x${string}`;
-              const validAt = Number(delegationAssociation.validAt ?? 0);
-              const approverSignature = String(delegationAssociation.approverSignature || '').trim() as `0x${string}`;
-              const sarRecord = (delegationAssociation as any)?.sar?.record;
-
-              if (
-                assocId &&
-                assocId !== '0x' &&
-                approverSignature &&
-                approverSignature !== '0x' &&
-                assocData &&
-                assocData !== '0x'
-              ) {
-                if (initiatorAddress.toLowerCase() !== walletAddress.toLowerCase()) {
-                  throw new Error(`delegationAssociation initiatorAddress (${initiatorAddress}) does not match wallet (${walletAddress})`);
-                }
-
-                // Switch chain before signing/sending
-                try {
-                  const targetHex = `0x${Number(chainId).toString(16)}`;
-                  await eip1193Provider.request?.({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: targetHex }],
-                  });
-                } catch {
-                  // ignore
-                }
-
-                const typedData =
-                  sarRecord && typeof sarRecord === 'object'
-                    ? {
-                        types: {
-                          EIP712Domain: [
-                            { name: 'name', type: 'string' },
-                            { name: 'version', type: 'string' },
-                          ],
-                          AssociatedAccountRecord: [
-                            { name: 'initiator', type: 'bytes' },
-                            { name: 'approver', type: 'bytes' },
-                            { name: 'validAt', type: 'uint40' },
-                            { name: 'validUntil', type: 'uint40' },
-                            { name: 'interfaceId', type: 'bytes4' },
-                            { name: 'data', type: 'bytes' },
-                          ],
-                        },
-                        primaryType: 'AssociatedAccountRecord',
-                        domain: { name: 'AssociatedAccounts', version: '1' },
-                        message: {
-                          initiator: String(sarRecord.initiator),
-                          approver: String(sarRecord.approver),
-                          validAt: Number(sarRecord.validAt),
-                          validUntil: Number(sarRecord.validUntil ?? 0),
-                          interfaceId: String(sarRecord.interfaceId),
-                          data: String(sarRecord.data),
-                        },
-                      }
-                    : undefined;
-
-                const initiatorSignature = await signErc8092Digest({
-                  provider: eip1193Provider,
-                  signerAddress: getAddress(walletAddress) as `0x${string}`,
-                  digest: assocId,
-                });
-
-                // Merge the agent's delegationAssociation fields into the SAR
-                const agentSar = (delegationAssociation as any)?.sar;
-                if (!agentSar) {
-                  throw new Error('Agent did not provide a complete SAR in delegationAssociation');
-                }
-                // The SAR from the agent is missing top-level fields, so we need to add them
-                const sar = {
-                  associationId: delegationAssociation.associationId,
-                  initiatorAddress: delegationAssociation.initiatorAddress,
-                  approverAddress: delegationAssociation.approverAddress,
-                  ...agentSar,
-                };
-                // Validate the SAR before storing
-                console.log('[AgentDetails] Final SAR being sent to contract:', {
-                  associationId: sar.associationId,
-                  revokedAt: sar.revokedAt,
-                  initiatorKeyType: sar.initiatorKeyType,
-                  approverKeyType: sar.approverKeyType,
-                  hasInitiatorSig: !!(sar.initiatorSignature && sar.initiatorSignature !== '0x'),
-                  hasApproverSig: !!(sar.approverSignature && sar.approverSignature !== '0x'),
-                  record: sar.record ? {
-                    validAt: sar.record.validAt,
-                    validUntil: sar.record.validUntil,
-                    interfaceId: sar.record.interfaceId,
-                    initiator: sar.record.initiator ? `${sar.record.initiator.slice(0, 20)}...` : 'missing',
-                    approver: sar.record.approver ? `${sar.record.approver.slice(0, 20)}...` : 'missing',
-                    dataLength: sar.record.data?.length || 0,
-                  } : 'missing',
-                });
-
-                // Validate record data format and fix types if needed
-                if (sar.record) {
-                  const issues = [];
-                  if (typeof sar.record.validAt !== 'bigint') {
-                    issues.push(`validAt should be bigint, got ${typeof sar.record.validAt}`);
-                    sar.record.validAt = BigInt(sar.record.validAt);
-                  }
-                  if (typeof sar.record.validUntil !== 'bigint') {
-                    issues.push(`validUntil should be bigint, got ${typeof sar.record.validUntil}`);
-                    sar.record.validUntil = BigInt(sar.record.validUntil);
-                  }
-                  if (!sar.record.interfaceId || !sar.record.interfaceId.startsWith('0x')) issues.push(`interfaceId invalid: ${sar.record.interfaceId}`);
-                  if (!sar.record.initiator || !sar.record.initiator.startsWith('0x')) issues.push(`initiator invalid: ${sar.record.initiator}`);
-                  if (!sar.record.approver || !sar.record.approver.startsWith('0x')) issues.push(`approver invalid: ${sar.record.approver}`);
-                  if (issues.length > 0) {
-                    console.warn('[AgentDetails] SAR record validation issues (fixed):', issues);
-                  }
-                }
-
-                // Sign the initiator signature if it's empty
-                if (!sar.initiatorSignature || sar.initiatorSignature === '0x') {
-                  console.log('[AgentDetails] Signing initiator signature for association...');
-                  try {
-                    const sarRecord = sar.record!;
-                    const typedData = {
-                      types: {
-                        EIP712Domain: [
-                          { name: 'name', type: 'string' },
-                          { name: 'version', type: 'string' },
-                        ],
-                        AssociatedAccountRecord: [
-                          { name: 'initiator', type: 'bytes' },
-                          { name: 'approver', type: 'bytes' },
-                          { name: 'validAt', type: 'uint40' },
-                          { name: 'validUntil', type: 'uint40' },
-                          { name: 'interfaceId', type: 'bytes4' },
-                          { name: 'data', type: 'bytes' },
-                        ],
-                      },
-                      primaryType: 'AssociatedAccountRecord',
-                      domain: { name: 'AssociatedAccounts', version: '1' },
-                      // JSON-safe values for eth_signTypedData_v4/v3
-                      message: {
-                        initiator: String(sarRecord.initiator),
-                        approver: String(sarRecord.approver),
-                        validAt: Number(sarRecord.validAt),
-                        validUntil: Number(sarRecord.validUntil),
-                        interfaceId: String(sarRecord.interfaceId),
-                        data: String(sarRecord.data),
-                      },
-                    };
-
-                    const signature = await signErc8092Digest({
-                      provider: eip1193Provider,
-                      signerAddress: getAddress(walletAddress) as `0x${string}`,
-                      digest: sar.associationId as `0x${string}`,
-                      typedData,
-                    });
-                    sar.initiatorSignature = signature;
-                    console.log('[AgentDetails] Initiator signature signed successfully:', {
-                      signature: signature.slice(0, 20) + '...',
-                      signatureLength: signature.length,
-                      associationId: sar.associationId,
-                    });
-
-                    // Signature is verified inside signErc8092Digest (recoverAddress on digest)
-                  } catch (signError) {
-                    console.error('[AgentDetails] Failed to sign initiator signature:', signError);
-                    throw signError;
-                  }
-                }
-
-                // Validate associationId matches record
-                if (sar.record && sar.associationId) {
-                  try {
-                    const ethers = await import('ethers');
-                    const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
-                      if (n === 0n) return new Uint8Array([0]);
-                      let hex = n.toString(16);
-                      if (hex.length % 2) hex = `0${hex}`;
-                      return ethers.getBytes(`0x${hex}`);
-                    };
-                    const formatEvmV1 = (chainId: number, address: string): string => {
-                      const addr = ethers.getAddress(address);
-                      const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
-                      const head = ethers.getBytes('0x00010000');
-                      const out = ethers.concat([
-                        head,
-                        new Uint8Array([chainRef.length]),
-                        chainRef,
-                        new Uint8Array([20]),
-                        ethers.getBytes(addr),
-                      ]);
-                      return ethers.hexlify(out);
-                    };
-
-                    const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
-                    const NAME_HASH = ethers.id('AssociatedAccounts');
-                    const VERSION_HASH = ethers.id('1');
-                    const MESSAGE_TYPEHASH = ethers.id(
-                      'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
-                    );
-                    const domainSeparator = ethers.keccak256(
-                      ethers.AbiCoder.defaultAbiCoder().encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
-                    );
-
-                    const hashStruct = ethers.keccak256(
-                      ethers.AbiCoder.defaultAbiCoder().encode(
-                        ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
-                        [
-                          MESSAGE_TYPEHASH,
-                          ethers.keccak256(sar.record.initiator),
-                          ethers.keccak256(sar.record.approver),
-                          sar.record.validAt,
-                          sar.record.validUntil,
-                          sar.record.interfaceId,
-                          ethers.keccak256(sar.record.data),
-                        ],
-                      ),
-                    );
-                    const computedDigest = ethers.keccak256(
-                      ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
-                    );
-
-                    console.log('[AgentDetails] AssociationId validation:', {
-                      provided: sar.associationId,
-                      computedDigest,
-                      matches: sar.associationId === computedDigest,
-                    });
-
-                    if (sar.associationId !== computedDigest) {
-                      console.warn('[AgentDetails] AssociationId mismatch! Using computed digest instead.');
-                      sar.associationId = computedDigest;
-                    }
-                  } catch (err) {
-                    console.warn('[AgentDetails] Failed to validate associationId:', err);
-                  }
-                }
-
-                await storeErc8092SarOnChainEoa({
-                  did8004,
-                  chainId: Number(chainId),
-                  provider: eip1193Provider,
-                  account: getAddress(walletAddress) as `0x${string}`,
-                  sar,
-                });
-              }
-            } catch (assocErr: any) {
-              const msg = assocErr?.message || String(assocErr);
-              console.warn('[AgentDetails] Failed to store feedbackAuth delegation association (page-load):', assocErr);
-              setFeedbackAuthError(`Failed to store ERC-8092 delegation: ${msg}`);
-            }
+          // NOTE: We no longer try to store any returned delegationAssociation from the browser.
+          // The provider (atp-agent) stores the delegation SAR on-chain using its SessionPackage delegation.
+          if (feedbackAuthId && delegationAssociation) {
+            console.log('[AgentDetails] Provider returned delegationAssociation (ignored client-side):', {
+              associationId: (delegationAssociation as any)?.associationId,
+            });
           }
         } else {
           setFeedbackAuth(null);
@@ -1709,20 +1575,123 @@ export default function AgentDetailsPageContent({
                 const agentId = String(agent.agentId);
                 const agentName = typeof agent.agentName === 'string' ? agent.agentName : undefined;
 
-                // Request feedbackAuth from server-side API endpoint
-                const feedbackAuthParams = new URLSearchParams();
-                feedbackAuthParams.set('clientAddress', clientAddress);
-                if (agentName && typeof agentName === 'string') {
-                  feedbackAuthParams.set('agentName', agentName);
-                }
-                if (agentId) {
-                  feedbackAuthParams.set('agentId', agentId);
-                }
-                if (chainId) {
-                  feedbackAuthParams.set('chainId', chainId.toString());
-                }
+                // Request feedbackAuth from provider (A2A). Include a client-built ERC-8092 delegation SAR
+                // so the provider can store it on-chain using its SessionPackage delegation.
+                const resolvePlainAddress = (value: unknown): `0x${string}` | null => {
+                  if (typeof value !== 'string') return null;
+                  const v = value.trim();
+                  if (!v) return null;
+                  if (v.startsWith('eip155:')) {
+                    const parts = v.split(':');
+                    const addr = parts[2];
+                    if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
+                  }
+                  if (v.includes(':')) {
+                    const parts = v.split(':');
+                    const last = parts[parts.length - 1];
+                    if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
+                  }
+                  if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
+                  return null;
+                };
 
-                const feedbackAuthResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth?${feedbackAuthParams.toString()}`);
+                const delegationSar = await (async (): Promise<any | null> => {
+                  if (!eip1193Provider) return null;
+                  const clientAddr = getAddress(clientAddress) as `0x${string}`;
+                  const approverAddr =
+                    resolvePlainAddress((agent as any).agentAccount) ??
+                    resolvePlainAddress((onChainMetadata as any)?.agentAccount) ??
+                    null;
+                  if (!approverAddr) return null;
+
+                  const description = JSON.stringify({
+                    type: 'erc8004.feedbackAuth.delegation',
+                    agentId: String(agentId),
+                    chainId: Number(chainId),
+                    clientAddress: clientAddr,
+                    createdAt: new Date().toISOString(),
+                  });
+                  const data = encodeAbiParameters(
+                    parseAbiParameters('uint8 assocType, string description'),
+                    [1, description],
+                  ) as `0x${string}`;
+
+                  const ethers = await import('ethers');
+                  const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+                    if (n === 0n) return new Uint8Array([0]);
+                    let hex = n.toString(16);
+                    if (hex.length % 2) hex = `0${hex}`;
+                    return ethers.getBytes(`0x${hex}`);
+                  };
+                  const formatEvmV1 = (chainIdNum: number, address: string): string => {
+                    const addr = ethers.getAddress(address);
+                    const chainRef = toMinimalBigEndianBytes(BigInt(chainIdNum));
+                    const head = ethers.getBytes('0x00010000');
+                    const out = ethers.concat([
+                      head,
+                      new Uint8Array([chainRef.length]),
+                      chainRef,
+                      new Uint8Array([20]),
+                      ethers.getBytes(addr),
+                    ]);
+                    return ethers.hexlify(out);
+                  };
+
+                  const record = {
+                    initiator: formatEvmV1(Number(chainId), clientAddr),
+                    approver: formatEvmV1(Number(chainId), approverAddr),
+                    validAt: 0,
+                    validUntil: 0,
+                    interfaceId: '0x00000000',
+                    data,
+                  };
+
+                  const associationId = associationIdFromRecord(record as any) as `0x${string}`;
+                  const typedData = {
+                    types: {
+                      EIP712Domain: [
+                        { name: 'name', type: 'string' },
+                        { name: 'version', type: 'string' },
+                      ],
+                      AssociatedAccountRecord: [
+                        { name: 'initiator', type: 'bytes' },
+                        { name: 'approver', type: 'bytes' },
+                        { name: 'validAt', type: 'uint40' },
+                        { name: 'validUntil', type: 'uint40' },
+                        { name: 'interfaceId', type: 'bytes4' },
+                        { name: 'data', type: 'bytes' },
+                      ],
+                    },
+                    primaryType: 'AssociatedAccountRecord',
+                    domain: { name: 'AssociatedAccounts', version: '1' },
+                    message: {
+                      initiator: record.initiator,
+                      approver: record.approver,
+                      validAt: record.validAt,
+                      validUntil: record.validUntil,
+                      interfaceId: record.interfaceId,
+                      data: record.data,
+                    },
+                  };
+                  const initiatorSignature = await signErc8092Digest({
+                    provider: eip1193Provider,
+                    signerAddress: clientAddr,
+                    digest: associationId,
+                    typedData,
+                  });
+                  return { record, initiatorSignature };
+                })();
+
+                const feedbackAuthResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    clientAddress,
+                    agentId,
+                    chainId: Number(chainId),
+                    delegationSar,
+                  }),
+                });
                 if (!feedbackAuthResponse.ok) {
                   const errorData = await feedbackAuthResponse.json().catch(() => ({}));
                   throw new Error(errorData.message || errorData.error || 'Failed to get feedback auth');
@@ -1746,90 +1715,11 @@ export default function AgentDetailsPageContent({
                 // and store the ERC-8092 association on-chain (so the client is memorialized as having
                 // rights to give feedback).
                 if (delegationAssociation && eip1193Provider) {
-                  try {
-                    const assocId = String(delegationAssociation.associationId || '').trim() as `0x${string}`;
-                    const approverAddress = getAddress(String(delegationAssociation.approverAddress || '')) as `0x${string}`;
-                    const initiatorAddress = getAddress(String(delegationAssociation.initiatorAddress || clientAddress)) as `0x${string}`;
-                    const data = String(delegationAssociation.data || '').trim() as `0x${string}`;
-                    const validAt = Number(delegationAssociation.validAt ?? 0);
-                    const approverSignature = String(delegationAssociation.approverSignature || '').trim() as `0x${string}`;
-                    const sarRecord = (delegationAssociation as any)?.sar?.record;
-
-                    if (assocId && assocId !== '0x' && data && data !== '0x' && approverSignature && approverSignature !== '0x') {
-                      // Ensure initiator is the connected wallet.
-                      if (initiatorAddress.toLowerCase() !== clientAddress.toLowerCase()) {
-                        throw new Error(`delegationAssociation initiatorAddress (${initiatorAddress}) does not match wallet (${clientAddress})`);
-                      }
-
-                      // Switch chain before signing/sending, otherwise the tx can be submitted to the wrong chain.
-                      try {
-                        const targetHex = `0x${Number(resolvedChainId).toString(16)}`;
-                        await eip1193Provider.request?.({
-                          method: 'wallet_switchEthereumChain',
-                          params: [{ chainId: targetHex }],
-                        });
-                      } catch {
-                        // non-fatal; some providers don't support switching
-                      }
-
-                      const typedData =
-                        sarRecord && typeof sarRecord === 'object'
-                          ? {
-                              types: {
-                                EIP712Domain: [
-                                  { name: 'name', type: 'string' },
-                                  { name: 'version', type: 'string' },
-                                ],
-                                AssociatedAccountRecord: [
-                                  { name: 'initiator', type: 'bytes' },
-                                  { name: 'approver', type: 'bytes' },
-                                  { name: 'validAt', type: 'uint40' },
-                                  { name: 'validUntil', type: 'uint40' },
-                                  { name: 'interfaceId', type: 'bytes4' },
-                                  { name: 'data', type: 'bytes' },
-                                ],
-                              },
-                              primaryType: 'AssociatedAccountRecord',
-                              domain: { name: 'AssociatedAccounts', version: '1' },
-                              message: {
-                                initiator: String(sarRecord.initiator),
-                                approver: String(sarRecord.approver),
-                                validAt: Number(sarRecord.validAt),
-                                validUntil: Number(sarRecord.validUntil ?? 0),
-                                interfaceId: String(sarRecord.interfaceId),
-                                data: String(sarRecord.data),
-                              },
-                            }
-                          : undefined;
-
-                      const initiatorSignature = await signErc8092Digest({
-                        provider: eip1193Provider,
-                        signerAddress: getAddress(clientAddress) as `0x${string}`,
-                        digest: assocId,
-                      });
-
-                      const sar = {
-                        revokedAt: 0,
-                        initiatorKeyType: '0x0001',
-                        approverKeyType: '0x0001',
-                        initiatorSignature,
-                        approverSignature,
-                        record: sarRecord,
-                      };
-                      await storeErc8092SarOnChainEoa({
-                        did8004,
-                        chainId: Number(resolvedChainId),
-                        provider: eip1193Provider,
-                        account: getAddress(clientAddress) as `0x${string}`,
-                        sar,
-                      });
-                    }
-                  } catch (assocErr: any) {
-                    // Don't fail feedback submission, but DO surface this so it's debuggable.
-                    const msg = assocErr?.message || String(assocErr);
-                    console.warn('[AgentDetails] Failed to store feedbackAuth delegation association:', assocErr);
-                    setFeedbackAuthError(`Failed to store ERC-8092 delegation: ${msg}`);
-                  }
+                  // NOTE: We no longer store delegation associations from the browser.
+                  // The provider stores the client-built SAR on-chain using its SessionPackage delegation.
+                  console.log('[AgentDetails] Provider returned delegationAssociation (ignored client-side):', {
+                    associationId: (delegationAssociation as any)?.associationId,
+                  });
                 }
 
                 // Use the delegation payload pointer embedded in the ERC-8092 association (IPFS) as the

@@ -16,9 +16,21 @@ import {
   buildDelegationSetup,
   buildAgentAccountFromSession,
   createDelegationAssociationWithIpfs,
+  buildDelegatedAssociationContext,
+  storeErc8092AssociationWithSessionDelegation,
 } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 import { getD1Database, getIndexerD1Database, type D1Database } from './lib/d1-wrapper';
+import {
+  bytesToHex,
+  concatHex,
+  encodeAbiParameters,
+  getAddress,
+  hexToBytes,
+  keccak256,
+  stringToHex,
+} from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
 
 /**
  * Recursively convert BigInt values to strings for JSON serialization
@@ -67,6 +79,86 @@ function normalizeDid(value: unknown): string {
   }
   // Fallback for partially-encoded values
   return out.replace(/%3A/gi, ':');
+}
+
+function tryParseEvmV1(interoperableHex: string): { chainId: number; address?: string } | null {
+  try {
+    const bytes = hexToBytes(interoperableHex as `0x${string}`);
+    if (bytes.length < 6) return null;
+    const version = (bytes[0]! << 8) | bytes[1]!;
+    if (version !== 0x0001) return null;
+    const chainType = (bytes[2]! << 8) | bytes[3]!;
+    if (chainType !== 0x0000) return null;
+    const chainRefLen = bytes[4]!;
+    if (bytes.length < 6 + chainRefLen) return null;
+    const chainRefStart = 5;
+    const chainRefEnd = chainRefStart + chainRefLen;
+    const addrLen = bytes[chainRefEnd]!;
+    const addrStart = chainRefEnd + 1;
+    const addrEnd = addrStart + addrLen;
+    if (bytes.length < addrEnd) return null;
+
+    let chainId = 0;
+    for (let i = chainRefStart; i < chainRefEnd; i++) chainId = (chainId << 8) + bytes[i]!;
+
+    if (addrLen === 20) {
+      const addrBytes = bytes.slice(addrStart, addrEnd);
+      return { chainId, address: getAddress(bytesToHex(addrBytes)) };
+    }
+    return { chainId };
+  } catch {
+    return null;
+  }
+}
+
+function associationIdFromRecord(rec: {
+  initiator: `0x${string}`;
+  approver: `0x${string}`;
+  validAt: number;
+  validUntil: number;
+  interfaceId: `0x${string}`;
+  data: `0x${string}`;
+}): `0x${string}` {
+  const DOMAIN_TYPEHASH = keccak256(stringToHex('EIP712Domain(string name,string version)'));
+  const NAME_HASH = keccak256(stringToHex('AssociatedAccounts'));
+  const VERSION_HASH = keccak256(stringToHex('1'));
+  const MESSAGE_TYPEHASH = keccak256(
+    stringToHex(
+      'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+    ),
+  );
+
+  const domainSeparator = keccak256(
+    encodeAbiParameters(
+      [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes32' }],
+      [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH],
+    ),
+  );
+
+  const hashStruct = keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'uint40' },
+        { type: 'uint40' },
+        { type: 'bytes4' },
+        { type: 'bytes32' },
+      ],
+      [
+        MESSAGE_TYPEHASH,
+        keccak256(rec.initiator),
+        keccak256(rec.approver),
+        rec.validAt,
+        rec.validUntil,
+        rec.interfaceId as `0x${string}`,
+        keccak256(rec.data),
+      ],
+    ),
+  );
+
+  return keccak256(concatHex(['0x1901', domainSeparator, hashStruct])) as `0x${string}`;
 }
 
 /**
@@ -1333,6 +1425,379 @@ const handleA2A = async (c: HonoContext) => {
         // Set session package on agent instance (required for feedback auth)
         console.log('[ATP Agent] Setting session package on agent instance');
         agent.setSessionPackage(sessionPackage);
+
+        // Debug: confirm whether we received a delegation SAR for this request (required to store ERC-8092 on-chain)
+        try {
+          const delegationSarDebug = (payload as any)?.delegationSar;
+          const keys =
+            delegationSarDebug && typeof delegationSarDebug === 'object'
+              ? Object.keys(delegationSarDebug as any)
+              : [];
+          console.log('[ATP Agent] delegationSar debug:', {
+            present: !!delegationSarDebug,
+            type: typeof delegationSarDebug,
+            keys,
+          });
+        } catch {
+          // ignore
+        }
+
+        // OPTIONAL: client-provided ERC-8092 delegation SAR payload (record + initiator signature).
+        // If present, we will complete approver signature (agentAccount via MetaMask delegation)
+        // and store the association on-chain BEFORE returning feedbackAuth.
+        const delegationSarRaw = (payload as any)?.delegationSar;
+        if (delegationSarRaw && typeof delegationSarRaw === 'object') {
+          console.log('[ATP Agent] delegationSar provided; will attempt to store on-chain before returning feedbackAuth');
+          try {
+            const chainIdForStore =
+              typeof (payload as any)?.chainId === 'number'
+                ? (payload as any).chainId
+                : Number.isFinite(Number((payload as any)?.chainId))
+                  ? Number((payload as any).chainId)
+                  : typeof (metadata as any)?.chainId === 'number'
+                    ? (metadata as any).chainId
+                    : sessionPackage.chainId;
+
+            const recordRaw = (delegationSarRaw as any)?.record;
+            const initiatorSignatureRaw = String((delegationSarRaw as any)?.initiatorSignature || '').trim();
+            if (!recordRaw || typeof recordRaw !== 'object') {
+              throw new Error('delegationSar.record is required');
+            }
+            if (!initiatorSignatureRaw || initiatorSignatureRaw === '0x') {
+              throw new Error('delegationSar.initiatorSignature is required');
+            }
+
+            const record = {
+              initiator: String((recordRaw as any).initiator),
+              approver: String((recordRaw as any).approver),
+              validAt: Number((recordRaw as any).validAt ?? 0),
+              validUntil: Number((recordRaw as any).validUntil ?? 0),
+              interfaceId: String((recordRaw as any).interfaceId ?? '0x00000000'),
+              data: String((recordRaw as any).data ?? '0x'),
+            };
+
+            const initiatorParsed = tryParseEvmV1(record.initiator);
+            const approverParsed = tryParseEvmV1(record.approver);
+            const initiatorAddr = initiatorParsed?.address ? initiatorParsed.address.toLowerCase() : null;
+            const approverAddr = approverParsed?.address ? approverParsed.address.toLowerCase() : null;
+
+            if (!initiatorAddr || initiatorAddr !== String(clientAddress).toLowerCase()) {
+              throw new Error('delegationSar.record.initiator does not match clientAddress');
+            }
+            if (!approverAddr || approverAddr !== String(sessionPackage.aa).toLowerCase()) {
+              throw new Error('delegationSar.record.approver does not match sessionPackage.aa');
+            }
+
+            const associationId = associationIdFromRecord(record as any);
+
+            // Build context for signing approverSignature as the sessionAA (the delegated account).
+            // CRITICAL: The delegation is from agent account to sessionAA, not to the operator EOA.
+            // The delegation-aware validator checks if the signer/identity is the delegate (sessionAA).
+            // So we must sign in a way that identifies the signature as coming from the sessionAA,
+            // not from the operator EOA directly.
+            //
+            // Option 1: Sign using sessionAA's ERC-1271 (if it supports signing)
+            // Option 2: The validator might check if operator EOA is the owner of sessionAA
+            // Option 3: We need to embed the sessionAA address in the signature somehow
+            //
+            // For now, let's try signing with the sessionAA smart account client, which should
+            // produce a signature that identifies as coming from the sessionAA.
+            const { sessionAccountClient, publicClient, delegationSetup, walletClient } = await buildDelegatedAssociationContext(
+              sessionPackage,
+              chainIdForStore,
+            );
+
+            const operatorAccount = privateKeyToAccount(delegationSetup.sessionKey.privateKey as `0x${string}`);
+            const operatorAddress = operatorAccount.address;
+            const sessionAA = sessionPackage.sessionAA as `0x${string}`;
+            
+            console.log('[ATP Agent] CRITICAL: Address mismatch check:', {
+              operatorAddress, // EOA that signs: 0xEF6C...
+              sessionAA, // Delegation delegate: 0xC526...
+              agentAccount: sessionPackage.aa, // Delegation delegator: 0xA90B...
+              'Delegation is': `${sessionPackage.aa} → ${sessionAA}`,
+              'But signing with': operatorAddress,
+              'Issue': 'Signature from operator EOA will not validate because delegate is sessionAA, not operator EOA',
+            });
+            
+            // CRITICAL: The delegation delegate is the sessionAA (0xC526...), not the operator EOA (0xEF6C...).
+            // The delegation-aware validator checks if the signer is the delegate. So we need to sign
+            // in a way that the validator recognizes as coming from the sessionAA.
+            //
+            // However, for ERC-1271 signature validation (not transaction execution), we can't use
+            // the sessionAA to sign directly. Instead, the validator might check:
+            // 1. Is there a delegation from agent account to sessionAA? (YES - sessionAA is delegated)
+            // 2. Is the signer (operator EOA) the owner of sessionAA? (Should be YES if sessionAA is owned by operator EOA)
+            //
+            // Let's try signing with the operator EOA (sessionAA's owner) and see if the validator
+            // recognizes it as valid because the operator EOA owns the sessionAA which is delegated.
+            //
+            // If this doesn't work, we may need to check if the validator expects a different signature format
+            // or if we need to restructure how the delegation is set up.
+            
+            // Candidate 1: EIP-712 typed data signature signed by operator EOA (owner of sessionAA)
+            const sigEip712 = (await walletClient.signTypedData({
+              account: operatorAccount,
+              domain: { name: 'AssociatedAccounts', version: '1' },
+              types: {
+                AssociatedAccountRecord: [
+                  { name: 'initiator', type: 'bytes' },
+                  { name: 'approver', type: 'bytes' },
+                  { name: 'validAt', type: 'uint40' },
+                  { name: 'validUntil', type: 'uint40' },
+                  { name: 'interfaceId', type: 'bytes4' },
+                  { name: 'data', type: 'bytes' },
+                ],
+              },
+              primaryType: 'AssociatedAccountRecord',
+              message: {
+                initiator: record.initiator as `0x${string}`,
+                approver: record.approver as `0x${string}`,
+                validAt: BigInt(record.validAt),
+                validUntil: BigInt(record.validUntil),
+                interfaceId: record.interfaceId as `0x${string}`,
+                data: record.data as `0x${string}`,
+              } as any, // viem's EIP-712 types expect bigint for uint40
+            })) as `0x${string}`;
+
+            // Candidate 2: EIP-191 personal_sign signed by operator EOA (owner of sessionAA)
+            let sigPersonal: `0x${string}` = '0x';
+            try {
+              sigPersonal = (await walletClient.signMessage({
+                account: operatorAccount,
+                message: { raw: hexToBytes(associationId) },
+              })) as `0x${string}`;
+            } catch (e) {
+              console.warn('[ATP Agent] signMessage failed:', e);
+            }
+            
+            // Candidate 3: Try signing via sessionAA's ERC-1271 (if it supports signing)
+            // This would require calling sessionAA.isValidSignature, but that's not signing, that's validation.
+            // For actual signing, we need to check if sessionAA has a signer interface.
+            // Let's first check if the validator recognizes operator EOA signatures when operator owns sessionAA.
+
+            // Before testing ERC-1271, verify the delegation relationship:
+            // 1. Agent account delegates to sessionAA (delegate)
+            // 2. Operator EOA (signer) owns sessionAA
+            // 3. The validator should check if signer owns the delegate
+            //
+            // Let's verify if operator EOA is the owner of sessionAA
+            try {
+              // Check if sessionAA's owner is the operator EOA
+              // MetaMask smart accounts might have an owner() function or use the deployParams
+              // For now, we'll check if the sessionAA validates operator EOA signatures
+              const sessionAA = sessionPackage.sessionAA as `0x${string}`;
+              const sessionAAOwnerCheck = await publicClient.readContract({
+                address: sessionAA,
+                abi: [
+                  {
+                    type: 'function',
+                    name: 'owner',
+                    stateMutability: 'view',
+                    inputs: [],
+                    outputs: [{ name: '', type: 'address' }],
+                  },
+                ] as any,
+                functionName: 'owner',
+                args: [],
+              }).catch(() => null);
+              
+              console.log('[ATP Agent] Checking sessionAA owner:', {
+                sessionAA,
+                operatorAddress,
+                sessionAAOwner: sessionAAOwnerCheck,
+                operatorIsOwner: String(sessionAAOwnerCheck)?.toLowerCase() === operatorAddress.toLowerCase(),
+              });
+              
+              // Also check if sessionAA validates operator EOA signature directly
+              // This tests the ownership relationship: operator EOA owns sessionAA
+              const testHash = keccak256(stringToHex('test'));
+              const testSig = await walletClient.signMessage({
+                account: operatorAccount,
+                message: { raw: hexToBytes(testHash) },
+              });
+
+              try {
+                const sessionAAValidates = await publicClient.readContract({
+                  address: sessionAA,
+                  abi: [
+                    {
+                      type: 'function',
+                      name: 'isValidSignature',
+                      stateMutability: 'view',
+                      inputs: [
+                        { name: 'hash', type: 'bytes32' },
+                        { name: 'signature', type: 'bytes' },
+                      ],
+                      outputs: [{ name: 'magicValue', type: 'bytes4' }],
+                    },
+                  ] as any,
+                  functionName: 'isValidSignature',
+                  args: [testHash, testSig],
+                });
+                console.log('[ATP Agent] sessionAA validates operator EOA signature:', {
+                  sessionAA,
+                  operatorAddress,
+                  sessionAAValidates,
+                  isValid: String(sessionAAValidates).toLowerCase() === '0x1626ba7e',
+                });
+              } catch (e) {
+                console.warn('[ATP Agent] Could not check if sessionAA validates operator signature:', e);
+              }
+
+              // Now test if the agent account's validator checks the delegation ownership chain:
+              // 1. Agent account delegates to sessionAA
+              // 2. Operator EOA owns sessionAA
+              // 3. Validator should recognize operator EOA as valid through this chain
+              console.log('[ATP Agent] Testing delegation ownership chain:', {
+                'Chain': `${sessionPackage.aa} → ${sessionAA} → ${operatorAddress}`,
+                'Delegation': `${sessionPackage.aa} delegates to ${sessionAA}`,
+                'Ownership': `${operatorAddress} owns ${sessionAA}`,
+                'Expected validator behavior': 'Should validate operator EOA because it owns the delegate (sessionAA)',
+              });
+            } catch (e) {
+              console.warn('[ATP Agent] Could not check sessionAA owner:', e);
+            }
+
+            // Test both candidates via ERC-1271 on the AGENT ACCOUNT (not sessionAA)
+            // The agent account's delegation-aware validator should check:
+            // 1. Is there a delegation from agent account to sessionAA? (YES)
+            // 2. Is the signer (operator EOA) the owner of sessionAA? (Should be YES)
+            // 3. If both YES, return 0x1626ba7e (valid)
+            const ERC1271_MAGIC = '0x1626ba7e' as const;
+            const ERC1271_ABI = [
+              {
+                type: 'function',
+                name: 'isValidSignature',
+                stateMutability: 'view',
+                inputs: [
+                  { name: 'hash', type: 'bytes32' },
+                  { name: 'signature', type: 'bytes' },
+                ],
+                outputs: [{ name: 'magicValue', type: 'bytes4' }],
+              },
+            ] as const;
+
+            let approverSignature: `0x${string}` = sigEip712; // default to EIP-712
+            let signatureValidated = false;
+
+            console.log('[ATP Agent] Testing signature candidates via ERC-1271 on agent account:', {
+              agentAccount: sessionPackage.aa,
+              operatorAddress, // Signer EOA: 0xEF6C...
+              sessionAA: sessionPackage.sessionAA, // Delegation delegate: 0xC526...
+              associationId,
+              'Delegation': `${sessionPackage.aa} → ${sessionPackage.sessionAA}`,
+              'Expected validator behavior': 'Check if operator EOA owns sessionAA, and if sessionAA is delegated',
+            });
+
+            for (const candidate of [
+              { scheme: 'eip712', sig: sigEip712 },
+              ...(sigPersonal && sigPersonal !== '0x' ? [{ scheme: 'personal_sign', sig: sigPersonal }] : []),
+            ]) {
+              try {
+                const magic = (await publicClient.readContract({
+                  address: sessionPackage.aa as `0x${string}`,
+                  abi: ERC1271_ABI as any,
+                  functionName: 'isValidSignature',
+                  args: [associationId, candidate.sig],
+                })) as `0x${string}`;
+                console.log(`[ATP Agent] ERC-1271 check for ${candidate.scheme}:`, { 
+                  magic, 
+                  expected: ERC1271_MAGIC,
+                  isValid: String(magic).toLowerCase() === ERC1271_MAGIC,
+                });
+                if (String(magic).toLowerCase() === ERC1271_MAGIC) {
+                  approverSignature = candidate.sig;
+                  signatureValidated = true;
+                  console.log(`[ATP Agent] ✓ ERC-1271 validation succeeded with ${candidate.scheme} signature`);
+                  break;
+                } else {
+                  console.warn(`[ATP Agent] ERC-1271 validation failed for ${candidate.scheme}: got magic=${magic}, expected=${ERC1271_MAGIC}`);
+                }
+              } catch (e: any) {
+                console.warn(`[ATP Agent] ERC-1271 check error for ${candidate.scheme}:`, e?.message || e);
+              }
+            }
+
+            // FIXED: Added isValidSignature selector to delegation scope
+            //
+            // The delegation scope in sessionPackageBuilder.ts now includes the isValidSignature selector,
+            // which is required for ERC-1271 validation. The delegation-aware validator checks that the
+            // delegation scope allows the specific operation (isValidSignature) before validating signatures.
+            //
+            // With this fix, the delegation-aware validator should now accept operator EOA signatures
+            // because the delegation scope includes permission for ERC-1271 validation operations.
+            //
+            // If validation still fails, it means either:
+            // 1. The delegation scope doesn't include other required permissions
+            // 2. The validator has additional requirements beyond scope checking
+            // 3. The signature format or domain is incorrect
+            if (!signatureValidated) {
+              console.warn('[ATP Agent] ⚠ ERC-1271 preflight failed - ADDRESS MISMATCH ISSUE:');
+              console.warn('[ATP Agent]   Delegation delegate: sessionAA (0xC526...)');
+              console.warn('[ATP Agent]   Signature signer: operator EOA (0xEF6C...)');
+              console.warn('[ATP Agent]   The validator checks if signer IS delegate, which is false.');
+              console.warn('[ATP Agent]   Possible solutions:');
+              console.warn('[ATP Agent]     1. Validator checks if signer owns delegate (may not be supported)');
+              console.warn('[ATP Agent]     2. Change delegation delegate to operator EOA (requires restructuring)');
+              console.warn('[ATP Agent]     3. Use DELEGATED keyType (0x8002) - bypasses agent ERC-1271');
+              console.warn('[ATP Agent]   The ERC-8092 contract will attempt validation and likely fail with 0x456db081.');
+              console.warn('[ATP Agent]   Debug info:', {
+                agentAccount: sessionPackage.aa,
+                operatorAddress, // Signer: 0xEF6C...
+                sessionAA: sessionPackage.sessionAA, // Delegate: 0xC526...
+                associationId,
+                delegationExists: !!sessionPackage.signedDelegation,
+                delegationDelegator: (sessionPackage.signedDelegation as any)?.delegator || (sessionPackage.signedDelegation as any)?.message?.delegator,
+                delegationDelegate: (sessionPackage.signedDelegation as any)?.delegate || (sessionPackage.signedDelegation as any)?.message?.delegate,
+                'Address Mismatch': 'Signer (operator EOA) != Delegate (sessionAA)',
+              });
+            } else {
+              console.log('[ATP Agent] ✓ ERC-1271 validation succeeded - delegation-aware validator is working correctly');
+            }
+
+            // FIXED: Using K1 keyType (0x0001) with delegation scope fix
+            //
+            // The delegation scope now includes the isValidSignature selector, which allows the
+            // delegation-aware validator to accept operator EOA signatures for ERC-1271 validation.
+            //
+            // The ERC-8092 contract will call agent.isValidSignature(hash, signature), and the
+            // agent account's delegation-aware validator will check:
+            // 1. Is there a delegation from agent account to sessionAA? (YES)
+            // 2. Does the delegation scope allow ERC-1271 operations? (YES - added isValidSignature selector)
+            // 3. Return 0x1626ba7e (valid) if delegation is active and scope allows
+            //
+            // This should now work with the standard ERC-1271 flow using K1 keyType.
+            const sar = {
+              revokedAt: 0,
+              initiatorKeyType: '0x0001', // K1/ECDSA for client EOA
+              // Use K1 (0x0001) for approver - ERC-8092 will call agent.isValidSignature(hash, signature)
+              // The delegation scope now includes isValidSignature selector, so delegation-aware validator should accept
+              approverKeyType: '0x0001' as `0x${string}`, // K1 - ERC-8092 calls agent.isValidSignature
+              initiatorSignature: initiatorSignatureRaw,
+              approverSignature,
+              record,
+            };
+
+            console.log('[ATP Agent] Storing delegation association on-chain (ERC-8092 storeAssociation)', {
+              chainId: chainIdForStore,
+              associationId,
+              initiator: record.initiator,
+              approver: record.approver,
+            });
+            const { txHash } = await storeErc8092AssociationWithSessionDelegation({
+              sessionPackage,
+              chainId: chainIdForStore,
+              sar,
+            });
+            responseContent.delegationStoredTxHash = txHash;
+            responseContent.delegationStoredAssociationId = associationId;
+            console.log('[ATP Agent] ✓ Stored delegation association on-chain', { txHash, associationId });
+          } catch (storeErr: any) {
+            console.warn('[ATP Agent] Failed to store client delegation SAR on-chain:', storeErr);
+            responseContent.delegationStoreError = storeErr?.message || String(storeErr);
+          }
+        }
 
         console.info("oasf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 

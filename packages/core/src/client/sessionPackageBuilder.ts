@@ -86,6 +86,20 @@ function getValidationRegistryAddress(chainId: number): `0x${string}` | undefine
   return normalizeHex(process.env[key] ?? process.env.NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY ?? undefined);
 }
 
+function getAssociationsProxyAddress(chainId: number): `0x${string}` | undefined {
+  // Try chain-specific env var first, then fallback to generic env var, then default
+  const cfg = getChainConfig(chainId);
+  if (cfg) {
+    const chainKey = `ASSOCIATIONS_STORE_PROXY_${cfg.suffix}`;
+    const chainValue = normalizeHex(process.env[chainKey] ?? process.env[`NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY_${cfg.suffix}`]);
+    if (chainValue) return chainValue;
+  }
+  const genericValue = normalizeHex(process.env.ASSOCIATIONS_STORE_PROXY ?? process.env.ASSOCIATIONS_PROXY_ADDRESS ?? process.env.NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY);
+  if (genericValue) return genericValue;
+  // Default Sepolia address
+  return '0xaF7428906D31918dDA2986D1405E2Ded06561E59' as `0x${string}`;
+}
+
 async function switchChain(provider: any, chainId: number, rpcUrl: string) {
   const chainIdHex = getChainIdHex(chainId);
   try {
@@ -298,12 +312,19 @@ export async function generateSessionPackage(
   console.info('*********** sessionPackageBuilder: createDelegation');
 
   // Create delegation scope that allows validationResponse (and a read-only test method) on ValidationRegistry
-  // Only include ValidationRegistry in the scope to keep caveats strict
+  // Also include ERC-8092 associations proxy to allow storeAssociation calls
   const targets: Array<`0x${string}`> = [];
   if (validationRegistry) {
     targets.push(validationRegistry);
   } else {
     throw new Error('validationRegistry address is required to build delegation scope');
+  }
+
+  // Add ERC-8092 associations proxy to allowed targets
+  const associationsProxy = getAssociationsProxyAddress(chainId);
+  if (associationsProxy) {
+    targets.push(associationsProxy);
+    console.info('*********** sessionPackageBuilder: Added associations proxy to delegation targets:', associationsProxy);
   }
 
   // Include getIdentityRegistry selector so the delegation test can call it successfully
@@ -313,7 +334,24 @@ export async function generateSessionPackage(
     args: [],
   }).slice(0, 10) as `0x${string}`;
 
-  const selectors = Array.from(new Set([selector, getIdentityRegistrySelector])) as `0x${string}`[];
+  // Include storeAssociation selector for ERC-8092 associations
+  // Function signature: storeAssociation((uint40,bytes2,bytes2,bytes,bytes,(bytes,bytes,uint40,uint40,bytes4,bytes)))
+  const storeAssociationSignature = 'storeAssociation((uint40,bytes2,bytes2,bytes,bytes,(bytes,bytes,uint40,uint40,bytes4,bytes)))';
+  const storeAssociationSelector = keccak256(stringToHex(storeAssociationSignature)).slice(0, 10) as `0x${string}`;
+
+  // Include isValidSignature selector for ERC-1271 validation
+  // This is crucial for ERC-8092 signature validation - when K1 keyType is used,
+  // the ERC-8092 contract calls agent.isValidSignature(hash, signature), which
+  // requires the delegation to allow this selector for the delegation-aware validator to work
+  const isValidSignatureSignature = 'isValidSignature(bytes32,bytes)';
+  const isValidSignatureSelector = keccak256(stringToHex(isValidSignatureSignature)).slice(0, 10) as `0x${string}`;
+
+  const selectors = Array.from(new Set([
+    selector,
+    getIdentityRegistrySelector,
+    storeAssociationSelector,
+    isValidSignatureSelector // Add this for ERC-1271 validation
+  ])) as `0x${string}`[];
 
   const delegation = createDelegation({
     environment: deleGatorEnv,

@@ -805,9 +805,17 @@ export class AgenticTrustClient {
    * Uses loadAgentDetail to get the latest data from the NFT contract,
    * with discovery data used as fallback for missing fields.
    */
-  async getAgent(agentId: string, chainId: number = DEFAULT_CHAIN_ID): Promise<Agent | null> {
+  async getAgent(
+    agentId: string,
+    chainId: number = DEFAULT_CHAIN_ID,
+    options?: { includeRegistration?: boolean },
+  ): Promise<Agent | null> {
     try {
-      const agentDetail = await loadAgentDetail(this, agentId, chainId);
+      // Default to skipping registration/tokenURI/IPFS reads unless explicitly requested.
+      // This keeps hot paths (like feedback auth) resilient to IPFS and reduces RPC load.
+      const agentDetail = await loadAgentDetail(this, agentId, chainId, {
+        includeRegistration: options?.includeRegistration ?? false,
+      });
       
       // Convert AgentDetail to AgentData format expected by Agent constructor
       // AgentDetail extends AgentInfo which has all the fields needed

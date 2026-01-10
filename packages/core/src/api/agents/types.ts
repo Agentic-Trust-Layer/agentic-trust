@@ -85,6 +85,12 @@ export interface RequestFeedbackAuthPayload {
   chainId?: number;
   indexLimit?: number;
   expirySeconds?: number;
+  /**
+   * Optional client-constructed ERC-8092 SAR payload. If provided, it will be forwarded to
+   * the provider's A2A handler for `oasf:trust.feedback.authorization`, which can store it
+   * on-chain using the provider's MetaMask delegation/session package.
+   */
+  delegationSar?: unknown;
 }
 
 export interface RequestFeedbackAuthResult {

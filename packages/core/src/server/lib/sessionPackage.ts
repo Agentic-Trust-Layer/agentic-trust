@@ -253,10 +253,11 @@ export async function buildAgentAccountFromSession(sessionPackage?: SessionPacka
     transport: http(delegationSetup.rpcUrl),
   });
 
-  const agentOwnerAddress = delegationSetup.sessionAA || delegationSetup.aa;
+  // Use agent account (aa) as the address, not sessionAA, since we want to sign as the agent account
+  const agentAccountAddress = delegationSetup.aa;
 
   const agentAccountClient = await toMetaMaskSmartAccount({
-    address: agentOwnerAddress as `0x${string}`,
+    address: agentAccountAddress as `0x${string}`,
     client: publicClient,
     implementation: Implementation.Hybrid,
     signer: { walletClient },

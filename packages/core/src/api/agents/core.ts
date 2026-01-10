@@ -393,6 +393,7 @@ export async function requestFeedbackAuthCore(
       chainId,
       indexLimit: input.indexLimit,
       expirySeconds: input.expirySeconds,
+      delegationSar: input.delegationSar,
     });
 
     return {
