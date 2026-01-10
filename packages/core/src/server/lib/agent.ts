@@ -1055,6 +1055,18 @@ export async function loadAgentDetail(
     metadata = {}; // Avoid on-chain fallback to keep responses fast
   }
 
+  // Ensure reserved agentWallet is displayed as a readable address.
+  // GraphQL/indexer metadata may represent raw bytes as a lossy UTF-8 string (garbled characters).
+  // The contract provides a canonical `getAgentWallet(agentId)` that returns an address.
+  try {
+    const agentWallet = await (identityClient as any).getAgentWallet?.(agentIdBigInt);
+    if (agentWallet && typeof agentWallet === 'string' && agentWallet.startsWith('0x')) {
+      metadata.agentWallet = agentWallet;
+    }
+  } catch {
+    // best-effort only
+  }
+
   const identityMetadata = {
     tokenUri,
     metadata,

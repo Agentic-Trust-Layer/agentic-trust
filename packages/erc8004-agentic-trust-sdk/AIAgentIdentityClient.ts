@@ -8,6 +8,7 @@ import {
   createPublicClient, 
   http, 
   hexToString, 
+  getAddress,
   type Chain, 
   type PublicClient,
   type WalletClient,
@@ -166,7 +167,36 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       functionName: 'getMetadata',
       args: [agentId, key],
     });
-    return hexToString(bytes);
+    // Most keys store UTF-8 encoded bytes, but some (like reserved agentWallet) store raw bytes.
+    // Avoid lossy UTF-8 decoding by falling back to raw hex if decoding fails.
+    const raw = String(bytes || '').trim() as `0x${string}`;
+    if (!raw || raw === '0x') return '';
+
+    // Common case: reserved agentWallet is stored as abi.encodePacked(address) => 20 bytes.
+    // If the raw bytes look like a 20-byte hex, return it as a checksummed address string.
+    if (key === 'agentWallet' && /^0x[0-9a-fA-F]{40}$/.test(raw)) {
+      return getAddress(raw);
+    }
+
+    try {
+      return hexToString(raw);
+    } catch {
+      return raw;
+    }
+  }
+
+  /**
+   * Get the verified agent wallet address (IdentityRegistry.getAgentWallet).
+   * This is the canonical way to read the "agentWallet" value as an address.
+   */
+  async getAgentWallet(agentId: bigint): Promise<`0x${string}`> {
+    const wallet = await this.accountProvider.call<`0x${string}`>({
+      to: this.identityRegistryAddress,
+      abi: IdentityRegistryABI as any,
+      functionName: 'getAgentWallet',
+      args: [agentId],
+    });
+    return getAddress(wallet) as `0x${string}`;
   }
 
   /**

@@ -605,6 +605,8 @@ export default function AgentDetailsPageContent({
   }, [dialogState.type, agent.a2aEndpoint, agentCard]);
 
   // Try to get feedbackAuth on page load
+  // TEMP: Commented out while debugging on-chain metadata display.
+  /*
   useEffect(() => {
     if (!agent.a2aEndpoint || !isConnected || !walletAddress) {
       setFeedbackAuth(null);
@@ -878,6 +880,7 @@ export default function AgentDetailsPageContent({
 
     return () => { cancelled = true; };
   }, [agent.a2aEndpoint, agent.agentId, chainId, did8004, isConnected, walletAddress]);
+  */
 
   const openDialog = useCallback((type: DialogState['type'], loadData?: () => Promise<void>) => {
     setDialogState({ type, loading: true });
@@ -1142,69 +1145,72 @@ export default function AgentDetailsPageContent({
                 </Button>
               )}
 
-              {agent.a2aEndpoint && isConnected && (
-                <>
-                  {!feedbackAuth && !feedbackAuthLoading && (
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      startIcon={<ChatBubbleOutlineIcon />}
-                      onClick={() => setDialogState({ type: 'feedback-request' })}
-                      sx={{
-                        borderColor: palette.accent,
-                        color: palette.accent,
-                        '&:hover': {
+              {/* TEMP: feedbackAuth UI disabled while debugging on-chain metadata display. */}
+              {/*
+                {agent.a2aEndpoint && isConnected && (
+                  <>
+                    {!feedbackAuth && !feedbackAuthLoading && (
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        startIcon={<ChatBubbleOutlineIcon />}
+                        onClick={() => setDialogState({ type: 'feedback-request' })}
+                        sx={{
+                          borderColor: palette.accent,
+                          color: palette.accent,
+                          '&:hover': {
+                            backgroundColor: palette.accent,
+                            color: palette.surface,
+                            borderColor: palette.accent,
+                          },
+                          textTransform: 'none',
+                          fontWeight: 700,
+                        }}
+                      >
+                        Send Feedback Request
+                      </Button>
+                    )}
+                    {feedbackAuth && (
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        startIcon={<ChatBubbleOutlineIcon />}
+                        onClick={handleGiveFeedback}
+                        sx={{
                           backgroundColor: palette.accent,
                           color: palette.surface,
-                          borderColor: palette.accent,
-                        },
-                        textTransform: 'none',
-                        fontWeight: 700,
-                      }}
-                    >
-                      Send Feedback Request
-                    </Button>
-                  )}
-                  {feedbackAuth && (
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      startIcon={<ChatBubbleOutlineIcon />}
-                      onClick={handleGiveFeedback}
-                      sx={{
-                        backgroundColor: palette.accent,
-                        color: palette.surface,
-                        border: `1px solid ${palette.accent}`,
-                        '&:hover': {
-                          backgroundColor: palette.border,
-                          color: palette.textPrimary,
-                          borderColor: palette.border,
-                        },
-                        textTransform: 'none',
-                        fontWeight: 700,
-                      }}
-                    >
-                      Give Feedback
-                    </Button>
-                  )}
-                  {feedbackAuthLoading && (
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      disabled
-                      sx={{
-                        backgroundColor: palette.accent,
-                        color: palette.surface,
-                        border: `1px solid ${palette.accent}`,
-                        textTransform: 'none',
-                        fontWeight: 700,
-                      }}
-                    >
-                      Checking authorization...
-                    </Button>
-                  )}
-                </>
-              )}
+                          border: `1px solid ${palette.accent}`,
+                          '&:hover': {
+                            backgroundColor: palette.border,
+                            color: palette.textPrimary,
+                            borderColor: palette.border,
+                          },
+                          textTransform: 'none',
+                          fontWeight: 700,
+                        }}
+                      >
+                        Give Feedback
+                      </Button>
+                    )}
+                    {feedbackAuthLoading && (
+                      <Button
+                        variant="contained"
+                        color="primary"
+                        disabled
+                        sx={{
+                          backgroundColor: palette.accent,
+                          color: palette.surface,
+                          border: `1px solid ${palette.accent}`,
+                          textTransform: 'none',
+                          fontWeight: 700,
+                        }}
+                      >
+                        Checking authorization...
+                      </Button>
+                    )}
+                  </>
+                )}
+              */}
             </Stack>
           </Box>
           <Box
