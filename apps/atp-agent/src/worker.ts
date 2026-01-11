@@ -22,6 +22,8 @@ import {
   getErc8092Association,
 } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
+import { ethers } from 'ethers';
+import { eip712Hash, associationIdFromRecord as associationIdFromRecordSDK } from '@agentic-trust/8092-sdk';
 import { getD1Database, getIndexerD1Database, type D1Database } from './lib/d1-wrapper';
 import {
   bytesToHex,
@@ -1490,9 +1492,10 @@ const handleA2A = async (c: HonoContext) => {
             }
 
             // Derive associationId from record if not provided
+            // Use SDK's associationIdFromRecord which uses eip712Hash (same as used for signing)
             const associationId = associationIdFromPayload && associationIdFromPayload.startsWith('0x')
               ? (associationIdFromPayload as `0x${string}`)
-              : (associationIdFromRecord(record as any) as `0x${string}`);
+              : (associationIdFromRecordSDK(record as any) as `0x${string}`);
             
             console.log('[ATP Agent] Association ID:', associationId);
             
@@ -1532,37 +1535,23 @@ const handleA2A = async (c: HonoContext) => {
                 console.log('[ATP Agent] Updating approver signature for existing association');
 
                 // Build context for signing approverSignature
-                const { delegationSetup, walletClient } = await buildDelegatedAssociationContext(
+                const { delegationSetup } = await buildDelegatedAssociationContext(
                   sessionPackage,
                   chainIdForStore,
                 );
 
-                const operatorAccount = privateKeyToAccount(delegationSetup.sessionKey.privateKey as `0x${string}`);
+                // Use the working pattern: compute eip712Hash and sign raw hash bytes with ethers
+                const digest = eip712Hash(record as any) as `0x${string}`;
+                console.log('[ATP Agent] EIP-712 hash:', digest);
+
+                // For ERC-8092, sign the raw hash bytes directly (without message prefix)
+                // This matches the working pattern in assoc-delegation
+                const operatorPrivateKey = delegationSetup.sessionKey.privateKey;
+                const operatorWallet = new ethers.Wallet(operatorPrivateKey);
+                const hashBytes = ethers.getBytes(digest);
+                const sigEip712 = operatorWallet.signingKey.sign(hashBytes).serialized as `0x${string}`;
                 
-                // Generate EIP-712 signature for approver
-                const sigEip712 = (await walletClient.signTypedData({
-                  account: operatorAccount,
-                  domain: { name: 'AssociatedAccounts', version: '1' },
-                  types: {
-                    AssociatedAccountRecord: [
-                      { name: 'initiator', type: 'bytes' },
-                      { name: 'approver', type: 'bytes' },
-                      { name: 'validAt', type: 'uint40' },
-                      { name: 'validUntil', type: 'uint40' },
-                      { name: 'interfaceId', type: 'bytes4' },
-                      { name: 'data', type: 'bytes' },
-                    ],
-                  },
-                  primaryType: 'AssociatedAccountRecord',
-                  message: {
-                    initiator: record.initiator as `0x${string}`,
-                    approver: record.approver as `0x${string}`,
-                    validAt: BigInt(record.validAt),
-                    validUntil: BigInt(record.validUntil),
-                    interfaceId: record.interfaceId as `0x${string}`,
-                    data: record.data as `0x${string}`,
-                  } as any,
-                })) as `0x${string}`;
+                console.log('[ATP Agent] Approver signature (operator EOA, raw hash bytes):', sigEip712.slice(0, 20) + '...');
 
                 // Use DELEGATED keyType (0x8002) because the approver (agent account) uses MetaMask delegation
                 // The signature is produced by the operator EOA, which is delegated by the agent account
@@ -1597,37 +1586,24 @@ const handleA2A = async (c: HonoContext) => {
                 throw new Error('delegationSar.initiatorSignature is required for new associations');
               }
 
-              // Generate approver signature and store full association (old flow)
-              const { delegationSetup, walletClient } = await buildDelegatedAssociationContext(
+              // Generate approver signature and store full association (fallback flow)
+              // Use the working pattern: compute eip712Hash and sign raw hash bytes with ethers
+              const { delegationSetup } = await buildDelegatedAssociationContext(
                 sessionPackage,
                 chainIdForStore,
               );
 
-              const operatorAccount = privateKeyToAccount(delegationSetup.sessionKey.privateKey as `0x${string}`);
+              const digest = eip712Hash(record as any) as `0x${string}`;
+              console.log('[ATP Agent] EIP-712 hash (fallback):', digest);
+
+              // For ERC-8092, sign the raw hash bytes directly (without message prefix)
+              // This matches the working pattern in assoc-delegation
+              const operatorPrivateKey = delegationSetup.sessionKey.privateKey;
+              const operatorWallet = new ethers.Wallet(operatorPrivateKey);
+              const hashBytes = ethers.getBytes(digest);
+              const sigEip712 = operatorWallet.signingKey.sign(hashBytes).serialized as `0x${string}`;
               
-              const sigEip712 = (await walletClient.signTypedData({
-                account: operatorAccount,
-                domain: { name: 'AssociatedAccounts', version: '1' },
-                types: {
-                  AssociatedAccountRecord: [
-                    { name: 'initiator', type: 'bytes' },
-                    { name: 'approver', type: 'bytes' },
-                    { name: 'validAt', type: 'uint40' },
-                    { name: 'validUntil', type: 'uint40' },
-                    { name: 'interfaceId', type: 'bytes4' },
-                    { name: 'data', type: 'bytes' },
-                  ],
-                },
-                primaryType: 'AssociatedAccountRecord',
-                message: {
-                  initiator: record.initiator as `0x${string}`,
-                  approver: record.approver as `0x${string}`,
-                  validAt: BigInt(record.validAt),
-                  validUntil: BigInt(record.validUntil),
-                  interfaceId: record.interfaceId as `0x${string}`,
-                  data: record.data as `0x${string}`,
-                } as any,
-              })) as `0x${string}`;
+              console.log('[ATP Agent] Approver signature (operator EOA, raw hash bytes, fallback):', sigEip712.slice(0, 20) + '...');
 
               const sar = {
                 revokedAt: 0,

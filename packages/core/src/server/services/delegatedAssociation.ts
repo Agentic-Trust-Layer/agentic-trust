@@ -9,7 +9,7 @@ import {
 } from '@metamask/smart-accounts-kit';
 // @ts-ignore contracts path
 import { DelegationManager } from '@metamask/smart-accounts-kit/contracts';
-import { ASSOCIATIONS_STORE_ABI as ERC8092_ABI } from '@agentic-trust/8092-sdk';
+import { ASSOCIATIONS_STORE_ABI as ERC8092_ABI, eip712Hash, type AssociatedAccountRecord } from '@agentic-trust/8092-sdk';
 
 import type { SessionPackage } from '../../shared/sessionPackage';
 import { buildDelegationSetup, type DelegationSetup } from '../lib/sessionPackage';

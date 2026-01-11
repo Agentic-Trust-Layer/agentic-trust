@@ -489,39 +489,52 @@ async function createFeedbackAuthInternal(params: RequestAuthParams): Promise<{
   // Load IdentityRegistry ABI (async dynamic import)
   const identityRegistryAbi = await getIdentityRegistryAbi();
 
-  // Ensure IdentityRegistry operator approvals are configured for sessionAA
+  // IdentityRegistry operator approvals are only required for EOA signers.
+  // For smart account signers (delegation/ERC-1271 flow), ERC-1271 validation handles authorization.
+  // Skip approval check when using delegation/ERC-1271 (signer is a smart account).
+  const signerAddress = signer.address as `0x${string}`;
   console.info("**********************************");
-  console.info("createFeedbackAuth: ", agentId, clientAddress, signer.address as `0x${string}`);
-  try {
-    const ownerOfAgent = await publicClient.readContract({
-      address: identityReg as `0x${string}`,
-      abi: identityRegistryAbi as any,
-      functionName: 'ownerOf' as any,
-      args: [agentId],
-    }) as `0x${string}`;
+  console.info("createFeedbackAuth: ", agentId, clientAddress, signerAddress);
+  
+  // Check if signer is a smart account (has code at address) - if so, skip approval check
+  const signerCode = await publicClient.getBytecode({ address: signerAddress });
+  const isSmartAccount = signerCode && signerCode !== '0x' && signerCode.length > 2;
+  
+  if (!isSmartAccount) {
+    // For EOA signers, check IdentityRegistry operator approvals
+    try {
+      const ownerOfAgent = await publicClient.readContract({
+        address: identityReg as `0x${string}`,
+        abi: identityRegistryAbi as any,
+        functionName: 'ownerOf' as any,
+        args: [agentId],
+      }) as `0x${string}`;
 
-    const isOperator = await publicClient.readContract({
-      address: identityReg as `0x${string}`,
-      abi: identityRegistryAbi as any,
-      functionName: 'isApprovedForAll' as any,
-      args: [ownerOfAgent, signer.address as `0x${string}`],
-    }) as boolean;
-    
+      const isOperator = await publicClient.readContract({
+        address: identityReg as `0x${string}`,
+        abi: identityRegistryAbi as any,
+        functionName: 'isApprovedForAll' as any,
+        args: [ownerOfAgent, signerAddress],
+      }) as boolean;
+      
 
-    const tokenApproved = await publicClient.readContract({
-      address: identityReg as `0x${string}`,
-      abi: identityRegistryAbi as any,
-      functionName: 'getApproved' as any,
-      args: [agentId],
-    }) as `0x${string}`;
+      const tokenApproved = await publicClient.readContract({
+        address: identityReg as `0x${string}`,
+        abi: identityRegistryAbi as any,
+        functionName: 'getApproved' as any,
+        args: [agentId],
+      }) as `0x${string}`;
 
-    console.info('IdentityRegistry approvals:', { ownerOfAgent, isOperator, tokenApproved });
-    if (!isOperator && tokenApproved.toLowerCase() !== (signer.address as string).toLowerCase()) {
-      throw new Error(`IdentityRegistry approval missing: neither isApprovedForAll nor getApproved`);
+      console.info('IdentityRegistry approvals:', { ownerOfAgent, isOperator, tokenApproved });
+      if (!isOperator && tokenApproved.toLowerCase() !== signerAddress.toLowerCase()) {
+        throw new Error(`IdentityRegistry approval missing: neither isApprovedForAll nor getApproved`);
+      }
+    } catch (e: any) {
+      console.warn('[IdentityRegistry] approval check failed:', e?.message || e);
+      throw e;
     }
-  } catch (e: any) {
-    console.warn('[IdentityRegistry] approval check failed:', e?.message || e);
-    throw e;
+  } else {
+    console.info('[IdentityRegistry] Skipping approval check for smart account signer (using ERC-1271)');
   }
 
   // Resolve the agentAccount authority address from on-chain metadata.
