@@ -1,8 +1,8 @@
 /**
  * Association utilities
- * Re-exports from @associatedaccounts/erc8092-sdk
+ * Re-exports from @agentic-trust/8092-sdk
  */
-export { buildSignedAssociation } from '@associatedaccounts/erc8092-sdk';
+export { buildSignedAssociation } from '@agentic-trust/8092-sdk';
 
 /**
  * Encode association metadata (type and description) for on-chain storage

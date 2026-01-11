@@ -1,7 +1,8 @@
 {
-  "name": "@associatedaccounts/erc8092-sdk",
+  "name": "@agentic-trust/8092-sdk",
   "version": "0.0.1",
   "private": true,
+  "description": "ERC-8092 Associated Accounts SDK - A TypeScript SDK for interacting with ERC-8092 compliant implementations",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

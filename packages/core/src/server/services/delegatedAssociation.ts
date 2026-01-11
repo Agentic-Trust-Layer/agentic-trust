@@ -9,15 +9,15 @@ import {
 } from '@metamask/smart-accounts-kit';
 // @ts-ignore contracts path
 import { DelegationManager } from '@metamask/smart-accounts-kit/contracts';
+import { ASSOCIATIONS_STORE_ABI as ERC8092_ABI } from '@agentic-trust/8092-sdk';
 
 import type { SessionPackage } from '../../shared/sessionPackage';
 import { buildDelegationSetup, type DelegationSetup } from '../lib/sessionPackage';
 import { DEFAULT_CHAIN_ID, getChainBundlerUrl, getChainById } from '../lib/chainConfig';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '../../client/accountClient';
 
-const ASSOCIATIONS_STORE_ABI = parseAbi([
-  'function storeAssociation((uint40 revokedAt,bytes2 initiatorKeyType,bytes2 approverKeyType,bytes initiatorSignature,bytes approverSignature,(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data) record) sar)',
-]);
+// Use the ABI from @agentic-trust/8092-sdk to ensure consistency
+const ASSOCIATIONS_STORE_ABI = parseAbi(ERC8092_ABI as readonly string[]);
 
 export type DelegatedAssociationContext = {
   sessionAccountClient: any;
@@ -80,7 +80,7 @@ function getAssociationsProxyAddress(): `0x${string}` {
   const addr =
     process.env.ASSOCIATIONS_STORE_PROXY ||
     process.env.ASSOCIATIONS_PROXY_ADDRESS ||
-    '0xaF7428906D31918dDA2986D1405E2Ded06561E59';
+    '0x3418A5297C75989000985802B8ab01229CDDDD24';
   if (!addr.startsWith('0x') || addr.length !== 42) {
     throw new Error(`Invalid associations proxy address: ${addr}`);
   }
@@ -157,6 +157,129 @@ export async function storeErc8092AssociationWithSessionDelegation(params: {
 
   const txHash = receipt?.transactionHash || (receipt as any)?.receipt?.transactionHash || userOpHash;
   return { txHash };
+}
+
+/**
+ * Update the approver signature for an existing ERC-8092 association.
+ * This allows the approver to add their signature after the initiator has already stored the association.
+ */
+export async function updateErc8092ApproverSignatureWithSessionDelegation(params: {
+  sessionPackage: SessionPackage;
+  chainId?: number;
+  associationId: `0x${string}`;
+  approverKeyType: `0x${string}`; // Not used - kept for API compatibility, contract uses stored keyType
+  approverSignature: `0x${string}`;
+}): Promise<{ txHash: string }> {
+  const chainId = params.chainId ?? params.sessionPackage.chainId ?? DEFAULT_CHAIN_ID;
+  const { sessionAccountClient, delegationSetup, bundlerUrl, chain } =
+    await buildDelegatedAssociationContext(params.sessionPackage, chainId);
+
+  const proxy = getAssociationsProxyAddress();
+
+  // Use updateAssociationSignatures - it uses the stored approverKeyType from the association record
+  // Pass empty initiatorSignature (0x) to keep the existing one, and approverSignature to update it
+  const data = encodeFunctionData({
+    abi: ASSOCIATIONS_STORE_ABI,
+    functionName: 'updateAssociationSignatures',
+    args: [params.associationId, '0x' as `0x${string}`, params.approverSignature], // Empty initiatorSignature, update approverSignature
+  });
+
+  const includedExecutions = [
+    {
+      target: proxy,
+      value: 0n,
+      callData: data as `0x${string}`,
+    },
+  ];
+
+  const signedDelegation = delegationSetup.signedDelegation as any;
+  const delegationMessage = {
+    delegate: ethers.getAddress(
+      (signedDelegation.message?.delegate ?? signedDelegation.delegate) as string,
+    ) as `0x${string}`,
+    delegator: ethers.getAddress(
+      (signedDelegation.message?.delegator ?? signedDelegation.delegator) as string,
+    ) as `0x${string}`,
+    authority: (signedDelegation.message?.authority ?? signedDelegation.authority) as `0x${string}`,
+    caveats: (signedDelegation.message?.caveats ?? signedDelegation.caveats) as any[],
+    salt: (signedDelegation.message?.salt ?? signedDelegation.salt) as `0x${string}`,
+    signature: (signedDelegation.signature ?? signedDelegation.message?.signature) as `0x${string}`,
+  };
+
+  const redemptionData = DelegationManager.encode.redeemDelegations({
+    delegations: [[delegationMessage]],
+    modes: [ExecutionMode.SingleDefault],
+    executions: [includedExecutions],
+  });
+
+  const redemptionCall = {
+    to: delegationSetup.sessionAA as `0x${string}`,
+    data: redemptionData as `0x${string}`,
+    value: 0n,
+  };
+
+  const userOpHash = await sendSponsoredUserOperation({
+    bundlerUrl,
+    chain,
+    accountClient: sessionAccountClient,
+    calls: [redemptionCall],
+  });
+
+  const receipt = await waitForUserOperationReceipt({
+    bundlerUrl,
+    chain,
+    hash: userOpHash,
+  });
+
+  const txHash = receipt?.transactionHash || (receipt as any)?.receipt?.transactionHash || userOpHash;
+  return { txHash };
+}
+
+/**
+ * Get an association from the on-chain store by associationId.
+ * Uses the ERC-8092 getAssociation function.
+ */
+export async function getErc8092Association(params: {
+  chainId: number;
+  associationId: `0x${string}`;
+}): Promise<any | null> {
+  const chain = getChainById(params.chainId) as Chain;
+  const rpcUrl = process.env[`AGENTIC_TRUST_RPC_URL_${chain.name.toUpperCase().replace(/-/g, '_')}`] ||
+    process.env.AGENTIC_TRUST_RPC_URL ||
+    (chain.rpcUrls.default.http[0] as string);
+
+  const publicClient = createPublicClient({
+    chain,
+    transport: http(rpcUrl),
+  });
+
+  const proxy = getAssociationsProxyAddress();
+
+  try {
+    const sar = await publicClient.readContract({
+      address: proxy,
+      abi: ASSOCIATIONS_STORE_ABI,
+      functionName: 'getAssociation',
+      args: [params.associationId],
+    });
+    
+    // Return the association if it has a valid record
+    if (sar && (sar as any).record) {
+      return sar;
+    }
+    
+    return null;
+  } catch (error: any) {
+    // If the association doesn't exist, the contract will revert
+    // This is expected behavior - return null to indicate not found
+    if (error?.message?.includes('reverted') || error?.message?.includes('0x4c2c14c8')) {
+      return null;
+    }
+    
+    // For other errors, log and return null
+    console.error('[getErc8092Association] Error reading association:', error);
+    return null;
+  }
 }
 
 

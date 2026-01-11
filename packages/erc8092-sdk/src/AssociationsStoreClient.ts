@@ -112,6 +112,73 @@ export class AssociationsStoreClient {
 
     return { account, chainId: params.chainId, sars: mapped };
   }
+
+  /**
+   * Get a single association by its associationId.
+   */
+  async getAssociation(params: {
+    associationId: string;
+  }): Promise<SignedAssociation | null> {
+    try {
+      const sar = (await this.contract.getAssociation(params.associationId)) as any;
+      if (!sar || !sar.record) {
+        return null;
+      }
+
+      const record = sar.record as any;
+      const associationId = associationIdFromRecord({
+        initiator: record.initiator,
+        approver: record.approver,
+        validAt: Number(record.validAt),
+        validUntil: Number(record.validUntil),
+        interfaceId: record.interfaceId,
+        data: record.data,
+      });
+
+      const initiatorParsed = tryParseEvmV1(record.initiator);
+      const approverParsed = tryParseEvmV1(record.approver);
+
+      return {
+        associationId,
+        revokedAt: Number(sar.revokedAt),
+        initiatorKeyType: String(sar.initiatorKeyType),
+        approverKeyType: String(sar.approverKeyType),
+        initiatorSignature: String(sar.initiatorSignature),
+        approverSignature: String(sar.approverSignature),
+        record: {
+          initiator: String(record.initiator),
+          approver: String(record.approver),
+          validAt: Number(record.validAt),
+          validUntil: Number(record.validUntil),
+          interfaceId: String(record.interfaceId),
+          data: String(record.data),
+        },
+        initiatorAddress: initiatorParsed?.address,
+        approverAddress: approverParsed?.address,
+      };
+    } catch (error) {
+      console.error('[AssociationsStoreClient] Error getting association:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update the approver signature for an existing association.
+   * This allows the approver to add their signature after the initiator has already stored the association.
+   * Note: The contract uses the stored approverKeyType from the association record, not the parameter.
+   */
+  async updateApproverSignature(params: {
+    associationId: string;
+    approverKeyType: string; // Not used - kept for API compatibility, contract uses stored keyType
+    approverSignature: string; // bytes hex string
+  }): Promise<ethers.ContractTransactionResponse> {
+    // Use updateAssociationSignatures - pass empty initiatorSignature to keep existing, update approverSignature
+    return this.contract.updateAssociationSignatures(
+      params.associationId,
+      '0x', // Empty initiatorSignature - keep existing
+      params.approverSignature
+    );
+  }
 }
 
 

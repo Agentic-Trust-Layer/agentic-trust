@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { ethers } from "ethers";
-import { associationIdFromRecord, formatEvmV1, tryParseEvmV1 } from "@associatedaccounts/erc8092-sdk";
+import { associationIdFromRecord, formatEvmV1, tryParseEvmV1 } from "@agentic-trust/8092-sdk";
 import { getAssociationsProxyAddress } from "../../../lib/config";
 
 function normalizeEvmAddress(input: string): string {

@@ -177,6 +177,8 @@ export {
 export {
   buildDelegatedAssociationContext,
   storeErc8092AssociationWithSessionDelegation,
+  updateErc8092ApproverSignatureWithSessionDelegation,
+  getErc8092Association,
   type DelegatedAssociationContext,
 } from './services/delegatedAssociation';
 

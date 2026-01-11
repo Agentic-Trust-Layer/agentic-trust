@@ -97,7 +97,7 @@ function getAssociationsProxyAddress(chainId: number): `0x${string}` | undefined
   const genericValue = normalizeHex(process.env.ASSOCIATIONS_STORE_PROXY ?? process.env.ASSOCIATIONS_PROXY_ADDRESS ?? process.env.NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY);
   if (genericValue) return genericValue;
   // Default Sepolia address
-  return '0xaF7428906D31918dDA2986D1405E2Ded06561E59' as `0x${string}`;
+  return '0x3418A5297C75989000985802B8ab01229CDDDD24' as `0x${string}`;
 }
 
 async function switchChain(provider: any, chainId: number, rpcUrl: string) {
@@ -344,6 +344,14 @@ export async function generateSessionPackage(
   const storeAssociationSignature = 'storeAssociation((uint40,bytes2,bytes2,bytes,bytes,(bytes,bytes,uint40,uint40,bytes4,bytes)))';
   const storeAssociationSelector = keccak256(stringToHex(storeAssociationSignature)).slice(0, 10) as `0x${string}`;
 
+  // Include updateAssociationSignatures selector for ERC-8092 associations
+  const updateAssociationSignaturesSignature = 'updateAssociationSignatures(bytes32,bytes,bytes)';
+  const updateAssociationSignaturesSelector = keccak256(stringToHex(updateAssociationSignaturesSignature)).slice(0, 10) as `0x${string}`;
+
+  // Include getAssociation selector for ERC-8092 associations
+  const getAssociationSignature = 'getAssociation(bytes32)';
+  const getAssociationSelector = keccak256(stringToHex(getAssociationSignature)).slice(0, 10) as `0x${string}`;
+
   // Include isValidSignature selector for ERC-1271 validation
   // This is crucial for ERC-8092 signature validation - when K1 keyType is used,
   // the ERC-8092 contract calls agent.isValidSignature(hash, signature), which
@@ -355,6 +363,8 @@ export async function generateSessionPackage(
     selector,
     getIdentityRegistrySelector,
     storeAssociationSelector,
+    updateAssociationSignaturesSelector, // For updating signatures
+    getAssociationSelector, // For retrieving associations
     isValidSignatureSelector // Add this for ERC-1271 validation
   ])) as `0x${string}`[];
 

@@ -8,7 +8,7 @@ import type { AccountProvider } from '@agentic-trust/8004-sdk';
 import type { Chain } from 'viem';
 import { sepolia } from 'viem/chains';
 import { parseAbi } from 'viem';
-import { AssociationsStoreClient } from '@associatedaccounts/erc8092-sdk';
+import { AssociationsStoreClient } from '@agentic-trust/8092-sdk';
 // Import ABI - need to handle the export structure
 // The abi.ts file exports ASSOCIATIONS_STORE_ABI as const array
 const ASSOCIATIONS_STORE_ABI = parseAbi([
@@ -16,7 +16,7 @@ const ASSOCIATIONS_STORE_ABI = parseAbi([
   "function revokeAssociation(bytes32 associationId, uint40 revokedAt)",
   "function getAssociationsForAccount(bytes account) view returns ((uint40 revokedAt,bytes2 initiatorKeyType,bytes2 approverKeyType,bytes initiatorSignature,bytes approverSignature,(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data) record)[] sars)",
 ]);
-import type { SignedAssociationRecord } from '@associatedaccounts/erc8092-sdk';
+import type { SignedAssociationRecord } from '@agentic-trust/8092-sdk';
 import type { TxRequest } from '@agentic-trust/8004-sdk';
 
 export class AIAgentAssociationClient {
@@ -82,7 +82,7 @@ export class AIAgentAssociationClient {
     accountAddress: string;
   }): Promise<{ account: string; chainId: number; sars: any[] }> {
     const client = await this.getBaseClient();
-    // Method is provided by @associatedaccounts/erc8092-sdk AssociationsStoreClient
+    // Method is provided by @agentic-trust/8092-sdk AssociationsStoreClient
     return (client as any).getSignedAssociationsForEvmAccount(params);
   }
 

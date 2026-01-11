@@ -22,7 +22,7 @@
   "dependencies": {
     "@agentic-trust/core": "workspace:*",
     "@agentic-trust/veramo-agent-extension": "workspace:*",
-    "@associatedaccounts/erc8092-sdk": "workspace:*",
+    "@agentic-trust/8092-sdk": "workspace:*",
     "@emotion/cache": "^11.11.3",
     "@emotion/react": "^11.11.3",
     "@emotion/styled": "^11.11.3",

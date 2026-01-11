@@ -3,550 +3,587 @@
  * 
  * This app demonstrates the full flow of:
  * 1. Creating a session smart account
- * 2. Creating a MetaMask delegation from agent account (agentId 114) to session smart account
+ * 2. Creating a MetaMask delegation from agent account (agentId 133) to session smart account
  * 3. Creating an ERC-8092 association with initiator (EOA) and approver (agent account via delegation)
  * 4. Storing the association on-chain using the session smart account with delegation
  */
 
 import 'dotenv/config';
-import { createPublicClient, createWalletClient, http, encodeFunctionData, keccak256, stringToHex, hexToString, toHex, zeroAddress, getAddress, parseAbi, hexToBytes } from 'viem';
+import { ethers } from 'ethers';
+import { createPublicClient, createWalletClient, http, encodeFunctionData, parseAbi, parseEther, toFunctionSelector } from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { toMetaMaskSmartAccount, Implementation, createDelegation, getSmartAccountsEnvironment, ExecutionMode } from '@metamask/smart-accounts-kit';
 import { DelegationManager } from '@metamask/smart-accounts-kit/contracts';
-// Note: These imports may need to be adjusted based on package exports
-// For now, using direct paths - may need to update package.json exports
 import { 
   getChainRpcUrl, 
   getChainBundlerUrl, 
-  DEFAULT_CHAIN_ID,
   requireChainEnvVar 
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
 import IdentityRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
-import ValidationRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/ValidationRegistry.json';
-import { formatEvmV1, associationIdFromRecord } from '@associatedaccounts/erc8092-sdk';
+import { formatEvmV1, eip712Hash, associationIdFromRecord, KEY_TYPE_K1, KEY_TYPE_DELEGATED, ASSOCIATIONS_STORE_ABI } from '@agentic-trust/8092-sdk';
 
-const AGENT_ID = 114;
+const AGENT_ID = 133;
 const CHAIN_ID = 11155111; // Sepolia
 
-// ERC-1271 magic value
-const ERC1271_MAGIC = '0x1626ba7e' as const;
-const ERC1271_ABI = [
-  {
-    type: 'function',
-    name: 'isValidSignature',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'hash', type: 'bytes32' },
-      { name: 'signature', type: 'bytes' },
-    ],
-    outputs: [{ name: 'magicValue', type: 'bytes4' }],
-  },
-] as const;
+// Key types
+const KEY_TYPE_ERC1271 = KEY_TYPE_DELEGATED; // Smart account - ERC1271 (0x8002)
 
 async function main() {
-  console.log('🚀 Starting ERC-8092 Association Delegation Test\n');
+  try {
+    // Always force the session-account delegation flow.
+    // This means we will always create a fresh session smart account, create/sign a delegation,
+    // and redeem it to run `updateAssociationSignatures`, even if the approver signature is already set.
+    const forceDelegationUpdate = true;
 
-  // Step 1: Get agent account for agentId 114
-  console.log('Step 1: Getting agent account for agentId', AGENT_ID);
-  const rpcUrl = getChainRpcUrl(CHAIN_ID);
-  const bundlerUrl = getChainBundlerUrl(CHAIN_ID);
-  if (!bundlerUrl) {
-    throw new Error(`Bundler URL not configured for chain ${CHAIN_ID}`);
-  }
+    console.log('🚀 Starting ERC-8092 Association Delegation Test\n');
 
-  const identityRegistryAddress = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', CHAIN_ID) as `0x${string}`;
-  const validationRegistryAddress = requireChainEnvVar('AGENTIC_TRUST_VALIDATION_REGISTRY', CHAIN_ID) as `0x${string}`;
+    // Step 1: Get agent account
+    console.log(`Step 1: Getting agent account for agentId ${AGENT_ID}`);
 
-  const publicClient = createPublicClient({
-    chain: sepolia,
-    transport: http(rpcUrl),
-  });
+    const rpcUrl = getChainRpcUrl(CHAIN_ID);
+    const bundlerUrl = getChainBundlerUrl(CHAIN_ID);
+    if (!bundlerUrl) {
+      throw new Error(`Bundler URL not configured for chain ${CHAIN_ID}`);
+    }
 
-  // Get agent account from IdentityRegistry
-  // Allow override via environment variable first (useful for testing)
-  let agentAccount: `0x${string}` | null = null;
-  const envAgentAccount = process.env.AGENT_ACCOUNT_ADDRESS;
-  if (envAgentAccount && /^0x[a-fA-F0-9]{40}$/.test(envAgentAccount)) {
-    agentAccount = envAgentAccount as `0x${string}`;
-    console.log('✓ Using agent account from AGENT_ACCOUNT_ADDRESS env var:', agentAccount);
-  } else {
-    // Try to get from registry - first check if agent exists
-    try {
-      const owner = await publicClient.readContract({
-        address: identityRegistryAddress,
-        abi: IdentityRegistryAbi as any,
-        functionName: 'ownerOf',
-        args: [BigInt(AGENT_ID)],
-      });
-      console.log('✓ Agent exists (owner:', owner, ')');
+    const identityRegistryAddress = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', CHAIN_ID) as `0x${string}`;
 
-      // Try to get agent wallet/account from getAgentWallet
+    const publicClient = createPublicClient({
+      chain: sepolia,
+      transport: http(rpcUrl),
+    });
+
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    let agentAccount: string;
+
+    // Try to get from env first
+    const envAgentAccount = process.env.AGENT_ACCOUNT_ADDRESS;
+    if (envAgentAccount && /^0x[a-fA-F0-9]{40}$/.test(envAgentAccount)) {
+      agentAccount = envAgentAccount;
+      console.log('✓ Using agent account from AGENT_ACCOUNT_ADDRESS env var:', agentAccount);
+    } else {
+      // Try to get from registry
       try {
-        agentAccount = await publicClient.readContract({
+        const owner = await publicClient.readContract({
           address: identityRegistryAddress,
           abi: IdentityRegistryAbi as any,
-          functionName: 'getAgentWallet',
+          functionName: 'ownerOf',
           args: [BigInt(AGENT_ID)],
-        }) as `0x${string}`;
-        console.log('✓ Agent account from getAgentWallet:', agentAccount);
-      } catch (walletError: any) {
-        console.warn('⚠ getAgentWallet failed (wallet may not be set), trying metadata fallback...');
-        
-        // Fallback: try to get from metadata
+        });
+        console.log('✓ Agent exists (owner:', owner, ')');
+
         try {
-          const metadataValue = await publicClient.readContract({
+          agentAccount = await publicClient.readContract({
             address: identityRegistryAddress,
             abi: IdentityRegistryAbi as any,
-            functionName: 'getMetadata',
-            args: [BigInt(AGENT_ID), 'agentAccount'],
-          }) as `0x${string}`;
-          
-          if (metadataValue && metadataValue !== '0x' && metadataValue.length > 2) {
-            // Parse the metadata - getMetadata returns bytes, decode as string
-            try {
-              const decoded = hexToString(metadataValue);
-              // Could be CAIP-10 format (eip155:chainId:address) or raw address
-              if (decoded.startsWith('eip155:')) {
-                const parts = decoded.split(':');
-                const addr = parts[2];
-                if (addr && /^0x[a-fA-F0-9]{40}$/.test(addr)) {
-                  agentAccount = addr as `0x${string}`;
-                  console.log('✓ Agent account from metadata (CAIP-10 format):', agentAccount);
-                }
-              } else if (/^0x[a-fA-F0-9]{40}$/.test(decoded)) {
-                agentAccount = decoded as `0x${string}`;
-                console.log('✓ Agent account from metadata (raw address):', agentAccount);
-              }
-            } catch (decodeError) {
-              console.warn('⚠ Failed to decode metadata as string:', decodeError);
-            }
-          }
-        } catch (metadataError) {
-          console.warn('⚠ Metadata fallback also failed:', metadataError);
+            functionName: 'getAgentWallet',
+            args: [BigInt(AGENT_ID)],
+          }) as string;
+          console.log('✓ Agent account from getAgentWallet:', agentAccount);
+        } catch (walletError: any) {
+          throw new Error(
+            `Could not determine agent account for agentId ${AGENT_ID}.\n` +
+            `Tried: getAgentWallet(). Set AGENT_ACCOUNT_ADDRESS environment variable to specify the agent account address directly.`
+          );
         }
+      } catch (ownerError: any) {
+        const errorMsg = ownerError?.shortMessage || ownerError?.message || '';
+        if (errorMsg.includes('ERC721NonexistentToken') || errorMsg.includes('ownerOf') || errorMsg.includes('revert')) {
+          throw new Error(
+            `Agent ID ${AGENT_ID} does not exist or is not registered in IdentityRegistry.\n` +
+            `Set AGENT_ACCOUNT_ADDRESS environment variable to specify the agent account address directly.`
+          );
+        }
+        throw ownerError;
       }
-    } catch (ownerError: any) {
-      const errorMsg = ownerError?.shortMessage || ownerError?.message || '';
-      if (errorMsg.includes('ERC721NonexistentToken') || errorMsg.includes('ownerOf') || errorMsg.includes('revert')) {
-        throw new Error(
-          `Agent ID ${AGENT_ID} does not exist or is not registered in IdentityRegistry at ${identityRegistryAddress}.\n` +
-          `Please ensure agentId ${AGENT_ID} is registered, or set AGENT_ACCOUNT_ADDRESS environment variable to specify the agent account address directly.`
-        );
-      }
-      throw ownerError;
     }
 
-    // If still no agent account, throw error
-    if (!agentAccount) {
+    // Step 2: Get agent owner EOA
+    console.log('\nStep 2: Getting agent owner EOA');
+    const agentOwnerEOA = (await publicClient.readContract({
+      address: agentAccount as `0x${string}`,
+      abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }],
+      functionName: 'owner',
+    })) as `0x${string}`;
+    console.log('✓ Agent owner EOA:', agentOwnerEOA);
+
+    // Verify agent owner private key matches
+    const agentOwnerPrivateKey = process.env.AGENT_OWNER_PRIVATE_KEY;
+    if (!agentOwnerPrivateKey) {
       throw new Error(
-        `Could not determine agent account for agentId ${AGENT_ID}.\n` +
-        `Tried: getAgentWallet() and getMetadata('agentAccount'). Both failed.\n` +
-        `The agent exists but the wallet/account address is not set in the registry.\n` +
-        `Set AGENT_ACCOUNT_ADDRESS environment variable to specify the agent account address directly.`
+        'AGENT_OWNER_PRIVATE_KEY environment variable is required.\n' +
+        'This should be the private key of the agent owner EOA that can sign delegations for the agent account.'
       );
     }
-  }
-  
-  console.log('✓ Agent account:', agentAccount);
+    const normalizedKey = agentOwnerPrivateKey.startsWith('0x') 
+      ? agentOwnerPrivateKey 
+      : `0x${agentOwnerPrivateKey}`;
+    const agentOwnerWallet = new ethers.Wallet(normalizedKey, provider);
+    const agentOwnerAddress = await agentOwnerWallet.getAddress();
+    if (agentOwnerAddress.toLowerCase() !== agentOwnerEOA.toLowerCase()) {
+      throw new Error(
+        `Agent owner private key does not match agent owner EOA.\n` +
+        `Expected: ${agentOwnerEOA}\n` +
+        `Got: ${agentOwnerAddress}`
+      );
+    }
+    console.log('✓ Agent owner private key loaded');
 
-  // Get agent owner EOA (needed to sign delegation)
-  const agentOwnerEOA = await publicClient.readContract({
-    address: agentAccount,
-    abi: [{ name: 'owner', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as any,
-    functionName: 'owner',
-    args: [],
-  }) as `0x${string}`;
-  console.log('✓ Agent owner EOA:', agentOwnerEOA);
-
-  // Get agent owner private key from environment
-  const agentOwnerPrivateKey = process.env.AGENT_OWNER_PRIVATE_KEY;
-  if (!agentOwnerPrivateKey) {
-    throw new Error(
-      'AGENT_OWNER_PRIVATE_KEY environment variable is required.\n' +
-      'This should be the private key of the agent owner EOA that can sign delegations for the agent account.'
-    );
-  }
-  const normalizedKey = agentOwnerPrivateKey.startsWith('0x') 
-    ? agentOwnerPrivateKey 
-    : `0x${agentOwnerPrivateKey}`;
-  const agentOwnerAccount = privateKeyToAccount(normalizedKey as `0x${string}`);
-  
-  if (agentOwnerAccount.address.toLowerCase() !== agentOwnerEOA.toLowerCase()) {
-    throw new Error(
-      `Agent owner private key does not match agent owner EOA.\n` +
-      `Expected: ${agentOwnerEOA}\n` +
-      `Got: ${agentOwnerAccount.address}`
-    );
-  }
-  console.log('✓ Agent owner private key loaded');
-
-  // Step 2: Create session smart account
-  console.log('Step 2: Creating session smart account');
-  const sessionPrivateKey = generatePrivateKey();
-  const sessionKeyAccount = privateKeyToAccount(sessionPrivateKey);
-  console.log('✓ Session key EOA:', sessionKeyAccount.address);
-
-  const sessionAccountClient = await toMetaMaskSmartAccount({
-    client: publicClient as any,
-    implementation: Implementation.Hybrid,
-    deployParams: [sessionKeyAccount.address as `0x${string}`, [], [], []],
-    signer: { account: sessionKeyAccount },
-    deploySalt: toHex(10),
-  } as any);
-
-  const sessionAA = (await sessionAccountClient.getAddress()) as `0x${string}`;
-  console.log('✓ Session smart account:', sessionAA);
-
-  // Deploy session account if needed
-  const sessionCode = await publicClient.getBytecode({ address: sessionAA });
-  const sessionDeployed = !!sessionCode && sessionCode !== '0x';
-  if (!sessionDeployed) {
-    console.log('  Deploying session account...');
-    const hash = await sendSponsoredUserOperation({
-      bundlerUrl,
+    // Create agent account client for ERC-4337 transactions
+    const agentOwnerAccount = privateKeyToAccount(normalizedKey as `0x${string}`);
+    const agentWalletClient = createWalletClient({
       chain: sepolia,
-      accountClient: sessionAccountClient as any,
-      calls: [{ to: zeroAddress }],
+      transport: http(rpcUrl),
+      account: agentOwnerAccount,
     });
-    await waitForUserOperationReceipt({ bundlerUrl, chain: sepolia, hash });
-    console.log('✓ Session account deployed');
-  } else {
-    console.log('✓ Session account already deployed');
+
+    const agentAccountClient = await toMetaMaskSmartAccount({
+      address: agentAccount as `0x${string}`,
+      client: publicClient as any,
+      implementation: Implementation.Hybrid,
+      signer: { walletClient: agentWalletClient as any },
+    } as any);
+
+    // Step 3: Get initiator EOA
+    console.log('\nStep 3: Loading initiator EOA from INITIATOR_PRIVATE_KEY');
+    const initiatorPrivateKey = process.env.INITIATOR_PRIVATE_KEY;
+    if (!initiatorPrivateKey) {
+      throw new Error('INITIATOR_PRIVATE_KEY environment variable is required');
+    }
+    const normalizedInitiatorKey = initiatorPrivateKey.startsWith('0x') 
+      ? initiatorPrivateKey 
+      : `0x${initiatorPrivateKey}`;
+    const initiatorWallet = new ethers.Wallet(normalizedInitiatorKey, provider);
+    const initiatorAddress = await initiatorWallet.getAddress();
+    console.log('✓ Initiator EOA:', initiatorAddress);
+
+    // Step 4: Create ERC-8092 association record
+    console.log('\nStep 4: Creating ERC-8092 association record');
+    const latestBlock = await provider.getBlock('latest');
+    const chainNow = Number(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+    const validAt = Math.max(0, chainNow - 10); // Buffer for clock skew
+    const validUntil = 0;
+    const interfaceId = '0x00000000';
+    const data = '0x';
+
+    const initiatorBytes = formatEvmV1(CHAIN_ID, initiatorAddress);
+    const approverBytes = formatEvmV1(CHAIN_ID, agentAccount);
+
+    let record = {
+      initiator: initiatorBytes,
+      approver: approverBytes,
+      validAt,
+      validUntil,
+      interfaceId,
+      data,
+    };
+
+    let associationId = associationIdFromRecord(record);
+    console.log('✓ Association ID:', associationId);
+
+    const associationsProxy = requireChainEnvVar('AGENTIC_TRUST_ASSOCIATIONS_PROXY', CHAIN_ID) as `0x${string}`;
+
+    // Step 5: Check if association already exists
+    console.log('\nStep 5: Checking if association already exists on-chain...');
+    let existingAssociation: any = null;
+    try {
+      const sars = await publicClient.readContract({
+        address: associationsProxy,
+        abi: parseAbi(ASSOCIATIONS_STORE_ABI),
+        functionName: 'getAssociationsForAccount',
+        args: [record.initiator as `0x${string}`],
+      });
+
+      if (sars && Array.isArray(sars) && sars.length > 0) {
+        for (const sar of sars) {
+          const sarRecord = (sar as any).record;
+          if (
+            sarRecord &&
+            sarRecord.initiator !== '0x' &&
+            sarRecord.approver === record.approver &&
+            sarRecord.interfaceId === record.interfaceId &&
+            sarRecord.data === record.data
+          ) {
+            existingAssociation = sar;
+            console.log('✓ Matching association found on-chain!');
+            // IMPORTANT: If it exists already, use the *stored* record fields.
+            record = {
+              initiator: sarRecord.initiator,
+              approver: sarRecord.approver,
+              validAt: Number(sarRecord.validAt),
+              validUntil: Number(sarRecord.validUntil),
+              interfaceId: sarRecord.interfaceId,
+              data: sarRecord.data,
+            };
+            associationId = associationIdFromRecord(record);
+            console.log('  Using stored record fields:');
+            console.log('   - validAt:', record.validAt);
+            console.log('   - validUntil:', record.validUntil);
+            console.log('   - interfaceId:', record.interfaceId);
+            console.log('   - data:', record.data);
+            console.log('  Association ID (from stored record):', associationId);
+            break;
+          }
+        }
+      }
+    } catch (checkErr: any) {
+      console.warn('⚠️ Error checking for association:', checkErr?.message);
+    }
+
+    // Compute EIP-712 hash from the FINAL record (used for both signatures)
+    const digest = eip712Hash(record);
+    console.log('  EIP-712 hash:', digest);
+
+    // Step 6: Sign as initiator (EOA) - only if needed
+    let initiatorSignature: string;
+    const needsInitiatorSignature = !existingAssociation || !existingAssociation.initiatorSignature || existingAssociation.initiatorSignature === '0x';
+
+    if (needsInitiatorSignature) {
+      console.log('\nStep 6: Signing as initiator (EOA)');
+      // For ERC-8092, EOA signatures must be on the raw EIP-712 hash (no message prefix)
+      // SignatureChecker.isValidSignatureNow uses ECDSA.tryRecover on the raw hash directly
+      const hashBytes = ethers.getBytes(digest);
+      initiatorSignature = initiatorWallet.signingKey.sign(hashBytes).serialized;
+      console.log('✓ Initiator signature (raw hash bytes):', initiatorSignature.slice(0, 20) + '...');
+    } else {
+      console.log('\nStep 6: Skipping initiator signature - association already exists');
+      initiatorSignature = existingAssociation.initiatorSignature;
+    }
+
+    // Step 7: Generate approver signature (agent owner EOA, for ERC-1271 validation)
+    console.log('\nStep 7: Generating approver signature for ERC-1271 validation');
+    console.log('  EIP-712 hash:', digest);
+
+    // For ERC-1271, sign the raw hash bytes directly (without message prefix)
+    const hashBytes = ethers.getBytes(digest);
+    const approverSignature = agentOwnerWallet.signingKey.sign(hashBytes).serialized;
+    console.log('✓ Approver signature (agent owner EOA, raw hash bytes):', approverSignature.slice(0, 20) + '...');
+
+    // Step 8: Store association with initiator signature only (if needed)
+    let storeHash: string | null = null;
+
+    if (needsInitiatorSignature) {
+      console.log('\nStep 8: Storing association with initiator signature only');
+
+      // Verify initiator has sufficient balance
+      const initiatorBalance = await publicClient.getBalance({ address: initiatorAddress as `0x${string}` });
+      const minBalance = parseEther('0.001');
+      if (initiatorBalance < minBalance) {
+        throw new Error(`Initiator account has insufficient balance. Please fund ${initiatorAddress}`);
+      }
+      console.log('✓ Initiator account has sufficient balance');
+
+      // Pre-validate the initiator signature before sending
+      console.log('  Pre-validating initiator signature...');
+      try {
+        // Validate by recovering the signer from the raw hash (no message prefix)
+        const initiatorAddressFromRecord = initiatorAddress.toLowerCase();
+        const recovered = ethers.recoverAddress(digest, initiatorSignature);
+        if (recovered.toLowerCase() !== initiatorAddressFromRecord) {
+          throw new Error(
+            `Initiator signature validation failed. Expected: ${initiatorAddressFromRecord}, Got: ${recovered.toLowerCase()}`
+          );
+        }
+        console.log('  ✓ Initiator signature pre-validation passed');
+      } catch (validateErr: any) {
+        throw new Error(`Initiator signature validation failed: ${validateErr?.message}`);
+      }
+
+      const sarInitial = {
+        revokedAt: 0,
+        initiatorKeyType: KEY_TYPE_K1, // EOA
+        approverKeyType: KEY_TYPE_ERC1271, // ERC1271 for smart account (0x8002)
+        initiatorSignature,
+        approverSignature: '0x', // Empty - will be set later
+        record,
+      };
+
+      // Use ethers for signing and sending transaction
+      const initiatorWalletConnected = initiatorWallet.connect(provider);
+
+      const ASSOCIATIONS_ABI = [
+        'function storeAssociation((uint40 revokedAt,bytes2 initiatorKeyType,bytes2 approverKeyType,bytes initiatorSignature,bytes approverSignature,(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data) record) sar)',
+      ] as const;
+
+      const contract = new ethers.Contract(associationsProxy, ASSOCIATIONS_ABI, initiatorWalletConnected);
+      
+      // Simulate the call first to get better error info
+      console.log('  Simulating contract call...');
+      try {
+        if (!contract.storeAssociation) {
+          throw new Error('storeAssociation function not found on contract');
+        }
+        await contract.storeAssociation.staticCall(sarInitial);
+        console.log('  ✓ Simulation passed');
+      } catch (simErr: any) {
+        const errMsg = simErr?.message || String(simErr);
+        const dataMatch = errMsg.match(/data:\s*(0x[0-9a-fA-F]{8})/i);
+        if (dataMatch) {
+          const errorSelector = dataMatch[1];
+          if (errorSelector === '0x456db081') {
+            const currentBlock = await provider.getBlockNumber();
+            const currentBlockInfo = await provider.getBlock(currentBlock);
+            throw new Error(
+              `InvalidAssociation error (0x456db081). The association validation failed. ` +
+              `This usually means:\n` +
+              `1. The initiator signature is invalid\n` +
+              `2. The validAt timestamp is in the future\n` +
+              `3. The record structure doesn't match what the contract expects\n\n` +
+              `Verify that:\n` +
+              `- The digest being signed matches what the contract computes\n` +
+              `- The signature is valid for the initiator address\n` +
+              `- validAt (${validAt}) <= block.timestamp (current: ${currentBlockInfo?.timestamp})`
+            );
+          }
+        }
+        throw simErr;
+      }
+
+      console.log('  Sending transaction from initiator EOA...');
+      if (!contract.storeAssociation) {
+        throw new Error('storeAssociation function not found on contract');
+      }
+      const tx = await contract.storeAssociation(sarInitial);
+      storeHash = tx.hash;
+      console.log('  Transaction hash:', storeHash);
+
+      console.log('  Waiting for receipt...');
+      const storeReceipt = await tx.wait();
+      if (!storeReceipt) {
+        throw new Error('Transaction receipt not found');
+      }
+      const success = storeReceipt.status === 1;
+      if (!success) {
+        throw new Error(`Transaction failed with status ${storeReceipt.status}`);
+      }
+      console.log('✓ Association stored with initiator signature!');
+      console.log('  Transaction hash:', tx.hash);
+      console.log('  Block number:', storeReceipt.blockNumber);
+    } else {
+      console.log('\nStep 8: Skipping store - association already exists on-chain');
+    }
+
+    // Step 9: Wait for association to be queryable (only if we stored it)
+    if (storeHash) {
+      console.log('\nStep 9: Waiting for association to be queryable...');
+      console.log('  Querying by initiator address:', record.initiator);
+      console.log('  Association ID:', associationId);
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait for state update
+
+      let associationFound = false;
+      for (let attempt = 1; attempt <= 10; attempt++) {
+        try {
+          console.log(`  Attempt ${attempt}/10: Checking for association...`);
+          const sars = await publicClient.readContract({
+            address: associationsProxy,
+            abi: parseAbi(ASSOCIATIONS_STORE_ABI),
+            functionName: 'getAssociationsForAccount',
+            args: [record.initiator as `0x${string}`],
+          });
+
+          if (sars && Array.isArray(sars) && sars.length > 0) {
+            console.log(`    Found ${sars.length} association(s) for initiator`);
+            for (const sar of sars) {
+              const sarRecord = (sar as any).record;
+              if (
+                sarRecord &&
+                sarRecord.initiator !== '0x' &&
+                sarRecord.approver === record.approver &&
+                sarRecord.interfaceId === record.interfaceId &&
+                sarRecord.data === record.data
+              ) {
+                associationFound = true;
+                console.log(`✓ Association found on-chain after ${attempt} attempt(s)!`);
+                console.log(`  Initiator: ${sarRecord.initiator}`);
+                console.log(`  Approver: ${sarRecord.approver}`);
+                console.log(`  ValidAt: ${sarRecord.validAt}`);
+                console.log(`  Initiator key type: ${(sar as any).initiatorKeyType}`);
+                console.log(`  Approver key type: ${(sar as any).approverKeyType}`);
+                console.log(`  Has initiator signature: ${(sar as any).initiatorSignature && (sar as any).initiatorSignature !== '0x' ? 'Yes' : 'No'}`);
+                console.log(`  Has approver signature: ${(sar as any).approverSignature && (sar as any).approverSignature !== '0x' ? 'Yes' : 'No'}`);
+                break;
+              }
+            }
+            if (associationFound) break;
+            console.log(`    No matching association found (different approver/interfaceId/data)`);
+          } else {
+            console.log(`    No associations found for initiator`);
+          }
+        } catch (checkErr: any) {
+          console.warn(`  ⚠️ Error during association check (attempt ${attempt}):`, checkErr?.message || checkErr);
+        }
+        if (attempt < 10) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+        }
+      }
+
+      if (!associationFound && storeHash) {
+        console.warn('\n⚠️ Association not found after 10 attempts');
+        console.warn('  This might indicate:');
+        console.warn('    1. Transaction succeeded but association was not stored');
+        console.warn('    2. RPC node has indexing delays');
+        console.warn('    3. Transaction may have reverted despite appearing successful');
+        console.warn(`  Check transaction on Etherscan: https://sepolia.etherscan.io/tx/${storeHash}`);
+      }
+    }
+
+    // Step 10: Update approver signature using a session smart account + delegation from agent account
+    console.log('\nStep 10: Updating approver signature using delegation (agent -> session smart account)');
+    const needsApproverSignature =
+      forceDelegationUpdate ||
+      !existingAssociation ||
+      !existingAssociation.approverSignature ||
+      existingAssociation.approverSignature === '0x';
+    let updateTxHash: string | null = null;
+
+    if (!needsApproverSignature) {
+      console.log('  Approver signature already exists - skipping update');
+    } else {
+      const associationIdToUse = associationId;
+
+      // Verify agent account is a contract
+      const agentCode = await publicClient.getBytecode({ address: agentAccount as `0x${string}` });
+      if (!agentCode || agentCode === '0x') {
+        throw new Error(`Agent account ${agentAccount} is not a contract. Cannot use ERC-1271 validation.`);
+      }
+      console.log('    ✓ Agent account is a contract (can use ERC-1271)');
+
+      // Preflight ERC-1271 validation
+      console.log('    Preflighting ERC-1271 validation...');
+      try {
+        const ERC1271_ABI = parseAbi([
+          'function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4 magicValue)',
+        ]);
+        const isValidSigData = encodeFunctionData({
+          abi: ERC1271_ABI,
+          functionName: 'isValidSignature',
+          args: [digest as `0x${string}`, approverSignature as `0x${string}`],
+        });
+
+        const isValidSigResult = await publicClient.call({
+          to: agentAccount as `0x${string}`,
+          data: isValidSigData,
+        });
+
+        if (!isValidSigResult.data || isValidSigResult.data === '0xffffffff' || !isValidSigResult.data.startsWith('0x1626ba7e')) {
+          throw new Error(`ERC-1271 preflight validation failed. Magic value: ${isValidSigResult.data}`);
+        }
+        console.log('    ✓ ERC-1271 preflight validation passed');
+      } catch (preflightErr: any) {
+        throw new Error(`ERC-1271 preflight validation failed: ${preflightErr?.message}`);
+      }
+
+      // Build the call we want the agent account to execute (via delegation redemption)
+      try {
+        const ASSOCIATIONS_UPDATE_ABI = [
+          'function updateAssociationSignatures(bytes32 associationId, bytes initiatorSignature, bytes approverSignature)',
+        ];
+        const updateCallData = encodeFunctionData({
+          abi: parseAbi(ASSOCIATIONS_UPDATE_ABI),
+          functionName: 'updateAssociationSignatures',
+          args: [associationIdToUse as `0x${string}`, '0x' as `0x${string}`, approverSignature as `0x${string}`],
+        });
+
+        // --- Delegation flow ---
+        console.log('    Creating session smart account...');
+        const environment = getSmartAccountsEnvironment(CHAIN_ID);
+        const delegationManagerAddress = environment.DelegationManager as `0x${string}`;
+
+        const sessionEoa = privateKeyToAccount(generatePrivateKey());
+        const sessionWalletClient = createWalletClient({
+          chain: sepolia,
+          transport: http(rpcUrl),
+          account: sessionEoa,
+        });
+
+        // Counterfactual session smart account (will be deployed as needed in the UserOp)
+        const sessionAccountClient = await toMetaMaskSmartAccount({
+          client: publicClient as any,
+          environment,
+          implementation: Implementation.Hybrid,
+          signer: { walletClient: sessionWalletClient as any },
+          deployParams: [sessionEoa.address as `0x${string}`, [], [], []],
+          deploySalt: generatePrivateKey(),
+        } as any);
+
+        console.log('    ✓ Session smart account:', (sessionAccountClient as any).address);
+
+        // Create a scoped delegation: agentAccount -> sessionAccount, allowed to call updateAssociationSignatures on the AssociationsStore proxy.
+        const updateSelector = toFunctionSelector('updateAssociationSignatures(bytes32,bytes,bytes)');
+        const delegation = createDelegation({
+          environment,
+          scope: {
+            type: 'functionCall',
+            targets: [associationsProxy],
+            selectors: [updateSelector],
+          },
+          from: agentAccount as `0x${string}`,
+          to: (sessionAccountClient as any).address as `0x${string}`,
+        } as any);
+
+        console.log('    Signing delegation with agent account owner...');
+        const delegationSignature = await (agentAccountClient as any).signDelegation({
+          delegation: {
+            delegate: delegation.delegate,
+            delegator: delegation.delegator,
+            authority: delegation.authority,
+            caveats: delegation.caveats,
+            salt: delegation.salt,
+          },
+          chainId: CHAIN_ID,
+        });
+        const signedDelegation = { ...delegation, signature: delegationSignature };
+        console.log('    ✓ Delegation signed');
+
+        // Redeem delegation, executing the update as the agent account.
+        const redeemCalldata = (DelegationManager as any).encode.redeemDelegations({
+          delegations: [[signedDelegation]],
+          modes: [ExecutionMode.SingleDefault],
+          executions: [[{ target: associationsProxy, value: 0n, callData: updateCallData }]],
+        });
+
+        console.log('    Sending user operation from session smart account (gasless via bundler) to redeem delegation...');
+        const userOpHash = await sendSponsoredUserOperation({
+          bundlerUrl,
+          chain: sepolia,
+          accountClient: sessionAccountClient as any,
+          calls: [{ to: delegationManagerAddress, data: redeemCalldata, value: 0n }],
+        });
+
+        console.log('    Waiting for receipt...');
+        const receipt = await waitForUserOperationReceipt({
+          bundlerUrl,
+          chain: sepolia,
+          hash: userOpHash,
+        });
+
+        updateTxHash = receipt?.transactionHash || (receipt as any)?.receipt?.transactionHash || userOpHash;
+        console.log('✓ Approver signature updated via delegation (session redeemed, agent executed)!');
+        console.log('  Transaction hash:', updateTxHash);
+      } catch (directErr: any) {
+        const errMsg = directErr?.message || String(directErr);
+        console.error('❌ Delegated update failed:', errMsg);
+        throw new Error(`Failed to update approver signature via delegation: ${errMsg}`);
+      }
+    }
+
+    console.log('\n==========================================');
+    console.log('✓ All steps completed successfully!');
+    console.log('==========================================\n');
+
+    console.log('Summary:');
+    console.log('  Agent account:', agentAccount);
+    console.log('  Initiator EOA:', initiatorAddress);
+    console.log('  Association ID:', associationId);
+    console.log('  Store transaction hash:', storeHash || null);
+    console.log('  Update transaction hash:', updateTxHash || null);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    console.error('❌ Error:', e);
+    process.exit(1);
   }
-
-  // Step 3: Create MetaMask delegation from agent account to session smart account
-  console.log('\nStep 3: Creating MetaMask delegation');
-  const deleGatorEnv = getSmartAccountsEnvironment(CHAIN_ID);
-
-  // Build delegation scope
-  const targets: Array<`0x${string}`> = [
-    validationRegistryAddress,
-    agentAccount, // For ERC-1271 validation
-  ];
-
-  // Add ERC-8092 associations proxy
-  const associationsProxy = '0xaF7428906D31918dDA2986D1405E2Ded06561E59' as `0x${string}`;
-  targets.push(associationsProxy);
-  console.log('  Targets:', targets);
-
-  // Build selectors using function signature hashing (keccak256 first 4 bytes)
-  const validationResponseSignature = 'validationResponse(bytes32,uint8,string,bytes32,bytes32)';
-  const validationResponseSelector = keccak256(stringToHex(validationResponseSignature)).slice(0, 10) as `0x${string}`;
-
-  const getIdentityRegistrySignature = 'getIdentityRegistry()';
-  const getIdentityRegistrySelector = keccak256(stringToHex(getIdentityRegistrySignature)).slice(0, 10) as `0x${string}`;
-
-  const storeAssociationSignature = 'storeAssociation((uint40,bytes2,bytes2,bytes,bytes,(bytes,bytes,uint40,uint40,bytes4,bytes)))';
-  const storeAssociationSelector = keccak256(stringToHex(storeAssociationSignature)).slice(0, 10) as `0x${string}`;
-
-  const isValidSignatureSignature = 'isValidSignature(bytes32,bytes)';
-  const isValidSignatureSelector = keccak256(stringToHex(isValidSignatureSignature)).slice(0, 10) as `0x${string}`;
-
-  const selectors = [
-    validationResponseSelector,
-    getIdentityRegistrySelector,
-    storeAssociationSelector,
-    isValidSignatureSelector,
-  ] as `0x${string}`[];
-  console.log('  Selectors:', selectors);
-
-  const delegation = createDelegation({
-    environment: deleGatorEnv,
-    scope: {
-      type: 'functionCall',
-      targets,
-      selectors,
-    },
-    from: agentAccount,
-    to: sessionAA,
-    caveats: [],
-  });
-
-  // Sign delegation with agent account
-  console.log('  Signing delegation with agent account...');
-  
-  // Create agent account client
-  const agentWalletClient = createWalletClient({
-    chain: sepolia,
-    transport: http(rpcUrl),
-    account: agentOwnerAccount,
-  });
-
-  const agentAccountClient = await toMetaMaskSmartAccount({
-    address: agentAccount,
-    client: publicClient as any,
-    implementation: Implementation.Hybrid,
-    signer: { walletClient: agentWalletClient as any },
-  } as any);
-
-  // Sign the delegation
-  const delegationSignature = (await (agentAccountClient as any).signDelegation({
-    delegation,
-  })) as `0x${string}`;
-
-  const signedDelegation = {
-    ...delegation,
-    signature: delegationSignature,
-  };
-  console.log('✓ Delegation signed');
-
-  // Step 4: Create EOA as initiator
-  console.log('\nStep 4: Creating initiator EOA');
-  const initiatorPrivateKey = generatePrivateKey();
-  const initiatorAccount = privateKeyToAccount(initiatorPrivateKey);
-  console.log('✓ Initiator EOA:', initiatorAccount.address);
-
-  // Step 5: Create ERC-8092 association record
-  console.log('\nStep 5: Creating ERC-8092 association record');
-  const validAt = 0;
-  const validUntil = 0;
-  const interfaceId = '0x00000000' as `0x${string}`;
-  const data = '0x' as `0x${string}`;
-
-  const initiatorBytes = formatEvmV1(CHAIN_ID, initiatorAccount.address) as `0x${string}`;
-  const approverBytes = formatEvmV1(CHAIN_ID, agentAccount) as `0x${string}`;
-
-  const record = {
-    initiator: initiatorBytes,
-    approver: approverBytes,
-    validAt,
-    validUntil,
-    interfaceId,
-    data,
-  };
-
-  const associationId = associationIdFromRecord(record);
-  console.log('✓ Association ID:', associationId);
-
-  // Step 6: Sign as initiator (EOA)
-  console.log('\nStep 6: Signing as initiator (EOA)');
-  const initiatorWalletClient = createWalletClient({
-    chain: sepolia,
-    transport: http(rpcUrl),
-    account: initiatorAccount,
-  });
-
-  // Sign with EIP-712
-  const initiatorSignature = (await initiatorWalletClient.signTypedData({
-    account: initiatorAccount,
-    domain: { name: 'AssociatedAccounts', version: '1' },
-    types: {
-      AssociatedAccountRecord: [
-        { name: 'initiator', type: 'bytes' },
-        { name: 'approver', type: 'bytes' },
-        { name: 'validAt', type: 'uint40' },
-        { name: 'validUntil', type: 'uint40' },
-        { name: 'interfaceId', type: 'bytes4' },
-        { name: 'data', type: 'bytes' },
-      ],
-    },
-    primaryType: 'AssociatedAccountRecord',
-    message: {
-      initiator: record.initiator as `0x${string}`,
-      approver: record.approver as `0x${string}`,
-      validAt: BigInt(record.validAt),
-      validUntil: BigInt(record.validUntil),
-      interfaceId: record.interfaceId as `0x${string}`,
-      data: record.data as `0x${string}`,
-    } as any,
-  })) as `0x${string}`;
-  console.log('✓ Initiator signature:', initiatorSignature.slice(0, 20) + '...');
-
-  // Step 7: Sign as approver (using session smart account with delegation)
-  console.log('\nStep 7: Signing as approver (using session smart account with delegation)');
-  console.log('  Signing with operator EOA (session key owner)...');
-  
-  // Sign with the operator EOA (session key owner)
-  const operatorWalletClient = createWalletClient({
-    chain: sepolia,
-    transport: http(rpcUrl),
-    account: sessionKeyAccount,
-  });
-
-  // Sign with EIP-712
-  const approverSignature = (await operatorWalletClient.signTypedData({
-    account: sessionKeyAccount,
-    domain: { name: 'AssociatedAccounts', version: '1' },
-    types: {
-      AssociatedAccountRecord: [
-        { name: 'initiator', type: 'bytes' },
-        { name: 'approver', type: 'bytes' },
-        { name: 'validAt', type: 'uint40' },
-        { name: 'validUntil', type: 'uint40' },
-        { name: 'interfaceId', type: 'bytes4' },
-        { name: 'data', type: 'bytes' },
-      ],
-    },
-    primaryType: 'AssociatedAccountRecord',
-    message: {
-      initiator: record.initiator as `0x${string}`,
-      approver: record.approver as `0x${string}`,
-      validAt: BigInt(record.validAt),
-      validUntil: BigInt(record.validUntil),
-      interfaceId: record.interfaceId as `0x${string}`,
-      data: record.data as `0x${string}`,
-    } as any,
-  })) as `0x${string}`;
-  console.log('✓ Approver signature (operator EOA):', approverSignature.slice(0, 20) + '...');
-
-  // Test ERC-1271 validation with detailed debugging
-  console.log('\n  Testing ERC-1271 validation on agent account...');
-  console.log('  Delegation setup:');
-  console.log('    Delegator (agentAccount):', agentAccount);
-  console.log('    Delegate (sessionAA):', sessionAA);
-  console.log('    Signer (operatorAddress):', sessionKeyAccount.address);
-  console.log('    Association ID:', associationId);
-  
-  // First, check if sessionAA validates operator EOA signature (tests ownership)
-  try {
-    const sessionAAOwner = await publicClient.readContract({
-      address: sessionAA,
-      abi: [{ type: 'function', name: 'owner', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] }] as any,
-      functionName: 'owner',
-      args: [],
-    });
-    console.log('    sessionAA owner:', sessionAAOwner);
-    console.log('    operator is owner:', String(sessionAAOwner).toLowerCase() === sessionKeyAccount.address.toLowerCase());
-    
-    // Test if sessionAA itself validates the operator signature
-    const testHash = keccak256(stringToHex('test'));
-    const testSig = await operatorWalletClient.signMessage({
-      account: sessionKeyAccount,
-      message: { raw: hexToBytes(testHash) },
-    });
-    
-    const sessionAAValidates = await publicClient.readContract({
-      address: sessionAA,
-      abi: ERC1271_ABI as any,
-      functionName: 'isValidSignature',
-      args: [testHash, testSig],
-    });
-    console.log('    sessionAA validates operator signature:', String(sessionAAValidates).toLowerCase() === ERC1271_MAGIC.toLowerCase());
-  } catch (e: any) {
-    console.warn('    Could not check sessionAA ownership:', e?.message || e);
-  }
-  
-  // Now test agent account validation (should check delegation)
-  const magic = (await publicClient.readContract({
-    address: agentAccount,
-    abi: ERC1271_ABI as any,
-    functionName: 'isValidSignature',
-    args: [associationId as `0x${string}`, approverSignature],
-  })) as `0x${string}`;
-
-  const isValid = String(magic).toLowerCase() === ERC1271_MAGIC.toLowerCase();
-  if (isValid) {
-    console.log('✓ ERC-1271 validation succeeded! (magic:', magic, ')');
-  } else {
-    console.log('✗ ERC-1271 validation failed (magic:', magic, ', expected:', ERC1271_MAGIC, ')');
-    console.log('  Issue: The delegation-aware validator is not recognizing the operator EOA signature.');
-    console.log('  Expected behavior: Validator should check if signer owns the delegate (sessionAA).');
-    console.log('  Actual behavior: Validator likely only checks if signer IS the delegate.');
-    console.log('  Possible solutions:');
-    console.log('    1. Change delegate from sessionAA to operatorAddress (requires restructuring)');
-    console.log('    2. Use DELEGATED keyType (0x8002) to bypass ERC-1271 validation');
-    console.log('    3. Configure validator to check ownership (may not be supported by MetaMask)');
-  }
-
-  // Step 8: Store association on-chain using session smart account with delegation
-  console.log('\nStep 8: Storing association on-chain');
-  const sar = {
-    revokedAt: 0,
-    initiatorKeyType: '0x0001' as `0x${string}`, // K1
-    approverKeyType: '0x0001' as `0x${string}`, // K1 - ERC-8092 will use ERC-1271
-    initiatorSignature,
-    approverSignature,
-    record,
-  };
-
-  // Create session account client with delegation
-  const sessionAccountClientWithDelegation = await toMetaMaskSmartAccount({
-    address: sessionAA,
-    client: publicClient as any,
-    implementation: Implementation.Hybrid,
-    signer: { walletClient: operatorWalletClient as any },
-    delegation: {
-      delegation: signedDelegation,
-      delegator: agentAccount,
-    },
-  } as any);
-
-  // Encode storeAssociation call using parseAbi (required for viem)
-  const ASSOCIATIONS_STORE_ABI = parseAbi([
-    'function storeAssociation((uint40 revokedAt,bytes2 initiatorKeyType,bytes2 approverKeyType,bytes initiatorSignature,bytes approverSignature,(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data) record) sar)',
-  ]);
-
-  const callData = encodeFunctionData({
-    abi: ASSOCIATIONS_STORE_ABI,
-    functionName: 'storeAssociation',
-    args: [sar],
-  });
-
-  // Build delegation redemption
-  const delegationMessage = {
-    delegate: getAddress(sessionAA),
-    delegator: getAddress(agentAccount),
-    authority: (signedDelegation as any).authority as `0x${string}`,
-    caveats: (signedDelegation as any).caveats as any[],
-    salt: (signedDelegation as any).salt as `0x${string}`,
-    signature: delegationSignature,
-  };
-
-  const includedExecutions = [
-    {
-      target: associationsProxy,
-      value: 0n,
-      callData: callData as `0x${string}`,
-    },
-  ];
-
-  const redemptionData = DelegationManager.encode.redeemDelegations({
-    delegations: [[delegationMessage]],
-    modes: [ExecutionMode.SingleDefault],
-    executions: [includedExecutions],
-  });
-
-  const redemptionCall = {
-    to: sessionAA,
-    data: redemptionData as `0x${string}`,
-    value: 0n,
-  };
-
-  console.log('  Sending user operation...');
-  const userOpHash = await sendSponsoredUserOperation({
-    bundlerUrl,
-    chain: sepolia,
-    accountClient: sessionAccountClientWithDelegation as any,
-    calls: [redemptionCall],
-  });
-
-  console.log('  Waiting for receipt...');
-  const receipt = await waitForUserOperationReceipt({
-    bundlerUrl,
-    chain: sepolia,
-    hash: userOpHash,
-  });
-
-  const txHash = receipt?.transactionHash || (receipt as any)?.receipt?.transactionHash || userOpHash;
-  console.log('✓ Association stored on-chain!');
-  console.log('  Transaction hash:', txHash);
-  console.log('  Association ID:', associationId);
-
-  console.log('\n✅ Test completed successfully!');
-  console.log('\nSummary:');
-  console.log('  - Agent account:', agentAccount);
-  console.log('  - Session smart account:', sessionAA);
-  console.log('  - Initiator EOA:', initiatorAccount.address);
-  console.log('  - Operator EOA (signer):', sessionKeyAccount.address);
-  console.log('  - Association ID:', associationId);
-  console.log('  - Transaction hash:', txHash);
-  console.log('  - ERC-1271 validation:', isValid ? '✓ PASSED' : '✗ FAILED');
 }
 
-main().catch((error) => {
-  console.error('❌ Error:', error);
-  process.exit(1);
-});
-
+main();

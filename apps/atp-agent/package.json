@@ -16,7 +16,7 @@
   "dependencies": {
     "@agentic-trust/core": "workspace:*",
     "@agentic-trust/veramo-agent-extension": "workspace:*",
-    "@associatedaccounts/erc8092-sdk": "workspace:*",
+    "@agentic-trust/8092-sdk": "workspace:*",
     "@metamask/smart-accounts-kit": "^0.1.0",
     "@veramo/core": "^6.0.0",
     "@veramo/key-manager": "^6.0.0",

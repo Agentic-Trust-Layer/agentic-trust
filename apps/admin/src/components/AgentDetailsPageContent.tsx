@@ -19,7 +19,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
 import type { Address } from 'viem';
-import { decodeAbiParameters, encodeAbiParameters, getAddress, parseAbiParameters, recoverAddress } from 'viem';
+import { decodeAbiParameters, encodeAbiParameters, getAddress, parseAbiParameters, recoverAddress, createPublicClient, http, getBytecode, readContract, parseAbi } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -31,7 +31,7 @@ import AutoGraphIcon from '@mui/icons-material/AutoGraph';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import { finalizeAssociationWithWallet } from '@agentic-trust/core/client';
-import { associationIdFromRecord, tryParseEvmV1 } from '@associatedaccounts/erc8092-sdk';
+import { associationIdFromRecord, tryParseEvmV1, KEY_TYPE_K1, KEY_TYPE_DELEGATED, ASSOCIATIONS_STORE_ABI } from '@agentic-trust/8092-sdk';
 
 function ipfsToHttp(uri: string): string {
   const trimmed = String(uri || '').trim();
@@ -41,6 +41,50 @@ function ipfsToHttp(uri: string): string {
     return `https://w3s.link/ipfs/${cid}`;
   }
   return trimmed;
+}
+
+/**
+ * Determine if an address is a contract (smart account) or EOA
+ * @param address - The address to check
+ * @param chainId - The chain ID
+ * @returns true if the address is a contract, false if EOA
+ */
+async function isContractAddress(address: `0x${string}`, chainId: number): Promise<boolean> {
+  try {
+    const chain = chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
+    
+    // Get RPC URL from environment variables (client-side)
+    let rpcUrl: string | undefined;
+    if (chainId === 11155111) {
+      rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA;
+    } else if (chainId === 84532) {
+      rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA;
+    } else if (chainId === 11155420) {
+      rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
+    }
+    
+    // Fallback to chain default RPC URL
+    if (!rpcUrl && chain.rpcUrls.default.http[0]) {
+      rpcUrl = chain.rpcUrls.default.http[0] as string;
+    }
+    
+    if (!rpcUrl) {
+      console.warn('[isContractAddress] No RPC URL available, defaulting to EOA');
+      return false;
+    }
+    
+    const publicClient = createPublicClient({
+      chain,
+      transport: http(rpcUrl),
+    });
+    
+    const code = await publicClient.getBytecode({ address });
+    return code !== undefined && code !== '0x' && code.length > 2;
+  } catch (error) {
+    console.warn('[isContractAddress] Failed to check if address is contract:', error);
+    // Default to EOA if check fails (most common case)
+    return false;
+  }
 }
 
 function jsonSafe(value: any): any {
@@ -187,87 +231,33 @@ async function storeErc8092SarOnChainEoa(params: {
   
   // Check if association already exists before attempting to store
   const associationId = sar?.associationId || normalizedSar?.associationId;
-  console.log('[storeErc8092SarOnChainEoa] Checking for existing association:', {
-    associationId,
-    account,
-    chainId,
-  });
   if (associationId) {
     try {
       const checkResp = await fetch(`/api/associations?account=${encodeURIComponent(account)}&chainId=${chainId}`);
       if (checkResp.ok) {
         const checkData = await checkResp.json().catch(() => ({}));
-        console.log('[storeErc8092SarOnChainEoa] Existing associations check:', {
-          found: checkData.associations?.length || 0,
-          associationIds: (checkData.associations || []).map((a: any) => a.associationId),
-          lookingFor: associationId,
-        });
         const existing = (checkData.associations || []).find((a: any) => 
           String(a.associationId || '').toLowerCase() === String(associationId).toLowerCase()
         );
         if (existing) {
-          console.log('[storeErc8092SarOnChainEoa] Association already exists on-chain, skipping store:', {
-            associationId,
-            existing: {
-              revokedAt: existing.revokedAt,
-              initiatorAddress: existing.initiatorAddress,
-              approverAddress: existing.approverAddress,
-            },
-          });
           return; // Already stored, no-op
         }
-      } else {
-        console.warn('[storeErc8092SarOnChainEoa] Association check request failed:', checkResp.status);
       }
     } catch (checkErr) {
-      console.warn('[storeErc8092SarOnChainEoa] Failed to check existing associations (continuing):', checkErr);
+      // Continue if check fails
     }
   }
   
-  console.log('[storeErc8092SarOnChainEoa] Preparing to store association:', {
-    associationId,
-    initiatorAddress: normalizedSar?.initiatorAddress || sar?.initiatorAddress,
-    approverAddress: normalizedSar?.approverAddress || sar?.approverAddress,
-    record: {
-      validAt: normalizedSar?.record?.validAt,
-      validUntil: normalizedSar?.record?.validUntil,
-      initiator: normalizedSar?.record?.initiator ? `${normalizedSar.record.initiator.slice(0, 20)}...` : 'missing',
-      approver: normalizedSar?.record?.approver ? `${normalizedSar.record.approver.slice(0, 20)}...` : 'missing',
-      interfaceId: normalizedSar?.record?.interfaceId,
-      data: normalizedSar?.record?.data ? `${normalizedSar.record.data.slice(0, 40)}...` : 'missing',
-    },
-    hasInitiatorSig: !!(normalizedSar?.initiatorSignature && normalizedSar.initiatorSignature !== '0x'),
-    hasApproverSig: !!(normalizedSar?.approverSignature && normalizedSar.approverSignature !== '0x'),
-    initiatorKeyType: normalizedSar?.initiatorKeyType,
-    approverKeyType: normalizedSar?.approverKeyType,
-    revokedAt: normalizedSar?.revokedAt,
-  });
-  
   // Verify required fields before attempting to store
-  if (!normalizedSar?.approverSignature || normalizedSar.approverSignature === '0x') {
-    throw new Error('Missing approverSignature in SAR');
-  }
+  // NEW FLOW: Allow empty approverSignature - agent will update it later
   if (!normalizedSar?.record) {
     throw new Error('Missing record in SAR');
   }
   // Note: initiatorSignature can be empty ('0x') - it gets signed client-side
+  // Note: approverSignature can be empty ('0x') in new flow - agent will update it
   
   const chain =
     chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
-  console.log('[storeErc8092SarOnChainEoa] Calling /api/associate with:', {
-    did8004: decodeURIComponent(String(did8004 || '')),
-    mode: 'eoa',
-    sarKeys: Object.keys(normalizedSar),
-    sarSummary: {
-      hasAssociationId: !!normalizedSar.associationId,
-      hasInitiatorAddress: !!normalizedSar.initiatorAddress,
-      hasApproverAddress: !!normalizedSar.approverAddress,
-      hasApproverSignature: !!(normalizedSar.approverSignature && normalizedSar.approverSignature !== '0x'),
-      hasRecord: !!normalizedSar.record,
-      recordValidAt: normalizedSar.record?.validAt,
-      recordValidUntil: normalizedSar.record?.validUntil,
-    },
-  });
 
   const resp = await fetch('/api/associate', {
     method: 'POST',
@@ -288,13 +278,6 @@ async function storeErc8092SarOnChainEoa(params: {
     throw new Error('Invalid /api/associate response (missing transaction)');
   }
 
-  console.log('[storeErc8092SarOnChainEoa] Prepared transaction:', {
-    to: tx.to,
-    dataLength: tx.data?.length || 0,
-    dataPrefix: tx.data?.slice(0, 20) + '...',
-    value: tx.value,
-    chainId: tx.chainId,
-  });
   const result = await signAndSendTransaction({
     transaction: tx as PreparedTransaction,
     account,
@@ -605,8 +588,6 @@ export default function AgentDetailsPageContent({
   }, [dialogState.type, agent.a2aEndpoint, agentCard]);
 
   // Try to get feedbackAuth on page load
-  // TEMP: Commented out while debugging on-chain metadata display.
-  /*
   useEffect(() => {
     if (!agent.a2aEndpoint || !isConnected || !walletAddress) {
       setFeedbackAuth(null);
@@ -818,11 +799,130 @@ export default function AgentDetailsPageContent({
             typedData,
           });
 
+          // Determine initiatorKeyType based on whether initiator is EOA or smart account
+          // EOA → 0x0001 (K1), Smart Account → 0x0001 (K1) for ERC-1271 validation
+          // Note: If initiator uses delegation, it would be 0x8002, but typically initiator is EOA
+          const initiatorIsContract = await isContractAddress(clientAddr, Number(chainId));
+          const initiatorKeyType = initiatorIsContract ? KEY_TYPE_K1 : KEY_TYPE_K1; // Both use K1 for ERC-1271 or ecrecover
+          
+          // Approver uses MetaMask delegation, so use DELEGATED keyType
+          const approverKeyType = KEY_TYPE_DELEGATED; // 0x8002
+
           return {
             record,
             initiatorSignature,
+            associationId,
+            initiatorKeyType,
+            approverKeyType,
           };
         })();
+
+        // NEW FLOW: Store association with initiator signature only first
+        if (delegationSar && delegationSar.record && delegationSar.initiatorSignature) {
+          try {
+            console.log('[AgentDetails] Storing association with initiator signature only before requesting feedbackAuth');
+            await storeErc8092SarOnChainEoa({
+              did8004,
+              chainId: Number(chainId),
+              provider: eip1193Provider,
+              account: walletAddress as `0x${string}`,
+              sar: {
+                record: delegationSar.record,
+                initiatorSignature: delegationSar.initiatorSignature,
+                approverSignature: '0x', // Empty - will be set by agent
+                initiatorKeyType: delegationSar.initiatorKeyType || KEY_TYPE_K1,
+                approverKeyType: delegationSar.approverKeyType || KEY_TYPE_DELEGATED, // Agent uses MetaMask delegation
+                revokedAt: 0,
+                associationId: delegationSar.associationId,
+              },
+            });
+            console.log('[AgentDetails] ✓ Stored association with initiator signature, associationId:', delegationSar.associationId);
+            
+            // Wait for association to be queryable on-chain before calling ATP agent
+            // This ensures the agent can retrieve it via getAssociation
+            // Use direct contract call (same method ATP agent uses) to verify it's queryable
+            const associationId = delegationSar.associationId;
+            if (associationId) {
+              console.log('[AgentDetails] Waiting for association to be queryable on-chain (direct contract call)...');
+              
+              // Get chain and RPC URL
+              const chain = chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
+              let rpcUrl: string | undefined;
+              if (chainId === 11155111) {
+                rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA;
+              } else if (chainId === 84532) {
+                rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA;
+              } else if (chainId === 11155420) {
+                rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
+              }
+              
+              if (!rpcUrl && chain.rpcUrls?.default?.http?.[0]) {
+                rpcUrl = chain.rpcUrls.default.http[0];
+              }
+              
+              if (!rpcUrl) {
+                throw new Error(`Missing RPC URL for chain ${chainId}`);
+              }
+              
+              const publicClient = createPublicClient({
+                chain,
+                transport: http(rpcUrl),
+              });
+              
+              // Associations proxy address (hardcoded for now, matches config.ts)
+              const associationsProxy = '0x3418A5297C75989000985802B8ab01229CDDDD24' as `0x${string}`;
+              
+              const maxRetries = 15; // Increase retries since contract calls can lag
+              const retryDelayMs = 1000; // 1 second between retries
+              let found = false;
+              
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                  // Direct contract call using getAssociation (same as ATP agent)
+                  const sar = await publicClient.readContract({
+                    address: associationsProxy,
+                    abi: parseAbi(ASSOCIATIONS_STORE_ABI),
+                    functionName: 'getAssociation',
+                    args: [associationId as `0x${string}`],
+                  });
+                  
+                  if (sar && (sar as any).record) {
+                    found = true;
+                    console.log(`[AgentDetails] ✓ Association found on-chain via direct contract call after ${attempt} attempt(s)`);
+                    break;
+                  }
+                } catch (checkErr: any) {
+                  // getAssociation reverts if association doesn't exist
+                  // This is expected - continue retrying
+                  const isRevert = checkErr?.message?.includes('reverted') || checkErr?.message?.includes('0x4c2c14c8');
+                  if (!isRevert) {
+                    console.warn(`[AgentDetails] Association check attempt ${attempt} failed:`, checkErr);
+                  }
+                }
+                
+                if (attempt < maxRetries) {
+                  await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+                }
+              }
+              
+              if (!found) {
+                const errorMsg = `Association ${associationId} not found on-chain after ${maxRetries} retries. Cannot proceed with ATP agent call.`;
+                console.error('[AgentDetails]', errorMsg);
+                throw new Error(errorMsg);
+              }
+              
+              // Add additional delay buffer for cross-RPC propagation
+              // ATP agent runs on Cloudflare (different RPC node) vs local admin UI
+              // Different RPC nodes can have sync delays even after transaction confirmation
+              console.log('[AgentDetails] Association confirmed locally, waiting 2 seconds for cross-RPC propagation...');
+              await new Promise(resolve => setTimeout(resolve, 2000));
+              console.log('[AgentDetails] Proceeding with ATP agent call');
+            }
+          } catch (storeErr: any) {
+            console.warn('[AgentDetails] Failed to store association with initiator signature (non-fatal):', storeErr?.message || storeErr);
+            // Continue with A2A request even if storage fails (fallback to old flow)
+          }
+        }
 
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
           method: 'POST',
@@ -831,7 +931,8 @@ export default function AgentDetailsPageContent({
             clientAddress: walletAddress,
             agentId: agent.agentId.toString(),
             chainId: Number(chainId),
-            delegationSar,
+            associationId: delegationSar?.associationId, // Send associationId so agent can retrieve and update
+            delegationSar, // Keep for backward compatibility
           }),
         });
 
@@ -879,8 +980,7 @@ export default function AgentDetailsPageContent({
     })();
 
     return () => { cancelled = true; };
-  }, [agent.a2aEndpoint, agent.agentId, chainId, did8004, isConnected, walletAddress]);
-  */
+  }, [agent.a2aEndpoint, agent.agentId, chainId, did8004, isConnected, walletAddress, eip1193Provider, onChainMetadata]);
 
   const openDialog = useCallback((type: DialogState['type'], loadData?: () => Promise<void>) => {
     setDialogState({ type, loading: true });
@@ -1145,9 +1245,7 @@ export default function AgentDetailsPageContent({
                 </Button>
               )}
 
-              {/* TEMP: feedbackAuth UI disabled while debugging on-chain metadata display. */}
-              {/*
-                {agent.a2aEndpoint && isConnected && (
+              {agent.a2aEndpoint && isConnected && (
                   <>
                     {!feedbackAuth && !feedbackAuthLoading && (
                       <Button
@@ -1210,7 +1308,6 @@ export default function AgentDetailsPageContent({
                     )}
                   </>
                 )}
-              */}
             </Stack>
           </Box>
           <Box

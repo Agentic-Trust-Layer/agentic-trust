@@ -12,7 +12,7 @@
   "dependencies": {
     "dotenv": "^16.4.5",
     "@agentic-trust/core": "workspace:*",
-    "@associatedaccounts/erc8092-sdk": "workspace:*",
+    "@agentic-trust/8092-sdk": "workspace:*",
     "@metamask/smart-accounts-kit": "^0.1.0",
     "viem": "^2.42.0",
     "ethers": "^6.13.0"

@@ -112,7 +112,7 @@ export async function POST(req: Request) {
         };
         // Derive associationId + parsed addresses if missing (many clients only send record+signatures).
         try {
-          const { associationIdFromRecord, tryParseEvmV1 } = require('@associatedaccounts/erc8092-sdk') as typeof import('@associatedaccounts/erc8092-sdk');
+          const { associationIdFromRecord, tryParseEvmV1 } = require('@agentic-trust/8092-sdk') as typeof import('@agentic-trust/8092-sdk');
           const record = normalized.record;
           if (record && typeof record === 'object') {
             if (!normalized.associationId && record.initiator && record.approver) {
