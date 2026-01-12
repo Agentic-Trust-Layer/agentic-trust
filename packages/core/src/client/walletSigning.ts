@@ -230,6 +230,23 @@ export async function signAndSendTransaction(
     extractAgentId = false,
   } = options;
 
+  // Extra debug for on-chain actions (helps confirm contract + calldata being used).
+  try {
+    const dataPrefix =
+      typeof (transaction as any)?.data === 'string'
+        ? String((transaction as any).data).slice(0, 10)
+        : undefined;
+    console.info('[signAndSendTransaction] tx intent', {
+      chainId: chain?.id,
+      from: String(account),
+      to: (transaction as any)?.to,
+      value: (transaction as any)?.value,
+      dataPrefix,
+    });
+  } catch {
+    // ignore
+  }
+
   // Get wallet provider
   const provider = resolveEthereumProvider(ethereumProvider);
 
@@ -470,6 +487,59 @@ export async function signAndSendTransaction(
 
   // Wait for transaction receipt (use RPC, not wallet provider)
   const receipt = await readClient.waitForTransactionReceipt({ hash });
+
+  try {
+    console.info('[signAndSendTransaction] tx mined', {
+      chainId: chain?.id,
+      hash,
+      status: receipt.status,
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed,
+      to: receipt.to,
+      from: receipt.from,
+      logs: receipt.logs?.length ?? 0,
+    });
+  } catch {
+    // ignore
+  }
+
+  // Best-effort: decode ReputationRegistry events so we can see NewFeedback in the console.
+  try {
+    const target = ((transaction as any)?.to || (receipt as any)?.to) as `0x${string}` | undefined;
+    if (target) {
+      const { decodeEventLog, parseAbi } = await import('viem');
+      const ReputationRegistryABI = parseAbi([
+        'event NewFeedback(uint256 indexed agentId,address indexed clientAddress,uint64 feedbackIndex,uint8 score,string indexed indexedTag1,string tag1,string tag2,string endpoint,string feedbackURI,bytes32 feedbackHash)',
+        'event FeedbackRevoked(uint256 indexed agentId,address indexed clientAddress,uint64 indexed feedbackIndex)',
+        'event ResponseAppended(uint256 indexed agentId,address indexed clientAddress,uint64 feedbackIndex,address indexed responder,string responseURI,bytes32 responseHash)',
+      ]);
+
+      for (const log of receipt.logs || []) {
+        if (!log?.address || String(log.address).toLowerCase() !== String(target).toLowerCase()) continue;
+        try {
+          const decoded: any = decodeEventLog({
+            abi: ReputationRegistryABI as any,
+            data: log.data,
+            topics: log.topics as any,
+          });
+          if (
+            decoded?.eventName === 'NewFeedback' ||
+            decoded?.eventName === 'FeedbackRevoked' ||
+            decoded?.eventName === 'ResponseAppended'
+          ) {
+            console.info('[signAndSendTransaction] decoded event', {
+              eventName: decoded.eventName,
+              args: decoded.args,
+            });
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
 
   // Extract agentId if requested (for agent creation transactions)
   let agentId: string | undefined;
@@ -2595,58 +2665,18 @@ export async function finalizeAssociationWithWallet(options: {
 
         const approver = getAddress(approverAddress) as `0x${string}`;
 
-        // Recompute digest using the erc8092 scheme (same as packages/erc8092-sdk eip712Hash)
-        const { ethers } = await import('ethers');
-        const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
-          if (n === 0n) return new Uint8Array([0]);
-          let hex = n.toString(16);
-          if (hex.length % 2) hex = `0${hex}`;
-          return ethers.getBytes(`0x${hex}`);
-        };
-        const formatEvmV1 = (chainId: number, address: string): string => {
-          const addr = ethers.getAddress(address);
-          const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
-          const head = ethers.getBytes('0x00010000');
-          const out = ethers.concat([
-            head,
-            new Uint8Array([chainRef.length]),
-            chainRef,
-            new Uint8Array([20]),
-            ethers.getBytes(addr),
-          ]);
-          return ethers.hexlify(out);
-        };
+        // Recompute digest using the canonical SDK (keeps this consistent with assoc-delegation + ATP agent).
+        const { formatEvmV1, eip712Hash } = await import('@agentic-trust/8092-sdk');
         const initiatorInterop = formatEvmV1(chain.id, initiatorResolved);
         const approverInterop = formatEvmV1(chain.id, approver);
-        const abiCoder = ethers.AbiCoder.defaultAbiCoder();
-        const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
-        const NAME_HASH = ethers.id('AssociatedAccounts');
-        const VERSION_HASH = ethers.id('1');
-        const MESSAGE_TYPEHASH = ethers.id(
-          'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
-        );
-        const domainSeparator = ethers.keccak256(
-          abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
-        );
-        const interfaceId = '0x00000000';
-        const validUntil = 0;
-        const hashStruct = ethers.keccak256(
-          abiCoder.encode(
-            ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
-            [
-              MESSAGE_TYPEHASH,
-              ethers.keccak256(initiatorInterop),
-              ethers.keccak256(approverInterop),
-              validAt,
-              validUntil,
-              interfaceId,
-              ethers.keccak256(data),
-            ],
-          ),
-        );
-        const digest = ethers.keccak256(
-          ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
-        ) as `0x${string}`;
+        const digest = eip712Hash({
+          initiator: initiatorInterop as any,
+          approver: approverInterop as any,
+          validAt: Number(validAt),
+          validUntil: 0,
+          interfaceId: '0x00000000',
+          data: data as any,
+        } as any) as `0x${string}`;
 
         const ERC1271_MAGIC = '0x1626ba7e' as const;
         const ERC1271_ABI = [
@@ -2668,7 +2698,8 @@ export async function finalizeAssociationWithWallet(options: {
           // EOA: verify with ecrecover.
           if (!code || code === '0x') {
             try {
-              const recovered = ethers.recoverAddress(digest, sig);
+              const { recoverAddress } = await import('viem');
+              const recovered = await recoverAddress({ hash: digest, signature: sig });
               return {
                 ok: recovered.toLowerCase() === account.toLowerCase(),
                 method: 'ecrecover' as const,

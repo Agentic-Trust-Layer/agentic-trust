@@ -426,7 +426,16 @@ export class AgenticTrustClient {
       if (result && (result as any).searchFeedbacksGraph) {
         const node = (result as any).searchFeedbacksGraph;
         const list = Array.isArray(node.feedbacks) ? node.feedbacks : [];
-        return list as unknown[];
+        // Indexer lag is common right after a feedback tx is mined.
+        // If the indexer returns an empty list, fall back to on-chain reads so UIs can show
+        // the newly-mined feedback immediately.
+        if (list.length > 0) {
+          return list as unknown[];
+        }
+        console.info(
+          '[AgenticTrustClient.getAgentFeedback] indexer returned 0 items; falling back to on-chain readAllFeedback',
+          { agentId: trimmed, chainId: resolvedChainId },
+        );
       }
     } catch (error) {
       console.warn(

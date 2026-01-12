@@ -411,9 +411,9 @@ export async function createFeedbackAuthWithDelegation(
       revokedAt: 0,
       // K1 (0x0001) for client EOA initiator signature
       initiatorKeyType: '0x0001' as `0x${string}`,
-      // DELEGATED (0x8002) keyType to bypass ERC-1271 and validate delegation directly
-      // This checks if the agent account has delegated to the operator EOA directly
-      approverKeyType: '0x8002' as `0x${string}`,
+      // K1 (0x0001) so the contract validates via SignatureChecker → ERC-1271 on the agent account.
+      // Transaction authorization (gasless) is handled by the MetaMask delegation/sessionAA.
+      approverKeyType: '0x0001' as `0x${string}`,
       initiatorSignature: '0x' as `0x${string}`,
       approverSignature,
       record,

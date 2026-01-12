@@ -46,8 +46,15 @@ Open [http://localhost:3002](http://localhost:3002) to access the admin dashboar
    # RPC URLs (Chain-specific - required for each chain you use)
    AGENTIC_TRUST_RPC_URL_SEPOLIA=https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY
    
-   # Contract addresses (Chain-specific - required for each chain you use)
-   AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x8004a6090Cd10A7288092483047B097295Fb8847
+  # Contract addresses (Chain-specific - required for each chain you use)
+  # Sepolia v1.1.0 (2026-01) deployments:
+  #
+  # IMPORTANT: the admin UI reads client-side addresses from NEXT_PUBLIC_* vars.
+  # Set both forms (server + client) unless you know you only need one.
+  AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x8004A818BFB912233c491871b3d84c89A494BD9e
+  AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x8004B663056A597Dffe9eCcC1965A193B7388713
+  NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_SEPOLIA=0x8004A818BFB912233c491871b3d84c89A494BD9e
+  NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_SEPOLIA=0x8004B663056A597Dffe9eCcC1965A193B7388713
    
    # Discovery API (Chain-agnostic - works for all chains)
    AGENTIC_TRUST_DISCOVERY_URL=https://api.agentictrust.io

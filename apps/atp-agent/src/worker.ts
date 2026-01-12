@@ -1466,6 +1466,8 @@ const handleA2A = async (c: HonoContext) => {
 
             const recordRaw = (delegationSarRaw as any)?.record;
             const initiatorSignatureRaw = String((delegationSarRaw as any)?.initiatorSignature || '').trim();
+            const initiatorKeyTypeRaw = String((delegationSarRaw as any)?.initiatorKeyType || '0x0001').trim();
+            const approverKeyTypeRaw = String((delegationSarRaw as any)?.approverKeyType || '0x8002').trim();
             if (!recordRaw || typeof recordRaw !== 'object') {
               throw new Error('delegationSar.record is required');
             }
@@ -1518,18 +1520,16 @@ const handleA2A = async (c: HonoContext) => {
               }
               
               // Check if approver signature is already set
-              // Also verify the approverKeyType is correct (should be 0x8002 for MetaMask delegation)
-              const existingApproverKeyType = String(existingAssociation.approverKeyType || '0x0001').toLowerCase();
-              const expectedKeyType = '0x8002';
-              const hasApproverSig = existingAssociation.approverSignature && existingAssociation.approverSignature !== '0x' && existingAssociation.approverSignature.length > 2;
-              
-              if (hasApproverSig && existingApproverKeyType === expectedKeyType) {
-                console.log('[ATP Agent] Association already has approver signature with correct keyType, skipping update');
+              const existingApproverKeyType = String(existingAssociation.approverKeyType || '').toLowerCase();
+              const hasApproverSig =
+                existingAssociation.approverSignature &&
+                existingAssociation.approverSignature !== '0x' &&
+                existingAssociation.approverSignature.length > 2;
+
+              if (hasApproverSig) {
+                console.log('[ATP Agent] Association already has approver signature, skipping update');
                 responseContent.delegationStoredAssociationId = associationId;
                 responseContent.delegationAlreadyComplete = true;
-              } else if (hasApproverSig && existingApproverKeyType !== expectedKeyType) {
-                console.log('[ATP Agent] Association has approver signature but wrong keyType, will update keyType and signature');
-                // Continue to update both keyType and signature
               } else {
                 // Update the approver signature
                 console.log('[ATP Agent] Updating approver signature for existing association');
@@ -1553,15 +1553,13 @@ const handleA2A = async (c: HonoContext) => {
                 
                 console.log('[ATP Agent] Approver signature (operator EOA, raw hash bytes):', sigEip712.slice(0, 20) + '...');
 
-                // Use DELEGATED keyType (0x8002) because the approver (agent account) uses MetaMask delegation
-                // The signature is produced by the operator EOA, which is delegated by the agent account
-                const approverKeyType = '0x8002' as `0x${string}`; // DELEGATED
-                
-                console.log('[ATP Agent] Updating approver signature on-chain (ERC-8092 updateApproverSignature)', {
+                const approverKeyType = (approverKeyTypeRaw || '0x8002') as `0x${string}`;
+
+                console.log('[ATP Agent] Updating approver signature on-chain (ERC-8092 updateAssociationSignatures)', {
                   chainId: chainIdForStore,
                   associationId,
                   approverKeyType,
-                  note: 'Using 0x8002 (DELEGATED) because approver uses MetaMask delegation',
+                  existingApproverKeyType,
                 });
                 
                 const { txHash } = await updateErc8092ApproverSignatureWithSessionDelegation({
@@ -1574,43 +1572,27 @@ const handleA2A = async (c: HonoContext) => {
                 
                 responseContent.delegationStoredTxHash = txHash;
                 responseContent.delegationStoredAssociationId = associationId;
-                responseContent.delegationUpdateMethod = 'updateApproverSignature';
+                responseContent.delegationUpdateMethod = 'updateAssociationSignatures';
                 console.log('[ATP Agent] ✓ Updated approver signature on-chain', { txHash, associationId });
               }
             } else {
-              // FALLBACK: Association doesn't exist on-chain yet, store it with both signatures
-              // This maintains backward compatibility if client hasn't stored it yet
-              console.log('[ATP Agent] Association not found on-chain, storing new association with both signatures');
+              // INITIAL STORE FLOW (matches assoc-delegation): store initiator signature only.
+              // The tx is authorized gaslessly via MetaMask delegation (sessionAA -> agentAccount -> allowedTargets).
+              console.log('[ATP Agent] Association not found on-chain, storing new association (initiator-only initial store)');
               
               if (!initiatorSignatureRaw || initiatorSignatureRaw === '0x') {
                 throw new Error('delegationSar.initiatorSignature is required for new associations');
               }
 
-              // Generate approver signature and store full association (fallback flow)
-              // Use the working pattern: compute eip712Hash and sign raw hash bytes with ethers
-              const { delegationSetup } = await buildDelegatedAssociationContext(
-                sessionPackage,
-                chainIdForStore,
-              );
-
-              const digest = eip712Hash(record as any) as `0x${string}`;
-              console.log('[ATP Agent] EIP-712 hash (fallback):', digest);
-
-              // For ERC-8092, sign the raw hash bytes directly (without message prefix)
-              // This matches the working pattern in assoc-delegation
-              const operatorPrivateKey = delegationSetup.sessionKey.privateKey;
-              const operatorWallet = new ethers.Wallet(operatorPrivateKey);
-              const hashBytes = ethers.getBytes(digest);
-              const sigEip712 = operatorWallet.signingKey.sign(hashBytes).serialized as `0x${string}`;
-              
-              console.log('[ATP Agent] Approver signature (operator EOA, raw hash bytes, fallback):', sigEip712.slice(0, 20) + '...');
+              // Important: do NOT set approverSignature during the initial store.
+              // It will be added via updateAssociationSignatures once the association exists on-chain.
 
               const sar = {
                 revokedAt: 0,
-                initiatorKeyType: '0x0001', // K1 - initiator is typically an EOA
-                approverKeyType: '0x8002' as `0x${string}`, // DELEGATED - approver uses MetaMask delegation
+                initiatorKeyType: initiatorKeyTypeRaw || '0x0001', // K1
+                approverKeyType: approverKeyTypeRaw || '0x8002', // DELEGATED (typical for this flow)
                 initiatorSignature: initiatorSignatureRaw,
-                approverSignature: sigEip712,
+                approverSignature: '0x',
                 record,
               };
 
@@ -1623,7 +1605,7 @@ const handleA2A = async (c: HonoContext) => {
               responseContent.delegationStoredTxHash = txHash;
               responseContent.delegationStoredAssociationId = associationId;
               responseContent.delegationUpdateMethod = 'storeAssociation';
-              console.log('[ATP Agent] ✓ Stored new association on-chain (fallback)', { txHash, associationId });
+              console.log('[ATP Agent] ✓ Stored new association on-chain (initiator-only)', { txHash, associationId });
             }
           } catch (storeErr: any) {
             console.warn('[ATP Agent] Failed to store client delegation SAR on-chain:', storeErr);

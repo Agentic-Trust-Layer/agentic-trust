@@ -1413,6 +1413,19 @@ export default function AgentDetailsPageContent({
                 // Submit feedback to the API (no feedbackAuth required)
                 const score = feedbackRating * 20; // Convert 1-5 to 0-100
 
+                console.info('[GiveFeedback] Submitting feedback via /api/feedback', {
+                  chainId,
+                  agentId,
+                  clientAddress,
+                  score,
+                  tag1: feedbackTag1 || undefined,
+                  tag2: feedbackTag2 || undefined,
+                  skill: feedbackSkillId || undefined,
+                  context: feedbackContext || undefined,
+                  capability: feedbackCapability || undefined,
+                  endpoint: onChainMetadata?.agentUrl || agent?.agentUri || undefined,
+                });
+
                 const feedbackResponse = await fetch('/api/feedback', {
                   method: 'POST',
                   headers: {
@@ -1446,6 +1459,13 @@ export default function AgentDetailsPageContent({
 
                 // If the server can't sign (no server wallet), it returns a prepared tx for client signing.
                 if (feedbackResult?.mode === 'client' && feedbackResult?.transaction) {
+                  console.info('[GiveFeedback] Server returned prepared tx for client signing', {
+                    chainId: feedbackResult?.chainId,
+                    to: (feedbackResult?.transaction as any)?.to,
+                    dataPrefix: typeof (feedbackResult?.transaction as any)?.data === 'string'
+                      ? String((feedbackResult?.transaction as any).data).slice(0, 10)
+                      : undefined,
+                  });
                   if (!eip1193Provider) {
                     throw new Error('Wallet provider not available. Please connect your wallet.');
                   }
@@ -1460,6 +1480,10 @@ export default function AgentDetailsPageContent({
                     account: clientAddress as Address,
                     chain: chainFor(targetChainId),
                     ethereumProvider: eip1193Provider,
+                  });
+                } else if (feedbackResult?.mode === 'server') {
+                  console.info('[GiveFeedback] Feedback submitted server-side', {
+                    txHash: feedbackResult?.txHash,
                   });
                 }
 
