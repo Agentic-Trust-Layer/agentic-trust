@@ -19,7 +19,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
 import type { Address } from 'viem';
-import { decodeAbiParameters, encodeAbiParameters, getAddress, parseAbiParameters, recoverAddress, createPublicClient, http, getBytecode, readContract, parseAbi } from 'viem';
+import { decodeAbiParameters, encodeAbiParameters, getAddress, parseAbiParameters, recoverAddress, createPublicClient, http, parseAbi } from 'viem';
 import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -31,7 +31,7 @@ import AutoGraphIcon from '@mui/icons-material/AutoGraph';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import { finalizeAssociationWithWallet } from '@agentic-trust/core/client';
-import { associationIdFromRecord, tryParseEvmV1, KEY_TYPE_K1, KEY_TYPE_DELEGATED, ASSOCIATIONS_STORE_ABI } from '@agentic-trust/8092-sdk';
+import { associationIdFromRecord, tryParseEvmV1, KEY_TYPE_K1, KEY_TYPE_DELEGATED, ASSOCIATIONS_STORE_ABI, formatEvmV1 } from '@agentic-trust/8092-sdk';
 
 function ipfsToHttp(uri: string): string {
   const trimmed = String(uri || '').trim();
@@ -636,27 +636,6 @@ export default function AgentDetailsPageContent({
         [1, description],
       ) as `0x${string}`;
 
-      const ethers = await import('ethers');
-      const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
-        if (n === 0n) return new Uint8Array([0]);
-        let hex = n.toString(16);
-        if (hex.length % 2) hex = `0${hex}`;
-        return ethers.getBytes(`0x${hex}`);
-      };
-      const formatEvmV1 = (chainIdNum: number, address: string): string => {
-        const addr = ethers.getAddress(address);
-        const chainRef = toMinimalBigEndianBytes(BigInt(chainIdNum));
-        const head = ethers.getBytes('0x00010000');
-        const out = ethers.concat([
-          head,
-          new Uint8Array([chainRef.length]),
-          chainRef,
-          new Uint8Array([20]),
-          ethers.getBytes(addr),
-        ]);
-        return ethers.hexlify(out);
-      };
-
       const record = {
         initiator: formatEvmV1(Number(chainId), clientAddr),
         approver: formatEvmV1(Number(chainId), approverAddr),
@@ -696,13 +675,16 @@ export default function AgentDetailsPageContent({
         },
       };
 
-      // Single signature request: initiator signs the associationId (EIP-712 digest of record)
-      const initiatorSignature = await signErc8092Digest({
-        provider: eip1193Provider,
-        signerAddress: clientAddr,
-        digest: associationId,
-        typedData,
-      });
+      // NOTE: Temporarily disabled to avoid prompting the client wallet for a signature
+      // when clicking "Give Feedback". Keep this code so we can re-enable later.
+      //
+      // const initiatorSignature = await signErc8092Digest({
+      //   provider: eip1193Provider,
+      //   signerAddress: clientAddr,
+      //   digest: associationId,
+      //   typedData,
+      // });
+      const initiatorSignature = '0x' as `0x${string}`;
 
       const delegationSar = {
         record,
@@ -1473,7 +1455,7 @@ export default function AgentDetailsPageContent({
                   const targetChainId =
                     typeof feedbackResult.chainId === 'number'
                       ? feedbackResult.chainId
-                      : preparedTx.chainId || Number(resolvedChainId) || chainId;
+                      : preparedTx.chainId || chainId;
 
                   await signAndSendTransaction({
                     transaction: preparedTx,
