@@ -104,7 +104,11 @@ export interface PrepareFeedbackPayload {
   did8004: string;
   score: number;
   feedback: string;
-  feedbackAuth: string;
+  /**
+   * Optional in the "no-auth" feedback flow. Some deployments still provide this,
+   * but the on-chain `giveFeedback` call does not require it.
+   */
+  feedbackAuth?: string;
   clientAddress?: string;
   tag1?: string;
   tag2?: string;
@@ -163,7 +167,11 @@ export interface DirectFeedbackPayload {
   chainId?: number;
   score: number | string;
   feedback?: string;
-  feedbackAuth: string;
+  /**
+   * Optional in the "no-auth" feedback flow. Some deployments still provide this,
+   * but the on-chain `giveFeedback` call does not require it.
+   */
+  feedbackAuth?: string;
   clientAddress?: string;
   tag1?: string;
   tag2?: string;

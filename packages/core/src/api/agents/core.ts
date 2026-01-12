@@ -451,7 +451,7 @@ export async function prepareFeedbackCore(
   const { chainId, transaction } = await agent.prepareGiveFeedback({
     score: input.score,
     feedback: input.feedback,
-    feedbackAuth: input.feedbackAuth,
+    feedbackAuth: input.feedbackAuth || '0x',
     ...(input.clientAddress && {
       clientAddress: input.clientAddress as `0x${string}`,
     }),
@@ -982,7 +982,7 @@ export async function submitFeedbackDirectCore(
         input.feedback && input.feedback.length > 0
           ? input.feedback
           : 'Feedback submitted via direct endpoint',
-      feedbackAuth: input.feedbackAuth,
+      feedbackAuth: input.feedbackAuth || '0x',
       tag1: input.tag1,
       tag2: input.tag2,
       feedbackUri: input.feedbackUri,

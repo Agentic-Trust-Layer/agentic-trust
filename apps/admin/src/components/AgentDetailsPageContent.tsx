@@ -354,9 +354,6 @@ export default function AgentDetailsPageContent({
   const { ownedAgents: cachedOwnedAgents, loading: ownedAgentsLoading, refreshOwnedAgents } = useOwnedAgents();
 
   const [dialogState, setDialogState] = useState<DialogState>({ type: null });
-  const [feedbackAuth, setFeedbackAuth] = useState<string | null>(null);
-  const [feedbackAuthLoading, setFeedbackAuthLoading] = useState(false);
-  const [feedbackAuthError, setFeedbackAuthError] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [ownershipVerified, setOwnershipVerified] = useState<boolean | null>(null);
@@ -408,6 +405,9 @@ export default function AgentDetailsPageContent({
   const [feedbackRequestSuccess, setFeedbackRequestSuccess] = useState(false);
   const [feedbackRequestError, setFeedbackRequestError] = useState<string | null>(null);
   const [selectedFromAgentId, setSelectedFromAgentId] = useState<string>('');
+  const [delegationNotifyError, setDelegationNotifyError] = useState<string | null>(null);
+  const [delegationNotifyLoading, setDelegationNotifyLoading] = useState(false);
+  const [delegationAssociationId, setDelegationAssociationId] = useState<string | null>(null);
 
   // NOTE: did8004 is provided by the server page to avoid recomputation and to keep the
   // canonical route param around for API fetches.
@@ -587,400 +587,152 @@ export default function AgentDetailsPageContent({
     }
   }, [dialogState.type, agent.a2aEndpoint, agentCard]);
 
-  // Try to get feedbackAuth on page load
-  useEffect(() => {
-    if (!agent.a2aEndpoint || !isConnected || !walletAddress) {
-      setFeedbackAuth(null);
-      return;
-    }
+  const notifyAtpAgentWithDelegation = useCallback(async () => {
+    // Best-effort. This does NOT gate giving feedback anymore.
+    if (!isConnected || !walletAddress) return;
+    if (!eip1193Provider) return;
+    if (!agent.a2aEndpoint) return;
 
-    let cancelled = false;
-    setFeedbackAuthLoading(true);
-    setFeedbackAuthError(null);
+    setDelegationNotifyLoading(true);
+    setDelegationNotifyError(null);
 
-    (async () => {
-      try {
-        // First: check for an existing ERC-8092 delegation that contains the feedbackAuth payload.
-        // If it exists, use it and avoid calling the agent for feedbackAuth again.
-        try {
-          if (agent.agentAccount) {
-            const assocResp = await fetch(
-              `/api/associations?account=${encodeURIComponent(walletAddress)}&chainId=${encodeURIComponent(String(chainId))}`,
-              { cache: 'no-store' },
-            );
-            if (!cancelled && assocResp.ok) {
-              const assocJson = await assocResp.json().catch(() => null) as any;
-              const associations: any[] = Array.isArray(assocJson?.associations) ? assocJson.associations : [];
-              const nowSec = Math.floor(Date.now() / 1000);
-
-              const agentAccountLower = String(agent.agentAccount).toLowerCase();
-              const walletLower = String(walletAddress).toLowerCase();
-
-              for (const a of associations) {
-                // must be an active, unrevoked delegation association
-                const revokedAt = Number(a?.revokedAt ?? 0);
-                if (revokedAt && revokedAt > 0) continue;
-                const validAt = Number(a?.record?.validAt ?? a?.validAt ?? 0);
-                const validUntil = Number(a?.record?.validUntil ?? a?.validUntil ?? 0);
-                if (Number.isFinite(validAt) && validAt > 0 && validAt > nowSec) continue;
-                if (Number.isFinite(validUntil) && validUntil > 0 && validUntil < nowSec) continue;
-
-                const initiatorAddr = String(a?.initiatorAddress ?? a?.initiator ?? '').toLowerCase();
-                const approverAddr = String(a?.approverAddress ?? a?.approver ?? '').toLowerCase();
-                if (!initiatorAddr || !approverAddr) continue;
-
-                // require this delegation be between current wallet (initiator) and the agent account (approver)
-                if (initiatorAddr !== walletLower) continue;
-                if (approverAddr !== agentAccountLower) continue;
-
-                const dataHex = String(a?.record?.data ?? a?.data ?? '').trim();
-                if (!dataHex || !dataHex.startsWith('0x')) continue;
-
-                // Decode assocType + description
-                let assocType: number | null = null;
-                let description = '';
-                try {
-                  const [t, d] = decodeAbiParameters(
-                    parseAbiParameters('uint8 assocType, string description'),
-                    dataHex as `0x${string}`,
-                  ) as any;
-                  assocType = Number(t);
-                  description = String(d ?? '');
-                } catch {
-                  continue;
-                }
-                if (assocType !== 1) continue;
-
-                let payloadUri: string | null = null;
-                try {
-                  const parsed = JSON.parse(description || '{}');
-                  if (parsed?.type === 'erc8004.feedbackAuth.delegation' && typeof parsed?.payloadUri === 'string') {
-                    payloadUri = parsed.payloadUri;
-                  }
-                } catch {
-                  // ignore
-                }
-                if (!payloadUri) continue;
-
-                // Fetch delegation payload from IPFS and extract feedbackAuth
-                try {
-                  const httpUrl = ipfsToHttp(payloadUri);
-                  const payload = httpUrl ? await fetch(httpUrl, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null) : null;
-                  const feedbackAuthId =
-                    typeof payload?.feedbackAuth === 'string'
-                      ? String(payload.feedbackAuth).trim()
-                      : null;
-                  const payloadAgentId = payload?.agentId != null ? String(payload.agentId) : null;
-                  const payloadChainId = payload?.chainId != null ? Number(payload.chainId) : null;
-                  if (
-                    feedbackAuthId &&
-                    feedbackAuthId.startsWith('0x') &&
-                    payloadAgentId === String(agent.agentId) &&
-                    payloadChainId === Number(chainId)
-                  ) {
-                    setFeedbackAuth(feedbackAuthId);
-                    return;
-                  }
-                } catch {
-                  // ignore and fall back to requesting feedbackAuth
-                }
-              }
-            }
-          }
-        } catch {
-          // ignore and fall back to requesting feedbackAuth
+    try {
+      const resolvePlainAddress = (value: unknown): `0x${string}` | null => {
+        if (typeof value !== 'string') return null;
+        const v = value.trim();
+        if (!v) return null;
+        if (v.startsWith('eip155:')) {
+          const parts = v.split(':');
+          const addr = parts[2];
+          if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
         }
-
-        const resolvePlainAddress = (value: unknown): `0x${string}` | null => {
-          if (typeof value !== 'string') return null;
-          const v = value.trim();
-          if (!v) return null;
-          if (v.startsWith('eip155:')) {
-            const parts = v.split(':');
-            const addr = parts[2];
-            if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
-          }
-          if (v.includes(':')) {
-            const parts = v.split(':');
-            const last = parts[parts.length - 1];
-            if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
-          }
-          if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
-          return null;
-        };
-
-        // Build a client-side delegation SAR (record + initiator signature) so the provider
-        // can store it on-chain using its MetaMask delegation/session package.
-        const delegationSar = await (async (): Promise<any | null> => {
-          if (!eip1193Provider) return null;
-
-          const clientAddr = getAddress(walletAddress) as `0x${string}`;
-          const approverAddr =
-            resolvePlainAddress((agent as any).agentAccount) ??
-            resolvePlainAddress((onChainMetadata as any)?.agentAccount) ??
-            null;
-          if (!approverAddr) return null;
-
-          const description = JSON.stringify({
-            type: 'erc8004.feedbackAuth.delegation',
-            agentId: String(agent.agentId),
-            chainId: Number(chainId),
-            clientAddress: clientAddr,
-            createdAt: new Date().toISOString(),
-          });
-          const data = encodeAbiParameters(
-            parseAbiParameters('uint8 assocType, string description'),
-            [1, description],
-          ) as `0x${string}`;
-
-          // Re-use the same ERC-7930 EVM-v1 address encoding used elsewhere in the app.
-          const ethers = await import('ethers');
-          const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
-            if (n === 0n) return new Uint8Array([0]);
-            let hex = n.toString(16);
-            if (hex.length % 2) hex = `0${hex}`;
-            return ethers.getBytes(`0x${hex}`);
-          };
-          const formatEvmV1 = (chainIdNum: number, address: string): string => {
-            const addr = ethers.getAddress(address);
-            const chainRef = toMinimalBigEndianBytes(BigInt(chainIdNum));
-            const head = ethers.getBytes('0x00010000');
-            const out = ethers.concat([
-              head,
-              new Uint8Array([chainRef.length]),
-              chainRef,
-              new Uint8Array([20]),
-              ethers.getBytes(addr),
-            ]);
-            return ethers.hexlify(out);
-          };
-
-          const record = {
-            initiator: formatEvmV1(Number(chainId), clientAddr),
-            approver: formatEvmV1(Number(chainId), approverAddr),
-            validAt: 0,
-            validUntil: 0,
-            interfaceId: '0x00000000',
-            data,
-          };
-
-          const associationId = associationIdFromRecord(record as any) as `0x${string}`;
-          const typedData = {
-            types: {
-              EIP712Domain: [
-                { name: 'name', type: 'string' },
-                { name: 'version', type: 'string' },
-              ],
-              AssociatedAccountRecord: [
-                { name: 'initiator', type: 'bytes' },
-                { name: 'approver', type: 'bytes' },
-                { name: 'validAt', type: 'uint40' },
-                { name: 'validUntil', type: 'uint40' },
-                { name: 'interfaceId', type: 'bytes4' },
-                { name: 'data', type: 'bytes' },
-              ],
-            },
-            primaryType: 'AssociatedAccountRecord',
-            domain: { name: 'AssociatedAccounts', version: '1' },
-            message: {
-              initiator: record.initiator,
-              approver: record.approver,
-              validAt: record.validAt,
-              validUntil: record.validUntil,
-              interfaceId: record.interfaceId,
-              data: record.data,
-            },
-          };
-
-          const initiatorSignature = await signErc8092Digest({
-            provider: eip1193Provider,
-            signerAddress: clientAddr,
-            digest: associationId,
-            typedData,
-          });
-
-          // Determine initiatorKeyType based on whether initiator is EOA or smart account
-          // EOA → 0x0001 (K1), Smart Account → 0x0001 (K1) for ERC-1271 validation
-          // Note: If initiator uses delegation, it would be 0x8002, but typically initiator is EOA
-          const initiatorIsContract = await isContractAddress(clientAddr, Number(chainId));
-          const initiatorKeyType = initiatorIsContract ? KEY_TYPE_K1 : KEY_TYPE_K1; // Both use K1 for ERC-1271 or ecrecover
-          
-          // Approver uses MetaMask delegation, so use DELEGATED keyType
-          const approverKeyType = KEY_TYPE_DELEGATED; // 0x8002
-
-          return {
-            record,
-            initiatorSignature,
-            associationId,
-            initiatorKeyType,
-            approverKeyType,
-          };
-        })();
-
-        // NEW FLOW: Store association with initiator signature only first
-        if (delegationSar && delegationSar.record && delegationSar.initiatorSignature) {
-          try {
-            console.log('[AgentDetails] Storing association with initiator signature only before requesting feedbackAuth');
-            await storeErc8092SarOnChainEoa({
-              did8004,
-              chainId: Number(chainId),
-              provider: eip1193Provider,
-              account: walletAddress as `0x${string}`,
-              sar: {
-                record: delegationSar.record,
-                initiatorSignature: delegationSar.initiatorSignature,
-                approverSignature: '0x', // Empty - will be set by agent
-                initiatorKeyType: delegationSar.initiatorKeyType || KEY_TYPE_K1,
-                approverKeyType: delegationSar.approverKeyType || KEY_TYPE_DELEGATED, // Agent uses MetaMask delegation
-                revokedAt: 0,
-                associationId: delegationSar.associationId,
-              },
-            });
-            console.log('[AgentDetails] ✓ Stored association with initiator signature, associationId:', delegationSar.associationId);
-            
-            // Wait for association to be queryable on-chain before calling ATP agent
-            // This ensures the agent can retrieve it via getAssociation
-            // Use direct contract call (same method ATP agent uses) to verify it's queryable
-            const associationId = delegationSar.associationId;
-            if (associationId) {
-              console.log('[AgentDetails] Waiting for association to be queryable on-chain (direct contract call)...');
-              
-              // Get chain and RPC URL
-              const chain = chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
-              let rpcUrl: string | undefined;
-              if (chainId === 11155111) {
-                rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA;
-              } else if (chainId === 84532) {
-                rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA;
-              } else if (chainId === 11155420) {
-                rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
-              }
-              
-              if (!rpcUrl && chain.rpcUrls?.default?.http?.[0]) {
-                rpcUrl = chain.rpcUrls.default.http[0];
-              }
-              
-              if (!rpcUrl) {
-                throw new Error(`Missing RPC URL for chain ${chainId}`);
-              }
-              
-              const publicClient = createPublicClient({
-                chain,
-                transport: http(rpcUrl),
-              });
-              
-              // Associations proxy address (hardcoded for now, matches config.ts)
-              const associationsProxy = '0x3418A5297C75989000985802B8ab01229CDDDD24' as `0x${string}`;
-              
-              const maxRetries = 15; // Increase retries since contract calls can lag
-              const retryDelayMs = 1000; // 1 second between retries
-              let found = false;
-              
-              for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                  // Direct contract call using getAssociation (same as ATP agent)
-                  const sar = await publicClient.readContract({
-                    address: associationsProxy,
-                    abi: parseAbi(ASSOCIATIONS_STORE_ABI),
-                    functionName: 'getAssociation',
-                    args: [associationId as `0x${string}`],
-                  });
-                  
-                  if (sar && (sar as any).record) {
-                    found = true;
-                    console.log(`[AgentDetails] ✓ Association found on-chain via direct contract call after ${attempt} attempt(s)`);
-                    break;
-                  }
-                } catch (checkErr: any) {
-                  // getAssociation reverts if association doesn't exist
-                  // This is expected - continue retrying
-                  const isRevert = checkErr?.message?.includes('reverted') || checkErr?.message?.includes('0x4c2c14c8');
-                  if (!isRevert) {
-                    console.warn(`[AgentDetails] Association check attempt ${attempt} failed:`, checkErr);
-                  }
-                }
-                
-                if (attempt < maxRetries) {
-                  await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-                }
-              }
-              
-              if (!found) {
-                const errorMsg = `Association ${associationId} not found on-chain after ${maxRetries} retries. Cannot proceed with ATP agent call.`;
-                console.error('[AgentDetails]', errorMsg);
-                throw new Error(errorMsg);
-              }
-              
-              // Add additional delay buffer for cross-RPC propagation
-              // ATP agent runs on Cloudflare (different RPC node) vs local admin UI
-              // Different RPC nodes can have sync delays even after transaction confirmation
-              console.log('[AgentDetails] Association confirmed locally, waiting 2 seconds for cross-RPC propagation...');
-              await new Promise(resolve => setTimeout(resolve, 2000));
-              console.log('[AgentDetails] Proceeding with ATP agent call');
-            }
-          } catch (storeErr: any) {
-            console.warn('[AgentDetails] Failed to store association with initiator signature (non-fatal):', storeErr?.message || storeErr);
-            // Continue with A2A request even if storage fails (fallback to old flow)
-          }
+        if (v.includes(':')) {
+          const parts = v.split(':');
+          const last = parts[parts.length - 1];
+          if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
         }
+        if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
+        return null;
+      };
 
-        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clientAddress: walletAddress,
-            agentId: agent.agentId.toString(),
-            chainId: Number(chainId),
-            associationId: delegationSar?.associationId, // Send associationId so agent can retrieve and update
-            delegationSar, // Keep for backward compatibility
-          }),
-        });
-
-        
-
-        if (cancelled) return;
-
-        if (response.ok) {
-          const data = await response.json();
-
-          const feedbackAuthId =
-            (data?.feedbackAuthId as string | undefined) ??
-            (data?.feedbackAuth as string | undefined) ??
-            null;
-          const delegationAssociation = (data as any)?.delegationAssociation ?? null;
-
-          if (feedbackAuthId === '0x0') {
-            setFeedbackAuth(null);
-            return;
-          }
-          if (feedbackAuthId) {
-            setFeedbackAuth(feedbackAuthId);
-          } else {
-            setFeedbackAuth(null);
-          }
-          // NOTE: We no longer try to store any returned delegationAssociation from the browser.
-          // The provider (atp-agent) stores the delegation SAR on-chain using its SessionPackage delegation.
-          if (feedbackAuthId && delegationAssociation) {
-            console.log('[AgentDetails] Provider returned delegationAssociation (ignored client-side):', {
-              associationId: (delegationAssociation as any)?.associationId,
-            });
-          }
-        } else {
-          setFeedbackAuth(null);
-        }
-      } catch (error) {
-        if (cancelled) return;
-        console.warn('[AgentDetails] Failed to get feedbackAuth:', error);
-        setFeedbackAuth(null);
-      } finally {
-        if (!cancelled) {
-          setFeedbackAuthLoading(false);
-        }
+      const clientAddr = getAddress(walletAddress) as `0x${string}`;
+      const approverAddr =
+        resolvePlainAddress((agent as any).agentAccount) ??
+        resolvePlainAddress((onChainMetadata as any)?.agentAccount) ??
+        null;
+      if (!approverAddr) {
+        throw new Error('Missing agentAccount for delegation record (approver)');
       }
-    })();
 
-    return () => { cancelled = true; };
-  }, [agent.a2aEndpoint, agent.agentId, chainId, did8004, isConnected, walletAddress, eip1193Provider, onChainMetadata]);
+      const description = JSON.stringify({
+        type: 'erc8004.feedbackAuth.delegation',
+        agentId: String(agent.agentId),
+        chainId: Number(chainId),
+        clientAddress: clientAddr,
+        createdAt: new Date().toISOString(),
+      });
+      const data = encodeAbiParameters(
+        parseAbiParameters('uint8 assocType, string description'),
+        [1, description],
+      ) as `0x${string}`;
+
+      const ethers = await import('ethers');
+      const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+        if (n === 0n) return new Uint8Array([0]);
+        let hex = n.toString(16);
+        if (hex.length % 2) hex = `0${hex}`;
+        return ethers.getBytes(`0x${hex}`);
+      };
+      const formatEvmV1 = (chainIdNum: number, address: string): string => {
+        const addr = ethers.getAddress(address);
+        const chainRef = toMinimalBigEndianBytes(BigInt(chainIdNum));
+        const head = ethers.getBytes('0x00010000');
+        const out = ethers.concat([
+          head,
+          new Uint8Array([chainRef.length]),
+          chainRef,
+          new Uint8Array([20]),
+          ethers.getBytes(addr),
+        ]);
+        return ethers.hexlify(out);
+      };
+
+      const record = {
+        initiator: formatEvmV1(Number(chainId), clientAddr),
+        approver: formatEvmV1(Number(chainId), approverAddr),
+        validAt: 0,
+        validUntil: 0,
+        interfaceId: '0x00000000',
+        data,
+      };
+
+      const associationId = associationIdFromRecord(record as any) as `0x${string}`;
+      setDelegationAssociationId(associationId);
+
+      const typedData = {
+        types: {
+          EIP712Domain: [
+            { name: 'name', type: 'string' },
+            { name: 'version', type: 'string' },
+          ],
+          AssociatedAccountRecord: [
+            { name: 'initiator', type: 'bytes' },
+            { name: 'approver', type: 'bytes' },
+            { name: 'validAt', type: 'uint40' },
+            { name: 'validUntil', type: 'uint40' },
+            { name: 'interfaceId', type: 'bytes4' },
+            { name: 'data', type: 'bytes' },
+          ],
+        },
+        primaryType: 'AssociatedAccountRecord',
+        domain: { name: 'AssociatedAccounts', version: '1' },
+        message: {
+          initiator: record.initiator,
+          approver: record.approver,
+          validAt: record.validAt,
+          validUntil: record.validUntil,
+          interfaceId: record.interfaceId,
+          data: record.data,
+        },
+      };
+
+      // Single signature request: initiator signs the associationId (EIP-712 digest of record)
+      const initiatorSignature = await signErc8092Digest({
+        provider: eip1193Provider,
+        signerAddress: clientAddr,
+        digest: associationId,
+        typedData,
+      });
+
+      const delegationSar = {
+        record,
+        initiatorSignature,
+        associationId,
+        initiatorKeyType: KEY_TYPE_K1,
+        approverKeyType: KEY_TYPE_DELEGATED,
+      };
+
+      const resp = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientAddress: clientAddr,
+          agentId: String(agent.agentId),
+          chainId: Number(chainId),
+          delegationSar,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errorData = await resp.json().catch(() => ({}));
+        throw new Error(errorData.message || errorData.error || 'ATP agent requestAuth failed');
+      }
+    } catch (e: any) {
+      setDelegationNotifyError(e?.message || String(e));
+    } finally {
+      setDelegationNotifyLoading(false);
+    }
+  }, [agent, chainId, did8004, eip1193Provider, isConnected, onChainMetadata, walletAddress]);
 
   const openDialog = useCallback((type: DialogState['type'], loadData?: () => Promise<void>) => {
     setDialogState({ type, loading: true });
@@ -1003,13 +755,14 @@ export default function AgentDetailsPageContent({
   }, [agent.agentUri, did8004, router]);
 
   const handleGiveFeedback = useCallback(() => {
-    if (!feedbackAuth) {
-      // Show feedback request dialog instead
-      setDialogState({ type: 'feedback-request' });
+    if (!isConnected) {
+      openLoginModal();
       return;
     }
     openDialog('give-feedback');
-  }, [feedbackAuth, openDialog]);
+    // Best-effort: on click, send one initiator signature + delegation SAR to ATP agent.
+    void notifyAtpAgentWithDelegation();
+  }, [isConnected, notifyAtpAgentWithDelegation, openDialog, openLoginModal]);
 
   const handleSendFeedbackRequest = useCallback(async () => {
     if (!feedbackRequestReason.trim()) {
@@ -1245,69 +998,27 @@ export default function AgentDetailsPageContent({
                 </Button>
               )}
 
-              {agent.a2aEndpoint && isConnected && (
-                  <>
-                    {!feedbackAuth && !feedbackAuthLoading && (
-                      <Button
-                        variant="outlined"
-                        color="primary"
-                        startIcon={<ChatBubbleOutlineIcon />}
-                        onClick={() => setDialogState({ type: 'feedback-request' })}
-                        sx={{
-                          borderColor: palette.accent,
-                          color: palette.accent,
-                          '&:hover': {
-                            backgroundColor: palette.accent,
-                            color: palette.surface,
-                            borderColor: palette.accent,
-                          },
-                          textTransform: 'none',
-                          fontWeight: 700,
-                        }}
-                      >
-                        Send Feedback Request
-                      </Button>
-                    )}
-                    {feedbackAuth && (
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        startIcon={<ChatBubbleOutlineIcon />}
-                        onClick={handleGiveFeedback}
-                        sx={{
-                          backgroundColor: palette.accent,
-                          color: palette.surface,
-                          border: `1px solid ${palette.accent}`,
-                          '&:hover': {
-                            backgroundColor: palette.border,
-                            color: palette.textPrimary,
-                            borderColor: palette.border,
-                          },
-                          textTransform: 'none',
-                          fontWeight: 700,
-                        }}
-                      >
-                        Give Feedback
-                      </Button>
-                    )}
-                    {feedbackAuthLoading && (
-                      <Button
-                        variant="contained"
-                        color="primary"
-                        disabled
-                        sx={{
-                          backgroundColor: palette.accent,
-                          color: palette.surface,
-                          border: `1px solid ${palette.accent}`,
-                          textTransform: 'none',
-                          fontWeight: 700,
-                        }}
-                      >
-                        Checking authorization...
-                      </Button>
-                    )}
-                  </>
-                )}
+              {/* Always show Give Feedback (no gating). */}
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<ChatBubbleOutlineIcon />}
+                onClick={handleGiveFeedback}
+                sx={{
+                  backgroundColor: palette.accent,
+                  color: palette.surface,
+                  border: `1px solid ${palette.accent}`,
+                  '&:hover': {
+                    backgroundColor: palette.border,
+                    color: palette.textPrimary,
+                    borderColor: palette.border,
+                  },
+                  textTransform: 'none',
+                  fontWeight: 700,
+                }}
+              >
+                Give Feedback
+              </Button>
             </Stack>
           </Box>
           <Box
@@ -1514,6 +1225,27 @@ export default function AgentDetailsPageContent({
             </Typography>
           )}
 
+          {/* Best-effort: show delegation/association notify status (does not block feedback). */}
+          {(delegationNotifyLoading || delegationNotifyError || delegationAssociationId) && (
+            <Box sx={{ mb: 2 }}>
+              {delegationNotifyLoading && (
+                <Alert severity="info">
+                  Preparing delegation (one signature)…
+                </Alert>
+              )}
+              {delegationNotifyError && (
+                <Alert severity="warning">
+                  Delegation setup failed (non-fatal): {delegationNotifyError}
+                </Alert>
+              )}
+              {!delegationNotifyLoading && !delegationNotifyError && delegationAssociationId && (
+                <Alert severity="success">
+                  Delegation prepared: {delegationAssociationId}
+                </Alert>
+              )}
+            </Box>
+          )}
+
           {agent.a2aEndpoint && (
             <Box sx={{ mb: 2, p: 1.5, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
               <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>
@@ -1678,175 +1410,7 @@ export default function AgentDetailsPageContent({
                 const agentId = String(agent.agentId);
                 const agentName = typeof agent.agentName === 'string' ? agent.agentName : undefined;
 
-                // Request feedbackAuth from provider (A2A). Include a client-built ERC-8092 delegation SAR
-                // so the provider can store it on-chain using its SessionPackage delegation.
-                const resolvePlainAddress = (value: unknown): `0x${string}` | null => {
-                  if (typeof value !== 'string') return null;
-                  const v = value.trim();
-                  if (!v) return null;
-                  if (v.startsWith('eip155:')) {
-                    const parts = v.split(':');
-                    const addr = parts[2];
-                    if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
-                  }
-                  if (v.includes(':')) {
-                    const parts = v.split(':');
-                    const last = parts[parts.length - 1];
-                    if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
-                  }
-                  if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
-                  return null;
-                };
-
-                const delegationSar = await (async (): Promise<any | null> => {
-                  if (!eip1193Provider) return null;
-                  const clientAddr = getAddress(clientAddress) as `0x${string}`;
-                  const approverAddr =
-                    resolvePlainAddress((agent as any).agentAccount) ??
-                    resolvePlainAddress((onChainMetadata as any)?.agentAccount) ??
-                    null;
-                  if (!approverAddr) return null;
-
-                  const description = JSON.stringify({
-                    type: 'erc8004.feedbackAuth.delegation',
-                    agentId: String(agentId),
-                    chainId: Number(chainId),
-                    clientAddress: clientAddr,
-                    createdAt: new Date().toISOString(),
-                  });
-                  const data = encodeAbiParameters(
-                    parseAbiParameters('uint8 assocType, string description'),
-                    [1, description],
-                  ) as `0x${string}`;
-
-                  const ethers = await import('ethers');
-                  const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
-                    if (n === 0n) return new Uint8Array([0]);
-                    let hex = n.toString(16);
-                    if (hex.length % 2) hex = `0${hex}`;
-                    return ethers.getBytes(`0x${hex}`);
-                  };
-                  const formatEvmV1 = (chainIdNum: number, address: string): string => {
-                    const addr = ethers.getAddress(address);
-                    const chainRef = toMinimalBigEndianBytes(BigInt(chainIdNum));
-                    const head = ethers.getBytes('0x00010000');
-                    const out = ethers.concat([
-                      head,
-                      new Uint8Array([chainRef.length]),
-                      chainRef,
-                      new Uint8Array([20]),
-                      ethers.getBytes(addr),
-                    ]);
-                    return ethers.hexlify(out);
-                  };
-
-                  const record = {
-                    initiator: formatEvmV1(Number(chainId), clientAddr),
-                    approver: formatEvmV1(Number(chainId), approverAddr),
-                    validAt: 0,
-                    validUntil: 0,
-                    interfaceId: '0x00000000',
-                    data,
-                  };
-
-                  const associationId = associationIdFromRecord(record as any) as `0x${string}`;
-                  const typedData = {
-                    types: {
-                      EIP712Domain: [
-                        { name: 'name', type: 'string' },
-                        { name: 'version', type: 'string' },
-                      ],
-                      AssociatedAccountRecord: [
-                        { name: 'initiator', type: 'bytes' },
-                        { name: 'approver', type: 'bytes' },
-                        { name: 'validAt', type: 'uint40' },
-                        { name: 'validUntil', type: 'uint40' },
-                        { name: 'interfaceId', type: 'bytes4' },
-                        { name: 'data', type: 'bytes' },
-                      ],
-                    },
-                    primaryType: 'AssociatedAccountRecord',
-                    domain: { name: 'AssociatedAccounts', version: '1' },
-                    message: {
-                      initiator: record.initiator,
-                      approver: record.approver,
-                      validAt: record.validAt,
-                      validUntil: record.validUntil,
-                      interfaceId: record.interfaceId,
-                      data: record.data,
-                    },
-                  };
-                  const initiatorSignature = await signErc8092Digest({
-                    provider: eip1193Provider,
-                    signerAddress: clientAddr,
-                    digest: associationId,
-                    typedData,
-                  });
-                  return { record, initiatorSignature };
-                })();
-
-                const feedbackAuthResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    clientAddress,
-                    agentId,
-                    chainId: Number(chainId),
-                    delegationSar,
-                  }),
-                });
-                if (!feedbackAuthResponse.ok) {
-                  const errorData = await feedbackAuthResponse.json().catch(() => ({}));
-                  throw new Error(errorData.message || errorData.error || 'Failed to get feedback auth');
-                }
-
-                const feedbackAuthData = await feedbackAuthResponse.json();
-                const feedbackAuthId = feedbackAuthData.feedbackAuthId;
-                const resolvedAgentId = feedbackAuthData.agentId || agentId;
-                const resolvedChainId = feedbackAuthData.chainId || chainId;
-                const delegationAssociation = (feedbackAuthData as any)?.delegationAssociation ?? null;
-
-                if (!feedbackAuthId) {
-                  throw new Error('No feedbackAuth returned by provider');
-                }
-
-                if (!resolvedAgentId) {
-                  throw new Error('Agent ID is required');
-                }
-
-                // If the agent returned a delegationAssociation, complete the initiator signature (wallet)
-                // and store the ERC-8092 association on-chain (so the client is memorialized as having
-                // rights to give feedback).
-                if (delegationAssociation && eip1193Provider) {
-                  // NOTE: We no longer store delegation associations from the browser.
-                  // The provider stores the client-built SAR on-chain using its SessionPackage delegation.
-                  console.log('[AgentDetails] Provider returned delegationAssociation (ignored client-side):', {
-                    associationId: (delegationAssociation as any)?.associationId,
-                  });
-                }
-
-                // Use the delegation payload pointer embedded in the ERC-8092 association (IPFS) as the
-                // capability/context for this feedback submission.
-                // This lets feedback submissions reference the exact delegation that granted rights.
-                let delegationPayloadUri: string | null = null;
-                try {
-                  const payloadUriRaw =
-                    (delegationAssociation as any)?.delegation?.payloadUri ??
-                    (delegationAssociation as any)?.payloadUri ??
-                    null;
-                  if (typeof payloadUriRaw === 'string' && payloadUriRaw.trim()) {
-                    delegationPayloadUri = payloadUriRaw.trim();
-                    // Best-effort fetch (useful for debugging / future server-side enforcement).
-                    const httpUrl = ipfsToHttp(delegationPayloadUri);
-                    if (httpUrl) {
-                      await fetch(httpUrl, { cache: 'no-store' }).then(() => null).catch(() => null);
-                    }
-                  }
-                } catch {
-                  // ignore
-                }
-
-                // Submit feedback to the API
+                // Submit feedback to the API (no feedbackAuth required)
                 const score = feedbackRating * 20; // Convert 1-5 to 0-100
 
                 const feedbackResponse = await fetch('/api/feedback', {
@@ -1855,11 +1419,10 @@ export default function AgentDetailsPageContent({
                     'Content-Type': 'application/json',
                   },
                   body: JSON.stringify({
-                    agentId: resolvedAgentId,
-                    chainId: resolvedChainId,
+                    agentId,
+                    chainId,
                     score,
                     feedback: feedbackComment,
-                    feedbackAuth: feedbackAuthId,
                     clientAddress,
                     ...(agentName && { agentName }),
                     ...(feedbackTag1 && { tag1: feedbackTag1 }),
@@ -1867,11 +1430,9 @@ export default function AgentDetailsPageContent({
                     ...(feedbackSkillId && { skill: feedbackSkillId }),
                     ...(feedbackContext && { context: feedbackContext }),
                     ...(feedbackCapability && { capability: feedbackCapability }),
-                    ...(!feedbackCapability && delegationPayloadUri
-                      ? { capability: `delegationPayloadUri:${delegationPayloadUri}` }
-                      : {}),
-                    ...(!feedbackContext && delegationAssociation?.associationId
-                      ? { context: `erc8092:${String(delegationAssociation.associationId)}` }
+                    // If user didn't supply context/capability and we have an associationId from delegation, include it.
+                    ...(!feedbackContext && delegationAssociationId
+                      ? { context: `erc8092:${String(delegationAssociationId)}` }
                       : {}),
                   }),
                 });

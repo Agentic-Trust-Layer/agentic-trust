@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
     } = body;
 
     // Validate required fields
-    if (!agentId || score === undefined || !feedbackAuth) {
+    if (!agentId || score === undefined) {
       return NextResponse.json(
-        { error: 'Missing required fields: agentId, score, feedbackAuth' },
+        { error: 'Missing required fields: agentId, score' },
         { status: 400 }
       );
     }
@@ -54,7 +54,8 @@ export async function POST(request: NextRequest) {
       ...(clientAddress && { clientAddress }),
       score: typeof score === 'number' ? score : parseInt(score, 10),
       feedback: feedback || 'Feedback submitted via admin client',
-      feedbackAuth: feedbackAuth,
+      // feedbackAuth is optional; pass '0x' when omitted
+      feedbackAuth: typeof feedbackAuth === 'string' && feedbackAuth.trim().length > 0 ? feedbackAuth : '0x',
       tag1,
       tag2,
       feedbackUri,

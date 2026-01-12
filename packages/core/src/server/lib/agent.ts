@@ -739,7 +739,7 @@ export class Agent {
   }
 
   private async buildFeedbackSubmission(
-    params: GiveFeedbackInput & { feedbackAuth: string },
+    params: GiveFeedbackInput,
   ): Promise<{
     chainId: number;
     giveParams: GiveFeedbackParams;
@@ -763,10 +763,10 @@ export class Agent {
     }
     const normalizedScore = Math.max(0, Math.min(100, Math.round(score)));
 
-    const feedbackAuth = params.feedbackAuth;
-    if (!feedbackAuth) {
-      throw new Error('feedbackAuth is required to submit feedback');
-    }
+    // feedbackAuth is OPTIONAL in the "no-auth" flow.
+    // Keep it around for backward compatibility with older off-chain schemas,
+    // but do not require it for on-chain submission.
+    const feedbackAuth = (params.feedbackAuth && String(params.feedbackAuth).trim()) || '0x';
 
     // Prefer an explicit clientAddress from params (e.g. browser wallet / Web3Auth).
     // Only fall back to ClientApp (server-side private key) when clientAddress is not provided.
@@ -869,14 +869,7 @@ export class Agent {
    * Submit client feedback to the reputation contract.
    */
   async giveFeedback(params: GiveFeedbackInput): Promise<{ txHash: string }> {
-    if (!params.feedbackAuth) {
-      throw new Error('feedbackAuth is required to submit feedback');
-    }
-
-    const { chainId, giveParams } = await this.buildFeedbackSubmission({
-      ...params,
-      feedbackAuth: params.feedbackAuth,
-    });
+    const { chainId, giveParams } = await this.buildFeedbackSubmission(params);
     const reputationClient = await getReputationRegistryClient(chainId);
     return reputationClient.giveClientFeedback(giveParams);
   }
@@ -887,14 +880,7 @@ export class Agent {
   async prepareGiveFeedback(
     params: GiveFeedbackInput,
   ): Promise<{ chainId: number; transaction: PreparedTransaction }> {
-    if (!params.feedbackAuth) {
-      throw new Error('feedbackAuth is required to prepare feedback transaction');
-    }
-
-    const { chainId, giveParams } = await this.buildFeedbackSubmission({
-      ...params,
-      feedbackAuth: params.feedbackAuth,
-    });
+    const { chainId, giveParams } = await this.buildFeedbackSubmission(params);
     const reputationClient = await getReputationRegistryClient(chainId);
     const txRequest = await reputationClient.prepareGiveFeedbackTx(giveParams);
 
