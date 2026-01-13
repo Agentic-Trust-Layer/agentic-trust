@@ -48,12 +48,21 @@ type GenerateSessionPackageParams = {
   selector?: `0x${string}`;
 };
 
-const VALIDATION_RESPONSE_SIGNATURE =
-  'validationResponse(bytes32,uint8,string,bytes32,bytes32)';
-const DEFAULT_SELECTOR = keccak256(stringToHex(VALIDATION_RESPONSE_SIGNATURE)).slice(
-  0,
-  10,
-) as `0x${string}`;
+// NOTE: ValidationRegistry.validationResponse has a *string* tag param (see AIAgentValidationClient.prepareValidationResponseTx).
+// If this signature is wrong, the delegation scope selector will be wrong and AllowedMethodsEnforcer will revert.
+// Derive selector from ABI to avoid signature drift (prevents AllowedMethodsEnforcer:method-not-allowed).
+const DEFAULT_SELECTOR = encodeFunctionData({
+  abi: ValidationRegistryAbi as any,
+  functionName: 'validationResponse',
+  // args are only used for type/ABI selection; selector is stable.
+  args: [
+    '0x0000000000000000000000000000000000000000000000000000000000000000', // requestHash
+    0, // response
+    '', // responseURI
+    '0x0000000000000000000000000000000000000000000000000000000000000000', // responseHash
+    '', // tag (string)
+  ],
+}).slice(0, 10) as `0x${string}`;
 const DEFAULT_ENTRY_POINT = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
 
 function normalizeHex(value?: string | null): `0x${string}` | undefined {

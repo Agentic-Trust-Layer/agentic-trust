@@ -17,6 +17,7 @@ import {
   DEFAULT_CHAIN_ID,
   getChainBundlerUrl,
   getChainById,
+  requireChainEnvVar,
 } from '../lib/chainConfig';
 import { getAgenticTrustClient } from '../lib/agenticTrust';
 import { getValidationRegistryClient } from '../singletons/validationClient';
@@ -121,6 +122,37 @@ export async function processValidationRequestsWithSessionPackage(params: {
   const { sessionAccountClient, delegationSetup, validatorAddress, bundlerUrl, chain } = context;
 
   const validationRegistryClient = await getValidationRegistryClient(chainId);
+
+  // Preflight: ensure ValidationRegistry is wired to the same IdentityRegistry we expect for this chain.
+  // If these disagree, authorization + status reads will not match what the UI shows.
+  try {
+    const configuredValidationRegistry = requireChainEnvVar('AGENTIC_TRUST_VALIDATION_REGISTRY', chainId);
+    const configuredIdentityRegistry = requireChainEnvVar('AGENTIC_TRUST_IDENTITY_REGISTRY', chainId);
+    const onChainIdentityRegistry = (await (validationRegistryClient as any).getIdentityRegistry()) as string;
+
+    const ok =
+      typeof onChainIdentityRegistry === 'string' &&
+      onChainIdentityRegistry.toLowerCase() === configuredIdentityRegistry.toLowerCase();
+
+    console.log('[delegatedValidation] ValidationRegistry wiring preflight:', {
+      chainId,
+      configuredValidationRegistry,
+      configuredIdentityRegistry,
+      onChainIdentityRegistry,
+      ok,
+    });
+
+    if (!ok) {
+      throw new Error(
+        `ValidationRegistry wiring mismatch for chain ${chainId}. ` +
+          `Configured AGENTIC_TRUST_VALIDATION_REGISTRY (${configuredValidationRegistry}) points to IdentityRegistry ${onChainIdentityRegistry}, ` +
+          `but AGENTIC_TRUST_IDENTITY_REGISTRY is ${configuredIdentityRegistry}.`,
+      );
+    }
+  } catch (e) {
+    // No fallbacks: if we can't trust wiring, do not proceed.
+    throw e;
+  }
 
   let requestHashes: string[] = [];
   

@@ -8,8 +8,19 @@ import IdentityRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/IdentityRegist
 import ValidationRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/ValidationRegistry.json';
 import { getChainRpcUrl, getChainBundlerUrl, getChainIdHex, getChainConfig, getChainById, } from '../server/lib/chainConfig';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from './accountClient';
-const VALIDATION_RESPONSE_SIGNATURE = 'validationResponse(bytes32,uint8,string,bytes32,bytes32)';
-const DEFAULT_SELECTOR = keccak256(stringToHex(VALIDATION_RESPONSE_SIGNATURE)).slice(0, 10);
+// Derive selector from ABI to avoid signature drift (prevents AllowedMethodsEnforcer:method-not-allowed).
+const DEFAULT_SELECTOR = encodeFunctionData({
+    abi: ValidationRegistryAbi,
+    functionName: 'validationResponse',
+    // args are only used for type/ABI selection; selector is stable.
+    args: [
+        '0x0000000000000000000000000000000000000000000000000000000000000000',
+        0,
+        '',
+        '0x0000000000000000000000000000000000000000000000000000000000000000',
+        '',
+    ],
+}).slice(0, 10);
 const DEFAULT_ENTRY_POINT = '0x0000000071727De22E5E9d8BAf0edAc6f37da032';
 function normalizeHex(value) {
     if (!value)

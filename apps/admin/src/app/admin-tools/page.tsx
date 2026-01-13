@@ -551,10 +551,16 @@ export default function AdminPage() {
         let sessionPackageCreated = false;
         let pkg: any = null;
         try {
+          const agentAccountPlain = resolvePlainAddress(displayAgentAddress);
+          if (!agentAccountPlain) {
+            throw new Error(
+              `Invalid agent account address (expected 0x...): ${displayAgentAddress}`,
+            );
+          }
           pkg = await generateSessionPackage({
             agentId: agentIdNumeric,
             chainId: parsedChainId,
-            agentAccount: displayAgentAddress as `0x${string}`,
+            agentAccount: agentAccountPlain as `0x${string}`,
             provider: eip1193Provider,
             ownerAddress: headerAddress as `0x${string}`,
             rpcUrl: chainEnv.rpcUrl,
