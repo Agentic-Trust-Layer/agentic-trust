@@ -1925,7 +1925,7 @@ export async function requestNameValidationWithWallet(options) {
 export async function requestAccountValidationWithWallet(options) {
     const { requesterDid, chain, requesterAccountClient, mode = 'smartAccount', ethereumProvider, account, requestUri, requestHash, onStatusUpdate, } = options;
     onStatusUpdate?.('Preparing validation request on server...');
-    const validatorName = 'account-validator';
+    const validatorName = 'account-validation';
     const chainIdFromDid = (() => parseDid8004(requesterDid).chainId)();
     async function resolveValidatorAddressByName(params) {
         const urlParams = new URLSearchParams({
@@ -2085,7 +2085,7 @@ export async function requestAccountValidationWithWallet(options) {
 export async function requestAppValidationWithWallet(options) {
     const { requesterDid, chain, requesterAccountClient, mode = 'smartAccount', ethereumProvider, account, requestUri, requestHash, onStatusUpdate, } = options;
     onStatusUpdate?.('Preparing validation request on server...');
-    const validatorName = 'app-validator';
+    const validatorName = 'app-validation';
     const chainIdFromDid = (() => parseDid8004(requesterDid).chainId)();
     async function resolveValidatorAddressByName(params) {
         const urlParams = new URLSearchParams({

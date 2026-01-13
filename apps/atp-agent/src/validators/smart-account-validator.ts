@@ -65,8 +65,19 @@ export async function processSmartAccountValidatorLogic(
       };
     }
 
+    // Handle CAIP-10 format (chainId:address) or plain address
+    let agentAccountPlain: string = agentAccount;
+    if (typeof agentAccount === 'string' && agentAccount.includes(':')) {
+      // Extract address from CAIP-10 format (e.g., "11155111:0x..." or "eip155:11155111:0x...")
+      const parts = agentAccount.split(':');
+      const addressPart = parts[parts.length - 1];
+      if (addressPart && addressPart.startsWith('0x')) {
+        agentAccountPlain = addressPart;
+      }
+    }
+
     // Check if agent account is a valid address format
-    const isValidAddress = /^0x[a-fA-F0-9]{40}$/.test(agentAccount);
+    const isValidAddress = /^0x[a-fA-F0-9]{40}$/.test(agentAccountPlain);
     if (!isValidAddress) {
       return {
         shouldProceed: false,

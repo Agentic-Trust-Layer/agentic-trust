@@ -1341,9 +1341,9 @@ export default function MessagesPage() {
             selectedIntentType === 'trust.name_validation'
               ? await fetchAgentsByName('name-validation')
               : selectedIntentType === 'trust.account_validation'
-                ? await fetchAgentsByName('account-validator')
-                : selectedIntentType === 'trust.app_validation'
-                  ? await fetchAgentsByName('app-validator')
+              ? await fetchAgentsByName('account-validation')
+              : selectedIntentType === 'trust.app_validation'
+                ? await fetchAgentsByName('app-validation')
                   : [];
 
           const merged = (() => {

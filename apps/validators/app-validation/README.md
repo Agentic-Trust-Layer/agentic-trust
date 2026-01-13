@@ -128,7 +128,7 @@ Get the current status of validation requests for the validator.
 
 1. **Validator App**: The validator app uses `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY` for signing transactions via the `validatorApp` userApp.
 
-2. **Validator Address**: The validator address (AA address) is derived from `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY` using the same method as in the admin app (seed: 'app-validator'). This is the address that validation requests are sent to.
+2. **Validator Address**: The validator address (AA address) is derived from `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY` using the same method as in the admin app (seed: 'app-validation'). This is the address that validation requests are sent to.
 
 2. **Reading Requests**: The service calls `getValidatorRequests(validatorAddress)` to get all validation requests for the validator.
 
@@ -147,6 +147,6 @@ Get the current status of validation requests for the validator.
 - The validator only processes requests where `response === 0` (pending/unprocessed)
 - Validation responses are submitted with a score of 100 for valid agents
 - The validator uses `validatorApp` (via `AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY`) for signing transactions
-- The validator address (AA address) uses the same account abstraction address calculation as the admin app (seed: 'app-validator')
+- The validator address (AA address) uses the same account abstraction address calculation as the admin app (seed: 'app-validation')
 - All validation logic uses the `@agentic-trust/core` library and `AgenticTrustClient` for consistency
 

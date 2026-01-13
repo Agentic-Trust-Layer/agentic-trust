@@ -208,7 +208,7 @@ export async function processValidationRequests(
 
   console.log(`[Validator] Creating validator account abstraction...`);
   const { address: validatorAddress, accountClient: validatorAccountClient } = await createValidatorAccountAbstraction(
-    'app-validator',
+    'app-validation',
     validatorEnsPrivateKey,
     chainId,
   );

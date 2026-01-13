@@ -1848,12 +1848,12 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const resolvedAgentId = String(agentIdParam);
         const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
 
-        // Special handling for account-validator subdomain
-        if (subdomain === 'account-validator') {
+        // Special handling for account-validation subdomain
+        if (subdomain === 'account-validation') {
           console.log('[ATP Agent] Smart Account Validator subdomain detected, running smart account-specific validation logic');
           
           if (!sessionPackage) {
-            responseContent.error = 'Session package is required for account-validator. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+            responseContent.error = 'Session package is required for account-validation. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
             responseContent.success = false;
             res.set(getCorsHeaders());
             return res.status(400).json({
@@ -1896,12 +1896,12 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           console.log('[ATP Agent] ✅ Smart account validator logic passed, proceeding with standard validation response');
         }
 
-        // Special handling for app-validator subdomain
-        if (subdomain === 'app-validator') {
+        // Special handling for app-validation subdomain
+        if (subdomain === 'app-validation') {
           console.log('[ATP Agent] Smart App Validator subdomain detected, running smart app-specific validation logic');
           
           if (!sessionPackage) {
-            responseContent.error = 'Session package is required for app-validator. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+            responseContent.error = 'Session package is required for app-validation. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
             responseContent.success = false;
             res.set(getCorsHeaders());
             return res.status(400).json({

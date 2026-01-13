@@ -195,10 +195,13 @@ export async function processValidationRequestsWithSessionPackage(params: {
         validatorAddress: `${status.validatorAddress} (validator expected by this request)`,
         agentId: `${status.agentId?.toString()} (agent being validated)`,
       });
+      const requestValidatorAddressLower = status.validatorAddress.toLowerCase();
+      const validatorAddressMatches = requestValidatorAddressLower === validatorAddress.toLowerCase();
+      
       console.log('[delegatedValidation] Validator address check:', {
-        requestHashExpectedValidatorAddress: status.validatorAddress.toLowerCase(),
+        requestHashExpectedValidatorAddress: requestValidatorAddressLower,
         sessionPackageValidatorAddress: validatorAddress.toLowerCase(),
-        match: status.validatorAddress.toLowerCase() === validatorAddress.toLowerCase(),
+        match: validatorAddressMatches,
       });
 
       if (status.response !== 0) {
@@ -206,11 +209,19 @@ export async function processValidationRequestsWithSessionPackage(params: {
         continue;
       }
 
-      if (status.validatorAddress.toLowerCase() !== validatorAddress.toLowerCase()) {
+      if (!validatorAddressMatches) {
+        const errorMessage = 'This validation request is out of date. The validator address in the request does not match the current validator. Please create a new validation request with the updated validator name (account-validation or app-validation instead of account-validator or app-validator).';
         console.log('[delegatedValidation] ❌ Skipping: VALIDATOR ADDRESS MISMATCH');
         console.log('[delegatedValidation]   The validation request expects validator:', status.validatorAddress);
-        console.log('[delegatedValidation]   But SessionPackage validator address is:', validatorAddress);
-        console.log('[delegatedValidation]   This validation request cannot be processed by this validator.');
+        console.log('[delegatedValidation]   SessionPackage validator address is:', validatorAddress);
+        console.log('[delegatedValidation]   Error:', errorMessage);
+        results.push({
+          requestHash,
+          agentId: status.agentId?.toString() || 'unknown',
+          chainId,
+          success: false,
+          error: errorMessage,
+        });
         continue;
       }
 

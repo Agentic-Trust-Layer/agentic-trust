@@ -3224,7 +3224,7 @@ export async function requestAccountValidationWithWallet(
 
   onStatusUpdate?.('Preparing validation request on server...');
 
-  const validatorName = 'account-validator';
+  const validatorName = 'account-validation';
   const chainIdFromDid = (() => {
     return parseDid8004(requesterDid).chainId;
   })();
@@ -3457,7 +3457,7 @@ export async function requestAppValidationWithWallet(
 
   onStatusUpdate?.('Preparing validation request on server...');
 
-  const validatorName = 'app-validator';
+  const validatorName = 'app-validation';
   const chainIdFromDid = (() => {
     return parseDid8004(requesterDid).chainId;
   })();

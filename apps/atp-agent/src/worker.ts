@@ -1765,7 +1765,7 @@ const handleA2A = async (c: HonoContext) => {
           const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
 
           // Load session package first (needed for validator logic)
-          const validatorSubdomain = subdomain === 'name-validation' || subdomain === 'account-validator' || subdomain === 'app-validator';
+          const validatorSubdomain = subdomain === 'name-validation' || subdomain === 'account-validation' || subdomain === 'app-validation';
           if (validatorSubdomain) {
             console.log('[ATP Agent] Attempting to load session package for validator subdomain:', subdomain);
           }
@@ -1934,7 +1934,7 @@ const handleA2A = async (c: HonoContext) => {
         }
 
         if (!sessionPackage) {
-          const validatorSubdomain = subdomain === 'name-validation' || subdomain === 'account-validator' || subdomain === 'app-validator';
+          const validatorSubdomain = subdomain === 'name-validation' || subdomain === 'account-validation' || subdomain === 'app-validation';
           responseContent.error = validatorSubdomain
             ? `Session package is required for ${subdomain}. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.`
             : 'Session package is required for validation.respond. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
@@ -1948,6 +1948,14 @@ const handleA2A = async (c: HonoContext) => {
 
         // Track validator validation status
         let validatorValidated: boolean | undefined = undefined;
+
+        console.log('[ATP Agent] Checking subdomain for validator logic:', {
+          subdomain,
+          subdomainType: typeof subdomain,
+          isNameValidation: subdomain === 'name-validation',
+          isAccountValidation: subdomain === 'account-validation',
+          isAppValidation: subdomain === 'app-validation',
+        });
 
         // Special handling for name-validation subdomain
         if (subdomain === 'name-validation') {
@@ -1985,8 +1993,8 @@ const handleA2A = async (c: HonoContext) => {
           console.log('[ATP Agent] ✅ ENS validator logic passed, proceeding with standard validation response');
         }
 
-        // Special handling for account-validator subdomain
-        if (subdomain === 'account-validator') {
+        // Special handling for account-validation subdomain
+        if (subdomain === 'account-validation') {
           console.log('[ATP Agent] Smart Account Validator subdomain detected, running smart account-specific validation logic');
           
           const { processSmartAccountValidatorLogic } = await import('./validators/smart-account-validator');
@@ -2021,8 +2029,8 @@ const handleA2A = async (c: HonoContext) => {
           console.log('[ATP Agent] ✅ Smart account validator logic passed, proceeding with standard validation response');
         }
 
-        // Special handling for app-validator subdomain
-        if (subdomain === 'app-validator') {
+        // Special handling for app-validation subdomain
+        if (subdomain === 'app-validation') {
           console.log('[ATP Agent] Smart App Validator subdomain detected, running smart app-specific validation logic');
           
           const { processSmartAppValidatorLogic } = await import('./validators/smart-app-validator');

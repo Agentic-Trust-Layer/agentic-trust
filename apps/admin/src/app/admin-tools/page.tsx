@@ -1927,8 +1927,8 @@ export default function AdminPage() {
 
     const validatorNames = {
       validation: 'name-validation',
-      accountValidation: 'account-validator',
-      appValidation: 'app-validator',
+      accountValidation: 'account-validation',
+      appValidation: 'app-validation',
       aidValidation: 'aid-validator',
     };
 
