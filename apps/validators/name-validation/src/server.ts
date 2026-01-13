@@ -147,7 +147,7 @@ app.get('/api/status', async (req: Request, res: Response) => {
 
     const { createValidatorAccountAbstraction } = await import('@agentic-trust/core/server');
     const { address: validatorAddress } = await createValidatorAccountAbstraction(
-      'name-validator',
+      'name-validation',
       validatorPrivateKey,
       chainId,
     );

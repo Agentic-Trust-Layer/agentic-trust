@@ -154,7 +154,9 @@ export type AgentSkillId =
   | 'integration.protocol_handling'
   | 'trust.identity.validation'
   | 'trust.feedback.authorization'
-  | 'trust.validation.attestation'
+  | 'trust.validate.name'
+  | 'trust.validate.account'
+  | 'trust.validate.app'
   | 'trust.association.attestation'
   | 'trust.membership.attestation'
   | 'trust.delegation.attestation'
@@ -201,8 +203,22 @@ export const AGENT_SKILL_OPTIONS: readonly AgentSkillOption[] = [
     oasfExtension: true,
   },
   {
-    id: 'trust.validation.attestation',
-    label: 'Trust · validation attestation',
+    id: 'trust.validate.name',
+    label: 'Trust · name validation',
+    description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
+    domains: ['governance-and-trust'],
+    oasfExtension: true,
+  },
+  {
+    id: 'trust.validate.account',
+    label: 'Trust · account validation',
+    description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
+    domains: ['governance-and-trust'],
+    oasfExtension: true,
+  },
+  {
+    id: 'trust.validate.app',
+    label: 'Trust · app validation',
     description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
     domains: ['governance-and-trust'],
     oasfExtension: true,

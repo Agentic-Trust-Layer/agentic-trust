@@ -1,12 +1,16 @@
 export type InboxTaskType =
   | 'general'
   | 'feedback_auth_request'
-  | 'validation_request'
+  | 'name_validation_request'
+  | 'account_validation_request'
+  | 'app_validation_request'
   | 'association_request';
 
 export type InboxIntentType =
   | 'general'
-  | 'trust.validation'
+  | 'trust.name_validation'
+  | 'trust.account_validation'
+  | 'trust.app_validation'
   | 'trust.feedback'
   | 'trust.association'
   | 'trust.membership'
@@ -42,10 +46,22 @@ export const INBOX_TASK_TYPE_OPTIONS: InboxTaskTypeOption[] = [
     requiredToAgentSkills: ['oasf:trust.feedback.authorization'],
   },
   {
-    value: 'validation_request',
-    label: 'Request Validation',
-    requiredOsafSkills: ['trust.validation.attestation'],
-    requiredToAgentSkills: ['oasf:trust.validation.attestation'],
+    value: 'name_validation_request',
+    label: 'Request Name Validation',
+    requiredOsafSkills: ['trust.validate.name'],
+    requiredToAgentSkills: ['oasf:trust.validate.name'],
+  },
+  {
+    value: 'account_validation_request',
+    label: 'Request Account Validation',
+    requiredOsafSkills: ['trust.validate.account'],
+    requiredToAgentSkills: ['oasf:trust.validate.account'],
+  },
+  {
+    value: 'app_validation_request',
+    label: 'Request App Validation',
+    requiredOsafSkills: ['trust.validate.app'],
+    requiredToAgentSkills: ['oasf:trust.validate.app'],
   },
   {
     value: 'association_request',
@@ -56,7 +72,9 @@ export const INBOX_TASK_TYPE_OPTIONS: InboxTaskTypeOption[] = [
 
 export const INBOX_INTENT_TYPE_OPTIONS: InboxIntentTypeOption[] = [
   { value: 'general', label: 'General', defaultTaskType: 'general' },
-  { value: 'trust.validation', label: 'Trust Validation', defaultTaskType: 'validation_request' },
+  { value: 'trust.name_validation', label: 'Trust Name Validation', defaultTaskType: 'name_validation_request' },
+  { value: 'trust.account_validation', label: 'Trust Account Validation', defaultTaskType: 'account_validation_request' },
+  { value: 'trust.app_validation', label: 'Trust App Validation', defaultTaskType: 'app_validation_request' },
   { value: 'trust.feedback', label: 'Trust Feedback', defaultTaskType: 'feedback_auth_request' },
   { value: 'trust.association', label: 'Trust Association', defaultTaskType: 'association_request' },
   { value: 'trust.membership', label: 'Trust Membership', defaultTaskType: 'association_request' },

@@ -109,3 +109,39 @@ When working with the Agentic Trust library, ERC-8004, agent identity, reputatio
     // 4. Wait for Receipt
     const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
     ```
+-   **No Fallback Logic Rule**:
+    -   **Principle**: If required data cannot be determined, fail early with a clear error message. Do not attempt actions with incomplete or guessed data.
+    -   **Rationale**: Fallback logic can mask configuration issues and lead to incorrect behavior (e.g., sending transactions from the wrong account type, causing "Not authorized" errors).
+    -   **Pattern**: When determining critical state (e.g., account type, ownership, mode), fetch the required data and validate it exists. If it's missing, throw an error explaining what's needed.
+    -   **Example - Validation Requests**:
+        ```typescript
+        // ❌ BAD: Silent fallback to default mode
+        let requesterWalletOnChain: `0x${string}` | null = null;
+        try {
+          const r = await fetch(`/api/agents/${did}`);
+          if (r.ok) {
+            const d = await r.json();
+            requesterWalletOnChain = resolvePlainAddress(d?.identityMetadata?.metadata?.agentWallet);
+          }
+        } catch {
+          // best-effort - silently continues with null
+        }
+        const mode = isEoaOwnedRequester ? 'eoa' : 'smartAccount'; // Wrong if requesterWalletOnChain is null!
+
+        // ✅ GOOD: Fail early if required data is missing
+        const r = await fetch(`/api/agents/${did}`);
+        if (!r.ok) {
+          throw new Error(`Failed to fetch agent details: ${r.status}. Cannot determine validation request mode.`);
+        }
+        const d = await r.json();
+        const metaWallet = d?.identityMetadata?.metadata?.agentWallet ?? null;
+        if (!metaWallet) {
+          throw new Error(`Agent has no on-chain agentWallet. Cannot determine validation request mode. The agent must have its agentWallet set on-chain.`);
+        }
+        const requesterWalletOnChain = resolvePlainAddress(metaWallet);
+        if (!requesterWalletOnChain) {
+          throw new Error(`Invalid agentWallet format: ${metaWallet}. Cannot determine validation request mode.`);
+        }
+        const mode = isEoaOwnedRequester ? 'eoa' : 'smartAccount'; // Now guaranteed to be correct
+        ```
+    -   **When to Apply**: Use this rule for any operation that requires on-chain state to determine the correct execution path (e.g., account type detection, ownership checks, mode selection).

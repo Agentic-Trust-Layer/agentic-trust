@@ -426,8 +426,8 @@ const buildSkills = (subdomain: string | null | undefined) => {
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     },
     {
-      id: 'oasf:trust.validation.attestation',
-      name: 'oasf:trust.validation.attestation',
+      id: 'oasf:trust.validate.name',
+      name: 'oasf:trust.validate.name',
       tags: ['erc8004', 'validation', 'attestation', 'a2a'],
       examples: ['Submit a validation response for a pending validation request'],
       inputModes: ['text', 'json'],
@@ -705,8 +705,18 @@ const serveAgentCard = async (req: Request, res: Response) => {
       add('oasf:governance.audit.provenance');
       add('oasfDomain:governance-and-trust');
     }
-    if (id === 'oasf:trust.validation.attestation') {
-      add('oasf:trust.validation.attestation');
+    if (id === 'oasf:trust.validate.name') {
+      add('oasf:trust.validate.name');
+      add('oasfDomain:governance-and-trust');
+      add('oasfDomain:collaboration');
+    }
+    if (id === 'oasf:trust.validate.account') {
+      add('oasf:trust.validate.account');
+      add('oasfDomain:governance-and-trust');
+      add('oasfDomain:collaboration');
+    }
+    if (id === 'oasf:trust.validate.app') {
+      add('oasf:trust.validate.app');
       add('oasfDomain:governance-and-trust');
       add('oasfDomain:collaboration');
     }
@@ -757,7 +767,9 @@ const serveAgentCard = async (req: Request, res: Response) => {
     'integration.protocol_handling',
     'trust.identity.validation',
     'trust.feedback.authorization',
-    'trust.validation.attestation',
+    'trust.validate.name',
+    'trust.validate.account',
+    'trust.validate.app',
     'trust.association.attestation',
     'trust.membership.attestation',
     'trust.delegation.attestation',
@@ -804,9 +816,11 @@ const serveAgentCard = async (req: Request, res: Response) => {
               'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
-              'atp.feedback.markGiven': ['trust.validation.attestation', 'collaboration'],
+              'atp.feedback.markGiven': ['trust.validate.name', 'collaboration'],
               'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
-              'oasf:trust.validation.attestation': ['trust.validation.attestation', 'collaboration'],
+              'oasf:trust.validate.name': ['trust.validate.name', 'collaboration'],
+              'oasf:trust.validate.account': ['trust.validate.account', 'collaboration'],
+              'oasf:trust.validate.app': ['trust.validate.app', 'collaboration'],
               'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
               'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
@@ -1003,7 +1017,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
       'oasf:trust.feedback.authorization',
-      'oasf:trust.validation.attestation',
+      'oasf:trust.validate.name',
+      'oasf:trust.validate.account',
+      'oasf:trust.validate.app',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
       'atp.agent.createOrUpdate',
@@ -1606,7 +1622,10 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'oasf:trust.validation.attestation') {
+    } else if (skillId === 'oasf:trust.validate.name' ||
+      skillId === 'oasf:trust.validate.account' ||
+      skillId === 'oasf:trust.validate.app'
+    ) {
       // Process validation response using session package
       console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
       try {
@@ -1624,7 +1643,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           chainIdParam,
           requestHashParam,
           subdomain,
-          subdomainEqualsEnsValidator: subdomain === 'smart-name-validator',
+          subdomainEqualsEnsValidator: subdomain === 'name-validation',
         });
 
         // Declare sessionPackage at function scope so it can be reused
@@ -1633,8 +1652,8 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         // Track validator validation status (set below for ens-validator, undefined for others)
         let validatorValidated: boolean | undefined = undefined;
 
-        // Special handling for ens-validator subdomain
-        if (subdomain === 'smart-name-validator') {
+        // Special handling for name-validation subdomain
+        if (subdomain === 'name-validation') {
           console.log('[ATP Agent] ✅ ENS Validator subdomain detected, running ENS-specific validation logic');
           console.log('[ATP Agent] Subdomain:', subdomain, 'agentIdParam:', agentIdParam);
           
@@ -1829,12 +1848,12 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const resolvedAgentId = String(agentIdParam);
         const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
 
-        // Special handling for smart-account-validator subdomain
-        if (subdomain === 'smart-account-validator') {
+        // Special handling for account-validator subdomain
+        if (subdomain === 'account-validator') {
           console.log('[ATP Agent] Smart Account Validator subdomain detected, running smart account-specific validation logic');
           
           if (!sessionPackage) {
-            responseContent.error = 'Session package is required for smart-account-validator. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+            responseContent.error = 'Session package is required for account-validator. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
             responseContent.success = false;
             res.set(getCorsHeaders());
             return res.status(400).json({
@@ -1877,12 +1896,12 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           console.log('[ATP Agent] ✅ Smart account validator logic passed, proceeding with standard validation response');
         }
 
-        // Special handling for smart-app-validator subdomain
-        if (subdomain === 'smart-app-validator') {
+        // Special handling for app-validator subdomain
+        if (subdomain === 'app-validator') {
           console.log('[ATP Agent] Smart App Validator subdomain detected, running smart app-specific validation logic');
           
           if (!sessionPackage) {
-            responseContent.error = 'Session package is required for smart-app-validator. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+            responseContent.error = 'Session package is required for app-validator. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
             responseContent.success = false;
             res.set(getCorsHeaders());
             return res.status(400).json({
@@ -1939,7 +1958,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
             // Use same lookup pattern as other session package lookups (matches database structure)
             // Database may have ens_name as just domain ('8004-agent.eth') or full name ('ens-validator.8004-agent.eth')
-            // and agent_name as base name ('smart-name-validator') or full name
+            // and agent_name as base name ('name-validation') or full name
             const agentRecord = await db.prepare(
               `SELECT id, ens_name, agent_name, session_package, updated_at
                FROM agents

@@ -41,7 +41,7 @@ export async function GET(
       );
     }
 
-    // Get agent data which includes tokenUri
+    // Get agent data which includes agentUri (registration URI)
     const client = await getAgenticTrustClient();
     const agent = await client.agents.getAgent(String(agentId), chainId);
     
@@ -52,18 +52,18 @@ export async function GET(
       );
     }
 
-    // Get tokenUri from agent data
-    const tokenUri = (agent.data as any)?.tokenUri;
+    // Get agentUri from agent data
+    const agentUri = (agent.data as any)?.agentUri;
     
-    if (!tokenUri) {
+    if (!agentUri) {
       return NextResponse.json(
-        { error: 'Token URI not found for agent' },
+        { error: 'agentUri not found for agent' },
         { status: 404 },
       );
     }
 
     // Fetch IPFS data
-    const ipfsUrl = ipfsToHttp(tokenUri);
+    const ipfsUrl = ipfsToHttp(agentUri);
     const ipfsResponse = await fetch(ipfsUrl);
     if (!ipfsResponse.ok) {
       return NextResponse.json(
@@ -107,13 +107,13 @@ export async function GET(
         if (agentCard) {
           // Check if agent card has the validation skill
           const hasValidationSkill = agentCard.skills?.some(
-            (skill: any) => skill.id === 'oasf:trust.validation.attestation'
+            (skill: any) => skill.id === 'oasf:trust.validate.name'
           ) || false;
 
           validationResult = {
             verified: true,
             hasSkill: hasValidationSkill,
-            skillName: hasValidationSkill ? 'oasf:trust.validation.attestation' : undefined,
+            skillName: hasValidationSkill ? 'oasf:trust.validate.name' : undefined,
           };
         } else {
           validationResult = {
@@ -133,7 +133,7 @@ export async function GET(
 
     return NextResponse.json({
       success: true,
-      tokenUri,
+      agentUri,
       ipfsData,
       a2aEndpoint,
       validation: validationResult,

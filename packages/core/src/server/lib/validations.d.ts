@@ -11,7 +11,7 @@ export interface AgentValidationsSummary {
 }
 export declare function getAgentValidationsSummary(chainId: number, agentId: string | number): Promise<AgentValidationsSummary>;
 /**
- * Create a validator account abstraction using the name 'name-validator' as the seed from a private key.
+ * Create a validator account abstraction using the name 'name-validation' as the seed from a private key.
  * The validator address is determined server-side based on AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY.
  */
 export declare function createValidatorAccountAbstraction(validatorName: string, validatorPrivateKey: string, chainId?: number): Promise<{

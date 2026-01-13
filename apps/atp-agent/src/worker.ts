@@ -439,7 +439,9 @@ const buildAgentCard = (params: {
     'integration.protocol_handling',
     'trust.identity.validation',
     'trust.feedback.authorization',
-    'trust.validation.attestation',
+    'trust.validate.name',
+    'trust.validate.account',
+    'trust.validate.app',
     'trust.association.attestation',
     'trust.membership.attestation',
     'trust.delegation.attestation',
@@ -487,9 +489,11 @@ const buildAgentCard = (params: {
               'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
-              'atp.feedback.markGiven': ['trust.validation.attestation', 'collaboration'],
+              'atp.feedback.markGiven': ['trust.validate.name', 'collaboration'],
               'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
-              'oasf:trust.validation.attestation': ['trust.validation.attestation', 'collaboration'],
+              'oasf:trust.validate.name': ['trust.validate.name', 'collaboration'],
+              'oasf:trust.validate.account': ['trust.validate.account', 'collaboration'],
+              'oasf:trust.validate.app': ['trust.validate.app', 'collaboration'],
               'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
               'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
@@ -534,8 +538,18 @@ function addOsafOverlayTags(skill: any): any {
     add('oasf:governance.audit.provenance');
     add('oasfDomain:governance-and-trust');
   }
-  if (id === 'oasf:trust.validation.attestation') {
-    add('oasf:trust.validation.attestation');
+  if (id === 'oasf:trust.validate.name') {
+    add('oasf:trust.validate.name');
+    add('oasfDomain:governance-and-trust');
+    add('oasfDomain:collaboration');
+  }
+  if (id === 'oasf:trust.validate.account') {
+    add('oasf:trust.validate.account');
+    add('oasfDomain:governance-and-trust');
+    add('oasfDomain:collaboration');
+  }
+  if (id === 'oasf:trust.validate.app') {
+    add('oasf:trust.validate.app');
     add('oasfDomain:governance-and-trust');
     add('oasfDomain:collaboration');
   }
@@ -567,8 +581,26 @@ const buildSkills = (subdomain: string | null | undefined) => {
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     },
     {
-      id: 'oasf:trust.validation.attestation',
-      name: 'oasf:trust.validation.attestation',
+      id: 'oasf:trust.validate.name',
+      name: 'oasf:trust.validate.name',
+      tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+      examples: ['Submit a validation response for a pending validation request'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Submit a validation response (attestation) using a configured session package.',
+    },
+    {
+      id: 'oasf:trust.validate.account',
+      name: 'oasf:trust.validate.account',
+      tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+      examples: ['Submit a validation response for a pending validation request'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Submit a validation response (attestation) using a configured session package.',
+    },
+    {
+      id: 'oasf:trust.validate.app',
+      name: 'oasf:trust.validate.app',
       tags: ['erc8004', 'validation', 'attestation', 'a2a'],
       examples: ['Submit a validation response for a pending validation request'],
       inputModes: ['text', 'json'],
@@ -1042,7 +1074,9 @@ const handleA2A = async (c: HonoContext) => {
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
       'oasf:trust.feedback.authorization',
-      'oasf:trust.validation.attestation',
+      'oasf:trust.validate.name',
+      'oasf:trust.validate.account',
+      'oasf:trust.validate.app',
       'oasf:trust.validation.delegation',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
@@ -1685,7 +1719,9 @@ const handleA2A = async (c: HonoContext) => {
         responseContent.skill = skillId;
       }
     } else if (
-      skillId === 'oasf:trust.validation.attestation'
+      skillId === 'oasf:trust.validate.name' ||
+      skillId === 'oasf:trust.validate.account' ||
+      skillId === 'oasf:trust.validate.app'
     ) {
       // Process validation response using session package
       console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
@@ -1704,14 +1740,14 @@ const handleA2A = async (c: HonoContext) => {
           chainIdParam,
           requestHashParam,
           subdomain,
-          subdomainEqualsEnsValidator: subdomain === 'smart-name-validator',
+          subdomainEqualsEnsValidator: subdomain === 'name-validation',
         });
 
         // Declare sessionPackage at function scope so it can be reused
         let sessionPackage: SessionPackage | null = null;
 
-        // Special handling for ens-validator subdomain
-        if (subdomain === 'smart-name-validator') {
+        // Special handling for name-validation subdomain
+        if (subdomain === 'name-validation') {
           console.log('[ATP Agent] ✅ ENS Validator subdomain detected, running ENS-specific validation logic');
           console.log('[ATP Agent] Subdomain:', subdomain, 'agentIdParam:', agentIdParam);
           
@@ -1729,7 +1765,7 @@ const handleA2A = async (c: HonoContext) => {
           const resolvedChainId = typeof chainIdParam === 'number' ? chainIdParam : Number(chainIdParam);
 
           // Load session package first (needed for validator logic)
-          const validatorSubdomain = subdomain === 'smart-name-validator' || subdomain === 'smart-account-validator' || subdomain === 'smart-app-validator';
+          const validatorSubdomain = subdomain === 'name-validation' || subdomain === 'account-validator' || subdomain === 'app-validator';
           if (validatorSubdomain) {
             console.log('[ATP Agent] Attempting to load session package for validator subdomain:', subdomain);
           }
@@ -1856,7 +1892,7 @@ const handleA2A = async (c: HonoContext) => {
 
             // Use same lookup pattern as other session package lookups (matches database structure)
             // Database may have ens_name as just domain ('8004-agent.eth') or full name ('ens-validator.8004-agent.eth')
-            // and agent_name as base name ('smart-name-validator') or full name
+            // and agent_name as base name ('name-validation') or full name
             const agentRecord = await db.prepare(
               `SELECT id, ens_name, agent_name, session_package, updated_at
                FROM agents
@@ -1898,7 +1934,7 @@ const handleA2A = async (c: HonoContext) => {
         }
 
         if (!sessionPackage) {
-          const validatorSubdomain = subdomain === 'smart-name-validator' || subdomain === 'smart-account-validator' || subdomain === 'smart-app-validator';
+          const validatorSubdomain = subdomain === 'name-validation' || subdomain === 'account-validator' || subdomain === 'app-validator';
           responseContent.error = validatorSubdomain
             ? `Session package is required for ${subdomain}. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.`
             : 'Session package is required for validation.respond. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
@@ -1913,8 +1949,8 @@ const handleA2A = async (c: HonoContext) => {
         // Track validator validation status
         let validatorValidated: boolean | undefined = undefined;
 
-        // Special handling for ens-validator subdomain
-        if (subdomain === 'smart-name-validator') {
+        // Special handling for name-validation subdomain
+        if (subdomain === 'name-validation') {
           console.log('[ATP Agent] ENS Validator subdomain detected, running ENS-specific validation logic');
           
           const { processEnsValidatorLogic } = await import('./validators/ens-validator');
@@ -1949,8 +1985,8 @@ const handleA2A = async (c: HonoContext) => {
           console.log('[ATP Agent] ✅ ENS validator logic passed, proceeding with standard validation response');
         }
 
-        // Special handling for smart-account-validator subdomain
-        if (subdomain === 'smart-account-validator') {
+        // Special handling for account-validator subdomain
+        if (subdomain === 'account-validator') {
           console.log('[ATP Agent] Smart Account Validator subdomain detected, running smart account-specific validation logic');
           
           const { processSmartAccountValidatorLogic } = await import('./validators/smart-account-validator');
@@ -1985,8 +2021,8 @@ const handleA2A = async (c: HonoContext) => {
           console.log('[ATP Agent] ✅ Smart account validator logic passed, proceeding with standard validation response');
         }
 
-        // Special handling for smart-app-validator subdomain
-        if (subdomain === 'smart-app-validator') {
+        // Special handling for app-validator subdomain
+        if (subdomain === 'app-validator') {
           console.log('[ATP Agent] Smart App Validator subdomain detected, running smart app-specific validation logic');
           
           const { processSmartAppValidatorLogic } = await import('./validators/smart-app-validator');

@@ -23,6 +23,26 @@ import {
 import { getClientBundlerUrl, getClientChainEnv } from '@/lib/clientChainEnv';
 import { getAgentFromATP, updateAgentCardConfigInATP } from '@/lib/a2a-client';
 import { AGENT_CATEGORY_OPTIONS, SUPPORTED_TRUST_MECHANISMS } from '@/models/agentRegistration';
+
+function resolvePlainAddress(value: unknown): `0x${string}` | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (!v) return null;
+  if (v.startsWith('eip155:')) {
+    const parts = v.split(':');
+    const addr = parts[2];
+    if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
+    return null;
+  }
+  if (v.includes(':')) {
+    const parts = v.split(':');
+    const last = parts[parts.length - 1];
+    if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
+    return null;
+  }
+  if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
+  return null;
+}
 type Agent = DiscoverResponse['agents'][number];
 type ValidationStatusWithHash = ValidationStatus & { requestHash?: string };
 type ValidatorAgentDetailsState = {
@@ -47,8 +67,20 @@ const ATP_AGENT_SKILL_CATALOG: AgentSkillDefinition[] = [
     tags: ['erc8004', 'feedback', 'auth', 'a2a'],
   },
   {
-    id: 'oasf:trust.validation.attestation',
-    name: 'oasf:trust.validation.attestation',
+    id: 'oasf:trust.validate.name',
+    name: 'oasf:trust.validate.name',
+    description: 'Submit a validation response (attestation) using a configured session package.',
+    tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+  },
+  {
+    id: 'oasf:trust.validate.account',
+    name: 'oasf:trust.validate.account',
+    description: 'Submit a validation response (attestation) using a configured session package.',
+    tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+  },
+  {
+    id: 'oasf:trust.validate.app',
+    name: 'oasf:trust.validate.app',
     description: 'Submit a validation response (attestation) using a configured session package.',
     tags: ['erc8004', 'validation', 'attestation', 'a2a'],
   },
@@ -336,12 +368,11 @@ export default function AdminPage() {
     if (!agentDetails) return null;
     const fromTop =
       (typeof agentDetails.agentUri === 'string' && agentDetails.agentUri.trim()) ||
-      (typeof agentDetails.tokenUri === 'string' && agentDetails.tokenUri.trim()) ||
       null;
     if (fromTop) return String(fromTop);
     const fromIdentity =
       agentDetails.identityMetadata && typeof agentDetails.identityMetadata === 'object'
-        ? ((agentDetails.identityMetadata as any).tokenUri ?? (agentDetails.identityMetadata as any).agentUri)
+        ? ((agentDetails.identityMetadata as any).agentUri ?? null)
         : null;
     if (typeof fromIdentity === 'string' && fromIdentity.trim()) return fromIdentity.trim();
     return null;
@@ -612,11 +643,11 @@ export default function AdminPage() {
                 const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
                 if (agentResponse.ok) {
                   const agentDetails = await agentResponse.json().catch(() => ({}));
-                  const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
-                  setRegistrationLatestTokenUri(tokenUri ?? null);
+                  const agentUri = getRegistrationUriFromAgentDetails(agentDetails);
+                  setRegistrationLatestTokenUri(agentUri ?? null);
 
-                  if (tokenUri) {
-                    const text = await loadRegistrationContent(tokenUri);
+                  if (agentUri) {
+                    const text = await loadRegistrationContent(agentUri);
                     lastFormatted = formatJsonIfPossible(text);
                     try {
                       lastParsed = JSON.parse(lastFormatted);
@@ -799,6 +830,17 @@ export default function AdminPage() {
       return;
     }
 
+    // Normalize validator address (strip CAIP-10 / chainId prefixes like "11155111:0x..." or "eip155:11155111:0x...")
+    const validatorAddressPlain = resolvePlainAddress(displayAgentAddress);
+    if (!validatorAddressPlain) {
+      setAgentValidationRequests({
+        loading: false,
+        error: `Invalid validator address: ${displayAgentAddress}`,
+        requests: [],
+      });
+      return;
+    }
+
     setAgentValidationRequests((prev) => ({
       ...prev,
       loading: true,
@@ -807,7 +849,7 @@ export default function AdminPage() {
 
     try {
       const response = await fetch(
-        `/api/validations/by-validator?chainId=${targetChainId}&validatorAddress=${encodeURIComponent(displayAgentAddress)}`
+        `/api/validations/by-validator?chainId=${targetChainId}&validatorAddress=${encodeURIComponent(validatorAddressPlain)}`
       );
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -1009,18 +1051,18 @@ export default function AdminPage() {
         const agentDetails = await response.json();
         if (cancelled) return;
 
-        const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
-        setRegistrationLatestTokenUri(tokenUri ?? null);
+        const agentUri = getRegistrationUriFromAgentDetails(agentDetails);
+        setRegistrationLatestTokenUri(agentUri ?? null);
         setRegistrationTokenUriLoading(false);
 
-        if (!tokenUri) {
+        if (!agentUri) {
           setRegistrationPreviewLoading(false);
           setRegistrationPreviewError('No registration URI available for this agent.');
           return;
         }
 
         try {
-          const text = await loadRegistrationContent(tokenUri);
+          const text = await loadRegistrationContent(agentUri);
           if (cancelled) return;
 
           const formatted = formatJsonIfPossible(text);
@@ -1601,13 +1643,13 @@ export default function AdminPage() {
             throw new Error('Failed to load agent details to fetch registration JSON.');
           }
           const agentDetails = await agentResponse.json().catch(() => ({}));
-          const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
-          setRegistrationLatestTokenUri(tokenUri ?? null);
-          if (!tokenUri) {
-            throw new Error('Agent tokenUri is missing; cannot load registration JSON.');
+          const agentUri = getRegistrationUriFromAgentDetails(agentDetails);
+          setRegistrationLatestTokenUri(agentUri ?? null);
+          if (!agentUri) {
+            throw new Error('Agent agentUri is missing; cannot load registration JSON.');
           }
 
-          const text = await loadRegistrationContent(tokenUri);
+          const text = await loadRegistrationContent(agentUri);
           registrationRaw = formatJsonIfPossible(text);
           setRegistrationPreviewText(registrationRaw);
           try {
@@ -1693,7 +1735,7 @@ export default function AdminPage() {
   const [a2aEndpointData, setA2aEndpointData] = useState<{
     loading: boolean;
     error: string | null;
-    tokenUri: string | null;
+    agentUri: string | null;
     a2aEndpoint: string | null;
     validation: {
       verified: boolean;
@@ -1704,7 +1746,7 @@ export default function AdminPage() {
   }>({
     loading: false,
     error: null,
-    tokenUri: null,
+    agentUri: null,
     a2aEndpoint: null,
     validation: null,
   });
@@ -1800,7 +1842,7 @@ export default function AdminPage() {
     }
 
     const validatorNames = {
-      validation: 'name-validator',
+      validation: 'name-validation',
       accountValidation: 'account-validator',
       appValidation: 'app-validator',
       aidValidation: 'aid-validator',
@@ -1973,7 +2015,7 @@ export default function AdminPage() {
       setA2aEndpointData({
         loading: false,
         error: null,
-        tokenUri: null,
+        agentUri: null,
         a2aEndpoint: null,
         validation: null,
       });
@@ -1985,7 +2027,8 @@ export default function AdminPage() {
 
     (async () => {
       try {
-        const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
+        // Use decoded DID; we will URL-encode exactly once when building request URLs.
+        const did8004 = buildDid8004(Number(finalChainId), finalAgentId, { encode: false });
         const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/a2a-endpoint`);
         
         if (cancelled) return;
@@ -2001,7 +2044,7 @@ export default function AdminPage() {
         setA2aEndpointData({
           loading: false,
           error: null,
-          tokenUri: data.tokenUri || null,
+          agentUri: data.agentUri || null,
           a2aEndpoint: data.a2aEndpoint || null,
           validation: data.validation || null,
         });
@@ -2010,7 +2053,7 @@ export default function AdminPage() {
         setA2aEndpointData({
           loading: false,
           error: error?.message || 'Failed to fetch A2A endpoint',
-          tokenUri: null,
+          agentUri: null,
           a2aEndpoint: null,
           validation: null,
         });
@@ -2073,8 +2116,8 @@ export default function AdminPage() {
         },
             body: JSON.stringify({
           a2aEndpoint: agentA2aEndpoint,
-          skillId: 'oasf:trust.validation.attestation',
-          message: `Process validation request for agent ${requestingAgentId}`,
+          skillId: 'oasf:trust.validate.name',
+          message: `Process name validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
             chainId: Number(finalChainId),
@@ -2939,17 +2982,17 @@ export default function AdminPage() {
                                 }
 
                                 const agentDetails = await response.json();
-                                const tokenUri = getRegistrationUriFromAgentDetails(agentDetails);
-                                setRegistrationLatestTokenUri(tokenUri ?? null);
+                                const agentUri = getRegistrationUriFromAgentDetails(agentDetails);
+                                setRegistrationLatestTokenUri(agentUri ?? null);
                                 setRegistrationTokenUriLoading(false);
 
-                                if (!tokenUri) {
+                                if (!agentUri) {
                                   setRegistrationPreviewLoading(false);
                                   setRegistrationPreviewError('No registration URI available for this agent.');
                                   return;
                                 }
 
-                                const text = await loadRegistrationContent(tokenUri);
+                                const text = await loadRegistrationContent(agentUri);
                                 const formatted = formatJsonIfPossible(text);
                                 let parsed: any;
                                 try {
@@ -3521,9 +3564,9 @@ export default function AdminPage() {
                                         ) : (
                                           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                                             <Typography variant="body2">
-                                              <strong>Token URI:</strong>{' '}
-                                              {a2aEndpointData.tokenUri ? (
-                                                <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{a2aEndpointData.tokenUri}</Box>
+                                              <strong>Agent URI:</strong>{' '}
+                                              {a2aEndpointData.agentUri ? (
+                                                <Box component="span" fontFamily="monospace" sx={{ wordBreak: 'break-all' }}>{a2aEndpointData.agentUri}</Box>
                                               ) : (
                                                 <Box component="span" color="text.secondary" fontStyle="italic">(not available)</Box>
                                               )}
@@ -3623,7 +3666,7 @@ export default function AdminPage() {
                       <>
                         <Typography variant="body2" color="text.secondary" paragraph>
                           Submit an Name validation request for the current agent. The agent account abstraction will be used as the requester,
-                          and a validator account abstraction (name: 'name-validator') will be used as the validator.
+                          and a validator account abstraction (name: 'name-validation') will be used as the validator.
                         </Typography>
 
                         {(() => {

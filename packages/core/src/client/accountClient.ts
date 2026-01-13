@@ -1,4 +1,4 @@
-import { keccak256, stringToHex, createPublicClient, http, zeroAddress, createWalletClient, custom, type Address, type Chain } from 'viem';
+import { keccak256, stringToHex, createPublicClient, http, zeroAddress, createWalletClient, custom, getAddress, type Address, type Chain } from 'viem';
 import { sepolia } from 'viem/chains';
 import type { PublicClient, WalletClient } from 'viem';
 import { createBundlerClient } from 'viem/account-abstraction';
@@ -116,15 +116,21 @@ export async function getDeployedAccountClientByAddress(
 ): Promise<any> {
   const chain = options?.chain || sepolia;
 
+  // Ensure eoaAddress is properly formatted (normalize once at the start)
+  const normalizedEoa = getAddress(eoaAddress) as Address;
+
   let walletClient: WalletClient;
   if (options?.walletClient) {
     walletClient = options.walletClient;
   } else if (options?.ethereumProvider) {
+    // Use the connected user's MetaMask wallet to sign user operations
+    // This is the same pattern used for giving feedback and registering agents
     walletClient = createWalletClient({
       chain: chain as any,
       transport: custom(options.ethereumProvider),
-      account: eoaAddress as Address,
+      account: normalizedEoa,
     });
+    console.log('[getDeployedAccountClientByAddress] Created wallet client with connected user account:', normalizedEoa);
   } else {
     throw new Error(
       'No wallet client found. Ensure MetaMask/Web3Auth is available or pass walletClient in options.',
@@ -139,12 +145,23 @@ export async function getDeployedAccountClientByAddress(
         transport: rpcUrl ? http(rpcUrl) : custom(options?.ethereumProvider),
       }) as any);
 
-  return await toMetaMaskSmartAccount({
+  // Create account client with the connected user's wallet as the signer
+  // This ensures MetaMask will prompt for signatures when sending user operations
+  const accountClient = await toMetaMaskSmartAccount({
     client: publicClient as any,
     implementation: Implementation.Hybrid,
     signer: { walletClient } as any,
     address: accountAddress,
   } as any);
+
+  console.log('[getDeployedAccountClientByAddress] Created account client with connected user signer:', {
+    accountAddress,
+    eoaAddress: normalizedEoa,
+    hasWalletClient: !!walletClient,
+    walletClientAccount: walletClient?.account?.address,
+  });
+
+  return accountClient;
 }
 
 
@@ -311,6 +328,14 @@ export async function sendSponsoredUserOperation(params: {
 }): Promise<`0x${string}`> {
   const { bundlerUrl, chain, accountClient, calls } = params;
 
+  console.log('[sendSponsoredUserOperation] Preparing user operation:', {
+    bundlerUrl,
+    chainId: chain.id,
+    callsCount: calls.length,
+    accountClientAddress: accountClient?.address,
+    hasAccountClient: !!accountClient,
+  });
+
   const pimlicoClient = await getPimlicoClient(bundlerUrl);
   const bundlerClient = createBundlerClient({ 
     transport: http(bundlerUrl), 
@@ -321,12 +346,14 @@ export async function sendSponsoredUserOperation(params: {
 
   const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
 
+  console.log('[sendSponsoredUserOperation] Sending user operation (MetaMask should prompt for signature)...');
   const userOpHash = await (bundlerClient as any).sendUserOperation({ 
     account: accountClient, 
     calls,
     ...fee
   });
 
+  console.log('[sendSponsoredUserOperation] User operation sent:', userOpHash);
   return userOpHash as `0x${string}`;
 }
 

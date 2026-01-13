@@ -46,7 +46,7 @@ export async function getAgentValidationsSummary(chainId, agentId) {
     };
 }
 /**
- * Create a validator account abstraction using the name 'name-validator' as the seed from a private key.
+ * Create a validator account abstraction using the name 'name-validation' as the seed from a private key.
  * The validator address is determined server-side based on AGENTIC_TRUST_VALIDATOR_PRIVATE_KEY.
  */
 export async function createValidatorAccountAbstraction(validatorName, validatorPrivateKey, chainId) {
@@ -70,7 +70,7 @@ export async function createValidatorAccountAbstraction(validatorName, validator
         chain: chain,
         transport: http(rpcUrl),
     });
-    // Create salt from validator name 'name-validator'
+    // Create salt from validator name 'name-validation'
     const salt = keccak256(stringToHex(validatorName));
     // Create account abstraction with validator name as seed
     const clientConfig = {

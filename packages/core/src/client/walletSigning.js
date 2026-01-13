@@ -12,6 +12,73 @@ import { getDeployedAccountClientByAgentName, sendSponsoredUserOperation, waitFo
 import { createAgent as callCreateAgentEndpoint, updateAgentRegistration as callUpdateAgentRegistrationEndpoint, } from '../api/agents/client';
 import { parseDid8004 } from '../shared/did8004';
 export { getDeployedAccountClientByAgentName, getDeployedAccountClientByAddress, getCounterfactualAccountClientByAgentName, getCounterfactualSmartAccountAddressByAgentName, getCounterfactualAAAddressByAgentName, } from './accountClient';
+async function preflightValidationRegistryAuthorization(params) {
+    const parsed = parseDid8004(params.requesterDid);
+    const rpcUrl = getChainRpcUrl(params.chain.id);
+    if (!rpcUrl) {
+        throw new Error(`Missing RPC URL for chain ${params.chain.id}. Cannot preflight ValidationRegistry authorization.`);
+    }
+    if (!params.requesterAccountClient) {
+        throw new Error('smartAccount mode requires requesterAccountClient');
+    }
+    const sender = await (async () => {
+        if (typeof params.requesterAccountClient.getAddress === 'function') {
+            return getAddress(await params.requesterAccountClient.getAddress());
+        }
+        const addr = params.requesterAccountClient.address;
+        if (typeof addr === 'string' && addr.startsWith('0x')) {
+            return getAddress(addr);
+        }
+        throw new Error('requesterAccountClient missing getAddress() and address; cannot determine sender.');
+    })();
+    const publicClient = createPublicClient({
+        chain: params.chain,
+        transport: http(rpcUrl),
+    });
+    const VALIDATION_ABI = [
+        {
+            type: 'function',
+            name: 'getIdentityRegistry',
+            stateMutability: 'view',
+            inputs: [],
+            outputs: [{ name: '', type: 'address' }],
+        },
+    ];
+    const IDENTITY_ABI = [
+        {
+            type: 'function',
+            name: 'ownerOf',
+            stateMutability: 'view',
+            inputs: [{ name: 'tokenId', type: 'uint256' }],
+            outputs: [{ name: 'owner', type: 'address' }],
+        },
+    ];
+    const validationRegistry = getAddress(params.validationRegistry);
+    const identityRegistryOnValidation = await publicClient.readContract({
+        address: validationRegistry,
+        abi: VALIDATION_ABI,
+        functionName: 'getIdentityRegistry',
+    });
+    const ownerOnValidation = await publicClient.readContract({
+        address: identityRegistryOnValidation,
+        abi: IDENTITY_ABI,
+        functionName: 'ownerOf',
+        args: [BigInt(parsed.agentId)],
+    });
+    const ok = ownerOnValidation.toLowerCase() === sender.toLowerCase();
+    console.log('[Validation Request][preflight] Authorization check:', {
+        requesterDid: parsed.did,
+        agentId: parsed.agentId,
+        validationRegistry,
+        identityRegistryOnValidation,
+        ownerOnValidation,
+        sender,
+        ok,
+    });
+    if (!ok) {
+        throw new Error(`ValidationRegistry will revert "Not authorized". ownerOf(agentId=${parsed.agentId}) on ValidationRegistry.identityRegistry is ${ownerOnValidation}, but UserOp sender is ${sender}.`);
+    }
+}
 function resolveEthereumProvider(providedProvider) {
     if (providedProvider)
         return providedProvider;
@@ -1647,14 +1714,8 @@ export async function finalizeAssociationWithWallet(options) {
 export async function requestNameValidationWithWallet(options) {
     const { requesterDid, chain, requesterAccountClient, mode = 'smartAccount', ethereumProvider, account, requestUri, requestHash, onStatusUpdate, } = options;
     onStatusUpdate?.('Preparing validation request on server...');
-    const validatorName = 'name-validator';
-    const chainIdFromDid = (() => {
-        const m = requesterDid.match(/^did:8004:(\d+):/);
-        if (!m)
-            return undefined;
-        const parsed = Number(m[1]);
-        return Number.isFinite(parsed) ? parsed : undefined;
-    })();
+    const validatorName = 'name-validation';
+    const chainIdFromDid = (() => parseDid8004(requesterDid).chainId)();
     async function resolveValidatorAddressByName(params) {
         const urlParams = new URLSearchParams({
             query: params.validatorName,
@@ -1781,6 +1842,12 @@ export async function requestNameValidationWithWallet(options) {
         data: call.data,
         value: BigInt(call.value ?? '0'),
     }));
+    await preflightValidationRegistryAuthorization({
+        requesterDid,
+        chain,
+        requesterAccountClient,
+        validationRegistry: getAddress(validationCalls[0].to),
+    });
     onStatusUpdate?.('Sending validation request via bundler...');
     const userOpHash = await sendSponsoredUserOperation({
         bundlerUrl,
@@ -1809,13 +1876,7 @@ export async function requestAccountValidationWithWallet(options) {
     const { requesterDid, chain, requesterAccountClient, mode = 'smartAccount', ethereumProvider, account, requestUri, requestHash, onStatusUpdate, } = options;
     onStatusUpdate?.('Preparing validation request on server...');
     const validatorName = 'account-validator';
-    const chainIdFromDid = (() => {
-        const m = requesterDid.match(/^did:8004:(\d+):/);
-        if (!m)
-            return undefined;
-        const parsed = Number(m[1]);
-        return Number.isFinite(parsed) ? parsed : undefined;
-    })();
+    const chainIdFromDid = (() => parseDid8004(requesterDid).chainId)();
     async function resolveValidatorAddressByName(params) {
         const urlParams = new URLSearchParams({
             query: params.validatorName,
@@ -1941,6 +2002,12 @@ export async function requestAccountValidationWithWallet(options) {
         data: call.data,
         value: BigInt(call.value ?? '0'),
     }));
+    await preflightValidationRegistryAuthorization({
+        requesterDid,
+        chain,
+        requesterAccountClient,
+        validationRegistry: getAddress(validationCalls[0].to),
+    });
     onStatusUpdate?.('Sending validation request via bundler...');
     const userOpHash = await sendSponsoredUserOperation({
         bundlerUrl,
@@ -1969,13 +2036,7 @@ export async function requestAppValidationWithWallet(options) {
     const { requesterDid, chain, requesterAccountClient, mode = 'smartAccount', ethereumProvider, account, requestUri, requestHash, onStatusUpdate, } = options;
     onStatusUpdate?.('Preparing validation request on server...');
     const validatorName = 'app-validator';
-    const chainIdFromDid = (() => {
-        const m = requesterDid.match(/^did:8004:(\d+):/);
-        if (!m)
-            return undefined;
-        const parsed = Number(m[1]);
-        return Number.isFinite(parsed) ? parsed : undefined;
-    })();
+    const chainIdFromDid = (() => parseDid8004(requesterDid).chainId)();
     async function resolveValidatorAddressByName(params) {
         const urlParams = new URLSearchParams({
             query: params.validatorName,
@@ -2100,6 +2161,12 @@ export async function requestAppValidationWithWallet(options) {
         data: call.data,
         value: BigInt(call.value ?? '0'),
     }));
+    await preflightValidationRegistryAuthorization({
+        requesterDid,
+        chain,
+        requesterAccountClient,
+        validationRegistry: getAddress(validationCalls[0].to),
+    });
     onStatusUpdate?.('Sending validation request via bundler...');
     const userOpHash = await sendSponsoredUserOperation({
         bundlerUrl,

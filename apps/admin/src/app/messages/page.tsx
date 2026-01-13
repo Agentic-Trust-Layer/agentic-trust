@@ -51,14 +51,15 @@ import CreateOutlinedIcon from '@mui/icons-material/CreateOutlined';
 import SearchIcon from '@mui/icons-material/Search';
 import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { useRouter } from 'next/navigation';
-import { buildDid8004, parseDid8004, getDeployedAccountClientByAgentName } from '@agentic-trust/core';
+import { buildDid8004, parseDid8004, getDeployedAccountClientByAgentName, getDeployedAccountClientByAddress } from '@agentic-trust/core';
 import { getChainById, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
 import {
   finalizeAssociationWithWallet,
   requestNameValidationWithWallet,
+  requestAccountValidationWithWallet,
   requestAppValidationWithWallet,
 } from '@agentic-trust/core/client';
-import { getClientBundlerUrl } from '@/lib/clientChainEnv';
+import { getClientBundlerUrl, getClientRpcUrl, getClientRegistryAddresses } from '@/lib/clientChainEnv';
 import { createPublicClient, encodeAbiParameters, getAddress, http, keccak256, parseAbiParameters, toHex } from 'viem';
 import type { Chain } from 'viem';
 import {
@@ -119,6 +120,38 @@ function extractAssociationPayloadFromBody(body: string): AssociationRequestPayl
   if (!json) return null;
   try {
     return JSON.parse(json) as AssociationRequestPayload;
+  } catch {
+    return null;
+  }
+}
+
+type ValidationRequestBlock = {
+  kind: 'erc8004.validation.request@1';
+  chainId: number;
+  requesterDid: string;
+  validatorDid: string;
+  validatorAddress: string;
+  requestUri: string;
+  requestHash: string;
+  txHash?: string;
+  mode?: string;
+  createdAt?: string;
+};
+
+const VALIDATION_REQUEST_MARKER_BEGIN = '[validation_request]';
+const VALIDATION_REQUEST_MARKER_END = '[/validation_request]';
+
+function extractValidationRequestBlockFromBody(body: string): ValidationRequestBlock | null {
+  if (!body) return null;
+  const start = body.indexOf(VALIDATION_REQUEST_MARKER_BEGIN);
+  const end = body.indexOf(VALIDATION_REQUEST_MARKER_END);
+  if (start === -1 || end === -1 || end <= start) return null;
+  const json = body.slice(start + VALIDATION_REQUEST_MARKER_BEGIN.length, end).trim();
+  if (!json) return null;
+  try {
+    const parsed = JSON.parse(json) as ValidationRequestBlock;
+    if (!parsed || parsed.kind !== 'erc8004.validation.request@1') return null;
+    return parsed;
   } catch {
     return null;
   }
@@ -386,6 +419,30 @@ export default function MessagesPage() {
   const [validationResponseScore, setValidationResponseScore] = useState<number>(100);
   const [validationResponseAlreadySubmitted, setValidationResponseAlreadySubmitted] = useState(false);
 
+  const isValidationRequestTaskType = useCallback((t: InboxTaskType) => {
+    return t === 'name_validation_request' || t === 'account_validation_request' || t === 'app_validation_request';
+  }, []);
+
+  const resolvePlainAddress = useCallback((value: unknown): `0x${string}` | null => {
+    if (typeof value !== 'string') return null;
+    const v = value.trim();
+    if (!v) return null;
+    if (v.startsWith('eip155:')) {
+      const parts = v.split(':');
+      const addr = parts[2];
+      if (addr && addr.startsWith('0x')) return getAddress(addr) as `0x${string}`;
+      return null;
+    }
+    if (v.includes(':')) {
+      const parts = v.split(':');
+      const last = parts[parts.length - 1];
+      if (last && last.startsWith('0x')) return getAddress(last) as `0x${string}`;
+      return null;
+    }
+    if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
+    return null;
+  }, []);
+
   const [approveAssociationOpen, setApproveAssociationOpen] = useState(false);
   const [approveAssociationLoading, setApproveAssociationLoading] = useState(false);
   const [approveAssociationError, setApproveAssociationError] = useState<string | null>(null);
@@ -564,8 +621,19 @@ export default function MessagesPage() {
       const m = selectedThread.messages[i]!;
       if (m.contextType === 'validation_request') return m;
     }
+    // Fallback: detect validation request by parsing the message body block.
+    for (let i = selectedThread.messages.length - 1; i >= 0; i--) {
+      const m = selectedThread.messages[i]!;
+      const blk = extractValidationRequestBlockFromBody(m.body || '');
+      if (blk) return m;
+    }
     return null;
   }, [selectedThread]);
+
+  const selectedValidationRequestBlock = useMemo(() => {
+    const body = selectedValidationRequestMessage?.body || '';
+    return extractValidationRequestBlockFromBody(body);
+  }, [selectedValidationRequestMessage]);
 
   const selectedAssociationRequestMessage = useMemo(() => {
     if (!selectedThread) return null;
@@ -578,6 +646,18 @@ export default function MessagesPage() {
     if (!selectedFolderAgent) return null;
     return buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId);
   }, [selectedFolderAgent]);
+
+  const canValidateSelectedThread = useMemo(() => {
+    if (!selectedFolderDid) return false;
+    if (!selectedValidationRequestMessage) return false;
+    // Only allow "Validate" when the currently selected folder agent is the validator for this request.
+    // Prefer the explicit block's validatorDid if present; fallback to message.toAgentDid.
+    const validatorDidFromBlock = normalizeDid(selectedValidationRequestBlock?.validatorDid || '');
+    const validatorDidFromMsg = normalizeDid(selectedValidationRequestMessage.toAgentDid || '');
+    const expectedValidatorDid = validatorDidFromBlock || validatorDidFromMsg;
+    if (!expectedValidatorDid) return false;
+    return normalizeDid(selectedFolderDid) === expectedValidatorDid;
+  }, [selectedFolderDid, selectedValidationRequestMessage, selectedValidationRequestBlock]);
 
   const canApproveAssociation = useMemo(() => {
     if (mailboxMode !== 'inbox') return false;
@@ -731,12 +811,17 @@ export default function MessagesPage() {
     if (!msg) return;
     if (!msg.fromAgentDid || !msg.toAgentDid) return;
     if (!selectedFolderAgent) return;
+    const blk = selectedValidationRequestBlock;
 
     setCheckingValidationRequest(true);
     setValidationRequestHash(null);
     setValidationRequestStatus(null);
 
     try {
+      // If the message contains a validation_request block, prefer its requestHash.
+      const expectedRequestHash =
+        typeof blk?.requestHash === 'string' && blk.requestHash.startsWith('0x') ? blk.requestHash : null;
+
       // Parse the from agent DID (the agent being validated)
       const fromDid = normalizeDid(msg.fromAgentDid);
       if (!fromDid.startsWith('did:8004:')) {
@@ -758,10 +843,13 @@ export default function MessagesPage() {
       
       // Check both pending and completed validations for the request
       const allValidations = [...pendingValidations, ...completedValidations];
+      const filtered = expectedRequestHash
+        ? allValidations.filter((v: any) => String(v?.requestHash || '').toLowerCase() === expectedRequestHash.toLowerCase())
+        : allValidations;
       
-      if (allValidations.length > 0) {
+      if (filtered.length > 0) {
         // Sort by lastUpdate descending (most recent first)
-        const sorted = [...allValidations].sort((a: any, b: any) => {
+        const sorted = [...filtered].sort((a: any, b: any) => {
           const aTime = typeof a.lastUpdate === 'bigint' ? Number(a.lastUpdate) : (a.lastUpdate || 0);
           const bTime = typeof b.lastUpdate === 'bigint' ? Number(b.lastUpdate) : (b.lastUpdate || 0);
           return bTime - aTime;
@@ -780,14 +868,18 @@ export default function MessagesPage() {
         setValidationRequestHash(mostRecent.requestHash);
         setValidationRequestStatus(mostRecent);
       } else {
-        setValidationResponseError('No validation requests found in Validation Registry for this agent. The on-chain validation request may not have been created yet.');
+        setValidationResponseError(
+          expectedRequestHash
+            ? `No on-chain validation request found for this requestHash (${expectedRequestHash}).`
+            : 'No validation requests found in Validation Registry for this agent. The on-chain validation request may not have been created yet.',
+        );
       }
     } catch (err: any) {
       setValidationResponseError(err?.message || 'Failed to check validation request');
     } finally {
       setCheckingValidationRequest(false);
     }
-  }, [selectedMessage, selectedFolderAgent]);
+  }, [selectedValidationRequestMessage, selectedValidationRequestBlock, selectedFolderAgent]);
 
   // Open validate dialog and check for validation request
   const handleOpenValidateDialog = useCallback(() => {
@@ -898,7 +990,8 @@ export default function MessagesPage() {
       const finalResponseUri = ipfsResult.url || ipfsResult.tokenUri || `ipfs://${ipfsResult.cid}`;
 
       // Get current agent's A2A endpoint
-      const currentAgentDid = buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId);
+      // Use decoded DID; we URL-encode exactly once when building request URLs.
+      const currentAgentDid = buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId, { encode: false });
       const agentResponse = await fetch(`/api/agents/${encodeURIComponent(currentAgentDid)}`);
       if (!agentResponse.ok) {
         throw new Error('Failed to fetch current agent details');
@@ -931,7 +1024,7 @@ export default function MessagesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           a2aEndpoint,
-          skillId: 'oasf:trust.validation.attestation',
+          skillId: 'oasf:trust.validate.name',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
@@ -1076,8 +1169,12 @@ export default function MessagesPage() {
     setComposeSubject(
       selectedMessageType === 'feedback_auth_request'
         ? 'Request Feedback Permission'
-        : selectedMessageType === 'validation_request'
-          ? 'Request Validation'
+        : selectedMessageType === 'name_validation_request'
+          ? 'Request Name Validation'
+          : selectedMessageType === 'account_validation_request'
+            ? 'Request Account Validation'
+            : selectedMessageType === 'app_validation_request'
+              ? 'Request App Validation'
           : selectedMessageType === 'association_request'
             ? 'Request Association'
             : '',
@@ -1149,8 +1246,12 @@ export default function MessagesPage() {
       threadType === 'feedback_request_approved' ? 'feedback_auth_request' : threadType;
     setSelectedMessageType(pinnedTaskType);
     setSelectedIntentType(
-      pinnedTaskType === 'validation_request'
-        ? 'trust.validation'
+      pinnedTaskType === 'name_validation_request'
+        ? 'trust.name_validation'
+        : pinnedTaskType === 'account_validation_request'
+          ? 'trust.account_validation'
+          : pinnedTaskType === 'app_validation_request'
+            ? 'trust.app_validation'
         : pinnedTaskType === 'feedback_auth_request'
           ? 'trust.feedback'
           : pinnedTaskType === 'association_request'
@@ -1174,7 +1275,9 @@ export default function MessagesPage() {
         const buildIntentJson = (intent: InboxIntentType, query: string) => {
           if (intent === 'general') return null;
           const base: any = { intentType: intent };
-          if (intent === 'trust.validation') base.action = 'validate-agent';
+          if (intent === 'trust.name_validation') base.action = 'validate-name';
+          if (intent === 'trust.account_validation') base.action = 'validate-account';
+          if (intent === 'trust.app_validation') base.action = 'validate-app';
           if (intent === 'trust.feedback') base.action = 'request-authorization';
           if (intent === 'trust.association') base.action = 'request-attestation';
           if (intent === 'trust.membership') base.action = 'attest-membership';
@@ -1185,6 +1288,33 @@ export default function MessagesPage() {
 
         // Intent-first: when intent != general, drive agent list via semantic search.
         if (selectedIntentType !== 'general') {
+          const mapAgentToOption = (a: any): AgentSearchOption | null => {
+            const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
+            const agentId = a?.agentId != null ? String(a.agentId) : '';
+            if (!chainId || !agentId) return null;
+            const didRaw =
+              typeof a?.did === 'string' && a.did ? normalizeDid(a.did) : buildDid8004(chainId, Number(agentId));
+            const did = didRaw || buildDid8004(chainId, Number(agentId));
+            return {
+              key: `${chainId}:${agentId}`,
+              chainId,
+              agentId,
+              agentName: a?.agentName ?? null,
+              image: a?.image ?? null,
+              did,
+            } as AgentSearchOption;
+          };
+
+          // Helper to force-include known validator agents by name (bypasses semantic-search limitations).
+          const fetchAgentsByName = async (name: string): Promise<AgentSearchOption[]> => {
+            const url = `/api/agents/search?query=${encodeURIComponent(name)}&pageSize=5&orderBy=createdAtTime&orderDirection=DESC`;
+            const r = await fetch(url, { cache: 'no-store' });
+            if (!r.ok) return [];
+            const d = await r.json().catch(() => ({}));
+            const agents = Array.isArray(d?.agents) ? d.agents : [];
+            return agents.map(mapAgentToOption).filter(Boolean) as AgentSearchOption[];
+          };
+
           const intentJson = buildIntentJson(selectedIntentType, q);
           const response = await fetch('/api/agents/semantic-search', {
             method: 'POST',
@@ -1197,26 +1327,31 @@ export default function MessagesPage() {
           }
           const data = await response.json().catch(() => ({}));
           const matches = Array.isArray(data?.matches) ? data.matches : [];
-          const mapped: AgentSearchOption[] = matches
-            .map((m: any) => {
-              const a = m?.agent;
-              const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
-              const agentId = a?.agentId != null ? String(a.agentId) : '';
-              if (!chainId || !agentId) return null;
-              const did = typeof a?.did === 'string' && a.did ? a.did : buildDid8004(chainId, Number(agentId));
-              return {
-                key: `${chainId}:${agentId}`,
-                chainId,
-                agentId,
-                agentName: a?.agentName ?? null,
-                image: a?.image ?? null,
-                did,
-              } as AgentSearchOption;
-            })
+          const mappedSemantic: AgentSearchOption[] = matches
+            .map((m: any) => mapAgentToOption(m?.agent))
             .filter(Boolean) as AgentSearchOption[];
 
+          // For validation intents, always include the canonical validator agents.
+          // This ensures the "To Agent" list contains `name-validation.8004-agent.eth` even if semantic search returns few matches.
+          const mappedPinned =
+            selectedIntentType === 'trust.name_validation'
+              ? await fetchAgentsByName('name-validation')
+              : selectedIntentType === 'trust.account_validation'
+                ? await fetchAgentsByName('account-validator')
+                : selectedIntentType === 'trust.app_validation'
+                  ? await fetchAgentsByName('app-validator')
+                  : [];
+
+          const merged = (() => {
+            const byKey = new Map<string, AgentSearchOption>();
+            for (const opt of [...mappedPinned, ...mappedSemantic]) {
+              byKey.set(opt.key, opt);
+            }
+            return Array.from(byKey.values());
+          })();
+
           if (cancelled) return;
-          setComposeToAgentOptions(mapped);
+          setComposeToAgentOptions(merged);
           return;
         }
 
@@ -1307,7 +1442,8 @@ export default function MessagesPage() {
     setComposeToAgentCardLoading(true);
     (async () => {
       try {
-        const resp = await fetch(`/api/agents/${encodeURIComponent(composeToAgent.did)}/card`, {
+        const did = normalizeDid(composeToAgent.did);
+        const resp = await fetch(`/api/agents/${encodeURIComponent(did)}/card`, {
           cache: 'no-store',
         });
         const data = await resp.json().catch(() => ({}));
@@ -1380,21 +1516,29 @@ export default function MessagesPage() {
         }
       } else {
         const content = composeBody.trim();
-        if (!content && selectedMessageType !== 'validation_request' && selectedMessageType !== 'association_request') {
+        if (!content && !isValidationRequestTaskType(selectedMessageType) && selectedMessageType !== 'association_request') {
           throw new Error('Message body is required.');
         }
         let contentToSend =
           content ||
-          (selectedMessageType === 'validation_request'
-            ? `Request validation (${validationRequestKind})`
+          (selectedMessageType === 'name_validation_request'
+            ? `Request name validation (${validationRequestKind})`
+            : selectedMessageType === 'account_validation_request'
+              ? `Request account validation (${validationRequestKind})`
+              : selectedMessageType === 'app_validation_request'
+                ? `Request app validation (${validationRequestKind})`
             : selectedMessageType === 'association_request'
               ? 'Request association'
               : '');
 
         const subject =
           composeSubject.trim() ||
-          (selectedMessageType === 'validation_request'
-            ? `Request Validation: ${validationRequestKind}`
+          (selectedMessageType === 'name_validation_request'
+            ? `Request Name Validation: ${validationRequestKind}`
+            : selectedMessageType === 'account_validation_request'
+              ? `Request Account Validation: ${validationRequestKind}`
+              : selectedMessageType === 'app_validation_request'
+                ? `Request App Validation: ${validationRequestKind}`
             : selectedMessageType === 'association_request'
               ? 'Request Association'
               : 'Message');
@@ -1640,7 +1784,7 @@ export default function MessagesPage() {
             // Association requests must include a payload block to be actionable.
             throw assocError;
           }
-        } else if (selectedMessageType === 'validation_request') {
+        } else if (isValidationRequestTaskType(selectedMessageType)) {
           try {
             const chainId = selectedFolderAgent.chainId;
             const chain = getChainById(chainId);
@@ -1716,13 +1860,14 @@ export default function MessagesPage() {
             }
 
             // Fetch the "To Agent" details to get its account address
-            const toAgentDid = composeToAgent.did;
+            const toAgentDid = normalizeDid(composeToAgent.did);
             const toAgentResponse = await fetch(`/api/agents/${encodeURIComponent(toAgentDid)}`);
             if (!toAgentResponse.ok) {
               throw new Error('Failed to fetch To Agent details');
             }
             const toAgentData = await toAgentResponse.json();
-            const validatorAddress = toAgentData?.agentAccount || toAgentData?.account;
+            const validatorAddressRaw = toAgentData?.agentAccount || toAgentData?.account;
+            const validatorAddress = resolvePlainAddress(validatorAddressRaw);
             
             if (!validatorAddress) {
               throw new Error('To Agent account address not found. The agent must have an account address to be used as a validator.');
@@ -1734,28 +1879,153 @@ export default function MessagesPage() {
               validatorAddress,
             });
 
-            // Determine which validation function to use based on validationKind
-            // Map ValidationClaimType to appropriate validator
-            const useNameValidator = validationRequestKind === 'compliance' || validationRequestKind === 'identity';
-            const requestValidationFn = useNameValidator ? requestNameValidationWithWallet : requestAppValidationWithWallet;
+            // Determine which validation function to use based on selected message type.
+            const requestValidationFn =
+              selectedMessageType === 'name_validation_request'
+                ? requestNameValidationWithWallet
+                : selectedMessageType === 'account_validation_request'
+                  ? requestAccountValidationWithWallet
+                  : requestAppValidationWithWallet;
 
             // Create on-chain validation request
-            const requesterDid = buildDid8004(chainId, selectedFolderAgent.agentId);
-            const isEoaOwnedRequester =
-              Boolean(selectedFolderAgent?.agentAccount) &&
-              Boolean(walletAddress) &&
-              String(selectedFolderAgent.agentAccount || '').toLowerCase() === String(walletAddress).toLowerCase();
+            // RULE: ValidationRegistry contract checks owner/operator authorization only.
+            // agentIdentityOwnerAccount can be an EOA or a smart account.
+            // If it's a smart account, use bundler/gasless approach.
+            // Use a decoded did:8004 string (avoid percent-encoded DID leaking into logs and regex parsing).
+            const requesterDid = buildDid8004(chainId, selectedFolderAgent.agentId, { encode: false });
+            const walletEoa = getAddress(walletAddress as `0x${string}`) as `0x${string}`;
+
+            // Get the agent identity owner account (may be EOA or smart account)
+            const r = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}`, { cache: 'no-store' });
+            if (!r.ok) {
+              throw new Error(
+                `Failed to fetch requester agent details: ${r.status} ${r.statusText}. Cannot determine agent identity owner.`,
+              );
+            }
+
+            const d = await r.json().catch(() => {
+              throw new Error('Failed to parse requester agent details. Cannot determine agent identity owner.');
+            });
+
+            // Get agentIdentityOwnerAccount (may be EOA or smart account)
+            const agentIdentityOwnerAccountRaw = (d as any)?.agentIdentityOwnerAccount ?? null;
+
+            if (!agentIdentityOwnerAccountRaw) {
+              throw new Error(
+                `Requester agent (${requesterDid}) has no agentIdentityOwnerAccount. Cannot determine owner for validation request.`,
+              );
+            }
+
+            const agentIdentityOwnerAccount = resolvePlainAddress(agentIdentityOwnerAccountRaw);
+            if (!agentIdentityOwnerAccount) {
+              throw new Error(
+                `Requester agent (${requesterDid}) has invalid agentIdentityOwnerAccount format: ${agentIdentityOwnerAccountRaw}.`,
+              );
+            }
+
+            // Check if agentIdentityOwnerAccount is a smart account (has bytecode)
+            const rpcUrl = getClientRpcUrl(chainId);
+            if (!rpcUrl) {
+              throw new Error(`RPC URL not configured for chain ${chainId}. Required to check owner account type.`);
+            }
+            const publicClient = createPublicClient({
+              chain: chain as any,
+              transport: http(rpcUrl),
+            });
+            const ownerCode = await publicClient.getBytecode({ address: agentIdentityOwnerAccount as `0x${string}` });
+            const isOwnerSmartAccount = ownerCode && ownerCode !== '0x';
+
+            // Verify on-chain that agentIdentityOwnerAccount is the actual owner of the agent NFT
+            // This is critical: ValidationRegistry contract checks owner/operator authorization
+            const { identityRegistry } = getClientRegistryAddresses(chainId);
+            if (!identityRegistry) {
+              throw new Error(`IdentityRegistry address not configured for chain ${chainId}. Required to verify owner.`);
+            }
+
+            const IDENTITY_ABI = [
+              {
+                type: 'function',
+                name: 'ownerOf',
+                stateMutability: 'view',
+                inputs: [{ name: 'tokenId', type: 'uint256' }],
+                outputs: [{ name: 'owner', type: 'address' }],
+              },
+            ] as const;
+
+            const agentIdBigInt = BigInt(selectedFolderAgent.agentId);
+            const onChainOwner = await publicClient.readContract({
+              address: identityRegistry as `0x${string}`,
+              abi: IDENTITY_ABI,
+              functionName: 'ownerOf',
+              args: [agentIdBigInt],
+            });
+
+            console.log('[Validation Request] On-chain owner verification:', {
+              requesterDid,
+              agentId: selectedFolderAgent.agentId,
+              agentIdentityOwnerAccount,
+              onChainOwner,
+              match: onChainOwner.toLowerCase() === agentIdentityOwnerAccount.toLowerCase(),
+            });
+
+            if (onChainOwner.toLowerCase() !== agentIdentityOwnerAccount.toLowerCase()) {
+              throw new Error(
+                `On-chain owner mismatch: agentIdentityOwnerAccount (${agentIdentityOwnerAccount}) does not match on-chain ownerOf (${onChainOwner}) for agent ${requesterDid}. ValidationRegistry will reject this request.`,
+              );
+            }
+
+            let validationMode: 'eoa' | 'smartAccount';
+            let requesterAccountClientToUse: any = undefined;
+
+            if (isOwnerSmartAccount) {
+              // Smart account owner: use bundler/gasless approach
+              // Verify the connected wallet controls the owner smart account (will be checked by the smart account itself)
+              validationMode = 'smartAccount';
+              
+              // Build account client for the owner smart account
+              const bundlerUrl = getClientBundlerUrl(chainId);
+              if (!bundlerUrl) {
+                throw new Error(`Bundler URL not configured for chain ${chainId}. Required for smart account validation requests.`);
+              }
+
+              requesterAccountClientToUse = await getDeployedAccountClientByAddress(
+                agentIdentityOwnerAccount as `0x${string}`,
+                walletEoa,
+                { chain: chain as any, ethereumProvider: eip1193Provider as any },
+              );
+
+              console.log('[Validation Request] Using smart account owner for validation request (bundler/gasless):', {
+                requesterDid,
+                agentIdentityOwnerAccount,
+                walletEoa,
+              });
+            } else {
+              // EOA owner: use direct EOA signing
+              // Verify the connected wallet is the owner
+              if (agentIdentityOwnerAccount.toLowerCase() !== walletEoa.toLowerCase()) {
+                throw new Error(
+                  `Connected wallet (${walletEoa}) is not the owner of agent ${requesterDid}. Owner is ${agentIdentityOwnerAccount}. Validation requests must be sent from the agent owner.`,
+                );
+              }
+
+              validationMode = 'eoa';
+              console.log('[Validation Request] Using EOA owner for validation request:', {
+                requesterDid,
+                agentIdentityOwnerAccount,
+                walletEoa,
+              });
+            }
 
             const validationResult = await requestValidationFn({
               requesterDid,
               requestUri,
               requestHash,
               chain: chain as any,
-              requesterAccountClient: agentAccountClient,
+              requesterAccountClient: requesterAccountClientToUse,
               validatorAddress, // Pass the "To Agent" account address as the validator
-              mode: isEoaOwnedRequester ? 'eoa' : 'smartAccount',
+              mode: validationMode,
               ethereumProvider: eip1193Provider as any,
-              account: (walletAddress as any) as `0x${string}`,
+              account: walletEoa as `0x${string}`,
               onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
             } as any);
 
@@ -1775,7 +2045,7 @@ export default function MessagesPage() {
               requestUri,
               requestHash,
               txHash: validationResult.txHash,
-              mode: isEoaOwnedRequester ? 'eoa' : 'smartAccount',
+              mode: 'eoa',
               createdAt: new Date().toISOString(),
             };
             contentToSend = `${contentToSend}\n\n[validation_request]\n${JSON.stringify(validationBlock)}\n[/validation_request]`;
@@ -1855,8 +2125,12 @@ export default function MessagesPage() {
     switch (type) {
       case 'feedback_auth_request':
         return 'Request Feedback Permission';
-      case 'validation_request':
-        return 'Request Validation';
+      case 'name_validation_request':
+        return 'Request Name Validation';
+      case 'account_validation_request':
+        return 'Request Account Validation';
+      case 'app_validation_request':
+        return 'Request App Validation';
       case 'association_request':
         return 'Request Association';
       case 'feedback_request_approved':
@@ -1870,7 +2144,9 @@ export default function MessagesPage() {
     switch (type) {
       case 'feedback_auth_request':
         return 'primary';
-      case 'validation_request':
+      case 'name_validation_request':
+      case 'account_validation_request':
+      case 'app_validation_request':
         return 'warning';
       case 'feedback_request_approved':
         return 'success';
@@ -2361,7 +2637,7 @@ export default function MessagesPage() {
                             </Box>
                           )}
 
-                        {mailboxMode === 'inbox' && Boolean(selectedValidationRequestMessage) && (
+                        {Boolean(selectedValidationRequestMessage) && canValidateSelectedThread && (
                             <Box>
                               <Button
                                 variant="contained"
@@ -2583,7 +2859,10 @@ export default function MessagesPage() {
             <Autocomplete
               options={composeToAgentOptions}
               value={composeToAgent}
-              onChange={(_, value) => setComposeToAgent(value)}
+              isOptionEqualToValue={(option, value) => option.key === value.key}
+              onChange={(_, value) =>
+                setComposeToAgent(value ? { ...value, did: normalizeDid(value.did) } : null)
+              }
               inputValue={composeToAgentInput}
               onInputChange={(_, value) => setComposeToAgentInput(value)}
               loading={composeToAgentLoading}
@@ -2678,7 +2957,7 @@ export default function MessagesPage() {
                 minRows={5}
                 placeholder="e.g., I used this agent and want to share my experience…"
               />
-            ) : selectedMessageType === 'validation_request' ? (
+            ) : isValidationRequestTaskType(selectedMessageType) ? (
               <Stack spacing={2}>
                 <FormControl fullWidth size="small">
                   <InputLabel id="validation-request-kind-label">Validation Type</InputLabel>

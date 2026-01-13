@@ -114,10 +114,27 @@ export function getChainEnvVarDetails(baseName: string, chainId: number): {
   const cfg = CHAIN_CONFIG[chainId as SupportedChainId];
   const chainKey = cfg ? `${baseName}_${cfg.suffix}` : `${baseName}_${chainId}`;
   const fallbackKey = baseName;
-  const chainValue = cfg ? process.env[chainKey] : undefined;
-  const fallbackValue = process.env[fallbackKey];
+
+  // Server can also read NEXT_PUBLIC_* variables (handy in Next.js dev when only those are set).
+  // This keeps contract address + RPC config aligned between server route handlers and client code.
+  const toNextPublicKey = (key: string): string =>
+    key.startsWith('AGENTIC_TRUST_')
+      ? key.replace('AGENTIC_TRUST_', 'NEXT_PUBLIC_AGENTIC_TRUST_')
+      : `NEXT_PUBLIC_${key}`;
+
+  const chainKeyClient = toNextPublicKey(chainKey);
+  const fallbackKeyClient = toNextPublicKey(fallbackKey);
+
+  const chainValue =
+    (cfg ? process.env[chainKey] : undefined) ??
+    (cfg ? process.env[chainKeyClient] : undefined);
+  const fallbackValue = process.env[fallbackKey] ?? process.env[fallbackKeyClient];
   const value = chainValue ?? fallbackValue ?? '';
-  const usedKey = chainValue ? chainKey : fallbackValue ? fallbackKey : chainKey;
+  const usedKey = chainValue
+    ? (process.env[chainKey] ? chainKey : chainKeyClient)
+    : fallbackValue
+      ? (process.env[fallbackKey] ? fallbackKey : fallbackKeyClient)
+      : chainKey;
   return {
     value,
     chainKey: cfg ? chainKey : fallbackKey,
