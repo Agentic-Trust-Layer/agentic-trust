@@ -359,7 +359,11 @@ function displayDid(value: unknown): string {
 export default function MessagesPage() {
   const auth = useAuth();
   const { connected: walletConnected, address: walletAddress, privateKeyMode, loading, eip1193Provider } = useWallet();
-  const { ownedAgents: cachedOwnedAgents, loading: ownedAgentsLoading } = useOwnedAgents();
+  const {
+    ownedAgents: cachedOwnedAgents,
+    loading: ownedAgentsLoading,
+    error: ownedAgentsError,
+  } = useOwnedAgents();
   const router = useRouter();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -2272,9 +2276,9 @@ export default function MessagesPage() {
             </Stack>
           </Stack>
 
-          {error && (
+          {(error || ownedAgentsError) && (
             <Alert severity="error" onClose={() => setError(null)}>
-              {error}
+              {error || ownedAgentsError}
             </Alert>
           )}
 
@@ -2291,15 +2295,18 @@ export default function MessagesPage() {
               <Box sx={{ p: { xs: 3, md: 4 } }}>
                 <Stack spacing={1}>
                   <Typography variant="h6" sx={{ fontWeight: 800 }}>
-                    No agent folders yet
+                    {ownedAgentsError ? 'Failed to load agent folders' : 'No agent folders yet'}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    You need to register at least one agent to collaborate with other agents and use the inbox.
+                    {ownedAgentsError
+                      ? ownedAgentsError
+                      : 'You need to register at least one agent to collaborate with other agents and use the inbox.'}
                   </Typography>
                   <Box>
                     <Button
                       variant="contained"
                       href="/agent-registration"
+                      disabled={Boolean(ownedAgentsError)}
                       sx={{
                         mt: 1,
                         backgroundColor: palette.accent,

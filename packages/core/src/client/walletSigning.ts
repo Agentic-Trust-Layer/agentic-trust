@@ -106,6 +106,23 @@ async function preflightValidationRegistryAuthorization(params: {
       inputs: [{ name: 'tokenId', type: 'uint256' }],
       outputs: [{ name: 'owner', type: 'address' }],
     },
+    {
+      type: 'function',
+      name: 'isApprovedForAll',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'owner', type: 'address' },
+        { name: 'operator', type: 'address' },
+      ],
+      outputs: [{ name: '', type: 'bool' }],
+    },
+    {
+      type: 'function',
+      name: 'getApproved',
+      stateMutability: 'view',
+      inputs: [{ name: 'tokenId', type: 'uint256' }],
+      outputs: [{ name: '', type: 'address' }],
+    },
   ] as const;
 
   const validationRegistry = getAddress(params.validationRegistry) as `0x${string}`;
@@ -122,7 +139,38 @@ async function preflightValidationRegistryAuthorization(params: {
     args: [BigInt(parsed.agentId)],
   });
 
-  const ok = ownerOnValidation.toLowerCase() === sender.toLowerCase();
+  const isOwner = ownerOnValidation.toLowerCase() === sender.toLowerCase();
+  let isApprovedForAll = false;
+  let tokenApproved: `0x${string}` | null = null;
+
+  if (!isOwner) {
+    try {
+      isApprovedForAll = (await publicClient.readContract({
+        address: identityRegistryOnValidation,
+        abi: IDENTITY_ABI,
+        functionName: 'isApprovedForAll',
+        args: [ownerOnValidation, sender],
+      })) as boolean;
+    } catch {
+      // ignore
+    }
+
+    try {
+      tokenApproved = (await publicClient.readContract({
+        address: identityRegistryOnValidation,
+        abi: IDENTITY_ABI,
+        functionName: 'getApproved',
+        args: [BigInt(parsed.agentId)],
+      })) as `0x${string}`;
+    } catch {
+      // ignore
+    }
+  }
+
+  const ok =
+    isOwner ||
+    isApprovedForAll ||
+    (typeof tokenApproved === 'string' && tokenApproved.toLowerCase() === sender.toLowerCase());
   console.log('[Validation Request][preflight] Authorization check:', {
     requesterDid: parsed.did,
     agentId: parsed.agentId,
@@ -130,6 +178,9 @@ async function preflightValidationRegistryAuthorization(params: {
     identityRegistryOnValidation,
     ownerOnValidation,
     sender,
+    isOwner,
+    isApprovedForAll,
+    tokenApproved,
     ok,
   });
 
@@ -137,7 +188,8 @@ async function preflightValidationRegistryAuthorization(params: {
     throw new Error(
       `ValidationRegistry will revert "Not authorized". ` +
         `ownerOf(agentId=${parsed.agentId}) on ValidationRegistry.identityRegistry is ${ownerOnValidation}, ` +
-        `but UserOp sender is ${sender}.`,
+        `UserOp sender is ${sender}, ` +
+        `isApprovedForAll=${String(isApprovedForAll)}, getApproved=${tokenApproved ?? 'unknown'}.`,
     );
   }
 }

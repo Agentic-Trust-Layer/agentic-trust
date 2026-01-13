@@ -10,7 +10,7 @@ import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
 import type { Address, Chain } from 'viem';
-import { keccak256, toHex, getAddress } from "viem";
+import { keccak256, toHex, getAddress, createPublicClient, http } from 'viem';
 import { buildDid8004, parseDid8004, generateSessionPackage, getDeployedAccountClientByAddress, getDeployedAccountClientByAgentName, updateAgentRegistrationWithWallet, requestNameValidationWithWallet, requestAccountValidationWithWallet, requestAppValidationWithWallet, requestAIDValidationWithWallet } from '@agentic-trust/core';
 import type { DiscoverParams as AgentSearchParams, DiscoverResponse, ValidationStatus } from '@agentic-trust/core/server';
 import {
@@ -42,6 +42,84 @@ function resolvePlainAddress(value: unknown): `0x${string}` | null {
   }
   if (v.startsWith('0x')) return getAddress(v) as `0x${string}`;
   return null;
+}
+
+async function walletControlsAccount(params: {
+  publicClient: any;
+  walletEoa: `0x${string}`;
+  account: `0x${string}`;
+}): Promise<boolean> {
+  const { publicClient, walletEoa, account } = params;
+  const walletLower = walletEoa.toLowerCase();
+  const acctLower = account.toLowerCase();
+
+  const code = await publicClient.getBytecode({ address: account });
+  const isContract = Boolean(code && code !== '0x');
+
+  // EOA: direct compare
+  if (!isContract) {
+    return acctLower === walletLower;
+  }
+
+  // Smart account: try common ownership patterns
+  const OWNER_ABI = [
+    {
+      type: 'function',
+      name: 'owner',
+      stateMutability: 'view',
+      inputs: [],
+      outputs: [{ type: 'address' }],
+    },
+    {
+      type: 'function',
+      name: 'getOwner',
+      stateMutability: 'view',
+      inputs: [],
+      outputs: [{ type: 'address' }],
+    },
+    {
+      type: 'function',
+      name: 'owners',
+      stateMutability: 'view',
+      inputs: [],
+      outputs: [{ type: 'address[]' }],
+    },
+  ] as const;
+
+  let controller: string | null = null;
+  try {
+    controller = await publicClient.readContract({
+      address: account,
+      abi: OWNER_ABI,
+      functionName: 'owner',
+      args: [],
+    });
+  } catch {}
+
+  if (!controller) {
+    try {
+      controller = await publicClient.readContract({
+        address: account,
+        abi: OWNER_ABI,
+        functionName: 'getOwner',
+        args: [],
+      });
+    } catch {}
+  }
+
+  if (!controller) {
+    try {
+      const owners = (await publicClient.readContract({
+        address: account,
+        abi: OWNER_ABI,
+        functionName: 'owners',
+        args: [],
+      })) as string[];
+      controller = owners?.[0] ?? null;
+    } catch {}
+  }
+
+  return Boolean(controller && String(controller).toLowerCase() === walletLower);
 }
 type Agent = DiscoverResponse['agents'][number];
 type ValidationStatusWithHash = ValidationStatus & { requestHash?: string };
@@ -2272,6 +2350,15 @@ export default function AdminPage() {
         throw new Error(`Bundler URL not configured for chain ${chainId}`);
       }
 
+      const chainEnv = getClientChainEnv(chainId);
+      if (!chainEnv.rpcUrl) {
+        throw new Error(`RPC URL not configured for chain ${chainId}`);
+      }
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(chainEnv.rpcUrl),
+      });
+
       // Ensure the wallet is on the correct chain (Metamask)
       if (eip1193Provider && typeof eip1193Provider.request === 'function') {
         const targetHex = `0x${chainId.toString(16)}`;
@@ -2286,18 +2373,65 @@ export default function AdminPage() {
         }
       }
 
-      // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAddress(
-        getAddress(displayAgentAddress as `0x${string}`),
-        eoaAddress as `0x${string}`,
-        {
-          chain: chain as any,
-          ethereumProvider: eip1193Provider as any,
-        },
-      );
-
       // Build did8004 for the validation request
-      const did8004 = buildDid8004(chainId, finalAgentId);
+      const did8004 = buildDid8004(chainId, finalAgentId, { encode: false });
+
+      // Choose requester sender deterministically:
+      // - Prefer NFT operator ONLY if the connected wallet can prove it controls that account (avoids AA24 signature errors).
+      // - Otherwise use NFT owner if controlled by the connected wallet.
+      // - Otherwise fail fast with a clear error.
+      let operatorAddress: `0x${string}` | null = null;
+      let ownerAddress: `0x${string}` | null = null;
+      try {
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        if (opRes.ok) {
+          const opData = await opRes.json().catch(() => ({} as any));
+          operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
+        }
+      } catch {
+        // ignore; will resolve owner below
+      }
+
+      const ownerRaw = (fetchedAgentInfo as any)?.agentIdentityOwnerAccount ?? null;
+      ownerAddress = (resolvePlainAddress(ownerRaw) as `0x${string}` | null) ?? null;
+
+      const controlledOperator =
+        operatorAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: operatorAddress,
+        }));
+
+      const controlledOwner =
+        ownerAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: ownerAddress,
+        }));
+
+      const requesterAddress = (controlledOperator ? operatorAddress : controlledOwner ? ownerAddress : null) as
+        | `0x${string}`
+        | null;
+
+      if (!requesterAddress) {
+        throw new Error(
+          `Connected wallet does not control a valid requester account for this agent. ` +
+            `wallet=${eoaAddress}, owner=${ownerAddress ?? 'unknown'}, operator=${operatorAddress ?? 'none'}. ` +
+            `Set NFT operator to an account controlled by this wallet, or connect the wallet that controls the owner/operator.`,
+        );
+      }
+
+      const requesterCode = await publicClient.getBytecode({ address: requesterAddress });
+      const isRequesterSmartAccount = Boolean(requesterCode && requesterCode !== '0x');
+
+      const requesterAccountClient = isRequesterSmartAccount
+        ? await getDeployedAccountClientByAddress(requesterAddress, eoaAddress as `0x${string}`, {
+            chain: chain as any,
+            ethereumProvider: eip1193Provider as any,
+          })
+        : undefined;
 
       const requestJson = {
         agentId: finalAgentId,
@@ -2331,10 +2465,10 @@ export default function AdminPage() {
         requestUri: requestUri,
         requestHash: requestHash,
         chain: chain as any,
-        requesterAccountClient: agentAccountClient,
-        mode: 'eoa',
+        requesterAccountClient: requesterAccountClient as any,
+        mode: isRequesterSmartAccount ? 'smartAccount' : 'eoa',
         ethereumProvider: eip1193Provider as any,
-        account: eoaAddress as `0x${string}`,
+        account: isRequesterSmartAccount ? undefined : (eoaAddress as `0x${string}`),
         onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
       });
 
@@ -2382,18 +2516,69 @@ export default function AdminPage() {
         throw new Error(`Bundler URL not configured for chain ${chainId}`);
       }
 
-      // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAddress(
-        getAddress(displayAgentAddress as `0x${string}`),
-        eoaAddress as `0x${string}`,
-        {
-          chain: chain as any,
-          ethereumProvider: eip1193Provider as any,
-        },
-      );
+      const chainEnv = getClientChainEnv(chainId);
+      if (!chainEnv.rpcUrl) {
+        throw new Error(`RPC URL not configured for chain ${chainId}`);
+      }
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(chainEnv.rpcUrl),
+      });
 
       // Build did8004 for the validation request
-      const did8004 = buildDid8004(chainId, finalAgentId);
+      const did8004 = buildDid8004(chainId, finalAgentId, { encode: false });
+
+      let operatorAddress: `0x${string}` | null = null;
+      let ownerAddress: `0x${string}` | null = null;
+      try {
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        if (opRes.ok) {
+          const opData = await opRes.json().catch(() => ({} as any));
+          operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
+        }
+      } catch {
+        // ignore; will resolve owner below
+      }
+
+      const ownerRaw = (fetchedAgentInfo as any)?.agentIdentityOwnerAccount ?? null;
+      ownerAddress = (resolvePlainAddress(ownerRaw) as `0x${string}` | null) ?? null;
+
+      const controlledOperator =
+        operatorAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: operatorAddress,
+        }));
+
+      const controlledOwner =
+        ownerAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: ownerAddress,
+        }));
+
+      const requesterAddress = (controlledOperator ? operatorAddress : controlledOwner ? ownerAddress : null) as
+        | `0x${string}`
+        | null;
+
+      if (!requesterAddress) {
+        throw new Error(
+          `Connected wallet does not control a valid requester account for this agent. ` +
+            `wallet=${eoaAddress}, owner=${ownerAddress ?? 'unknown'}, operator=${operatorAddress ?? 'none'}. ` +
+            `Set NFT operator to an account controlled by this wallet, or connect the wallet that controls the owner/operator.`,
+        );
+      }
+
+      const requesterCode = await publicClient.getBytecode({ address: requesterAddress });
+      const isRequesterSmartAccount = Boolean(requesterCode && requesterCode !== '0x');
+      const requesterAccountClient = isRequesterSmartAccount
+        ? await getDeployedAccountClientByAddress(requesterAddress, eoaAddress as `0x${string}`, {
+            chain: chain as any,
+            ethereumProvider: eip1193Provider as any,
+          })
+        : undefined;
 
       const requestJson = {
         agentId: finalAgentId,
@@ -2427,7 +2612,10 @@ export default function AdminPage() {
         requestUri: requestUri,
         requestHash: requestHash,
         chain: chain as any,
-        requesterAccountClient: agentAccountClient,
+        requesterAccountClient: requesterAccountClient as any,
+        mode: isRequesterSmartAccount ? 'smartAccount' : 'eoa',
+        ethereumProvider: eip1193Provider as any,
+        account: isRequesterSmartAccount ? undefined : (eoaAddress as `0x${string}`),
         onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
       });
 
@@ -2475,18 +2663,69 @@ export default function AdminPage() {
         throw new Error(`Bundler URL not configured for chain ${chainId}`);
       }
 
-      // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAddress(
-        getAddress(displayAgentAddress as `0x${string}`),
-        eoaAddress as `0x${string}`,
-        {
-          chain: chain as any,
-          ethereumProvider: eip1193Provider as any,
-        },
-      );
+      const chainEnv = getClientChainEnv(chainId);
+      if (!chainEnv.rpcUrl) {
+        throw new Error(`RPC URL not configured for chain ${chainId}`);
+      }
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(chainEnv.rpcUrl),
+      });
 
       // Build did8004 for the validation request
-      const did8004 = buildDid8004(chainId, finalAgentId);
+      const did8004 = buildDid8004(chainId, finalAgentId, { encode: false });
+
+      let operatorAddress: `0x${string}` | null = null;
+      let ownerAddress: `0x${string}` | null = null;
+      try {
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        if (opRes.ok) {
+          const opData = await opRes.json().catch(() => ({} as any));
+          operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
+        }
+      } catch {
+        // ignore; will resolve owner below
+      }
+
+      const ownerRaw = (fetchedAgentInfo as any)?.agentIdentityOwnerAccount ?? null;
+      ownerAddress = (resolvePlainAddress(ownerRaw) as `0x${string}` | null) ?? null;
+
+      const controlledOperator =
+        operatorAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: operatorAddress,
+        }));
+
+      const controlledOwner =
+        ownerAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: ownerAddress,
+        }));
+
+      const requesterAddress = (controlledOperator ? operatorAddress : controlledOwner ? ownerAddress : null) as
+        | `0x${string}`
+        | null;
+
+      if (!requesterAddress) {
+        throw new Error(
+          `Connected wallet does not control a valid requester account for this agent. ` +
+            `wallet=${eoaAddress}, owner=${ownerAddress ?? 'unknown'}, operator=${operatorAddress ?? 'none'}. ` +
+            `Set NFT operator to an account controlled by this wallet, or connect the wallet that controls the owner/operator.`,
+        );
+      }
+
+      const requesterCode = await publicClient.getBytecode({ address: requesterAddress });
+      const isRequesterSmartAccount = Boolean(requesterCode && requesterCode !== '0x');
+      const requesterAccountClient = isRequesterSmartAccount
+        ? await getDeployedAccountClientByAddress(requesterAddress, eoaAddress as `0x${string}`, {
+            chain: chain as any,
+            ethereumProvider: eip1193Provider as any,
+          })
+        : undefined;
 
       const requestJson = {
         agentId: finalAgentId,
@@ -2520,7 +2759,10 @@ export default function AdminPage() {
         requestUri: requestUri,
         requestHash: requestHash,
         chain: chain as any,
-        requesterAccountClient: agentAccountClient,
+        requesterAccountClient: requesterAccountClient as any,
+        mode: isRequesterSmartAccount ? 'smartAccount' : 'eoa',
+        ethereumProvider: eip1193Provider as any,
+        account: isRequesterSmartAccount ? undefined : (eoaAddress as `0x${string}`),
         onStatusUpdate: (msg: string) => console.log('[Validation Request]', msg),
       });
 
@@ -2568,18 +2810,69 @@ export default function AdminPage() {
         throw new Error(`Bundler URL not configured for chain ${chainId}`);
       }
 
-      // Get agent account client
-      const agentAccountClient = await getDeployedAccountClientByAddress(
-        getAddress(displayAgentAddress as `0x${string}`),
-        eoaAddress as `0x${string}`,
-        {
-          chain: chain as any,
-          ethereumProvider: eip1193Provider as any,
-        },
-      );
+      const chainEnv = getClientChainEnv(chainId);
+      if (!chainEnv.rpcUrl) {
+        throw new Error(`RPC URL not configured for chain ${chainId}`);
+      }
+      const publicClient = createPublicClient({
+        chain: chain as any,
+        transport: http(chainEnv.rpcUrl),
+      });
 
       // Build did8004 for the validation request
-      const did8004 = buildDid8004(chainId, finalAgentId);
+      const did8004 = buildDid8004(chainId, finalAgentId, { encode: false });
+
+      let operatorAddress: `0x${string}` | null = null;
+      let ownerAddress: `0x${string}` | null = null;
+      try {
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        if (opRes.ok) {
+          const opData = await opRes.json().catch(() => ({} as any));
+          operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
+        }
+      } catch {
+        // ignore; will resolve owner below
+      }
+
+      const ownerRaw = (fetchedAgentInfo as any)?.agentIdentityOwnerAccount ?? null;
+      ownerAddress = (resolvePlainAddress(ownerRaw) as `0x${string}` | null) ?? null;
+
+      const controlledOperator =
+        operatorAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: operatorAddress,
+        }));
+
+      const controlledOwner =
+        ownerAddress &&
+        (await walletControlsAccount({
+          publicClient,
+          walletEoa: eoaAddress as `0x${string}`,
+          account: ownerAddress,
+        }));
+
+      const requesterAddress = (controlledOperator ? operatorAddress : controlledOwner ? ownerAddress : null) as
+        | `0x${string}`
+        | null;
+
+      if (!requesterAddress) {
+        throw new Error(
+          `Connected wallet does not control a valid requester account for this agent. ` +
+            `wallet=${eoaAddress}, owner=${ownerAddress ?? 'unknown'}, operator=${operatorAddress ?? 'none'}. ` +
+            `Set NFT operator to an account controlled by this wallet, or connect the wallet that controls the owner/operator.`,
+        );
+      }
+
+      const requesterCode = await publicClient.getBytecode({ address: requesterAddress });
+      const isRequesterSmartAccount = Boolean(requesterCode && requesterCode !== '0x');
+      const requesterAccountClient = isRequesterSmartAccount
+        ? await getDeployedAccountClientByAddress(requesterAddress, eoaAddress as `0x${string}`, {
+            chain: chain as any,
+            ethereumProvider: eip1193Provider as any,
+          })
+        : undefined;
 
       const requestJson = {
         agentId: finalAgentId,
@@ -2613,7 +2906,10 @@ export default function AdminPage() {
         requestUri: requestUri,
         requestHash: requestHash,
         chain: chain as any,
-        requesterAccountClient: agentAccountClient,
+        requesterAccountClient: requesterAccountClient as any,
+        mode: isRequesterSmartAccount ? 'smartAccount' : 'eoa',
+        ethereumProvider: eip1193Provider as any,
+        account: isRequesterSmartAccount ? undefined : (eoaAddress as `0x${string}`),
         onStatusUpdate: (msg: string) => console.log('[AID Validation Request]', msg),
       });
 

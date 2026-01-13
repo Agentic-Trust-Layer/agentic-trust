@@ -2026,7 +2026,8 @@ ${metadataSelection}
             throw new Error('Invalid EOA address. Must be a valid Ethereum address starting with 0x');
         }
         // Indexer/storage can vary: some deployments store checksum addresses as strings; others store lowercased hex.
-        // Query defensively in a case-safe way.
+        // Keep this strict: do not guess alternate encodings (CAIP-10 / EIP-155 / did:pkh). If production differs,
+        // fix the indexer/config rather than adding client-side heuristics.
         const addrLower = eoaAddress.toLowerCase();
         const addrCandidates = [];
         addrCandidates.push(eoaAddress);
