@@ -1313,6 +1313,18 @@ async function createAgentWithWalletAA(options) {
                 const uaid = typeof uaidData?.uaid === 'string' && uaidData.uaid.trim() ? uaidData.uaid.trim() : null;
                 if (uaid) {
                     const did8004 = `did:8004:${chain.id}:${agentId}`;
+                    
+                    // Get identity registry address for agentRegistry field
+                    // Prefer identityRegistry from API response (data.identityRegistry) as it's the most reliable source
+                    // Fallback: extract from first call's 'to' address (the IdentityRegistry)
+                    let identityRegistryAddress = data.identityRegistry;
+                    if (!identityRegistryAddress && Array.isArray(data.calls) && data.calls.length > 0) {
+                        const firstCall = data.calls[0];
+                        if (firstCall?.to) {
+                            identityRegistryAddress = firstCall.to;
+                        }
+                    }
+                    
                     const registrationUpdate = {
                         type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
                         name: agentData.agentName,
@@ -1332,8 +1344,9 @@ async function createAgentWithWalletAA(options) {
                         registrations: [
                             {
                                 agentId: String(agentId),
-                                // agentRegistry is best-effort; server will also backfill if omitted
-                                agentRegistry: `eip155:${chain.id}:unknown`,
+                                agentRegistry: identityRegistryAddress 
+                                    ? `eip155:${chain.id}:${String(identityRegistryAddress)}`
+                                    : `eip155:${chain.id}:unknown`, // Fallback if registry address unavailable
                                 registeredAt: new Date().toISOString(),
                             },
                         ],

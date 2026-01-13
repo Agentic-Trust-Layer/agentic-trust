@@ -675,6 +675,7 @@ export default function AdminPage() {
         }
 
         // Final step: ensure registration JSON marks agent as active=true (only if session package was created)
+        // This updates the registration JSON pointed to by agentUri to set active=true
         if (sessionPackageCreated) {
           try {
             // First, refresh NFT operator to get the operator address
@@ -708,9 +709,17 @@ export default function AdminPage() {
               });
             }
             
-            // Now set active=true in registration JSON (with operator address if available)
+            // Set active=true in registration JSON (pointed to by agentUri)
+            // This ensures the registration JSON reflects that the agent is active when session package is set
             setSessionPackageProgress(90);
-            await handleSetAgentActive(true, operatorAddress);
+            try {
+              await handleSetAgentActive(true, operatorAddress);
+            } catch (activeError: any) {
+              // If setting active fails (e.g., no operator), log but don't fail the entire flow
+              // The session package was created successfully, which is the main goal
+              console.warn('[AdminTools] Failed to set active=true in registration JSON after session package creation:', activeError?.message || activeError);
+              // Still continue to refresh the registration to show current state
+            }
             
             // Refresh registration JSON and wait for it to complete
             setSessionPackageProgress(95);

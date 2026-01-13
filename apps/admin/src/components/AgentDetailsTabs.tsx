@@ -47,6 +47,7 @@ type AgentDetailsTabsProps = {
   onChainMetadata?: Record<string, string>;
 };
 
+// Tab definitions - labels will be computed with counts from agent prop
 const TAB_DEFS = [
   { id: 'overview', label: 'Overview' },
   { id: 'registration', label: 'Registration' },
@@ -188,6 +189,41 @@ const AgentDetailsTabs = ({
 
   const pendingValidations = validations?.pending ?? [];
   const completedValidations = validations?.completed ?? [];
+
+  // Get counts from discovery agent query (not from detail queries)
+  const validationPendingCount = typeof agent.validationPendingCount === 'number' && agent.validationPendingCount >= 0
+    ? agent.validationPendingCount
+    : null;
+  const validationCompletedCount = typeof agent.validationCompletedCount === 'number' && agent.validationCompletedCount >= 0
+    ? agent.validationCompletedCount
+    : null;
+  const totalValidationCount = (validationPendingCount ?? 0) + (validationCompletedCount ?? 0);
+
+  const feedbackCount = typeof agent.feedbackCount === 'number' && agent.feedbackCount >= 0
+    ? agent.feedbackCount
+    : null;
+
+  const initiatedAssociationCount = typeof agent.initiatedAssociationCount === 'number' && Number.isFinite(agent.initiatedAssociationCount) && agent.initiatedAssociationCount >= 0
+    ? agent.initiatedAssociationCount
+    : null;
+  const approvedAssociationCount = typeof agent.approvedAssociationCount === 'number' && Number.isFinite(agent.approvedAssociationCount) && agent.approvedAssociationCount >= 0
+    ? agent.approvedAssociationCount
+    : null;
+  const totalAssociationCount = (initiatedAssociationCount ?? 0) + (approvedAssociationCount ?? 0);
+
+  // Compute tab labels with counts
+  const getTabLabel = useCallback((tabId: TabId): string => {
+    switch (tabId) {
+      case 'feedback':
+        return feedbackCount !== null ? `Feedback (${feedbackCount})` : 'Feedback';
+      case 'validation':
+        return totalValidationCount > 0 ? `Validation (${totalValidationCount})` : 'Validation';
+      case 'associations':
+        return totalAssociationCount > 0 ? `Associations (${totalAssociationCount})` : 'Associations';
+      default:
+        return TAB_DEFS.find(t => t.id === tabId)?.label ?? tabId;
+    }
+  }, [feedbackCount, totalValidationCount, totalAssociationCount]);
 
   // Normalize IPFS/Arweave URLs to HTTP
   const normalizeResourceUrl = useCallback((src?: string | null): string | null => {
@@ -640,6 +676,7 @@ const AgentDetailsTabs = ({
       >
         {TAB_DEFS.map((tab) => {
           const isActive = activeTab === tab.id;
+          const label = getTabLabel(tab.id);
           return (
             <button
               key={tab.id}
@@ -672,7 +709,7 @@ const AgentDetailsTabs = ({
                 }
               }}
             >
-              {tab.label}
+              {label}
             </button>
           );
         })}
@@ -992,7 +1029,7 @@ const AgentDetailsTabs = ({
                 {feedbackError}
               </p>
             )}
-            {feedbackSummary && (
+            {(feedbackSummary || feedbackCount !== null || agent.feedbackAverageScore !== null) && (
               <div
                 style={{
                   display: 'flex',
@@ -1007,13 +1044,16 @@ const AgentDetailsTabs = ({
               >
                 <span>
                   <strong>Feedback count:</strong>{' '}
-                  {feedbackSummary?.count ?? '0'}
+                  {/* Prefer discovery count, fallback to loaded detail count */}
+                  {feedbackCount !== null ? feedbackCount : (feedbackSummary?.count ?? '0')}
                 </span>
                 <span>
                   <strong>Average score:</strong>{' '}
-                  {typeof feedbackSummary?.averageScore === 'number'
-                    ? feedbackSummary.averageScore.toFixed(2)
-                    : 'N/A'}
+                  {typeof agent.feedbackAverageScore === 'number'
+                    ? agent.feedbackAverageScore.toFixed(2)
+                    : typeof feedbackSummary?.averageScore === 'number'
+                      ? feedbackSummary.averageScore.toFixed(2)
+                      : 'N/A'}
                 </span>
               </div>
             )}
@@ -1205,7 +1245,7 @@ const AgentDetailsTabs = ({
                       fontSize: '0.9rem',
                     }}
                   >
-                    Completed validations ({completedValidations.length})
+                    Completed validations ({validationCompletedCount !== null ? validationCompletedCount : completedValidations.length})
                   </h4>
                   {completedValidations.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -1335,7 +1375,7 @@ const AgentDetailsTabs = ({
                       fontSize: '0.9rem',
                     }}
                   >
-                    Pending validations ({pendingValidations.length})
+                    Pending validations ({validationPendingCount !== null ? validationPendingCount : pendingValidations.length})
                   </h4>
                   {pendingValidations.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -1426,6 +1466,36 @@ const AgentDetailsTabs = ({
             <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
               Associated accounts for this agent's smart account ({agent.agentAccount ? shorten(agent.agentAccount) : '—'})
             </p>
+            {(initiatedAssociationCount !== null || approvedAssociationCount !== null) && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  fontSize: '0.9rem',
+                  marginBottom: '1rem',
+                  padding: '0.75rem',
+                  backgroundColor: palette.surfaceMuted,
+                  borderRadius: '8px',
+                }}
+              >
+                {initiatedAssociationCount !== null && (
+                  <span>
+                    <strong>Initiated:</strong> {initiatedAssociationCount}
+                  </span>
+                )}
+                {approvedAssociationCount !== null && (
+                  <span>
+                    <strong>Approved:</strong> {approvedAssociationCount}
+                  </span>
+                )}
+                {totalAssociationCount > 0 && (
+                  <span>
+                    <strong>Total:</strong> {totalAssociationCount}
+                  </span>
+                )}
+              </div>
+            )}
             {!agent.agentAccount ? (
               <p style={{ color: palette.textSecondary, margin: 0 }}>
                 No agent account address available.

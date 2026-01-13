@@ -69,10 +69,28 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
 
   const client = await getAgenticTrustClient();
   
-  // Get the agent object for compatibility
-  const agent = await client.agents.getAgent(agentIdParam, chainId);
+  // Get the agent from discovery query to include counts (validation, feedback, associations)
+  // Fallback to regular getAgent if discovery fails
+  let agent: any = null;
+  try {
+    agent = await client.agents.getAgentFromDiscovery(chainId, agentIdParam);
+  } catch (error) {
+    console.warn('[AgentDetailsPage] Failed to get agent from discovery, falling back to regular getAgent:', error);
+  }
+  
+  // Fallback to regular getAgent if discovery didn't return data
   if (!agent) {
-    notFound();
+    const regularAgent = await client.agents.getAgent(agentIdParam, chainId);
+    if (!regularAgent) {
+      notFound();
+    }
+    // Convert Agent instance to plain object for compatibility
+    agent = {
+      ...(regularAgent as any).data,
+      agentId: regularAgent.agentId,
+      agentName: regularAgent.agentName,
+      chainId: regularAgent.chainId,
+    };
   }
 
   const numericAgentId = agent.agentId?.toString?.() ?? agentIdParam;

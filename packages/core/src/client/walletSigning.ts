@@ -1321,6 +1321,38 @@ async function createAgentWithWalletAA(
       ? providedChainId
       : await resolveChainId(ethereumProvider);
 
+  // Helper function to get identity registry address from environment variables
+  // Defined at function level so it's accessible throughout createAgentWithWalletAA
+  function getIdentityRegistryAddress(chainId: number): `0x${string}` | undefined {
+    function normalizeHex(value?: string | null): `0x${string}` | undefined {
+      if (!value) return undefined;
+      const trimmed = value.trim();
+      if (!trimmed) return undefined;
+      return trimmed.startsWith('0x') 
+        ? (trimmed as `0x${string}`)
+        : (`0x${trimmed}` as `0x${string}`);
+    }
+    const cfg = getChainConfig(chainId);
+    if (!cfg) {
+      console.warn(`[createAgentWithWalletAA] No chain config found for chainId ${chainId}`);
+      return undefined;
+    }
+    const key = `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_${cfg.suffix}`;
+    // In Next.js, process.env is available at build time for NEXT_PUBLIC_* variables
+    // At runtime, they're replaced, so we check process.env directly
+    let value: string | undefined;
+    if (typeof process !== 'undefined' && process?.env) {
+      value = (typeof process.env[key] === 'string' ? process.env[key] : undefined) || 
+              (typeof process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY === 'string' 
+                ? process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY 
+                : undefined);
+    }
+    if (!value) {
+      console.warn(`[createAgentWithWalletAA] Environment variable not found: ${key} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY`);
+    }
+    return normalizeHex(value);
+  }
+
   // Step 1: Call API to create agent
   onStatusUpdate?.('Creating agent...');
 
@@ -1795,38 +1827,7 @@ async function createAgentWithWalletAA(
     // After registration, set agentWallet on-chain BEFORE notifying the indexer.
     try {
       // Get identityRegistry from chain config (client-side environment variables)
-      // This matches the pattern used in sessionPackageBuilder
-      function normalizeHex(value?: string | null): `0x${string}` | undefined {
-        if (!value) return undefined;
-        const trimmed = value.trim();
-        if (!trimmed) return undefined;
-        return trimmed.startsWith('0x') 
-          ? (trimmed as `0x${string}`)
-          : (`0x${trimmed}` as `0x${string}`);
-      }
-
-      function getIdentityRegistryAddress(chainId: number): `0x${string}` | undefined {
-        const cfg = getChainConfig(chainId);
-        if (!cfg) {
-          console.warn(`[createAgentWithWalletAA] No chain config found for chainId ${chainId}`);
-          return undefined;
-        }
-        const key = `NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_${cfg.suffix}`;
-        // In Next.js, process.env is available at build time for NEXT_PUBLIC_* variables
-        // At runtime, they're replaced, so we check process.env directly
-        let value: string | undefined;
-        if (typeof process !== 'undefined' && process?.env) {
-          value = (typeof process.env[key] === 'string' ? process.env[key] : undefined) || 
-                  (typeof process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY === 'string' 
-                    ? process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY 
-                    : undefined);
-        }
-        if (!value) {
-          console.warn(`[createAgentWithWalletAA] Environment variable not found: ${key} or NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY`);
-        }
-        return normalizeHex(value);
-      }
-
+      // Use the function-level getIdentityRegistryAddress helper
       let identityRegistry: `0x${string}` | undefined =
         identityRegistryFromPlan || getIdentityRegistryAddress(chain.id);
       
@@ -2286,6 +2287,22 @@ async function createAgentWithWalletAA(
 
         if (uaid) {
           const did8004 = `did:8004:${chain.id}:${agentId}`;
+          
+          // Get identity registry address for agentRegistry field
+          // Prefer identityRegistryFromPlan (from server plan) as it's the most reliable source
+          let identityRegistryAddress: string | undefined;
+          if (identityRegistryFromPlan) {
+            identityRegistryAddress = String(identityRegistryFromPlan);
+          } else {
+            // Fallback to environment variable if plan doesn't have it
+            try {
+              const registryAddr = getIdentityRegistryAddress(chain.id);
+              identityRegistryAddress = registryAddr ? String(registryAddr) : undefined;
+            } catch (e) {
+              console.warn('[createAgentWithWalletAA] Failed to get identity registry address for agentRegistry:', e);
+            }
+          }
+          
           const registrationUpdate = {
             type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
             name: agentData.agentName,
@@ -2305,8 +2322,9 @@ async function createAgentWithWalletAA(
             registrations: [
               {
                 agentId: String(agentId),
-                // agentRegistry is best-effort; server will also backfill if omitted
-                agentRegistry: `eip155:${chain.id}:unknown`,
+                agentRegistry: identityRegistryAddress 
+                  ? `eip155:${chain.id}:${identityRegistryAddress}`
+                  : `eip155:${chain.id}:unknown`, // Fallback if registry address unavailable
                 registeredAt: new Date().toISOString(),
               },
             ],
