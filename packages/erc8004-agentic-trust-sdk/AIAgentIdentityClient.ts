@@ -261,6 +261,10 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
       'mcpEndpoint',
       'ensEndpoint',
       'agentAccountEndpoint',
+      // Agent registration metadata
+      'registeredBy',
+      'registryNamespace',
+      'uaid',
     ];
 
     const metadata: Record<string, string> = {};

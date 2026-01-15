@@ -1912,88 +1912,171 @@ export class AIAgentDiscoveryClient {
 
   /**
    * Get all token metadata from The Graph indexer for an agent
-   * Uses tokenMetadata_collection query to get all metadata key-value pairs
+   * Uses agentMetadata_collection (The Graph subgraph) or agentMetadata (custom schema) query
+   * to get all metadata key-value pairs. Tries subgraph format first, falls back to custom schema.
    * Handles pagination if an agent has more than 1000 metadata entries
    * @param chainId - Chain ID
    * @param agentId - Agent ID
    * @returns Record of all metadata key-value pairs, or null if not available
    */
+  /**
+   * @deprecated Use getAllAgentMetadata instead. This method name is misleading.
+   */
   async getTokenMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    return this.getAllAgentMetadata(chainId, agentId);
+  }
+
+  /**
+   * Get all agent metadata entries from the discovery GraphQL backend.
+   * Uses agentMetadata_collection (The Graph subgraph) or agentMetadata (custom schema) query.
+   * Tries subgraph format first, falls back to custom schema.
+   * Handles pagination if an agent has more than 1000 metadata entries.
+   * @param chainId - Chain ID
+   * @param agentId - Agent ID
+   * @returns Record of all metadata key-value pairs, or null if not available
+   */
+  async getAllAgentMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
     // If we already learned the GraphQL schema doesn't support this query field,
     // skip to avoid repeated GRAPHQL_VALIDATION_FAILED warnings.
     if (this.tokenMetadataCollectionSupported === false) {
       return null;
     }
 
-    // Newer indexer schemas may not expose tokenMetadata_collection anymore.
-    // Avoid spamming logs / failing requests by introspecting once and bailing out if unsupported.
-    try {
-      const queryFields = await this.getTypeFields('Query');
-      const hasTokenMetadataCollection = Boolean(
-        queryFields?.some((f) => f?.name === 'tokenMetadata_collection'),
-      );
-      if (!hasTokenMetadataCollection) {
-        this.tokenMetadataCollectionSupported = false;
-        // tokenMetadataById may exist, but it doesn't help us enumerate all metadata pairs.
-        // We only use this method as a best-effort fallback, so return null when unsupported.
-        return null;
-      }
-      this.tokenMetadataCollectionSupported = true;
-    } catch (e) {
-      // If introspection fails, keep existing behavior (attempt the query; it will be caught below).
-    }
-
+    // Try The Graph subgraph format first (agentMetadata_collection with agent_ filter)
+    // Then fallback to custom schema format (agentMetadata query)
     const metadata: Record<string, string> = {};
     const pageSize = 1000; // The Graph's default page size
     let skip = 0;
     let hasMore = true;
+    let useSubgraphFormat = true; // Try subgraph format first
 
     while (hasMore) {
-      const query = `
-        query GetTokenMetadata($chainId: Int!, $agentId: String!, $first: Int!, $skip: Int!) {
-          tokenMetadata_collection(
-            chainId: $chainId
-            agentId: $agentId
-            first: $first
-            skip: $skip
-          ) {
-            key
-            value
-            id
-            indexedKey
-          }
-        }
-      `;
+      let query: string;
+      let variables: any;
+      let data: any;
 
-      try {
-        const data = await this.client.request<{
-          tokenMetadata_collection?: Array<{
-            key: string;
-            value: string;
-            id?: string;
-            indexedKey?: string;
-          }>;
-        }>(query, {
-          chainId,
-          agentId: String(agentId),
+      if (useSubgraphFormat) {
+        // The Graph subgraph format: agentMetadata_collection with agent_ filter
+        query = `
+          query GetTokenMetadata($where: AgentMetadata_filter, $first: Int, $skip: Int) {
+            agentMetadata_collection(
+              where: $where
+              first: $first
+              skip: $skip
+              orderBy: blockNumber
+              orderDirection: asc
+            ) {
+              id
+              key
+              value
+              valueText
+              indexedKey
+              blockNumber
+              agent {
+                id
+              }
+            }
+          }
+        `;
+        variables = {
+          where: {
+            agent_: {
+              id: String(agentId),
+            },
+          },
           first: pageSize,
           skip: skip,
-        });
-
-        if (!data.tokenMetadata_collection || !Array.isArray(data.tokenMetadata_collection)) {
-          hasMore = false;
-          break;
-        }
-
-        // Add entries from this page
-        for (const entry of data.tokenMetadata_collection) {
-          if (entry.key && entry.value) {
-            metadata[entry.key] = entry.value;
+        };
+      } else {
+        // Custom schema format: agentMetadata query
+        query = `
+          query GetTokenMetadata($where: AgentMetadataWhereInput, $first: Int, $skip: Int) {
+            agentMetadata(
+              where: $where
+              first: $first
+              skip: $skip
+            ) {
+              entries {
+                key
+                value
+                valueText
+                id
+                indexedKey
+              }
+              total
+              hasMore
+            }
           }
-        }
+        `;
+        variables = {
+          where: {
+            chainId,
+            agentId: String(agentId),
+          },
+          first: pageSize,
+          skip: skip,
+        };
+      }
 
-        // Check if we got a full page (might have more)
-        hasMore = data.tokenMetadata_collection.length === pageSize;
+      try {
+        data = await this.client.request(query, variables);
+
+        if (useSubgraphFormat) {
+          // Handle subgraph format response
+          if (!data.agentMetadata_collection || !Array.isArray(data.agentMetadata_collection)) {
+            // Switch to custom schema format
+            useSubgraphFormat = false;
+            skip = 0; // Reset skip for new format
+            continue;
+          }
+
+          // Add entries from this page
+          for (const entry of data.agentMetadata_collection) {
+            // Extract key from id (format: "agentId-key") or use key field if available
+            let metadataKey: string | undefined;
+            if (entry.key) {
+              metadataKey = entry.key;
+            } else if (entry.id) {
+              // Extract key from id like "276-agentAccount" -> "agentAccount"
+              const parts = entry.id.split('-');
+              if (parts.length > 1) {
+                metadataKey = parts.slice(1).join('-');
+              }
+            }
+            
+            if (metadataKey) {
+              // Prefer valueText over value (valueText is the decoded string, value may be hex)
+              const entryValue = entry.valueText ?? entry.value;
+              if (entryValue) {
+                metadata[metadataKey] = entryValue;
+              }
+            }
+          }
+
+          // Check if we got a full page (might have more)
+          hasMore = data.agentMetadata_collection.length === pageSize;
+        } else {
+          // Handle custom schema format response
+          if (!data.agentMetadata?.entries || !Array.isArray(data.agentMetadata.entries)) {
+            hasMore = false;
+            break;
+          }
+
+          // Add entries from this page
+          for (const entry of data.agentMetadata.entries) {
+            if (entry.key) {
+              // Prefer valueText over value (valueText is the decoded string, value may be hex)
+              const entryValue = entry.valueText ?? entry.value;
+              if (entryValue) {
+                metadata[entry.key] = entryValue;
+              }
+            }
+          }
+
+          // Check if we got a full page (might have more)
+          hasMore = data.agentMetadata.hasMore === true && data.agentMetadata.entries.length === pageSize;
+        }
+        
         skip += pageSize;
 
         // Safety check: The Graph has a max skip of 5000
@@ -2003,21 +2086,24 @@ export class AIAgentDiscoveryClient {
           hasMore = false;
         }
       } catch (error) {
-        // Some indexers have evolved schema and removed `tokenMetadata_collection`.
-        // graphql-request surfaces this as GRAPHQL_VALIDATION_FAILED; treat it as "not supported"
-        // and disable future attempts for this client instance.
+        // If agentMetadata_collection fails, try custom schema format (agentMetadata query)
         const responseErrors = (error as any)?.response?.errors;
         const schemaDoesNotSupportCollection =
           Array.isArray(responseErrors) &&
           responseErrors.some(
             (e: any) =>
               typeof e?.message === 'string' &&
-              e.message.includes('tokenMetadata_collection') &&
+              (e.message.includes('agentMetadata_collection') || e.message.includes('AgentMetadata_filter')) &&
               (e?.extensions?.code === 'GRAPHQL_VALIDATION_FAILED' ||
                 e.message.includes('Cannot query field')),
           );
 
         if (schemaDoesNotSupportCollection) {
+          // Fallback to custom schema format
+          const customResult = await this.getTokenMetadataCustomSchema(chainId, agentId);
+          if (customResult) {
+            return customResult;
+          }
           this.tokenMetadataCollectionSupported = false;
           if (Object.keys(metadata).length > 0) {
             return metadata;
@@ -2027,6 +2113,95 @@ export class AIAgentDiscoveryClient {
 
         console.warn('[AIAgentDiscoveryClient.getTokenMetadata] Error fetching token metadata from GraphQL:', error);
         // If we got some metadata before the error, return what we have
+        if (Object.keys(metadata).length > 0) {
+          return metadata;
+        }
+        // Try custom schema as fallback
+        return this.getTokenMetadataCustomSchema(chainId, agentId);
+      }
+    }
+
+    return Object.keys(metadata).length > 0 ? metadata : null;
+  }
+
+  /**
+   * Fallback method: Uses agentMetadata query (custom schema format) to get all metadata key-value pairs
+   * @param chainId - Chain ID
+   * @param agentId - Agent ID
+   * @returns Record of all metadata key-value pairs, or null if not available
+   */
+  private async getTokenMetadataCustomSchema(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    const metadata: Record<string, string> = {};
+    const pageSize = 1000;
+    let skip = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const query = `
+        query GetTokenMetadata($where: AgentMetadataWhereInput, $first: Int, $skip: Int) {
+          agentMetadata(
+            where: $where
+            first: $first
+            skip: $skip
+          ) {
+            entries {
+              key
+              value
+              valueText
+              id
+              indexedKey
+            }
+            total
+            hasMore
+          }
+        }
+      `;
+
+      try {
+        const data = await this.client.request<{
+          agentMetadata?: {
+            entries?: Array<{
+              key: string;
+              value?: string | null;
+              valueText?: string | null;
+              id?: string;
+              indexedKey?: string | null;
+            }>;
+            total?: number;
+            hasMore?: boolean;
+          };
+        }>(query, {
+          where: {
+            chainId,
+            agentId: String(agentId),
+          },
+          first: pageSize,
+          skip: skip,
+        });
+
+        if (!data.agentMetadata?.entries || !Array.isArray(data.agentMetadata.entries)) {
+          hasMore = false;
+          break;
+        }
+
+        for (const entry of data.agentMetadata.entries) {
+          if (entry.key) {
+            const entryValue = entry.valueText ?? entry.value;
+            if (entryValue) {
+              metadata[entry.key] = entryValue;
+            }
+          }
+        }
+
+        hasMore = data.agentMetadata.hasMore === true && data.agentMetadata.entries.length === pageSize;
+        skip += pageSize;
+
+        if (skip >= 5000) {
+          console.warn(`[AIAgentDiscoveryClient.getTokenMetadataCustomSchema] Reached skip limit (5000) for agent ${agentId}`);
+          hasMore = false;
+        }
+      } catch (error) {
+        console.warn('[AIAgentDiscoveryClient.getTokenMetadataCustomSchema] Error:', error);
         if (Object.keys(metadata).length > 0) {
           return metadata;
         }

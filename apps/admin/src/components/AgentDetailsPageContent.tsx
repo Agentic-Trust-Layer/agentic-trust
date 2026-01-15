@@ -400,6 +400,9 @@ export default function AgentDetailsPageContent({
   const [trustGraphModalOpen, setTrustGraphModalOpen] = useState(false);
   const [reviewsModalOpen, setReviewsModalOpen] = useState(false);
   const [validationsModalOpen, setValidationsModalOpen] = useState(false);
+  // Load validations for trust graph modal
+  const [trustGraphValidations, setTrustGraphValidations] = useState<AgentDetailsValidationsSummary | null>(null);
+  const [trustGraphValidationsLoading, setTrustGraphValidationsLoading] = useState(false);
   const [feedbackRequestReason, setFeedbackRequestReason] = useState('');
   const [sendingFeedbackRequest, setSendingFeedbackRequest] = useState(false);
   const [feedbackRequestSuccess, setFeedbackRequestSuccess] = useState(false);
@@ -408,6 +411,71 @@ export default function AgentDetailsPageContent({
   const [delegationNotifyError, setDelegationNotifyError] = useState<string | null>(null);
   const [delegationNotifyLoading, setDelegationNotifyLoading] = useState(false);
   const [delegationAssociationId, setDelegationAssociationId] = useState<string | null>(null);
+
+  // Load validations when trust graph modal opens
+  useEffect(() => {
+    if (!trustGraphModalOpen) return;
+    if (trustGraphValidationsLoading || trustGraphValidations !== null) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12_000);
+
+    (async () => {
+      setTrustGraphValidationsLoading(true);
+      try {
+        const res = await fetch(
+          `/api/agents/${encodeURIComponent(did8004)}/validations`,
+          { signal: controller.signal },
+        );
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          console.warn('[TrustGraphModal] Failed to load validations:', (json as any)?.message || (json as any)?.error || `Failed to load validations (${res.status})`);
+          setTrustGraphValidations({ pending: [], completed: [] });
+          return;
+        }
+        const pendingRaw = Array.isArray(json?.pending) ? json.pending : [];
+        const completedRaw = Array.isArray(json?.completed) ? json.completed : [];
+        setTrustGraphValidations({
+          pending: pendingRaw.map((v: any) => ({
+            agentId: v?.agentId ?? null,
+            requestHash: v?.requestHash ?? null,
+            validatorAddress: v?.validatorAddress ?? null,
+            response: v?.response ?? null,
+            responseHash: v?.responseHash ?? null,
+            lastUpdate: v?.lastUpdate ?? null,
+            tag: v?.tag ?? null,
+          })),
+          completed: completedRaw.map((v: any) => ({
+            agentId: v?.agentId ?? null,
+            requestHash: v?.requestHash ?? null,
+            validatorAddress: v?.validatorAddress ?? null,
+            response: v?.response ?? null,
+            responseHash: v?.responseHash ?? null,
+            lastUpdate: v?.lastUpdate ?? null,
+            tag: v?.tag ?? null,
+          })),
+        });
+      } catch (e: any) {
+        if (!cancelled) {
+          console.warn('[TrustGraphModal] Failed to load validations:', e?.message || 'Failed to load validations');
+          setTrustGraphValidations({ pending: [], completed: [] });
+        }
+      } finally {
+        if (!cancelled) {
+          setTrustGraphValidationsLoading(false);
+        }
+        clearTimeout(timeout);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [trustGraphModalOpen, did8004]);
 
   // NOTE: did8004 is provided by the server page to avoid recomputation and to keep the
   // canonical route param around for API fetches.
@@ -1673,7 +1741,7 @@ export default function AgentDetailsPageContent({
           count: feedbackCount,
           averageScore: typeof feedbackAverage === 'number' && Number.isFinite(feedbackAverage) ? feedbackAverage : undefined,
         }}
-        validations={null}
+        validations={trustGraphValidations}
         onOpenReviews={() => {
           setTrustGraphModalOpen(false);
           // Could scroll to feedback tab or show feedback dialog

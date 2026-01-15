@@ -300,13 +300,23 @@ export declare class AIAgentDiscoveryClient {
     private getAgentMetadataValueField;
     /**
      * Get all token metadata from The Graph indexer for an agent
-     * Uses tokenMetadata_collection query to get all metadata key-value pairs
+     * Uses agentMetadata_collection query to get all metadata key-value pairs
      * Handles pagination if an agent has more than 1000 metadata entries
      * @param chainId - Chain ID
      * @param agentId - Agent ID
      * @returns Record of all metadata key-value pairs, or null if not available
      */
+    /**
+     * @deprecated Use getAllAgentMetadata instead. This method name is misleading.
+     */
     getTokenMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null>;
+    /**
+     * Get all agent metadata entries from the discovery GraphQL backend.
+     * Uses agentMetadata_collection (The Graph subgraph) or agentMetadata (custom schema) query.
+     * Tries subgraph format first, falls back to custom schema.
+     * Handles pagination if an agent has more than 1000 metadata entries.
+     */
+    getAllAgentMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null>;
     /**
      * Get a single agent by ID with metadata
      * @param chainId - Chain ID (required by schema)

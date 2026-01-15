@@ -1,0 +1,58 @@
+# Test GraphQL queries for agent metadata (agent ID 276)
+# Replace the endpoint URL with your AGENTIC_TRUST_DISCOVERY_URL/graphql
+# Replace the API key with your AGENTIC_TRUST_DISCOVERY_API_KEY
+
+# Query 1: Get all metadata using agentMetadata query
+query GetAgentMetadata {
+  agentMetadata(
+    where: {
+      chainId: 11155111
+      agentId: "276"
+    }
+    first: 1000
+    skip: 0
+  ) {
+    entries {
+      key
+      value
+      valueText
+      id
+      indexedKey
+      updatedAtTime
+    }
+    total
+    hasMore
+  }
+}
+
+# Query 2: Get agent with metadata field (may be limited)
+query GetAgentWithMetadata {
+  searchAgentsGraph(
+    where: {
+      chainId: 11155111
+      agentId: "276"
+    }
+    first: 1
+  ) {
+    agents {
+      chainId
+      agentId
+      agentName
+      agentAccount
+      metadata {
+        key
+        valueText
+      }
+    }
+  }
+}
+
+# Query 3: Get single agent by ID (alternative)
+query GetAgentById {
+  agent(chainId: 11155111, agentId: "276") {
+    chainId
+    agentId
+    agentName
+    agentAccount
+  }
+}

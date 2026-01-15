@@ -1002,55 +1002,72 @@ export async function loadAgentDetail(
 
   const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
  
-  // Fetch metadata from GraphQL indexer (from searchAgentsGraph with metadata field)
-  // This avoids on-chain RPC calls and rate limiting issues
+  // Fetch metadata from GraphQL indexer using agentMetadata_collection query
+  // This query is specifically designed to fetch ALL metadata entries with pagination
+  // The metadata field on Agent type may be limited, so we use agentMetadata_collection
   let metadata: Record<string, string> = {};
   try {
     const discoveryClient = await getDiscoveryClient();
     
-    // Try to get agent with metadata from searchAgentsGraph
-    const agentWithMetadata = await discoveryClient.getAgent(resolvedChainId, agentId);
-    if (agentWithMetadata) {
-      const metadataProp = (agentWithMetadata as any).metadata;
-      if (metadataProp && typeof metadataProp === 'object' && Object.keys(metadataProp).length > 0) {
-        metadata = metadataProp as Record<string, string>;
-        console.log('[loadAgentDetail] Got metadata from searchAgentsGraph:', Object.keys(metadata).length, 'keys');
-      } else {
-        console.log('[loadAgentDetail] No metadata in searchAgentsGraph result, trying getTokenMetadata');
-        const graphQLMetadata = await discoveryClient.getTokenMetadata(resolvedChainId, agentId);
-        if (graphQLMetadata && Object.keys(graphQLMetadata).length > 0) {
-          metadata = graphQLMetadata;
-          console.log('[loadAgentDetail] Got metadata from getTokenMetadata:', Object.keys(metadata).length, 'keys');
-        } else {
-          console.warn('[loadAgentDetail] No metadata found in GraphQL; skipping on-chain metadata to reduce latency');
-          metadata = {};
+    // Always use getAllAgentMetadata first - it uses agentMetadata_collection which fetches ALL metadata
+    // with proper pagination support
+    const graphQLMetadata = await discoveryClient.getAllAgentMetadata(resolvedChainId, agentId);
+    if (graphQLMetadata && Object.keys(graphQLMetadata).length > 0) {
+      metadata = graphQLMetadata;
+      console.log('[loadAgentDetail] Got metadata from getAllAgentMetadata (agentMetadata_collection):', Object.keys(metadata).length, 'keys');
+    } else {
+      // Fallback: try getAgent which includes metadata field (may be limited)
+      console.log('[loadAgentDetail] getAllAgentMetadata returned no data, trying getAgent with metadata field');
+      const agentWithMetadata = await discoveryClient.getAgent(resolvedChainId, agentId);
+      if (agentWithMetadata) {
+        const metadataProp = (agentWithMetadata as any).metadata;
+        if (metadataProp && typeof metadataProp === 'object' && Object.keys(metadataProp).length > 0) {
+          metadata = metadataProp as Record<string, string>;
+          console.log('[loadAgentDetail] Got metadata from getAgent (searchAgentsGraph):', Object.keys(metadata).length, 'keys');
         }
       }
-    } else {
-      console.warn('[loadAgentDetail] getAgent returned null, trying getTokenMetadata');
-      const graphQLMetadata = await discoveryClient.getTokenMetadata(resolvedChainId, agentId);
-      if (graphQLMetadata && Object.keys(graphQLMetadata).length > 0) {
-        metadata = graphQLMetadata;
-      } else {
-        console.warn('[loadAgentDetail] No metadata found via GraphQL; skipping on-chain metadata to reduce latency');
-        metadata = {};
+      
+      // If still no metadata, fallback to on-chain getAllMetadata
+      if (Object.keys(metadata).length === 0) {
+        console.log('[loadAgentDetail] No metadata found in GraphQL, falling back to on-chain getAllMetadata');
+        try {
+          const onChainMetadata = await (identityClient as any).getAllMetadata?.(agentIdBigInt);
+          if (onChainMetadata && typeof onChainMetadata === 'object' && Object.keys(onChainMetadata).length > 0) {
+            metadata = onChainMetadata as Record<string, string>;
+            console.log('[loadAgentDetail] Got metadata from getAllMetadata:', Object.keys(metadata).length, 'keys');
+          }
+        } catch (onChainError) {
+          console.warn('[loadAgentDetail] Failed to fetch on-chain metadata:', onChainError);
+        }
       }
     }
   } catch (error) {
-    console.warn('[loadAgentDetail] Failed to fetch metadata from GraphQL; skipping on-chain metadata to reduce latency:', error);
-    metadata = {}; // Avoid on-chain fallback to keep responses fast
+    console.warn('[loadAgentDetail] Failed to fetch metadata from GraphQL, falling back to on-chain getAllMetadata:', error);
+    // Fallback to on-chain getAllMetadata when GraphQL fails
+    try {
+      const onChainMetadata = await (identityClient as any).getAllMetadata?.(agentIdBigInt);
+      if (onChainMetadata && typeof onChainMetadata === 'object' && Object.keys(onChainMetadata).length > 0) {
+        metadata = onChainMetadata as Record<string, string>;
+        console.log('[loadAgentDetail] Got metadata from getAllMetadata (fallback):', Object.keys(metadata).length, 'keys');
+      }
+    } catch (onChainError) {
+      console.warn('[loadAgentDetail] Failed to fetch on-chain metadata (fallback):', onChainError);
+    }
   }
 
   // Ensure reserved agentWallet is displayed as a readable address.
   // GraphQL/indexer metadata may represent raw bytes as a lossy UTF-8 string (garbled characters).
   // The contract provides a canonical `getAgentWallet(agentId)` that returns an address.
-  try {
-    const agentWallet = await (identityClient as any).getAgentWallet?.(agentIdBigInt);
-    if (agentWallet && typeof agentWallet === 'string' && agentWallet.startsWith('0x')) {
-      metadata.agentWallet = agentWallet;
+  // Only set if not already present in metadata (getAllMetadata may have already fetched it)
+  if (!metadata.agentWallet) {
+    try {
+      const agentWallet = await (identityClient as any).getAgentWallet?.(agentIdBigInt);
+      if (agentWallet && typeof agentWallet === 'string' && agentWallet.startsWith('0x')) {
+        metadata.agentWallet = agentWallet;
+      }
+    } catch {
+      // best-effort only
     }
-  } catch {
-    // best-effort only
   }
 
   const identityMetadata = {

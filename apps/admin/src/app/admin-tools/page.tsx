@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch, Chip, Checkbox, FormControlLabel, FormGroup } from '@mui/material';
+import { Tabs, Tab, Box, Grid, Paper, Typography, Button, TextField, Alert, CircularProgress, Divider, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Switch, Chip, Checkbox, FormControlLabel, FormGroup, ListSubheader } from '@mui/material';
 import { useWallet } from '@/components/WalletProvider';
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
@@ -799,6 +799,23 @@ export default function AdminPage() {
               setRegistrationMcpEndpoint(
                 mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
               );
+              // Normalize skills when loading from registration JSON
+              // Convert old formats (trust_validate_app, trust/trust_validate_app) to oasf: format
+              const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
+              const normalizedSkills = rawSkills.map((skillId: string) => {
+                if (skillId.startsWith('oasf:')) return skillId;
+                // Map old formats to oasf: format
+                const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
+                if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name') return 'oasf:trust.validate.name';
+                if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account') return 'oasf:trust.validate.account';
+                if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app') return 'oasf:trust.validate.app';
+                if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization') return 'oasf:trust.feedback.authorization';
+                return skillId; // Keep other skills as-is
+              });
+              setRegistrationA2aSkills(normalizedSkills);
+              setRegistrationA2aDomains(
+                Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
+              );
               setRegistrationCapability(capability);
               setRegistrationImageError(validateUrlLike(image) ?? null);
               setRegistrationA2aError(
@@ -1061,8 +1078,387 @@ export default function AdminPage() {
   const [registrationA2aError, setRegistrationA2aError] = useState<string | null>(null);
   const [registrationMcpError, setRegistrationMcpError] = useState<string | null>(null);
   
+  // OASF Skills and Domains for A2A protocol
+  const [registrationA2aSkills, setRegistrationA2aSkills] = useState<string[]>([]);
+  const [registrationA2aDomains, setRegistrationA2aDomains] = useState<string[]>([]);
+  const [oasfSkills, setOasfSkills] = useState<Array<{ id: string; label: string; description?: string; category?: string }>>([]);
+  const [oasfDomains, setOasfDomains] = useState<Array<{ id: string; label: string; description?: string; category?: string }>>([]);
+  const [loadingOasfSkills, setLoadingOasfSkills] = useState(false);
+  const [loadingOasfDomains, setLoadingOasfDomains] = useState(false);
+  const [oasfSkillsError, setOasfSkillsError] = useState<string | null>(null);
+  const [oasfDomainsError, setOasfDomainsError] = useState<string | null>(null);
+  const [selectedSkillId, setSelectedSkillId] = useState<string>('');
+  const [selectedDomainId, setSelectedDomainId] = useState<string>('');
+  const [syncingSkills, setSyncingSkills] = useState(false);
+  const [syncingDomains, setSyncingDomains] = useState(false);
+  const [agentCardSkillsCount, setAgentCardSkillsCount] = useState<number | null>(null);
+  const [agentCardDomainsCount, setAgentCardDomainsCount] = useState<number | null>(null);
+  
   // Tab state for Agent Info pane
   const [agentInfoTab, setAgentInfoTab] = useState<'name' | 'info' | 'taxonomy' | 'protocols'>('name');
+
+  // Load OASF skills and domains from API
+  useEffect(() => {
+    const fetchSkills = async () => {
+      setLoadingOasfSkills(true);
+      setOasfSkillsError(null);
+      try {
+        const response = await fetch('/api/oasf/skills');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setOasfSkills([]);
+          setOasfSkillsError(
+            typeof (data as any)?.message === 'string'
+              ? (data as any).message
+              : 'Failed to load OASF skills from discovery endpoint.',
+          );
+          return;
+        }
+
+        if (Array.isArray((data as any).skills)) {
+          const normalized = (data as any).skills
+            .map((s: any) => {
+              const idRaw = s?.id ?? s?.key;
+              const id = idRaw == null ? '' : String(idRaw);
+              const labelRaw = s?.label ?? s?.caption ?? s?.key ?? s?.id ?? '';
+              return {
+                id,
+                label: String(labelRaw),
+                description: typeof s?.description === 'string' ? s.description : undefined,
+                category: typeof s?.category === 'string' ? s.category : undefined,
+              };
+            })
+            .filter((s: any) => s.id);
+          setOasfSkills(normalized);
+        } else {
+          setOasfSkills([]);
+          setOasfSkillsError('OASF skills response is missing `skills` array.');
+        }
+      } catch (error) {
+        console.warn('[AdminTools] Failed to fetch OASF skills:', error);
+        setOasfSkills([]);
+        setOasfSkillsError('Failed to load OASF skills from discovery endpoint.');
+      } finally {
+        setLoadingOasfSkills(false);
+      }
+    };
+
+    const fetchDomains = async () => {
+      setLoadingOasfDomains(true);
+      setOasfDomainsError(null);
+      try {
+        const response = await fetch('/api/oasf/domains');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          setOasfDomains([]);
+          setOasfDomainsError(
+            typeof (data as any)?.message === 'string'
+              ? (data as any).message
+              : 'Failed to load OASF domains from discovery endpoint.',
+          );
+          return;
+        }
+
+        if (Array.isArray((data as any).domains)) {
+          const normalized = (data as any).domains
+            .map((d: any) => {
+              const idRaw = d?.id ?? d?.key;
+              const id = idRaw == null ? '' : String(idRaw);
+              const labelRaw = d?.label ?? d?.caption ?? d?.key ?? d?.id ?? '';
+              return {
+                id,
+                label: String(labelRaw),
+                description: typeof d?.description === 'string' ? d.description : undefined,
+                category: typeof d?.category === 'string' ? d.category : undefined,
+              };
+            })
+            .filter((d: any) => d.id);
+          setOasfDomains(normalized);
+        } else {
+          setOasfDomains([]);
+          setOasfDomainsError('OASF domains response is missing `domains` array.');
+        }
+      } catch (error) {
+        console.warn('[AdminTools] Failed to fetch OASF domains:', error);
+        setOasfDomains([]);
+        setOasfDomainsError('Failed to load OASF domains from discovery endpoint.');
+      } finally {
+        setLoadingOasfDomains(false);
+      }
+    };
+
+    void fetchSkills();
+    void fetchDomains();
+  }, []);
+
+  // Ensure the 4 trust skills are included in OASF skills list
+  useEffect(() => {
+    const trustSkills = [
+      { id: 'oasf:trust.feedback.authorization', label: 'oasf:trust.feedback.authorization', category: 'Trust' },
+      { id: 'oasf:trust.validate.name', label: 'oasf:trust.validate.name', category: 'Trust' },
+      { id: 'oasf:trust.validate.account', label: 'oasf:trust.validate.account', category: 'Trust' },
+      { id: 'oasf:trust.validate.app', label: 'oasf:trust.validate.app', category: 'Trust' },
+    ];
+
+    setOasfSkills(prev => {
+      const existingIds = new Set(prev.map(s => s.id));
+      const toAdd = trustSkills.filter(s => !existingIds.has(s.id));
+      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+    });
+  }, []);
+
+  // Load agent card and count skills/domains when A2A endpoint is available
+  useEffect(() => {
+    if (!isEditMode || !finalAgentId || !finalChainId || !registrationA2aEndpoint) {
+      setAgentCardSkillsCount(null);
+      setAgentCardDomainsCount(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const parsedChainId = Number.parseInt(finalChainId, 10);
+        if (!Number.isFinite(parsedChainId)) return;
+
+        const did8004 = buildDid8004(parsedChainId, finalAgentId);
+        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/card`, {
+          cache: 'no-store',
+        });
+
+        if (cancelled) return;
+        if (!response.ok) {
+          setAgentCardSkillsCount(null);
+          setAgentCardDomainsCount(null);
+          return;
+        }
+
+        const data = await response.json();
+        const card = data.card as any;
+
+        if (!card) {
+          setAgentCardSkillsCount(null);
+          setAgentCardDomainsCount(null);
+          return;
+        }
+
+        // Extract skills from card.skills array
+        const skillsFromCard: string[] = Array.isArray(card.skills)
+          ? card.skills
+              .map((s: any) => s?.id)
+              .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+          : [];
+        
+        // Extract skills and domains from OASF extension
+        const exts = Array.isArray(card?.capabilities?.extensions) ? card.capabilities.extensions : [];
+        const oasfExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
+        const extSkills: string[] = Array.isArray(oasfExt?.params?.skills)
+          ? oasfExt.params.skills
+              .map((s: unknown) => typeof s === 'string' ? s : (s as any)?.id)
+              .filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
+          : [];
+        const extDomains: string[] = Array.isArray(oasfExt?.params?.domains)
+          ? oasfExt.params.domains
+              .map((d: unknown) => typeof d === 'string' ? d : (d as any)?.id)
+              .filter((d: unknown): d is string => typeof d === 'string' && d.length > 0)
+          : [];
+
+        // Combine skills from both sources
+        const allSkillsFromCard = Array.from(new Set([...skillsFromCard, ...extSkills]));
+        const allDomainsFromCard = Array.from(new Set(extDomains));
+
+        // Filter to only valid OASF skills/domains
+        const validSkills = allSkillsFromCard.filter((skillId: string) => 
+          oasfSkills.some(s => s.id === skillId)
+        );
+        const validDomains = allDomainsFromCard.filter((domainId: string) =>
+          oasfDomains.some(d => d.id === domainId)
+        );
+
+        if (!cancelled) {
+          setAgentCardSkillsCount(validSkills.length);
+          setAgentCardDomainsCount(validDomains.length);
+        }
+      } catch (error) {
+        console.warn('[AdminTools] Failed to load agent card for sync counts:', error);
+        if (!cancelled) {
+          setAgentCardSkillsCount(null);
+          setAgentCardDomainsCount(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, finalAgentId, finalChainId, registrationA2aEndpoint, oasfSkills, oasfDomains]);
+
+  // Sync skills from agent-card.json
+  const handleSyncSkills = useCallback(async () => {
+    if (!isEditMode || !finalAgentId || !finalChainId || !registrationA2aEndpoint || syncingSkills) {
+      return;
+    }
+
+    try {
+      setSyncingSkills(true);
+      const parsedChainId = Number.parseInt(finalChainId, 10);
+      if (!Number.isFinite(parsedChainId)) {
+        throw new Error('Invalid chainId');
+      }
+
+      const did8004 = buildDid8004(parsedChainId, finalAgentId);
+      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/card`, {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch agent card: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const card = data.card as any;
+
+      if (!card) {
+        throw new Error('Agent card not found');
+      }
+
+      // Extract skills from card.skills array (prioritize this - has oasf: prefix format)
+      const skillsFromCard: string[] = Array.isArray(card.skills)
+        ? card.skills
+            .map((s: any) => s?.id)
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+        : [];
+      
+      // Extract skills from OASF extension (fallback - these don't have oasf: prefix)
+      const exts = Array.isArray(card?.capabilities?.extensions) ? card.capabilities.extensions : [];
+      const oasfExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
+      const extSkills: string[] = Array.isArray(oasfExt?.params?.skills)
+        ? oasfExt.params.skills
+            .map((s: unknown) => {
+              const skillStr = typeof s === 'string' ? s : (s as any)?.id;
+              // Map OASF extension skills (without prefix) to oasf: format
+              if (typeof skillStr === 'string') {
+                if (skillStr === 'trust.validate.name') return 'oasf:trust.validate.name';
+                if (skillStr === 'trust.validate.account') return 'oasf:trust.validate.account';
+                if (skillStr === 'trust.validate.app') return 'oasf:trust.validate.app';
+                if (skillStr === 'trust.feedback.authorization') return 'oasf:trust.feedback.authorization';
+              }
+              return skillStr;
+            })
+            .filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
+        : [];
+
+      // Prioritize skills from card.skills array (already in oasf: format)
+      // Only add from extension if not already present
+      const allSkillsFromCard = Array.from(new Set([...skillsFromCard, ...extSkills.filter(s => !skillsFromCard.includes(s))]));
+
+      // Filter to only valid OASF skills (match by id)
+      const validSkills = allSkillsFromCard.filter(skillId => 
+        oasfSkills.some(s => s.id === skillId)
+      );
+
+      // Replace registration skills with valid skills from agent card
+      setRegistrationA2aSkills(validSkills);
+    } catch (error: any) {
+      console.error('[AdminTools] Failed to sync skills from agent card:', error);
+      alert(`Failed to sync skills: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setSyncingSkills(false);
+    }
+  }, [isEditMode, finalAgentId, finalChainId, registrationA2aEndpoint, syncingSkills, oasfSkills]);
+
+  // Sync domains from agent-card.json
+  const handleSyncDomains = useCallback(async () => {
+    if (!isEditMode || !finalAgentId || !finalChainId || !registrationA2aEndpoint || syncingDomains) {
+      return;
+    }
+
+    try {
+      setSyncingDomains(true);
+      const parsedChainId = Number.parseInt(finalChainId, 10);
+      if (!Number.isFinite(parsedChainId)) {
+        throw new Error('Invalid chainId');
+      }
+
+      const did8004 = buildDid8004(parsedChainId, finalAgentId);
+      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/card`, {
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch agent card: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const card = data.card as any;
+
+      if (!card) {
+        throw new Error('Agent card not found');
+      }
+
+      // Extract domains from OASF extension
+      const exts = Array.isArray(card?.capabilities?.extensions) ? card.capabilities.extensions : [];
+      const oasfExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
+      const extDomains: string[] = Array.isArray(oasfExt?.params?.domains) 
+        ? oasfExt.params.domains
+            .map((d: unknown) => typeof d === 'string' ? d : (d as any)?.id)
+            .filter((d: unknown): d is string => typeof d === 'string' && d.length > 0)
+        : [];
+
+      // Filter to only valid OASF domains
+      const validDomains = extDomains.filter((domainId) =>
+        oasfDomains.some(d => d.id === domainId)
+      );
+
+      // Replace registration domains with valid domains from agent card
+      setRegistrationA2aDomains(validDomains);
+    } catch (error: any) {
+      console.error('[AdminTools] Failed to sync domains from agent card:', error);
+      alert(`Failed to sync domains: ${error?.message || 'Unknown error'}`);
+    } finally {
+      setSyncingDomains(false);
+    }
+  }, [isEditMode, finalAgentId, finalChainId, registrationA2aEndpoint, syncingDomains, oasfDomains]);
+
+  // Helper function to render categorized options (same as agent-registration page)
+  const renderCategorizedOptions = useCallback(
+    (
+      items: Array<{ id: string; label: string; category?: string }>,
+      selectedIds: string[],
+    ) => {
+      const remaining = items.filter((it) => !selectedIds.includes(it.id));
+      const groups = new Map<string, Array<{ id: string; label: string; category?: string }>>();
+
+      for (const item of remaining) {
+        const category = (item.category || 'Uncategorized').trim() || 'Uncategorized';
+        const list = groups.get(category) || [];
+        list.push(item);
+        groups.set(category, list);
+      }
+
+      const categories = Array.from(groups.keys()).sort((a, b) => a.localeCompare(b));
+
+      const result: React.ReactNode[] = [];
+      categories.forEach((category) => {
+        const list = (groups.get(category) || []).sort((a, b) => a.label.localeCompare(b.label));
+        result.push(
+          <ListSubheader key={`header-${category}`} disableSticky>
+            {category}
+          </ListSubheader>
+        );
+        list.forEach((item) => {
+          result.push(
+            <MenuItem key={item.id} value={item.id}>
+              {item.label}
+            </MenuItem>
+          );
+        });
+      });
+      return result;
+    },
+    [],
+  );
 
   const [sessionPackageText, setSessionPackageText] = useState<string | null>(null);
   const [sessionPackageLoading, setSessionPackageLoading] = useState(false);
@@ -1117,6 +1513,8 @@ export default function AdminPage() {
         setRegistrationDescription('');
         setRegistrationA2aEndpoint('');
         setRegistrationMcpEndpoint('');
+        setRegistrationA2aSkills([]);
+        setRegistrationA2aDomains([]);
         setRegistrationCapability('');
         setRegistrationCategory('');
         setRegistrationSupportedTrust([]);
@@ -1195,6 +1593,22 @@ export default function AdminPage() {
           );
           setRegistrationMcpEndpoint(
             mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+          );
+          // Normalize skills when loading from registration JSON
+          const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
+          const normalizedSkills = rawSkills.map((skillId: string) => {
+            if (skillId.startsWith('oasf:')) return skillId;
+            // Map old formats to oasf: format
+            const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
+            if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name') return 'oasf:trust.validate.name';
+            if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account') return 'oasf:trust.validate.account';
+            if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app') return 'oasf:trust.validate.app';
+            if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization') return 'oasf:trust.feedback.authorization';
+            return skillId; // Keep other skills as-is
+          });
+          setRegistrationA2aSkills(normalizedSkills);
+          setRegistrationA2aDomains(
+            Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
           );
           setRegistrationCapability(capability);
           setRegistrationImageError(validateUrlLike(image) ?? null);
@@ -1381,13 +1795,9 @@ export default function AdminPage() {
       }
     }
 
-    const cap = registrationCapability.trim();
-    if (cap) {
-      next.capability = cap;
-    } else {
-      if ('capability' in next) {
-        delete next.capability;
-      }
+    // Remove capability field (not part of registration fields)
+    if ('capability' in next) {
+      delete next.capability;
     }
 
     const originalEndpoints = Array.isArray(registrationParsed.endpoints)
@@ -1412,14 +1822,52 @@ export default function AdminPage() {
     const mcpUrl = registrationMcpEndpoint.trim();
 
     if (a2aUrl) {
-      remaining.push({
+      const a2aEndpoint: any = {
         ...(prevA2a || {}),
         name: 'A2A',
         endpoint: a2aUrl,
         version:
           (prevA2a && typeof prevA2a.version === 'string' && prevA2a.version) ||
           '0.3.0',
-      });
+      };
+      // Include a2aSkills and a2aDomains if they exist
+      // Normalize skill IDs to match ATP agent-card.json format (oasf:trust.validate.*)
+      if (registrationA2aSkills.length > 0) {
+        a2aEndpoint.a2aSkills = registrationA2aSkills.map(skillId => {
+          // If already in oasf: format, keep as-is
+          if (skillId.startsWith('oasf:')) {
+            return skillId;
+          }
+          
+          // Map trust validation skills to oasf: format
+          // Handle various input formats:
+          // - "trust/trust_validate_app" -> "oasf:trust.validate.app"
+          // - "trust_validate_app" -> "oasf:trust.validate.app"
+          // - "trust.validate.app" -> "oasf:trust.validate.app"
+          const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
+          
+          if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name' || normalized === 'trust/trust_validate_name') {
+            return 'oasf:trust.validate.name';
+          }
+          if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account' || normalized === 'trust/trust_validate_account') {
+            return 'oasf:trust.validate.account';
+          }
+          if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app' || normalized === 'trust/trust_validate_app') {
+            return 'oasf:trust.validate.app';
+          }
+          if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization' || normalized === 'trust/trust_feedback_authorization') {
+            return 'oasf:trust.feedback.authorization';
+          }
+          
+          // For other skills, remove category prefix if present but don't add oasf: prefix
+          const parts = skillId.split('/');
+          return parts.length > 1 ? parts[parts.length - 1] : skillId;
+        });
+      }
+      if (registrationA2aDomains.length > 0) {
+        a2aEndpoint.a2aDomains = registrationA2aDomains;
+      }
+      remaining.push(a2aEndpoint);
     }
 
     if (mcpUrl) {
@@ -1448,7 +1896,8 @@ export default function AdminPage() {
     registrationSupportedTrust,
     registrationA2aEndpoint,
     registrationMcpEndpoint,
-    registrationCapability,
+    registrationA2aSkills,
+    registrationA2aDomains,
   ]);
 
   // Session package progress bar (60s max)
@@ -1570,10 +2019,11 @@ export default function AdminPage() {
           }
         }
 
-        const accountAddress =
-          (queryAgentAddress as `0x${string}` | null) ||
-          (fetchedAgentInfo?.agentAccount as `0x${string}` | undefined) ||
+        const accountAddressRaw =
+          (queryAgentAddress as string | null) ||
+          (fetchedAgentInfo?.agentAccount as string | undefined) ||
           null;
+        const accountAddress = accountAddressRaw ? resolvePlainAddress(accountAddressRaw) : null;
         const accountClient = accountAddress
           ? await getDeployedAccountClientByAddress(
               accountAddress,
@@ -1661,10 +2111,11 @@ export default function AdminPage() {
         }
       }
 
-      const accountAddress =
-        (queryAgentAddress as `0x${string}` | null) ||
-        (fetchedAgentInfo?.agentAccount as `0x${string}` | undefined) ||
+      const accountAddressRaw =
+        (queryAgentAddress as string | null) ||
+        (fetchedAgentInfo?.agentAccount as string | undefined) ||
         null;
+      const accountAddress = accountAddressRaw ? resolvePlainAddress(accountAddressRaw) : null;
       const accountClient = accountAddress
         ? await getDeployedAccountClientByAddress(
             accountAddress,
@@ -3206,50 +3657,184 @@ export default function AdminPage() {
                       )}
 
                       {/* Protocols Tab */}
-                      {agentInfoTab === 'protocols' && (
-                        <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <TextField
-                            label="A2A Agent Card"
-                            fullWidth
-                            value={registrationA2aEndpoint}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRegistrationA2aEndpoint(val);
-                              setRegistrationA2aError(validateUrlLike(val));
-                            }}
-                            placeholder="https://agent.example.com/api/a2a"
-                            disabled={!registrationParsed}
-                            error={!!registrationA2aError}
-                            helperText={
-                              registrationA2aError ||
-                              'Base URL for A2A endpoint. The `.well-known/agent.json` path is automatically appended when fetching.'
-                            }
-                            variant="outlined"
-                            size="small"
-                          />
+                      {agentInfoTab === 'protocols' && (() => {
+                        // Determine which protocol is configured
+                        const hasA2A = registrationA2aEndpoint.trim().length > 0;
+                        const hasMCP = registrationMcpEndpoint.trim().length > 0;
+                        const configuredProtocol = hasA2A ? 'A2A' : hasMCP ? 'MCP' : null;
 
-                          <TextField
-                            label="MCP Endpoint"
-                            fullWidth
-                            value={registrationMcpEndpoint}
-                            onChange={(e) => {
-                              const val = e.target.value;
-                              setRegistrationMcpEndpoint(val);
-                              setRegistrationMcpError(validateUrlLike(val));
-                            }}
-                            placeholder="https://agent.example.com/api/mcp"
-                            disabled={!registrationParsed}
-                            error={!!registrationMcpError}
-                            helperText={
-                              registrationMcpError ||
-                              'Single MCP endpoint. This will be stored in the endpoints array with name MCP.'
-                            }
-                            variant="outlined"
-                            size="small"
-                          />
+                        return (
+                          <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {!configuredProtocol ? (
+                              <Alert severity="info">
+                                No protocol endpoint configured. Protocols are set during agent registration and cannot be changed.
+                              </Alert>
+                            ) : (
+                              <>
+                                <TextField
+                                  label={`${configuredProtocol} Protocol`}
+                                  fullWidth
+                                  value={configuredProtocol === 'A2A' ? registrationA2aEndpoint : registrationMcpEndpoint}
+                                  disabled
+                                  variant="outlined"
+                                  size="small"
+                                  helperText={`The ${configuredProtocol} protocol endpoint is configured and cannot be changed.`}
+                                />
 
-                        </Box>
-                      )}
+                                {configuredProtocol === 'A2A' && (
+                                  <>
+                                    <Box>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                          OASF Skills
+                                        </Typography>
+                                        <Button
+                                          size="small"
+                                          variant="outlined"
+                                          onClick={handleSyncSkills}
+                                          disabled={!registrationParsed || syncingSkills || agentCardSkillsCount === null}
+                                          sx={{ minWidth: 'auto', px: 1.5 }}
+                                        >
+                                          {syncingSkills ? 'Syncing...' : 'Sync from agent-card.json'}
+                                          {agentCardSkillsCount !== null && (
+                                            <Typography component="span" sx={{ ml: 1, fontSize: '0.75rem', opacity: 0.7 }}>
+                                              ({agentCardSkillsCount})
+                                            </Typography>
+                                          )}
+                                        </Button>
+                                      </Box>
+                                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1, minHeight: '2rem' }}>
+                                        {registrationA2aSkills.map((skillId) => {
+                                          const skill = oasfSkills.find(s => s.id === skillId);
+                                          return (
+                                            <Chip
+                                              key={skillId}
+                                              label={skill ? `${skill.category ? `${skill.category}: ` : ''}${skill.label}` : skillId}
+                                              onDelete={() => {
+                                                setRegistrationA2aSkills(prev => prev.filter(s => s !== skillId));
+                                              }}
+                                              disabled={!registrationParsed}
+                                              size="small"
+                                              color="primary"
+                                            />
+                                          );
+                                        })}
+                                      </Box>
+                                      <FormControl fullWidth size="small" disabled={!registrationParsed || loadingOasfSkills || oasfSkills.length === 0}>
+                                        <InputLabel>{loadingOasfSkills ? 'Loading...' : '+ Add skill...'}</InputLabel>
+                                        <Select
+                                          value={selectedSkillId}
+                                          onChange={(e) => {
+                                            const skillId = String(e.target.value || '').trim();
+                                            if (skillId && skillId !== '' && !registrationA2aSkills.includes(skillId)) {
+                                              setRegistrationA2aSkills(prev => [...prev, skillId]);
+                                            }
+                                            setSelectedSkillId('');
+                                          }}
+                                          label={loadingOasfSkills ? 'Loading...' : '+ Add skill...'}
+                                          MenuProps={{
+                                            PaperProps: {
+                                              style: {
+                                                maxHeight: 300,
+                                              },
+                                            },
+                                          }}
+                                        >
+                                          {loadingOasfSkills ? (
+                                            <MenuItem value="" disabled>Loading skills...</MenuItem>
+                                          ) : oasfSkills.length === 0 ? (
+                                            <MenuItem value="" disabled>No skills loaded from discovery</MenuItem>
+                                          ) : (
+                                            renderCategorizedOptions(oasfSkills, registrationA2aSkills)
+                                          )}
+                                        </Select>
+                                      </FormControl>
+                                      {oasfSkillsError && (
+                                        <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                                          {oasfSkillsError}
+                                        </Typography>
+                                      )}
+                                    </Box>
+
+                                    <Box>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                                          OASF Domains
+                                        </Typography>
+                                        <Button
+                                          size="small"
+                                          variant="outlined"
+                                          onClick={handleSyncDomains}
+                                          disabled={!registrationParsed || syncingDomains || agentCardDomainsCount === null}
+                                          sx={{ minWidth: 'auto', px: 1.5 }}
+                                        >
+                                          {syncingDomains ? 'Syncing...' : 'Sync from agent-card.json'}
+                                          {agentCardDomainsCount !== null && (
+                                            <Typography component="span" sx={{ ml: 1, fontSize: '0.75rem', opacity: 0.7 }}>
+                                              ({agentCardDomainsCount})
+                                            </Typography>
+                                          )}
+                                        </Button>
+                                      </Box>
+                                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1, minHeight: '2rem' }}>
+                                        {registrationA2aDomains.map((domainId) => {
+                                          const domain = oasfDomains.find(d => d.id === domainId);
+                                          return (
+                                            <Chip
+                                              key={domainId}
+                                              label={domain ? `${domain.category ? `${domain.category}: ` : ''}${domain.label}` : domainId}
+                                              onDelete={() => {
+                                                setRegistrationA2aDomains(prev => prev.filter(d => d !== domainId));
+                                              }}
+                                              disabled={!registrationParsed}
+                                              size="small"
+                                              color="primary"
+                                            />
+                                          );
+                                        })}
+                                      </Box>
+                                      <FormControl fullWidth size="small" disabled={!registrationParsed || loadingOasfDomains || oasfDomains.length === 0}>
+                                        <InputLabel>{loadingOasfDomains ? 'Loading...' : '+ Add domain...'}</InputLabel>
+                                        <Select
+                                          value={selectedDomainId}
+                                          onChange={(e) => {
+                                            const domainId = String(e.target.value || '').trim();
+                                            if (domainId && domainId !== '' && !registrationA2aDomains.includes(domainId)) {
+                                              setRegistrationA2aDomains(prev => [...prev, domainId]);
+                                            }
+                                            setSelectedDomainId('');
+                                          }}
+                                          label={loadingOasfDomains ? 'Loading...' : '+ Add domain...'}
+                                          MenuProps={{
+                                            PaperProps: {
+                                              style: {
+                                                maxHeight: 300,
+                                              },
+                                            },
+                                          }}
+                                        >
+                                          {loadingOasfDomains ? (
+                                            <MenuItem value="" disabled>Loading domains...</MenuItem>
+                                          ) : oasfDomains.length === 0 ? (
+                                            <MenuItem value="" disabled>No domains loaded from discovery</MenuItem>
+                                          ) : (
+                                            renderCategorizedOptions(oasfDomains, registrationA2aDomains)
+                                          )}
+                                        </Select>
+                                      </FormControl>
+                                      {oasfDomainsError && (
+                                        <Typography variant="caption" color="error" sx={{ mt: 0.5, display: 'block' }}>
+                                          {oasfDomainsError}
+                                        </Typography>
+                                      )}
+                                    </Box>
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </Box>
+                        );
+                      })()}
 
                       {/* Save Button */}
                       <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, mt: 4, pt: 2, borderTop: 1, borderColor: 'divider' }}>
@@ -3271,6 +3856,8 @@ export default function AdminPage() {
                                 setRegistrationDescription('');
                                 setRegistrationA2aEndpoint('');
                                 setRegistrationMcpEndpoint('');
+                                setRegistrationA2aSkills([]);
+                                setRegistrationA2aDomains([]);
                                 setRegistrationCategory('');
                                 setRegistrationSupportedTrust([]);
                                 setRegistrationCapability('');
@@ -3341,6 +3928,22 @@ export default function AdminPage() {
                                 );
                                 setRegistrationMcpEndpoint(
                                   mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+                                );
+                                // Normalize skills when loading from registration JSON
+                                const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
+                                const normalizedSkills = rawSkills.map((skillId: string) => {
+                                  if (skillId.startsWith('oasf:')) return skillId;
+                                  // Map old formats to oasf: format
+                                  const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
+                                  if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name') return 'oasf:trust.validate.name';
+                                  if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account') return 'oasf:trust.validate.account';
+                                  if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app') return 'oasf:trust.validate.app';
+                                  if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization') return 'oasf:trust.feedback.authorization';
+                                  return skillId; // Keep other skills as-is
+                                });
+                                setRegistrationA2aSkills(normalizedSkills);
+                                setRegistrationA2aDomains(
+                                  Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
                                 );
                                 setRegistrationCapability(capability);
                                 setRegistrationImageError(validateUrlLike(image) ?? null);

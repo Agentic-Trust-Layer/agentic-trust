@@ -1433,7 +1433,7 @@ export class AIAgentDiscoveryClient {
     }
     /**
      * Get all token metadata from The Graph indexer for an agent
-     * Uses tokenMetadata_collection query to get all metadata key-value pairs
+     * Uses agentMetadata query to get all metadata key-value pairs
      * Handles pagination if an agent has more than 1000 metadata entries
      * @param chainId - Chain ID
      * @param agentId - Agent ID
@@ -1445,15 +1445,12 @@ export class AIAgentDiscoveryClient {
         if (this.tokenMetadataCollectionSupported === false) {
             return null;
         }
-        // Newer indexer schemas may not expose tokenMetadata_collection anymore.
-        // Avoid spamming logs / failing requests by introspecting once and bailing out if unsupported.
+        // Check if agentMetadata query is supported
         try {
             const queryFields = await this.getTypeFields('Query');
-            const hasTokenMetadataCollection = Boolean(queryFields?.some((f) => f?.name === 'tokenMetadata_collection'));
-            if (!hasTokenMetadataCollection) {
+            const hasAgentMetadata = Boolean(queryFields?.some((f) => f?.name === 'agentMetadata'));
+            if (!hasAgentMetadata) {
                 this.tokenMetadataCollectionSupported = false;
-                // tokenMetadataById may exist, but it doesn't help us enumerate all metadata pairs.
-                // We only use this method as a best-effort fallback, so return null when unsupported.
                 return null;
             }
             this.tokenMetadataCollectionSupported = true;
@@ -1467,39 +1464,49 @@ export class AIAgentDiscoveryClient {
         let hasMore = true;
         while (hasMore) {
             const query = `
-        query GetTokenMetadata($chainId: Int!, $agentId: String!, $first: Int!, $skip: Int!) {
-          tokenMetadata_collection(
-            chainId: $chainId
-            agentId: $agentId
+        query GetTokenMetadata($where: AgentMetadataWhereInput, $first: Int, $skip: Int) {
+          agentMetadata(
+            where: $where
             first: $first
             skip: $skip
           ) {
-            key
-            value
-            id
-            indexedKey
+            entries {
+              key
+              value
+              valueText
+              id
+              indexedKey
+            }
+            total
+            hasMore
           }
         }
       `;
             try {
                 const data = await this.client.request(query, {
-                    chainId,
-                    agentId: String(agentId),
+                    where: {
+                        chainId,
+                        agentId: String(agentId),
+                    },
                     first: pageSize,
                     skip: skip,
                 });
-                if (!data.tokenMetadata_collection || !Array.isArray(data.tokenMetadata_collection)) {
+                if (!data.agentMetadata?.entries || !Array.isArray(data.agentMetadata.entries)) {
                     hasMore = false;
                     break;
                 }
                 // Add entries from this page
-                for (const entry of data.tokenMetadata_collection) {
-                    if (entry.key && entry.value) {
-                        metadata[entry.key] = entry.value;
+                for (const entry of data.agentMetadata.entries) {
+                    if (entry.key) {
+                        // Prefer valueText over value (valueText is the decoded string, value may be hex)
+                        const entryValue = entry.valueText ?? entry.value;
+                        if (entryValue) {
+                            metadata[entry.key] = entryValue;
+                        }
                     }
                 }
                 // Check if we got a full page (might have more)
-                hasMore = data.tokenMetadata_collection.length === pageSize;
+                hasMore = data.agentMetadata.hasMore === true && data.agentMetadata.entries.length === pageSize;
                 skip += pageSize;
                 // Safety check: The Graph has a max skip of 5000
                 // If we've reached that, we can't fetch more (unlikely for a single agent)
@@ -1509,16 +1516,16 @@ export class AIAgentDiscoveryClient {
                 }
             }
             catch (error) {
-                // Some indexers have evolved schema and removed `tokenMetadata_collection`.
+                // Some indexers may not expose agentMetadata query.
                 // graphql-request surfaces this as GRAPHQL_VALIDATION_FAILED; treat it as "not supported"
                 // and disable future attempts for this client instance.
                 const responseErrors = error?.response?.errors;
-                const schemaDoesNotSupportCollection = Array.isArray(responseErrors) &&
+                const schemaDoesNotSupportMetadata = Array.isArray(responseErrors) &&
                     responseErrors.some((e) => typeof e?.message === 'string' &&
-                        e.message.includes('tokenMetadata_collection') &&
+                        (e.message.includes('agentMetadata') || e.message.includes('AgentMetadataWhereInput')) &&
                         (e?.extensions?.code === 'GRAPHQL_VALIDATION_FAILED' ||
                             e.message.includes('Cannot query field')));
-                if (schemaDoesNotSupportCollection) {
+                if (schemaDoesNotSupportMetadata) {
                     this.tokenMetadataCollectionSupported = false;
                     if (Object.keys(metadata).length > 0) {
                         return metadata;
