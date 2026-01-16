@@ -417,8 +417,8 @@ const normalizeModes = (modes: unknown): string[] => {
 const buildSkills = (subdomain: string | null | undefined) => {
   const baseSkills = [
     {
-      id: 'oasf:trust.feedback.authorization',
-      name: 'oasf:trust.feedback.authorization',
+      id: 'governance_and_trust/trust/trust_feedback_authorization',
+      name: 'governance_and_trust/trust/trust_feedback_authorization',
       tags: ['erc8004', 'feedback', 'auth', 'a2a'],
       examples: ['Client requests feedbackAuth after receiving results'],
       inputModes: ['text'],
@@ -426,13 +426,112 @@ const buildSkills = (subdomain: string | null | undefined) => {
       description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     },
     {
-      id: 'oasf:trust.validate.name',
-      name: 'oasf:trust.validate.name',
+      id: 'governance_and_trust/trust/trust_validate_name',
+      name: 'governance_and_trust/trust/trust_validate_name',
       tags: ['erc8004', 'validation', 'attestation', 'a2a'],
       examples: ['Submit a validation response for a pending validation request'],
       inputModes: ['text', 'json'],
       outputModes: ['text', 'json'],
       description: 'Submit a validation response (attestation) using a configured session package.',
+    },
+    {
+      id: 'governance_and_trust/trust/trust_validate_account',
+      name: 'governance_and_trust/trust/trust_validate_account',
+      tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+      examples: ['Submit a validation response for a pending validation request'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Submit a validation response (attestation) using a configured session package.',
+    },
+    {
+      id: 'governance_and_trust/trust/trust_validate_app',
+      name: 'governance_and_trust/trust/trust_validate_app',
+      tags: ['erc8004', 'validation', 'attestation', 'a2a'],
+      examples: ['Submit a validation response for a pending validation request'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Submit a validation response (attestation) using a configured session package.',
+    },
+    {
+      id: 'governance_and_trust/alliance/join_alliance',
+      name: 'governance_and_trust/alliance/join_alliance',
+      tags: ['governance', 'alliance', 'a2a'],
+      examples: ['Join an alliance'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Join an alliance',
+    },
+    {
+      id: 'governance_and_trust/alliance/leave_alliance',
+      name: 'governance_and_trust/alliance/leave_alliance',
+      tags: ['governance', 'alliance', 'a2a'],
+      examples: ['Leave an alliance'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Leave an alliance',
+    },
+    {
+      id: 'governance_and_trust/alliance/verify_alliance_membership',
+      name: 'governance_and_trust/alliance/verify_alliance_membership',
+      tags: ['governance', 'alliance', 'a2a'],
+      examples: ['Verify alliance membership'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Verify alliance membership',
+    },
+    {
+      id: 'governance_and_trust/delegation/add_delegation',
+      name: 'governance_and_trust/delegation/add_delegation',
+      tags: ['governance', 'delegation', 'a2a'],
+      examples: ['Add a delegation'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Add a delegation',
+    },
+    {
+      id: 'governance_and_trust/delegation/revoke_delegation',
+      name: 'governance_and_trust/delegation/revoke_delegation',
+      tags: ['governance', 'delegation', 'a2a'],
+      examples: ['Revoke a delegation'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Revoke a delegation',
+    },
+    {
+      id: 'governance_and_trust/delegation/verify_delegation',
+      name: 'governance_and_trust/delegation/verify_delegation',
+      tags: ['governance', 'delegation', 'a2a'],
+      examples: ['Verify a delegation'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Verify a delegation',
+    },
+    {
+      id: 'governance_and_trust/membership/add_member',
+      name: 'governance_and_trust/membership/add_member',
+      tags: ['governance', 'membership', 'a2a'],
+      examples: ['Add a member'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Add a member',
+    },
+    {
+      id: 'governance_and_trust/membership/remove_member',
+      name: 'governance_and_trust/membership/remove_member',
+      tags: ['governance', 'membership', 'a2a'],
+      examples: ['Remove a member'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Remove a member',
+    },
+    {
+      id: 'governance_and_trust/membership/verify_membership',
+      name: 'governance_and_trust/membership/verify_membership',
+      tags: ['governance', 'membership', 'a2a'],
+      examples: ['Verify membership'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Verify membership',
     },
     {
       id: 'atp.account.addOrUpdate',
@@ -687,7 +786,7 @@ const serveAgentCard = async (req: Request, res: Response) => {
     const add = (t: string) => outTags.add(t);
     add('oasfExtension:true');
 
-    if (id === 'oasf:trust.feedback.authorization') {
+    if (id === 'governance_and_trust/trust/trust_feedback_authorization') {
       add('oasf:trust.feedback.authorization');
       add('oasfDomain:governance-and-trust');
     }
@@ -705,17 +804,17 @@ const serveAgentCard = async (req: Request, res: Response) => {
       add('oasf:governance.audit.provenance');
       add('oasfDomain:governance-and-trust');
     }
-    if (id === 'oasf:trust.validate.name') {
+    if (id === 'governance_and_trust/trust/trust_validate_name') {
       add('oasf:trust.validate.name');
       add('oasfDomain:governance-and-trust');
       add('oasfDomain:collaboration');
     }
-    if (id === 'oasf:trust.validate.account') {
+    if (id === 'governance_and_trust/trust/trust_validate_account') {
       add('oasf:trust.validate.account');
       add('oasfDomain:governance-and-trust');
       add('oasfDomain:collaboration');
     }
-    if (id === 'oasf:trust.validate.app') {
+    if (id === 'governance_and_trust/trust/trust_validate_app') {
       add('oasf:trust.validate.app');
       add('oasfDomain:governance-and-trust');
       add('oasfDomain:collaboration');
@@ -742,7 +841,7 @@ const serveAgentCard = async (req: Request, res: Response) => {
       const tags: string[] = Array.isArray(skill?.tags) ? skill.tags.map((t: any) => String(t)) : [];
       for (const w of wanted) {
         if (!w) continue;
-        // Allow matching by explicit tag strings (e.g. "oasf:trust.feedback.authorization")
+        // Allow matching by explicit tag strings (e.g. "governance_and_trust/trust/trust_feedback_authorization")
         if (tags.includes(w)) return true;
         // Allow matching by OASF skill taxonomy without prefix (e.g. "trust.feedback.authorization")
         if (!w.includes(':') && tags.includes(`oasf:${w}`)) return true;
@@ -812,15 +911,15 @@ const serveAgentCard = async (req: Request, res: Response) => {
             domains: oasfDomains,
             skills: oasfSkills,
             skillOverlay: {
-              'oasf:trust.feedback.authorization': ['trust.feedback.authorization'],
+              'governance_and_trust/trust/trust_feedback_authorization': ['trust.feedback.authorization'],
               'atp.feedback.request': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequests': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.getRequestsByAgent': ['trust.feedback.authorization', 'collaboration'],
               'atp.feedback.markGiven': ['trust.validate.name', 'collaboration'],
               'atp.feedback.requestapproved': ['trust.feedback.authorization', 'collaboration'],
-              'oasf:trust.validate.name': ['trust.validate.name', 'collaboration'],
-              'oasf:trust.validate.account': ['trust.validate.account', 'collaboration'],
-              'oasf:trust.validate.app': ['trust.validate.app', 'collaboration'],
+              'governance_and_trust/trust/trust_validate_name': ['trust.validate.name', 'collaboration'],
+              'governance_and_trust/trust/trust_validate_account': ['trust.validate.account', 'collaboration'],
+              'governance_and_trust/trust/trust_validate_app': ['trust.validate.app', 'collaboration'],
               'atp.inbox.sendMessage': ['agent_interaction.request_handling', 'integration.protocol_handling', 'collaboration'],
               'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
@@ -1016,10 +1115,19 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
 
     const handledSkillIdsForDebug = [
       'atp.ens.isNameAvailable',
-      'oasf:trust.feedback.authorization',
-      'oasf:trust.validate.name',
-      'oasf:trust.validate.account',
-      'oasf:trust.validate.app',
+      'governance_and_trust/trust/trust_feedback_authorization',
+      'governance_and_trust/trust/trust_validate_name',
+      'governance_and_trust/trust/trust_validate_account',
+      'governance_and_trust/trust/trust_validate_app',
+      'governance_and_trust/alliance/join_alliance',
+      'governance_and_trust/alliance/leave_alliance',
+      'governance_and_trust/alliance/verify_alliance_membership',
+      'governance_and_trust/delegation/add_delegation',
+      'governance_and_trust/delegation/revoke_delegation',
+      'governance_and_trust/delegation/verify_delegation',
+      'governance_and_trust/membership/add_member',
+      'governance_and_trust/membership/remove_member',
+      'governance_and_trust/membership/verify_membership',
       'atp.feedback.requestLegacy',
       'atp.account.addOrUpdate',
       'atp.agent.createOrUpdate',
@@ -1097,7 +1205,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
     }
 
     // Handle feedback request auth skill
-    if (skillId === 'oasf:trust.feedback.authorization') {
+    if (skillId === 'governance_and_trust/trust/trust_feedback_authorization') {
       try {
         const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA;
         if (!rpcUrl) {
@@ -1201,7 +1309,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         }
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for oasf:trust.feedback.authorization skill';
+          responseContent.error = 'clientAddress is required in payload for governance_and_trust/trust/trust_feedback_authorization skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -1554,7 +1662,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           }
         }
 
-        console.info("oasf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
+        console.info("governance_and_trust/trust/trust_feedback_authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 
         const feedbackAuthResponse = await agent.requestAuth({
           clientAddress,
@@ -1622,9 +1730,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.error = error?.message || 'Failed to create feedback auth';
         responseContent.skill = skillId;
       }
-    } else if (skillId === 'oasf:trust.validate.name' ||
-      skillId === 'oasf:trust.validate.account' ||
-      skillId === 'oasf:trust.validate.app'
+    } else if (skillId === 'governance_and_trust/trust/trust_validate_name' ||
+      skillId === 'governance_and_trust/trust/trust_validate_account' ||
+      skillId === 'governance_and_trust/trust/trust_validate_app'
     ) {
       // Process validation response using session package
       console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);

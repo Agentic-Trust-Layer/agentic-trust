@@ -107,13 +107,13 @@ export async function GET(
         if (agentCard) {
           // Check if agent card has the validation skill
           const hasValidationSkill = agentCard.skills?.some(
-            (skill: any) => skill.id === 'oasf:trust.validate.name'
+            (skill: any) => skill.id === 'governance_and_trust/trust/trust_validate_name'
           ) || false;
 
           validationResult = {
             verified: true,
             hasSkill: hasValidationSkill,
-            skillName: hasValidationSkill ? 'oasf:trust.validate.name' : undefined,
+            skillName: hasValidationSkill ? 'governance_and_trust/trust/trust_validate_name' : undefined,
           };
         } else {
           validationResult = {

@@ -288,8 +288,8 @@ const serveAgentCard = (req: Request, res: Response) => {
         outputModes: ['text/plain', 'application/json'],
       },
       {
-        id: 'oasf:trust.feedback.authorization',
-        name: 'oasf:trust.feedback.authorization',
+        id: 'governance_and_trust/trust/trust_feedback_authorization',
+        name: 'governance_and_trust/trust/trust_feedback_authorization',
         tags: ['erc8004', 'feedback', 'auth', 'a2a'],
         examples: ['Client requests feedbackAuth after receiving results'],
         inputModes: ['text/plain'],
@@ -297,8 +297,8 @@ const serveAgentCard = (req: Request, res: Response) => {
         description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
       },
       {
-        id: 'oasf:trust.validate.name',
-        name: 'oasf:trust.validate.name',
+        id: 'governance_and_trust/trust/trust_validate_name',
+        name: 'governance_and_trust/trust/trust_validate_name',
         tags: ['erc8004', 'validation', 'ens', 'a2a'],
         examples: ['Process ENS validation requests for agents'],
         inputModes: ['text/plain'],
@@ -306,8 +306,8 @@ const serveAgentCard = (req: Request, res: Response) => {
         description: 'Process validation requests by validating ENS names and submitting validation responses',
       },
       {
-        id: 'oasf:trust.validate.account',
-        name: 'oasf:trust.validate.account',
+        id: 'governance_and_trust/trust/trust_validate_account',
+        name: 'governance_and_trust/trust/trust_validate_account',
         tags: ['erc8004', 'validation', 'account', 'a2a'],
         examples: ['Process Account validation requests for agents'],
         inputModes: ['text/plain'],
@@ -315,13 +315,94 @@ const serveAgentCard = (req: Request, res: Response) => {
         description: 'Process validation requests by validating Account names and submitting validation responses',
       },
       {
-        id: 'oasf:trust.validate.app',
-        name: 'oasf:trust.validate.app',
+        id: 'governance_and_trust/trust/trust_validate_app',
+        name: 'governance_and_trust/trust/trust_validate_app',
         tags: ['erc8004', 'validation', 'application', 'a2a'],
         examples: ['Process App validation requests for agents'],
         inputModes: ['text/plain'],
         outputModes: ['text/plain', 'application/json'],
         description: 'Process validation requests by validating App names and submitting validation responses',
+      },
+      {
+        id: 'governance_and_trust/alliance/join_alliance',
+        name: 'governance_and_trust/alliance/join_alliance',
+        tags: ['governance', 'alliance', 'a2a'],
+        examples: ['Join an alliance'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Join an alliance',
+      },
+      {
+        id: 'governance_and_trust/alliance/leave_alliance',
+        name: 'governance_and_trust/alliance/leave_alliance',
+        tags: ['governance', 'alliance', 'a2a'],
+        examples: ['Leave an alliance'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Leave an alliance',
+      },
+      {
+        id: 'governance_and_trust/alliance/verify_alliance_membership',
+        name: 'governance_and_trust/alliance/verify_alliance_membership',
+        tags: ['governance', 'alliance', 'a2a'],
+        examples: ['Verify alliance membership'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Verify alliance membership',
+      },
+      {
+        id: 'governance_and_trust/delegation/add_delegation',
+        name: 'governance_and_trust/delegation/add_delegation',
+        tags: ['governance', 'delegation', 'a2a'],
+        examples: ['Add a delegation'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Add a delegation',
+      },
+      {
+        id: 'governance_and_trust/delegation/revoke_delegation',
+        name: 'governance_and_trust/delegation/revoke_delegation',
+        tags: ['governance', 'delegation', 'a2a'],
+        examples: ['Revoke a delegation'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Revoke a delegation',
+      },
+      {
+        id: 'governance_and_trust/delegation/verify_delegation',
+        name: 'governance_and_trust/delegation/verify_delegation',
+        tags: ['governance', 'delegation', 'a2a'],
+        examples: ['Verify a delegation'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Verify a delegation',
+      },
+      {
+        id: 'governance_and_trust/membership/add_member',
+        name: 'governance_and_trust/membership/add_member',
+        tags: ['governance', 'membership', 'a2a'],
+        examples: ['Add a member'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Add a member',
+      },
+      {
+        id: 'governance_and_trust/membership/remove_member',
+        name: 'governance_and_trust/membership/remove_member',
+        tags: ['governance', 'membership', 'a2a'],
+        examples: ['Remove a member'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Remove a member',
+      },
+      {
+        id: 'governance_and_trust/membership/verify_membership',
+        name: 'governance_and_trust/membership/verify_membership',
+        tags: ['governance', 'membership', 'a2a'],
+        examples: ['Verify membership'],
+        inputModes: ['text/plain', 'application/json'],
+        outputModes: ['text/plain', 'application/json'],
+        description: 'Verify membership',
       },
     ],
     registrations: [
@@ -383,7 +464,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
     const { fromAgentId, toAgentId, message, payload, metadata, skillId, auth } = body;
 
     // Validate required fields
-    // For skill-based requests (like oasf:trust.feedback.authorization), fromAgentId and toAgentId are not required
+    // For skill-based requests (like governance_and_trust/trust/trust_feedback_authorization), fromAgentId and toAgentId are not required
     if (!skillId && (!fromAgentId || !toAgentId)) {
       res.set(getCorsHeaders());
       return res.status(400).json({
@@ -458,7 +539,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.response = `I'd be happy to help with movie questions! Try asking about specific movies, actors, directors, or request recommendations. For example: "Tell me about Inception" or "Recommend a good sci-fi movie."`;
         responseContent.skill = 'general_movie_chat';
       }
-    } else if (skillId === 'oasf:trust.feedback.authorization') {
+    } else if (skillId === 'governance_and_trust/trust/trust_feedback_authorization') {
       // Feedback request auth skill handler
       try {
         const rpcUrl = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA;
@@ -496,7 +577,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         const { agentId: agentIdParam, expirySeconds } = payload || {};
 
         if (!clientAddress) {
-          responseContent.error = 'clientAddress is required in payload for oasf:trust.feedback.authorization skill';
+          responseContent.error = 'clientAddress is required in payload for governance_and_trust/trust/trust_feedback_authorization skill';
           responseContent.skill = skillId;
           res.set(getCorsHeaders());
           return res.status(400).json({
@@ -547,7 +628,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             agent.setSessionPackage(sessionPackage);
           }
 
-        console.info("oasf:trust.feedback.authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
+        console.info("governance_and_trust/trust/trust_feedback_authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
 
         const feedbackAuthResponse = await agent.requestAuth({
             clientAddress,
@@ -574,9 +655,9 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         responseContent.skill = skillId;
       }
     } else if (
-      skillId === 'oasf:trust.validate.name' ||
-      skillId === 'oasf:trust.validate.account' ||
-      skillId === 'oasf:trust.validate.app'
+      skillId === 'governance_and_trust/trust/trust_validate_name' ||
+      skillId === 'governance_and_trust/trust/trust_validate_account' ||
+      skillId === 'governance_and_trust/trust/trust_validate_app'
     ) {
       responseContent.skill = skillId;
       const agentIdParam =
@@ -587,7 +668,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
         null;
 
       if (!agentIdParam) {
-        responseContent.error = 'agentId is required in payload for oasf:trust.validate.name/account/app skill';
+        responseContent.error = 'agentId is required in payload for governance_and_trust/trust/trust_validate_name/account/app skill';
       } else {
         const agentId = String(agentIdParam);
         const chainId =

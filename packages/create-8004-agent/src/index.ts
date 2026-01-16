@@ -673,8 +673,8 @@ app.get('/.well-known/agent-card.json', (c) => {
         outputModes: ['text/plain', 'application/json'],
       },
       {
-        id: 'oasf:trust.feedback.authorization',
-        name: 'oasf:trust.feedback.authorization',
+        id: 'governance_and_trust/trust/trust_feedback_authorization',
+        name: 'governance_and_trust/trust/trust_feedback_authorization',
         description: 'Issue feedbackAuth for a client (requires SessionPackage configuration).',
         inputModes: ['text/plain'],
         outputModes: ['text/plain', 'application/json'],
@@ -708,8 +708,8 @@ app.get('/.well-known/agent.json', (c) => {
         outputModes: ['text/plain', 'application/json'],
       },
       {
-        id: 'oasf:trust.feedback.authorization',
-        name: 'oasf:trust.feedback.authorization',
+        id: 'governance_and_trust/trust/trust_feedback_authorization',
+        name: 'governance_and_trust/trust/trust_feedback_authorization',
         description: 'Issue feedbackAuth for a client (requires SessionPackage configuration).',
         inputModes: ['text/plain'],
         outputModes: ['text/plain', 'application/json'],
@@ -798,7 +798,7 @@ async function handleA2A(c: any) {
     );
   }
 
-  if (skillId === 'oasf:trust.feedback.authorization') {
+  if (skillId === 'governance_and_trust/trust/trust_feedback_authorization') {
     const clientAddress = String(payload?.clientAddress ?? '').trim();
     const agentIdParam = payload?.agentId;
     const expirySeconds =
@@ -807,7 +807,7 @@ async function handleA2A(c: any) {
         : undefined;
 
     if (!clientAddress || !clientAddress.startsWith('0x')) {
-      const err = a2aErr('clientAddress is required in payload for oasf:trust.feedback.authorization', 400);
+      const err = a2aErr('clientAddress is required in payload for governance_and_trust/trust/trust_feedback_authorization', 400);
       return c.json(err.body, err.status);
     }
 

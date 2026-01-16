@@ -24,6 +24,7 @@ import { getClientBundlerUrl, getClientChainEnv } from '@/lib/clientChainEnv';
 import { getAgentFromATP, updateAgentCardConfigInATP } from '@/lib/a2a-client';
 import { AGENT_CATEGORY_OPTIONS, SUPPORTED_TRUST_MECHANISMS } from '@/models/agentRegistration';
 
+
 function resolvePlainAddress(value: unknown): `0x${string}` | null {
   if (typeof value !== 'string') return null;
   const v = value.trim();
@@ -139,26 +140,26 @@ type AgentSkillDefinition = {
 
 const ATP_AGENT_SKILL_CATALOG: AgentSkillDefinition[] = [
   {
-    id: 'oasf:trust.feedback.authorization',
-    name: 'oasf:trust.feedback.authorization',
+    id: 'governance_and_trust/trust/trust_feedback_authorization',
+    name: 'governance_and_trust/trust/trust_feedback_authorization',
     description: 'Issue a signed ERC-8004 feedbackAuth for a client to submit feedback',
     tags: ['erc8004', 'feedback', 'auth', 'a2a'],
   },
   {
-    id: 'oasf:trust.validate.name',
-    name: 'oasf:trust.validate.name',
+    id: 'governance_and_trust/trust/trust_validate_name',
+    name: 'governance_and_trust/trust/trust_validate_name',
     description: 'Submit a validation response (attestation) using a configured session package.',
     tags: ['erc8004', 'validation', 'attestation', 'a2a'],
   },
   {
-    id: 'oasf:trust.validate.account',
-    name: 'oasf:trust.validate.account',
+    id: 'governance_and_trust/trust/trust_validate_account',
+    name: 'governance_and_trust/trust/trust_validate_account',
     description: 'Submit a validation response (attestation) using a configured session package.',
     tags: ['erc8004', 'validation', 'attestation', 'a2a'],
   },
   {
-    id: 'oasf:trust.validate.app',
-    name: 'oasf:trust.validate.app',
+    id: 'governance_and_trust/trust/trust_validate_app',
+    name: 'governance_and_trust/trust/trust_validate_app',
     description: 'Submit a validation response (attestation) using a configured session package.',
     tags: ['erc8004', 'validation', 'attestation', 'a2a'],
   },
@@ -799,20 +800,9 @@ export default function AdminPage() {
               setRegistrationMcpEndpoint(
                 mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
               );
-              // Normalize skills when loading from registration JSON
-              // Convert old formats (trust_validate_app, trust/trust_validate_app) to oasf: format
+              // Load skills from registration JSON (already in governance_and_trust/* format)
               const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
-              const normalizedSkills = rawSkills.map((skillId: string) => {
-                if (skillId.startsWith('oasf:')) return skillId;
-                // Map old formats to oasf: format
-                const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
-                if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name') return 'oasf:trust.validate.name';
-                if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account') return 'oasf:trust.validate.account';
-                if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app') return 'oasf:trust.validate.app';
-                if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization') return 'oasf:trust.feedback.authorization';
-                return skillId; // Keep other skills as-is
-              });
-              setRegistrationA2aSkills(normalizedSkills);
+              setRegistrationA2aSkills(rawSkills);
               setRegistrationA2aDomains(
                 Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
               );
@@ -1120,10 +1110,38 @@ export default function AdminPage() {
             .map((s: any) => {
               const idRaw = s?.id ?? s?.key;
               const id = idRaw == null ? '' : String(idRaw);
-              const labelRaw = s?.label ?? s?.caption ?? s?.key ?? s?.id ?? '';
+              // Use caption for label if available (this is the display name from OASF)
+              // Fallback to key/id if caption is not available
+              const labelRaw = s?.caption ?? s?.label ?? s?.key ?? s?.id ?? '';
+              // Format label for skills
+              let label = String(labelRaw);
+              if (id === 'governance_and_trust/trust/trust_validate_app') label = 'trust: Validate App';
+              else if (id === 'governance_and_trust/trust/trust_validate_name') label = 'trust: Validate Name';
+              else if (id === 'governance_and_trust/trust/trust_validate_account') label = 'trust: Validate Account';
+              else if (id === 'governance_and_trust/trust/trust_feedback_authorization') label = 'trust: Feedback Authorization';
+              else if (id === 'governance_and_trust/alliance/join_alliance') label = 'alliance: Join Alliance';
+              else if (id === 'governance_and_trust/alliance/leave_alliance') label = 'alliance: Leave Alliance';
+              else if (id === 'governance_and_trust/alliance/verify_alliance_membership') label = 'alliance: Verify Alliance Membership';
+              else if (id === 'governance_and_trust/delegation/add_delegation') label = 'delegation: Add Delegation';
+              else if (id === 'governance_and_trust/delegation/revoke_delegation') label = 'delegation: Revoke Delegation';
+              else if (id === 'governance_and_trust/delegation/verify_delegation') label = 'delegation: Verify Delegation';
+              else if (id === 'governance_and_trust/membership/add_member') label = 'membership: Add Member';
+              else if (id === 'governance_and_trust/membership/remove_member') label = 'membership: Remove Member';
+              else if (id === 'governance_and_trust/membership/verify_membership') label = 'membership: Verify Membership';
+              else if (label === id || !label || label.trim() === '') {
+                // Generic formatting for other skills
+                const withoutPrefix = id.replace(/^governance_and_trust\//, '');
+                const parts = withoutPrefix.split(/[._/]/);
+                label = parts.map((p, i) => {
+                  if (i === 0) {
+                    return p.charAt(0).toUpperCase() + p.slice(1);
+                  }
+                  return p.split(/(?=[A-Z])/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+                }).join(': ');
+              }
               return {
                 id,
-                label: String(labelRaw),
+                label,
                 description: typeof s?.description === 'string' ? s.description : undefined,
                 category: typeof s?.category === 'string' ? s.category : undefined,
               };
@@ -1192,18 +1210,50 @@ export default function AdminPage() {
   }, []);
 
   // Ensure the 4 trust skills are included in OASF skills list
+  // Use proper display labels (not IDs) for UI, but IDs for storage/comparison
+  // Labels should match OASF API format (e.g., "trust: Validate App" from caption)
+  // Skill IDs use governance_and_trust/* format
   useEffect(() => {
     const trustSkills = [
-      { id: 'oasf:trust.feedback.authorization', label: 'oasf:trust.feedback.authorization', category: 'Trust' },
-      { id: 'oasf:trust.validate.name', label: 'oasf:trust.validate.name', category: 'Trust' },
-      { id: 'oasf:trust.validate.account', label: 'oasf:trust.validate.account', category: 'Trust' },
-      { id: 'oasf:trust.validate.app', label: 'oasf:trust.validate.app', category: 'Trust' },
+      { id: 'governance_and_trust/trust/trust_feedback_authorization', label: 'trust: Feedback Authorization', category: 'Trust' },
+      { id: 'governance_and_trust/trust/trust_validate_name', label: 'trust: Validate Name', category: 'Trust' },
+      { id: 'governance_and_trust/trust/trust_validate_account', label: 'trust: Validate Account', category: 'Trust' },
+      { id: 'governance_and_trust/trust/trust_validate_app', label: 'trust: Validate App', category: 'Trust' },
+      { id: 'governance_and_trust/alliance/join_alliance', label: 'alliance: Join Alliance', category: 'Alliance' },
+      { id: 'governance_and_trust/alliance/leave_alliance', label: 'alliance: Leave Alliance', category: 'Alliance' },
+      { id: 'governance_and_trust/alliance/verify_alliance_membership', label: 'alliance: Verify Alliance Membership', category: 'Alliance' },
+      { id: 'governance_and_trust/delegation/add_delegation', label: 'delegation: Add Delegation', category: 'Delegation' },
+      { id: 'governance_and_trust/delegation/revoke_delegation', label: 'delegation: Revoke Delegation', category: 'Delegation' },
+      { id: 'governance_and_trust/delegation/verify_delegation', label: 'delegation: Verify Delegation', category: 'Delegation' },
+      { id: 'governance_and_trust/membership/add_member', label: 'membership: Add Member', category: 'Membership' },
+      { id: 'governance_and_trust/membership/remove_member', label: 'membership: Remove Member', category: 'Membership' },
+      { id: 'governance_and_trust/membership/verify_membership', label: 'membership: Verify Membership', category: 'Membership' },
     ];
 
     setOasfSkills(prev => {
       const existingIds = new Set(prev.map(s => s.id));
+      // Only add if not already present (by ID comparison)
       const toAdd = trustSkills.filter(s => !existingIds.has(s.id));
-      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+      if (toAdd.length > 0) {
+        // Merge: update existing skills with better labels if needed, or add new ones
+        const updated = prev.map(s => {
+          const trustSkill = trustSkills.find(ts => ts.id === s.id);
+          // If trust skill exists and current label is same as ID (needs better label), update it
+          if (trustSkill && (s.label === s.id || !s.label || s.label.startsWith('oasf:'))) {
+            return { ...s, label: trustSkill.label, category: trustSkill.category || s.category };
+          }
+          return s;
+        });
+        return [...updated, ...toAdd];
+      }
+      // Update existing skills with better labels if they match trust skills
+      return prev.map(s => {
+        const trustSkill = trustSkills.find(ts => ts.id === s.id);
+        if (trustSkill && (s.label === s.id || !s.label || s.label.startsWith('oasf:'))) {
+          return { ...s, label: trustSkill.label, category: trustSkill.category || s.category };
+        }
+        return s;
+      });
     });
   }, []);
 
@@ -1330,30 +1380,41 @@ export default function AdminPage() {
             .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
         : [];
       
-      // Extract skills from OASF extension (fallback - these don't have oasf: prefix)
+      // Extract skills from OASF extension (fallback - these might be in various formats)
       const exts = Array.isArray(card?.capabilities?.extensions) ? card.capabilities.extensions : [];
       const oasfExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
       const extSkills: string[] = Array.isArray(oasfExt?.params?.skills)
         ? oasfExt.params.skills
             .map((s: unknown) => {
               const skillStr = typeof s === 'string' ? s : (s as any)?.id;
-              // Map OASF extension skills (without prefix) to oasf: format
-              if (typeof skillStr === 'string') {
-                if (skillStr === 'trust.validate.name') return 'oasf:trust.validate.name';
-                if (skillStr === 'trust.validate.account') return 'oasf:trust.validate.account';
-                if (skillStr === 'trust.validate.app') return 'oasf:trust.validate.app';
-                if (skillStr === 'trust.feedback.authorization') return 'oasf:trust.feedback.authorization';
-              }
-              return skillStr;
+              if (typeof skillStr !== 'string' || !skillStr) return null;
+              
+              // Match by comparing against OASF skills list
+              const matchingSkill = oasfSkills.find(oasfSkill => {
+                // Try exact match first
+                if (oasfSkill.id === skillStr) {
+                  return true;
+                }
+                // Try matching label (case-insensitive, normalized)
+                const normalizedLabel = oasfSkill.label?.toLowerCase().replace(/[^a-z0-9]/g, '');
+                const normalizedSkillStr = skillStr.toLowerCase().replace(/[^a-z0-9]/g, '');
+                if (normalizedLabel && normalizedLabel === normalizedSkillStr) {
+                  return true;
+                }
+                return false;
+              });
+              
+              // Return matching skill ID if found, otherwise return skillStr as-is
+              return matchingSkill ? matchingSkill.id : skillStr;
             })
-            .filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
+            .filter((s: unknown): s is string => s !== null && typeof s === 'string' && s.length > 0)
         : [];
 
-      // Prioritize skills from card.skills array (already in oasf: format)
-      // Only add from extension if not already present
+      // Prioritize skills from card.skills array (already in oasf: format - these are skill IDs)
+      // Only add from extension if not already present (compare by ID)
       const allSkillsFromCard = Array.from(new Set([...skillsFromCard, ...extSkills.filter(s => !skillsFromCard.includes(s))]));
 
-      // Filter to only valid OASF skills (match by id)
+      // Filter to only valid OASF skills (match by id - always use IDs for storage)
       const validSkills = allSkillsFromCard.filter(skillId => 
         oasfSkills.some(s => s.id === skillId)
       );
@@ -1594,19 +1655,9 @@ export default function AdminPage() {
           setRegistrationMcpEndpoint(
             mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
           );
-          // Normalize skills when loading from registration JSON
+          // Load skills from registration JSON (already in governance_and_trust/* format)
           const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
-          const normalizedSkills = rawSkills.map((skillId: string) => {
-            if (skillId.startsWith('oasf:')) return skillId;
-            // Map old formats to oasf: format
-            const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
-            if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name') return 'oasf:trust.validate.name';
-            if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account') return 'oasf:trust.validate.account';
-            if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app') return 'oasf:trust.validate.app';
-            if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization') return 'oasf:trust.feedback.authorization';
-            return skillId; // Keep other skills as-is
-          });
-          setRegistrationA2aSkills(normalizedSkills);
+          setRegistrationA2aSkills(rawSkills);
           setRegistrationA2aDomains(
             Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
           );
@@ -1831,38 +1882,8 @@ export default function AdminPage() {
           '0.3.0',
       };
       // Include a2aSkills and a2aDomains if they exist
-      // Normalize skill IDs to match ATP agent-card.json format (oasf:trust.validate.*)
       if (registrationA2aSkills.length > 0) {
-        a2aEndpoint.a2aSkills = registrationA2aSkills.map(skillId => {
-          // If already in oasf: format, keep as-is
-          if (skillId.startsWith('oasf:')) {
-            return skillId;
-          }
-          
-          // Map trust validation skills to oasf: format
-          // Handle various input formats:
-          // - "trust/trust_validate_app" -> "oasf:trust.validate.app"
-          // - "trust_validate_app" -> "oasf:trust.validate.app"
-          // - "trust.validate.app" -> "oasf:trust.validate.app"
-          const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
-          
-          if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name' || normalized === 'trust/trust_validate_name') {
-            return 'oasf:trust.validate.name';
-          }
-          if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account' || normalized === 'trust/trust_validate_account') {
-            return 'oasf:trust.validate.account';
-          }
-          if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app' || normalized === 'trust/trust_validate_app') {
-            return 'oasf:trust.validate.app';
-          }
-          if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization' || normalized === 'trust/trust_feedback_authorization') {
-            return 'oasf:trust.feedback.authorization';
-          }
-          
-          // For other skills, remove category prefix if present but don't add oasf: prefix
-          const parts = skillId.split('/');
-          return parts.length > 1 ? parts[parts.length - 1] : skillId;
-        });
+        a2aEndpoint.a2aSkills = registrationA2aSkills;
       }
       if (registrationA2aDomains.length > 0) {
         a2aEndpoint.a2aDomains = registrationA2aDomains;
@@ -2660,7 +2681,7 @@ export default function AdminPage() {
         },
             body: JSON.stringify({
           a2aEndpoint: agentA2aEndpoint,
-          skillId: 'oasf:trust.validate.name',
+          skillId: 'governance_and_trust/trust/trust_validate_name',
           message: `Process name validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
@@ -3706,10 +3727,22 @@ export default function AdminPage() {
                                       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1, minHeight: '2rem' }}>
                                         {registrationA2aSkills.map((skillId) => {
                                           const skill = oasfSkills.find(s => s.id === skillId);
+                                          // Don't add category prefix if label already starts with it (case-insensitive)
+                                          let displayLabel = skill?.label || skillId;
+                                          if (skill?.category && skill?.label) {
+                                            const categoryLower = skill.category.toLowerCase();
+                                            const labelLower = skill.label.toLowerCase();
+                                            // Check if label already starts with category prefix
+                                            if (!labelLower.startsWith(`${categoryLower}:`)) {
+                                              displayLabel = `${skill.category}: ${skill.label}`;
+                                            } else {
+                                              displayLabel = skill.label;
+                                            }
+                                          }
                                           return (
                                             <Chip
                                               key={skillId}
-                                              label={skill ? `${skill.category ? `${skill.category}: ` : ''}${skill.label}` : skillId}
+                                              label={displayLabel}
                                               onDelete={() => {
                                                 setRegistrationA2aSkills(prev => prev.filter(s => s !== skillId));
                                               }}
@@ -3931,17 +3964,7 @@ export default function AdminPage() {
                                 );
                                 // Normalize skills when loading from registration JSON
                                 const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
-                                const normalizedSkills = rawSkills.map((skillId: string) => {
-                                  if (skillId.startsWith('oasf:')) return skillId;
-                                  // Map old formats to oasf: format
-                                  const normalized = skillId.replace(/^trust\//, '').replace(/_/g, '.');
-                                  if (normalized === 'trust.validate.name' || normalized === 'trust_validate_name') return 'oasf:trust.validate.name';
-                                  if (normalized === 'trust.validate.account' || normalized === 'trust_validate_account') return 'oasf:trust.validate.account';
-                                  if (normalized === 'trust.validate.app' || normalized === 'trust_validate_app') return 'oasf:trust.validate.app';
-                                  if (normalized === 'trust.feedback.authorization' || normalized === 'trust_feedback_authorization') return 'oasf:trust.feedback.authorization';
-                                  return skillId; // Keep other skills as-is
-                                });
-                                setRegistrationA2aSkills(normalizedSkills);
+                                setRegistrationA2aSkills(rawSkills);
                                 setRegistrationA2aDomains(
                                   Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
                                 );

@@ -59,7 +59,7 @@ export interface FeedbackAuthParams {
   metadata?: Record<string, unknown>;
   /**
    * Optional client-constructed ERC-8092 SAR payload to be forwarded to the provider
-   * as part of `oasf:trust.feedback.authorization`.
+   * as part of `governance_and_trust/trust/trust_feedback_authorization`.
    */
   delegationSar?: unknown;
 }
@@ -583,7 +583,7 @@ export class Agent {
       payload.delegationSar = params.delegationSar as Record<string, unknown>;
     }
 
-    const skillId = params.skillId ?? 'oasf:trust.feedback.authorization';
+    const skillId = params.skillId ?? 'governance_and_trust/trust/trust_feedback_authorization';
     const message = params.message ?? 'Request feedback authorization';
     const metadata: Record<string, unknown> = {
       ...(params.metadata || {}),
@@ -734,7 +734,7 @@ export class Agent {
       delegationAssociation: (issued as any).delegationAssociation,
       agentId: agentId.toString(),
       clientAddress,
-      skill: params.skillId || 'oasf:trust.feedback.authorization',
+      skill: params.skillId || 'governance_and_trust/trust/trust_feedback_authorization',
     };
   }
 

@@ -718,7 +718,7 @@ export default function MessagesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          skillId: 'oasf:trust.feedback.authorization',
+          skillId: 'governance_and_trust/trust/trust_feedback_authorization',
           payload: {
             // Worker will derive clientAddress/agentId/chainId from the stored request record
             feedbackRequestId: selectedMessageFeedbackRequestId,
@@ -1028,7 +1028,7 @@ export default function MessagesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           a2aEndpoint,
-          skillId: 'oasf:trust.validate.name',
+          skillId: 'governance_and_trust/trust/trust_validate_name',
           message: `Process validation request for agent ${requestingAgentId}`,
           payload: {
             agentId: requestingAgentId,
@@ -2172,7 +2172,7 @@ export default function MessagesPage() {
     const skills = Array.isArray(composeToAgentCard?.skills) ? composeToAgentCard.skills : [];
     const out = new Set<string>();
 
-    // Primary: per-skill tags like "oasf:trust.feedback.authorization"
+    // Primary: per-skill tags like "governance_and_trust/trust/trust_feedback_authorization"
     for (const s of skills) {
       const tags = Array.isArray((s as any)?.tags) ? (s as any).tags : [];
       for (const t of tags) {

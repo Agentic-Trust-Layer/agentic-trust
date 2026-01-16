@@ -1359,7 +1359,7 @@ export default function AgentDetailsPageContent({
                 value={feedbackSkillId}
                 onChange={(e) => setFeedbackSkillId(e.target.value)}
                 disabled={submittingFeedback}
-                placeholder="e.g. oasf:trust.feedback.authorization"
+                placeholder="e.g. governance_and_trust/trust/trust_feedback_authorization"
                 helperText="This agent card didn’t publish a skill list—enter a skill id manually (optional)."
               />
             )}

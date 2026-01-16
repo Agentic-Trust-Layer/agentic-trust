@@ -35,7 +35,7 @@ export interface FeedbackAuthParams {
     metadata?: Record<string, unknown>;
     /**
      * Optional client-constructed ERC-8092 SAR payload to be forwarded to the provider
-     * as part of `oasf:trust.feedback.authorization`.
+     * as part of `governance_and_trust/trust/trust_feedback_authorization`.
      */
     delegationSar?: unknown;
 }
