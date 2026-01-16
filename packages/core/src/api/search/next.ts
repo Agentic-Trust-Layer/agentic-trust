@@ -277,6 +277,16 @@ export function semanticAgentSearchPostRouteHandler() {
 
       const text = rawText.trim();
 
+      // Extract optional skill filters (for backend to use in filtering)
+      const requiredSkills =
+        Array.isArray(body.requiredSkills) && body.requiredSkills.length > 0
+          ? (body.requiredSkills as string[])
+          : undefined;
+      const intentType =
+        typeof body.intentType === 'string' && body.intentType.trim()
+          ? (body.intentType as string).trim()
+          : undefined;
+
       if (!text && !intentJson) {
         return jsonResponse({
           success: true,
@@ -287,7 +297,9 @@ export function semanticAgentSearchPostRouteHandler() {
 
       const discoveryClient = await getDiscoveryClient();
       const result = await (discoveryClient as any).semanticAgentSearch(
-        intentJson ? { intentJson, topK } : { text },
+        intentJson
+          ? { intentJson, topK, requiredSkills, intentType }
+          : { text, topK },
       );
 
       const total =

@@ -822,6 +822,8 @@ export class AIAgentDiscoveryClient {
     text?: string;
     intentJson?: string;
     topK?: number;
+    requiredSkills?: string[];
+    intentType?: string;
   }): Promise<SemanticAgentSearchResult> {
     const rawText = typeof params?.text === 'string' ? params.text : '';
     const text = rawText.trim();
@@ -894,15 +896,23 @@ export class AIAgentDiscoveryClient {
       }
     `;
 
-    const query = intentJson
-      ? `
-        query SearchByIntent($intentJson: String!, $topK: Int) {
-          semanticAgentSearch(input: { intentJson: $intentJson, topK: $topK }) {
+      const requiredSkills = Array.isArray(params.requiredSkills) ? params.requiredSkills : undefined;
+      const intentType = typeof params.intentType === 'string' ? params.intentType : undefined;
+
+      const query = intentJson
+        ? `
+        query SearchByIntent($intentJson: String!, $topK: Int, $requiredSkills: [String!], $intentType: String) {
+          semanticAgentSearch(input: { 
+            intentJson: $intentJson, 
+            topK: $topK,
+            requiredSkills: $requiredSkills,
+            intentType: $intentType
+          }) {
             ${selection}
           }
         }
       `
-      : `
+        : `
         query SearchByText($text: String!) {
           semanticAgentSearch(input: { text: $text }) {
             ${selection}
@@ -910,20 +920,22 @@ export class AIAgentDiscoveryClient {
         }
       `;
 
-    try {
-      const data = await this.client.request<{
-        semanticAgentSearch?: {
-          total?: number | null;
-          matches?: Array<{
-            score?: number | null;
-            matchReasons?: string[] | null;
-            agent?: Record<string, unknown> | null;
-          }> | null;
-        };
-      }>(
-        query,
-        intentJson ? { intentJson, topK } : { text },
-      );
+      try {
+        const data = await this.client.request<{
+          semanticAgentSearch?: {
+            total?: number | null;
+            matches?: Array<{
+              score?: number | null;
+              matchReasons?: string[] | null;
+              agent?: Record<string, unknown> | null;
+            }> | null;
+          };
+        }>(
+          query,
+          intentJson
+            ? { intentJson, topK, requiredSkills, intentType }
+            : { text },
+        );
 
       const root = data.semanticAgentSearch;
       if (!root) {

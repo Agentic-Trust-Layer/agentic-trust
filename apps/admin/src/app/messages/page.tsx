@@ -1290,7 +1290,7 @@ export default function MessagesPage() {
           return JSON.stringify(base);
         };
 
-        // Intent-first: when intent != general, drive agent list via semantic search.
+        // Intent-first: when intent != general, query agents by required skills.
         if (selectedIntentType !== 'general') {
           const mapAgentToOption = (a: any): AgentSearchOption | null => {
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
@@ -1309,7 +1309,41 @@ export default function MessagesPage() {
             } as AgentSearchOption;
           };
 
-          // Helper to force-include known validator agents by name (bypasses semantic-search limitations).
+          // Build intent-based request for discovery backend
+          const intentJson = buildIntentJson(selectedIntentType, q);
+          
+          // Get required skills from intent type's defaultTaskType for fallback/validation
+          const intentOption = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === selectedIntentType);
+          const taskOption = intentOption
+            ? INBOX_TASK_TYPE_OPTIONS.find((o) => o.value === intentOption.defaultTaskType)
+            : null;
+          
+          const requiredSkills = taskOption?.requiredToAgentSkills || [];
+
+          // Primary: Intent-based semantic search (discovery backend interprets intent and returns matching agents)
+          const intentSearchResponse = await fetch('/api/agents/semantic-search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              intentJson,
+              intentType: selectedIntentType,
+              requiredSkills, // Provide skills for backend to use in filtering/validation (governance_and_trust/* format)
+              topK: 50 
+            }),
+            cache: 'no-store',
+          });
+
+          // Process intent-based search results
+          let mappedByIntent: AgentSearchOption[] = [];
+          if (intentSearchResponse.ok) {
+            const intentData = await intentSearchResponse.json().catch(() => ({}));
+            const matches = Array.isArray(intentData?.matches) ? intentData.matches : [];
+            mappedByIntent = matches
+              .map((m: any) => mapAgentToOption(m?.agent))
+              .filter(Boolean) as AgentSearchOption[];
+          }
+
+          // Helper to force-include known validator agents by name (bypasses search limitations).
           const fetchAgentsByName = async (name: string): Promise<AgentSearchOption[]> => {
             const url = `/api/agents/search?query=${encodeURIComponent(name)}&pageSize=5&orderBy=createdAtTime&orderDirection=DESC`;
             const r = await fetch(url, { cache: 'no-store' });
@@ -1319,24 +1353,7 @@ export default function MessagesPage() {
             return agents.map(mapAgentToOption).filter(Boolean) as AgentSearchOption[];
           };
 
-          const intentJson = buildIntentJson(selectedIntentType, q);
-          const response = await fetch('/api/agents/semantic-search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ intentJson, topK: 25 }),
-            cache: 'no-store',
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to semantic search agents (${response.status})`);
-          }
-          const data = await response.json().catch(() => ({}));
-          const matches = Array.isArray(data?.matches) ? data.matches : [];
-          const mappedSemantic: AgentSearchOption[] = matches
-            .map((m: any) => mapAgentToOption(m?.agent))
-            .filter(Boolean) as AgentSearchOption[];
-
           // For validation intents, always include the canonical validator agents.
-          // This ensures the "To Agent" list contains `name-validation.8004-agent.eth` even if semantic search returns few matches.
           const mappedPinned =
             selectedIntentType === 'trust.name_validation'
               ? await fetchAgentsByName('name-validation')
@@ -1346,10 +1363,18 @@ export default function MessagesPage() {
                 ? await fetchAgentsByName('app-validation')
                   : [];
 
+          // Merge all results, prioritizing intent-based matches
           const merged = (() => {
             const byKey = new Map<string, AgentSearchOption>();
-            for (const opt of [...mappedPinned, ...mappedSemantic]) {
+            // Add intent-based matches first (highest priority) - these come from discovery backend intent interpretation
+            for (const opt of mappedByIntent) {
               byKey.set(opt.key, opt);
+            }
+            // Add pinned agents (for validation intents)
+            for (const opt of mappedPinned) {
+              if (!byKey.has(opt.key)) {
+                byKey.set(opt.key, opt);
+              }
             }
             return Array.from(byKey.values());
           })();
