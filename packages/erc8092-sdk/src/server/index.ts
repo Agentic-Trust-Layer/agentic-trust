@@ -1,5 +1,6 @@
 import { ethers } from "ethers";
 import { AssociationsStoreClient } from "../AssociationsStoreClient";
+export * from "./proxy";
 
 let _providerKey: string | null = null;
 let _provider: ethers.JsonRpcProvider | null = null;

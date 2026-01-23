@@ -295,12 +295,14 @@ export function semanticAgentSearchPostRouteHandler() {
         });
       }
 
+      const searchParams = intentJson
+        ? { intentJson, topK, requiredSkills, intentType }
+        : { text, topK };
+      
+      console.log('[semantic-search] Request params:', JSON.stringify(searchParams, null, 2));
+      
       const discoveryClient = await getDiscoveryClient();
-      const result = await (discoveryClient as any).semanticAgentSearch(
-        intentJson
-          ? { intentJson, topK, requiredSkills, intentType }
-          : { text, topK },
-      );
+      const result = await (discoveryClient as any).semanticAgentSearch(searchParams);
 
       const total =
         result && typeof result.total === 'number' && Number.isFinite(result.total)

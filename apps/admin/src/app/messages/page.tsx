@@ -1321,15 +1321,18 @@ export default function MessagesPage() {
           const requiredSkills = taskOption?.requiredToAgentSkills || [];
 
           // Primary: Intent-based semantic search (discovery backend interprets intent and returns matching agents)
+          const requestBody = { 
+            intentJson,
+            intentType: selectedIntentType,
+            requiredSkills, // Provide skills for backend to use in filtering/validation (governance_and_trust/* format)
+            topK: 50 
+          };
+          console.log('[messages] Semantic search request body:', JSON.stringify(requestBody, null, 2));
+          
           const intentSearchResponse = await fetch('/api/agents/semantic-search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              intentJson,
-              intentType: selectedIntentType,
-              requiredSkills, // Provide skills for backend to use in filtering/validation (governance_and_trust/* format)
-              topK: 50 
-            }),
+            body: JSON.stringify(requestBody),
             cache: 'no-store',
           });
 
@@ -1545,7 +1548,7 @@ export default function MessagesPage() {
         }
       } else {
         const content = composeBody.trim();
-        if (!content && !isValidationRequestTaskType(selectedMessageType) && selectedMessageType !== 'association_request') {
+        if (!content && !isValidationRequestTaskType(selectedMessageType) && selectedMessageType !== 'association_request' && selectedMessageType !== 'add_member_request') {
           throw new Error('Message body is required.');
         }
         let contentToSend =
@@ -1558,7 +1561,9 @@ export default function MessagesPage() {
                 ? `Request app validation (${validationRequestKind})`
             : selectedMessageType === 'association_request'
               ? 'Request association'
-              : '');
+              : selectedMessageType === 'add_member_request'
+                ? 'Add member'
+                : '');
 
         const subject =
           composeSubject.trim() ||
@@ -1570,7 +1575,9 @@ export default function MessagesPage() {
                 ? `Request App Validation: ${validationRequestKind}`
             : selectedMessageType === 'association_request'
               ? 'Request Association'
-              : 'Message');
+              : selectedMessageType === 'add_member_request'
+                ? 'Add Member'
+                : 'Message');
 
         // For association requests: prepare + execute via client wallet (AA + bundler).
         // If approver is a different agent account, we send a message containing the payload
@@ -1812,6 +1819,209 @@ export default function MessagesPage() {
             console.error('[Association Request] Failed to create association:', assocError);
             // Association requests must include a payload block to be actionable.
             throw assocError;
+          }
+        } else if (selectedMessageType === 'add_member_request') {
+          // For add_member requests: create ERC-8092 membership association payload
+          // Similar to association_request but with membership-specific type
+          try {
+            if (!composeToAgent) {
+              throw new Error('To Agent is required for add member requests');
+            }
+
+            const chainId = selectedFolderAgent.chainId;
+            const chain = getChainById(chainId);
+            if (!eip1193Provider || !walletAddress) {
+              throw new Error('Wallet not connected');
+            }
+            const signerEoa = await getConnectedEoaAddress(eip1193Provider);
+
+            // Switch to correct chain
+            if (eip1193Provider && typeof eip1193Provider.request === 'function') {
+              const targetHex = `0x${chainId.toString(16)}`;
+              try {
+                await eip1193Provider.request({
+                  method: 'wallet_switchEthereumChain',
+                  params: [{ chainId: targetHex }],
+                });
+              } catch (switchErr) {
+                console.warn('Failed to switch chain', switchErr);
+              }
+            }
+
+            const initiatorDid = buildDid8004(chainId, selectedFolderAgent.agentId);
+
+            if (!selectedFolderAgent?.agentAccount) {
+              throw new Error(
+                'This agent is missing agentAccount. Cannot create an ERC-8092 membership association request without a concrete initiator account address.',
+              );
+            }
+
+            const initiatorAddressRaw = resolvePlainAddress(selectedFolderAgent.agentAccount);
+            if (!initiatorAddressRaw) {
+              throw new Error(
+                `This agent has invalid agentAccount format: ${selectedFolderAgent.agentAccount}. Cannot create an ERC-8092 membership association request.`,
+              );
+            }
+            let initiatorAddress = initiatorAddressRaw;
+            let isEoaOwnedInitiator =
+              initiatorAddress.toLowerCase() === String(signerEoa).toLowerCase();
+
+            // Fetch "To Agent" account address (approverAddress)
+            const toAgentDid = composeToAgent.did;
+            const toAgentResponse = await fetch(`/api/agents/${encodeURIComponent(toAgentDid)}`);
+            if (!toAgentResponse.ok) {
+              throw new Error('Failed to fetch To Agent details');
+            }
+            const toAgentData = await toAgentResponse.json();
+            const approverAddressRaw = toAgentData?.agentAccount || toAgentData?.account;
+            const approverAddress = resolvePlainAddress(approverAddressRaw);
+            if (!approverAddress) {
+              throw new Error(`To Agent account address not found or invalid format: ${approverAddressRaw}. The agent must have a valid account address.`);
+            }
+
+            console.log('[Add Member Request] Creating membership association:', {
+              initiatorDid,
+              approverAddress,
+              assocType: AssocType.Membership,
+              description: composeBody.trim() || 'Add member to membership group',
+            });
+
+            // Build record + digest + initiator signature (for later approver consent)
+            const validAt = Math.max(0, Math.floor(Date.now() / 1000) - 10);
+            const validUntil = 0;
+            const interfaceId = '0x00000000' as const;
+            const description = composeBody.trim() || 'Add member to membership group';
+            const data = encodeAbiParameters(
+              parseAbiParameters('uint8 assocType, string description'),
+              [AssocType.Membership, description],
+            ) as `0x${string}`;
+
+            // Compute digest using same scheme as erc8092-sdk (eip712Hash(record))
+            const { ethers } = await import('ethers');
+            const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+              if (n === 0n) return new Uint8Array([0]);
+              let hex = n.toString(16);
+              if (hex.length % 2) hex = `0${hex}`;
+              return ethers.getBytes(`0x${hex}`);
+            };
+            const formatEvmV1 = (chainId: number, address: string): string => {
+              const addr = ethers.getAddress(address);
+              const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+              const head = ethers.getBytes('0x00010000');
+              const out = ethers.concat([
+                head,
+                new Uint8Array([chainRef.length]),
+                chainRef,
+                new Uint8Array([20]),
+                ethers.getBytes(addr),
+              ]);
+              return ethers.hexlify(out);
+            };
+            const buildDigestBundle = async (params: { initiatorAddress: `0x${string}` }) => {
+              const initiatorInterop = formatEvmV1(chainId, params.initiatorAddress);
+              const approverInterop = formatEvmV1(chainId, approverAddress);
+              const typedData = buildAssociationTypedData({
+                initiatorInterop,
+                approverInterop,
+                validAt,
+                validUntil,
+                interfaceId,
+                data,
+              });
+
+              const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+              const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
+              const NAME_HASH = ethers.id('AssociatedAccounts');
+              const VERSION_HASH = ethers.id('1');
+              const MESSAGE_TYPEHASH = ethers.id(
+                'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+              );
+              const domainSeparator = ethers.keccak256(
+                abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
+              );
+              const hashStruct = ethers.keccak256(
+                abiCoder.encode(
+                  ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
+                  [
+                    MESSAGE_TYPEHASH,
+                    ethers.keccak256(initiatorInterop),
+                    ethers.keccak256(approverInterop),
+                    validAt,
+                    validUntil,
+                    interfaceId,
+                    ethers.keccak256(data),
+                  ],
+                ),
+              );
+              const digest = ethers.keccak256(
+                ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
+              ) as `0x${string}`;
+
+              return { initiatorInterop, approverInterop, typedData, digest };
+            };
+
+            let { typedData, digest } = await buildDigestBundle({ initiatorAddress });
+            let initiatorSig = await signAssociationDigest({
+              provider: eip1193Provider,
+              signerAddress: signerEoa,
+              digest,
+              typedData,
+            });
+            const initiatorSignature = initiatorSig.signature;
+
+            // If initiatorAddress is a smart account but rejects the owner's signature, treat initiator as EOA.
+            if (!isEoaOwnedInitiator) {
+              const ok1271 = await isErc1271ValidSignature({
+                chain: chain as any,
+                contract: initiatorAddress,
+                digest,
+                signature: initiatorSignature,
+              });
+              if (!ok1271) {
+                initiatorAddress = signerEoa;
+                isEoaOwnedInitiator = true;
+                const rebuilt = await buildDigestBundle({ initiatorAddress });
+                typedData = rebuilt.typedData;
+                digest = rebuilt.digest;
+                initiatorSig = await signAssociationDigest({
+                  provider: eip1193Provider,
+                  signerAddress: signerEoa,
+                  digest,
+                  typedData,
+                  preferredMethod: initiatorSig.method,
+                });
+              }
+            }
+
+            const payload: AssociationRequestPayload = {
+              version: 1,
+              chainId,
+              initiatorDid,
+              approverDid: composeToAgent.did,
+              initiatorAddress,
+              approverAddress,
+              assocType: AssocType.Membership,
+              description,
+              validAt,
+              validUntil,
+              interfaceId,
+              data,
+              digest,
+              initiatorSignature,
+              signatureMethod: initiatorSig.method,
+            };
+
+            // Embed payload into message body for ATP agent to process
+            const payloadBlock = [
+              ASSOCIATION_PAYLOAD_MARKER_BEGIN,
+              JSON.stringify(payload),
+              ASSOCIATION_PAYLOAD_MARKER_END,
+            ].join('\n');
+            contentToSend = `${contentToSend || 'Add member'}\n\n${payloadBlock}`;
+          } catch (addMemberError: any) {
+            console.error('[Add Member Request] Failed to create membership association:', addMemberError);
+            // Add member requests must include a payload block to be actionable.
+            throw addMemberError;
           }
         } else if (isValidationRequestTaskType(selectedMessageType)) {
           try {
@@ -2087,30 +2297,85 @@ export default function MessagesPage() {
 
 
 
-        // Create the ATP inbox message (this is what creates/updates the task thread).
-        const res = await fetch('/api/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            type: selectedMessageType,
-            subject,
-            content: contentToSend,
-            fromClientAddress: walletAddress,
-            fromAgentDid: selectedFromAgentDid,
-            fromAgentName: selectedFolderAgent.agentName || null,
-            toAgentDid: composeToAgent.did,
-            toAgentName: composeToAgent.agentName,
-            taskId: composeTaskId,
-            metadata: {
-              source: 'admin-app',
-              timestamp: new Date().toISOString(),
-            },
-          }),
-        });
+        // For add_member requests, send directly to the agent's A2A endpoint with the skill
+        if (selectedMessageType === 'add_member_request') {
+          // Extract message endpoint from agent card's supportedInterfaces (required)
+          if (!composeToAgentCard?.supportedInterfaces || !Array.isArray(composeToAgentCard.supportedInterfaces)) {
+            throw new Error('To Agent agent card is missing or does not have supportedInterfaces. Cannot send add member request.');
+          }
+          
+          const supportedInterfaces = composeToAgentCard.supportedInterfaces as Array<{ url?: string; protocolBinding?: string }>;
+          const pick = (binding: string): string | undefined =>
+            supportedInterfaces.find((x) => String(x?.protocolBinding || '') === binding)?.url;
+          
+          // Prefer JSON-RPC if advertised; otherwise use HTTP+JSON
+          const messageEndpoint = pick('JSONRPC') ?? pick('HTTP+JSON');
+          
+          if (!messageEndpoint || typeof messageEndpoint !== 'string') {
+            throw new Error('To Agent does not have a message endpoint configured. The agent must have a supportedInterfaces entry with protocolBinding "JSONRPC" or "HTTP+JSON" in its agent card.');
+          }
 
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          throw new Error(data?.error || data?.message || 'Failed to send message');
+          // Extract association payload from content
+          const ASSOCIATION_PAYLOAD_MARKER_BEGIN = '---BEGIN ASSOCIATION PAYLOAD---';
+          const ASSOCIATION_PAYLOAD_MARKER_END = '---END ASSOCIATION PAYLOAD---';
+          const start = contentToSend.indexOf(ASSOCIATION_PAYLOAD_MARKER_BEGIN);
+          const end = contentToSend.indexOf(ASSOCIATION_PAYLOAD_MARKER_END);
+          if (start === -1 || end === -1) {
+            throw new Error('Association payload not found in message body');
+          }
+          const payloadJson = contentToSend.slice(start + ASSOCIATION_PAYLOAD_MARKER_BEGIN.length, end).trim();
+          const associationPayload = JSON.parse(payloadJson);
+
+          // Send A2A request with the skill
+          const a2aResponse = await fetch(messageEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              skillId: 'governance_and_trust/membership/add_member',
+              payload: {
+                associationPayload,
+                body: contentToSend,
+              },
+              metadata: {
+                source: 'admin-app',
+                timestamp: new Date().toISOString(),
+              },
+            }),
+          });
+
+          if (!a2aResponse.ok) {
+            const errorData = await a2aResponse.json().catch(() => ({}));
+            throw new Error(errorData?.error || errorData?.message || 'Failed to send add member request to agent');
+          }
+
+          const a2aData = await a2aResponse.json();
+          console.log('[Add Member] A2A response:', a2aData);
+        } else {
+          // Create the ATP inbox message (this is what creates/updates the task thread).
+          const res = await fetch('/api/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              type: selectedMessageType,
+              subject,
+              content: contentToSend,
+              fromClientAddress: walletAddress,
+              fromAgentDid: selectedFromAgentDid,
+              fromAgentName: selectedFolderAgent.agentName || null,
+              toAgentDid: composeToAgent.did,
+              toAgentName: composeToAgent.agentName,
+              taskId: composeTaskId,
+              metadata: {
+                source: 'admin-app',
+                timestamp: new Date().toISOString(),
+              },
+            }),
+          });
+
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(data?.error || data?.message || 'Failed to send message');
+          }
         }
       }
 

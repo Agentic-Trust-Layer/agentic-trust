@@ -29,6 +29,14 @@ export type SessionPackage = {
   aa: `0x${string}`;
   sessionAA?: `0x${string}`;
   selector: `0x${string}`;
+  // SC-DELEGATION config used for ERC-8092 keyType 0x8004 proof validation.
+  // Required when the agent intends to produce SC-DELEGATION proofs off-chain.
+  scDelegation?: {
+    associationsStoreProxy: `0x${string}`;
+    delegationManager: `0x${string}`;
+    scDelegationEnforcer: `0x${string}`;
+    scDelegationVerifier: `0x${string}`;
+  };
   sessionKey: {
     privateKey: `0x${string}`;
     address: `0x${string}`;

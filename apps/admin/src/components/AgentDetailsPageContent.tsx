@@ -31,7 +31,7 @@ import AutoGraphIcon from '@mui/icons-material/AutoGraph';
 import VerifiedIcon from '@mui/icons-material/Verified';
 import TimelineIcon from '@mui/icons-material/Timeline';
 import { finalizeAssociationWithWallet } from '@agentic-trust/core/client';
-import { associationIdFromRecord, tryParseEvmV1, KEY_TYPE_K1, KEY_TYPE_DELEGATED, ASSOCIATIONS_STORE_ABI, formatEvmV1 } from '@agentic-trust/8092-sdk';
+import { associationIdFromRecord, tryParseEvmV1, KEY_TYPE_K1, KEY_TYPE_SC_DELEGATION, ASSOCIATIONS_STORE_ABI, formatEvmV1 } from '@agentic-trust/8092-sdk';
 
 function ipfsToHttp(uri: string): string {
   const trimmed = String(uri || '').trim();
@@ -743,23 +743,20 @@ export default function AgentDetailsPageContent({
         },
       };
 
-      // NOTE: Temporarily disabled to avoid prompting the client wallet for a signature
-      // when clicking "Give Feedback". Keep this code so we can re-enable later.
-      //
-      // const initiatorSignature = await signErc8092Digest({
-      //   provider: eip1193Provider,
-      //   signerAddress: clientAddr,
-      //   digest: associationId,
-      //   typedData,
-      // });
-      const initiatorSignature = '0x' as `0x${string}`;
+      const initiatorSignature = await signErc8092Digest({
+        provider: eip1193Provider,
+        signerAddress: clientAddr,
+        digest: associationId,
+        typedData,
+      });
 
       const delegationSar = {
         record,
         initiatorSignature,
         associationId,
         initiatorKeyType: KEY_TYPE_K1,
-        approverKeyType: KEY_TYPE_DELEGATED,
+        // SC-DELEGATION: approver provides a delegation proof blob on-chain.
+        approverKeyType: KEY_TYPE_SC_DELEGATION,
       };
 
       const resp = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {

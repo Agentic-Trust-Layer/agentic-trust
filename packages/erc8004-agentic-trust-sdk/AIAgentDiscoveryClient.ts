@@ -897,16 +897,16 @@ export class AIAgentDiscoveryClient {
     `;
 
       const requiredSkills = Array.isArray(params.requiredSkills) ? params.requiredSkills : undefined;
-      const intentType = typeof params.intentType === 'string' ? params.intentType : undefined;
+      // Note: intentType is not sent to GraphQL - backend should extract it from intentJson
+      // We keep it in params for logging/debugging but don't include it in the GraphQL query
 
       const query = intentJson
         ? `
-        query SearchByIntent($intentJson: String!, $topK: Int, $requiredSkills: [String!], $intentType: String) {
+        query SearchByIntent($intentJson: String!, $topK: Int, $requiredSkills: [String!]) {
           semanticAgentSearch(input: { 
             intentJson: $intentJson, 
             topK: $topK,
-            requiredSkills: $requiredSkills,
-            intentType: $intentType
+            requiredSkills: $requiredSkills
           }) {
             ${selection}
           }
@@ -920,6 +920,12 @@ export class AIAgentDiscoveryClient {
         }
       `;
 
+      const variables = intentJson
+        ? { intentJson, topK, requiredSkills }
+        : { text };
+      
+      console.log('[AIAgentDiscoveryClient.semanticAgentSearch] GraphQL variables:', JSON.stringify(variables, null, 2));
+      
       try {
         const data = await this.client.request<{
           semanticAgentSearch?: {
@@ -932,9 +938,7 @@ export class AIAgentDiscoveryClient {
           };
         }>(
           query,
-          intentJson
-            ? { intentJson, topK, requiredSkills, intentType }
-            : { text },
+          variables,
         );
 
       const root = data.semanticAgentSearch;

@@ -53,7 +53,7 @@ input SemanticAgentSearchInput {
 }
 ```
 
-The frontend currently sends `intentJson` and `topK`. Add support for `requiredSkills` in the input.
+**Note:** The frontend sends `intentType` as a separate parameter for convenience, but the backend should extract it from `intentJson.intentType` rather than expecting it as a separate GraphQL field. The GraphQL schema only needs `requiredSkills` added - `intentType` can be parsed from the `intentJson` string.
 
 ### 3. Intent Interpretation Logic in GraphQL Resolver
 

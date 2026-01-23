@@ -489,7 +489,7 @@ export class AIAgentDiscoveryClient {
             ? Math.floor(params.topK)
             : undefined;
         const requiredSkills = Array.isArray(params?.requiredSkills) ? params.requiredSkills : undefined;
-        const intentType = typeof params?.intentType === 'string' ? params.intentType : undefined;
+        // Note: intentType is not sent to GraphQL - backend should extract it from intentJson
         // Nothing to search.
         if (!text && !intentJson) {
             return { total: 0, matches: [] };
@@ -552,12 +552,11 @@ export class AIAgentDiscoveryClient {
     `;
         const query = intentJson
             ? `
-        query SearchByIntent($intentJson: String!, $topK: Int, $requiredSkills: [String!], $intentType: String) {
+        query SearchByIntent($intentJson: String!, $topK: Int, $requiredSkills: [String!]) {
           semanticAgentSearch(input: { 
             intentJson: $intentJson, 
             topK: $topK,
-            requiredSkills: $requiredSkills,
-            intentType: $intentType
+            requiredSkills: $requiredSkills
           }) {
             ${selection}
           }
@@ -571,7 +570,7 @@ export class AIAgentDiscoveryClient {
         }
       `;
         try {
-            const data = await this.client.request(query, intentJson ? { intentJson, topK, requiredSkills, intentType } : { text });
+            const data = await this.client.request(query, intentJson ? { intentJson, topK, requiredSkills } : { text });
             const root = data.semanticAgentSearch;
             if (!root) {
                 return { total: 0, matches: [] };

@@ -8,10 +8,18 @@ globs: "**/*"
 When working with the Agentic Trust library, ERC-8004, agent identity, reputation feedback, or validation:
 
 -   **Reference Repository**: Always consult the official repository at [https://github.com/Agentic-Trust-Layer/agentic-trust](https://github.com/Agentic-Trust-Layer/agentic-trust) for the latest patterns, architecture, and implementation details.
+-   **ERC-8092 Reference Repo (Associated Accounts)**: For ERC-8092 / Associated Accounts patterns (especially SC-DELEGATION), consult [https://github.com/Agentic-Trust-Layer/AssociatedAccounts](https://github.com/Agentic-Trust-Layer/AssociatedAccounts). In this repo, `apps/assoc-delegation` is the reference implementation for SC-DELEGATION (0x8004) proof construction + on-chain preflight via `validateSignedAssociationRecord`.
 -   **Key Concepts**:
     -   **Agent Identity**: Veramo integration, DID management.
     -   **Reputation**: ERC-8004 feedback mechanisms.
     -   **Validation**: Agent validation workflows.
+-   **ERC-8092 Sepolia Deployments (AssociatedAccounts)**:
+    - **AssociationsStore proxy**: `0x8346903837f89BaC08B095DbF5c1095071a0f349`
+    - **Implementation**: `0x8a0d549E7799D54B7730BB167Ff92983b1F3e5b5`
+    - **ProxyAdmin**: `0x341aA8119033340173C1A6944124d52bF8198551`
+    - **SC Delegation Enforcer**: `0xd92ccc840b130920c2041BEEd4dB143d8EbF72a8`
+    - **SC Delegation Verifier**: `0x3F5795716DffEc92bd3eb861BBc9Bc01d5b9bCb9`
+    - **DelegationManager (configured)**: `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3`
 -   **Agent Ownership Determination**:
     -   **Relationship**: Agent NFT is owned by Agent Account (account abstraction/smart contract), which is owned by an EOA (user wallet).
     -   **EOA Check**: If agent account has no bytecode, directly compare addresses.
@@ -109,6 +117,10 @@ When working with the Agentic Trust library, ERC-8004, agent identity, reputatio
     // 4. Wait for Receipt
     const receipt = await bundlerClient.waitForUserOperationReceipt({ hash: userOpHash });
     ```
+
+-   **Smart Accounts & Delegation (MetaMask Smart Accounts Kit)**:
+    -   **Standard**: Smart accounts in this repo are created/used via `@metamask/smart-accounts-kit` (Hybrid implementation) and delegation is executed via `DelegationManager.encode.redeemDelegations(...)` with a `SessionPackage` (`aa`, `sessionAA`, `sessionKey`, `signedDelegation`).
+    -   **Important**: Delegation-based transaction execution (redeeming delegation) is distinct from ERC‑1271 signature validation. Do not assume a delegated session key signature will pass `isValidSignature` unless the account is configured to be delegation-aware. Prefer an explicit `isValidSignature(hash, sig)` preflight when signature validity matters (e.g., ERC‑8092 `approverKeyType = 0x8002`).
 -   **No Fallback Logic Rule**:
     -   **Principle**: If required data cannot be determined, fail early with a clear error message. Do not attempt actions with incomplete or guessed data.
     -   **Rationale**: Fallback logic can mask configuration issues and lead to incorrect behavior (e.g., sending transactions from the wrong account type, causing "Not authorized" errors).

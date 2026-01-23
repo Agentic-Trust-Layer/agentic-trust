@@ -6,7 +6,8 @@
 import { ethers } from 'ethers';
 
 const DEFAULTS = {
-  associationsStoreProxy: '0x3418A5297C75989000985802B8ab01229CDDDD24', // Correct deployed address on Sepolia - matches core
+  // Sepolia AssociationsStore proxy (upstream AssociatedAccounts deployment)
+  associationsStoreProxy: '0x8346903837f89BaC08B095DbF5c1095071a0f349',
 } as const;
 
 /**
@@ -15,10 +16,8 @@ const DEFAULTS = {
  * Matches the pattern used in other apps: uses ASSOCIATIONS_STORE_PROXY env var
  */
 export function getAssociationsProxyAddress(): string {
-  // TEMPORARY: Use the correct deployed address, ignoring any bad env vars
-  const correctAddress = '0x3418A5297C75989000985802B8ab01229CDDDD24';
-  console.log('[getAssociationsProxyAddress] Using correct deployed address:', correctAddress);
-  return ethers.getAddress(correctAddress);
+  const addr = (process.env.ASSOCIATIONS_STORE_PROXY ?? DEFAULTS.associationsStoreProxy).trim();
+  return ethers.getAddress(addr);
 }
 
 /**

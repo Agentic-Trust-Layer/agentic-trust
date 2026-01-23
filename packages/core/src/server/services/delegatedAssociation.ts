@@ -77,17 +77,37 @@ export async function buildDelegatedAssociationContext(
 }
 
 function getAssociationsProxyAddress(): `0x${string}` {
-  const addr =
-    process.env.ASSOCIATIONS_STORE_PROXY ||
-    process.env.ASSOCIATIONS_PROXY_ADDRESS ||
-    '0x3418A5297C75989000985802B8ab01229CDDDD24';
+  const fromStoreProxy = process.env.ASSOCIATIONS_STORE_PROXY;
+  const fromProxyAddress = process.env.ASSOCIATIONS_PROXY_ADDRESS;
+  // Sepolia AssociationsStore proxy (upstream AssociatedAccounts deployment)
+  const fallbackDefault = '0x8346903837f89BaC08B095DbF5c1095071a0f349';
+
+  const addr = fromStoreProxy || fromProxyAddress || fallbackDefault;
   if (!addr.startsWith('0x') || addr.length !== 42) {
     throw new Error(`Invalid associations proxy address: ${addr}`);
   }
   try {
-    return ethers.getAddress(addr) as `0x${string}`;
+    const checksummed = ethers.getAddress(addr) as `0x${string}`;
+    console.log('[delegatedAssociation] AssociationsStore proxy address:', {
+      address: checksummed,
+      source: fromStoreProxy
+        ? 'ASSOCIATIONS_STORE_PROXY'
+        : fromProxyAddress
+          ? 'ASSOCIATIONS_PROXY_ADDRESS'
+          : 'fallbackDefault',
+    });
+    return checksummed;
   } catch {
-    return ethers.getAddress(addr.toLowerCase()) as `0x${string}`;
+    const checksummed = ethers.getAddress(addr.toLowerCase()) as `0x${string}`;
+    console.log('[delegatedAssociation] AssociationsStore proxy address:', {
+      address: checksummed,
+      source: fromStoreProxy
+        ? 'ASSOCIATIONS_STORE_PROXY'
+        : fromProxyAddress
+          ? 'ASSOCIATIONS_PROXY_ADDRESS'
+          : 'fallbackDefault',
+    });
+    return checksummed;
   }
 }
 

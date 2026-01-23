@@ -8,3 +8,48 @@ globs: "**/*"
 -   Use functional components with React hooks.
 -   Ensure all new code is strongly typed.
 -   Use `const` over `let`, and avoid `var`.
+
+# No Fallback Logic Rule
+
+-   **Principle**: Always understand the correct approach and fail with a clear error if required data/configuration is missing. Do not include second or third fallback approaches.
+-   **Rationale**: Fallback logic masks configuration issues, leads to incorrect behavior, and makes debugging harder. If the correct approach isn't available, the system should fail clearly so the issue can be fixed at the source.
+-   **Pattern**: Determine the single correct way to obtain required data. If it's missing or invalid, throw an error explaining exactly what's needed. Do not try alternative methods.
+-   **Example**:
+    ```typescript
+    // ❌ BAD: Multiple fallbacks
+    let endpoint = data?.a2aEndpoint;
+    if (!endpoint) {
+      endpoint = extractFromRawJson(data);
+    }
+    if (!endpoint) {
+      endpoint = await fetchFromAPI();
+    }
+    if (!endpoint) {
+      endpoint = defaultEndpoint;
+    }
+
+    // ✅ GOOD: Single correct approach, fail if missing
+    if (!composeToAgentCard?.supportedInterfaces) {
+      throw new Error('Agent card is missing supportedInterfaces. Cannot determine message endpoint.');
+    }
+    const messageEndpoint = extractFromSupportedInterfaces(composeToAgentCard.supportedInterfaces);
+    if (!messageEndpoint) {
+      throw new Error('Agent card supportedInterfaces does not contain a valid message endpoint with protocolBinding "JSONRPC" or "HTTP+JSON".');
+    }
+    ```
+
+# No Backward Compatibility Rule
+
+-   **Principle**: Do not support backward compatibility. Only support forward movement of the application.
+-   **Rationale**: Backward compatibility adds complexity, technical debt, and makes it harder to evolve the system. If something needs to change, change it everywhere and require the new approach.
+-   **Pattern**: When updating code, remove old patterns entirely. Do not maintain compatibility layers, migration helpers, or dual code paths for old vs new approaches.
+-   **Example**:
+    ```typescript
+    // ❌ BAD: Supporting both old and new formats
+    const skillId = data?.newSkillId || data?.oldSkillId || 'default';
+
+    // ✅ GOOD: Only new format
+    if (!data?.skillId || !data.skillId.startsWith('governance_and_trust/')) {
+      throw new Error('Invalid skill ID format. Must use governance_and_trust/* format.');
+    }
+    ```

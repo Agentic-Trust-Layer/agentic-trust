@@ -22,13 +22,14 @@ import {
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
 import IdentityRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
-import { formatEvmV1, eip712Hash, associationIdFromRecord, KEY_TYPE_K1, KEY_TYPE_DELEGATED, ASSOCIATIONS_STORE_ABI } from '@agentic-trust/8092-sdk';
+import { formatEvmV1, eip712Hash, associationIdFromRecord, KEY_TYPE_K1, KEY_TYPE_ERC1271, ASSOCIATIONS_STORE_ABI } from '@agentic-trust/8092-sdk';
 
 const AGENT_ID = 133;
 const CHAIN_ID = 11155111; // Sepolia
 
 // Key types
-const KEY_TYPE_ERC1271 = KEY_TYPE_DELEGATED; // Smart account - ERC1271 (0x8002)
+// Smart account - ERC1271 (0x8002)
+const APPROVER_KEY_TYPE = KEY_TYPE_ERC1271;
 
 async function main() {
   try {
@@ -294,7 +295,7 @@ async function main() {
       const sarInitial = {
         revokedAt: 0,
         initiatorKeyType: KEY_TYPE_K1, // EOA
-        approverKeyType: KEY_TYPE_ERC1271, // ERC1271 for smart account (0x8002)
+        approverKeyType: APPROVER_KEY_TYPE, // ERC1271 for smart account (0x8002)
         initiatorSignature,
         approverSignature: '0x', // Empty - will be set later
         record,

@@ -5,6 +5,7 @@ import {
   custom,
   zeroAddress,
   encodeFunctionData,
+  parseAbi,
   keccak256,
   stringToHex,
   type Address,
@@ -247,8 +248,10 @@ export async function generateSessionPackage(
 
   const sessionPrivateKey = generatePrivateKey();
   const sessionKeyAccount = privateKeyToAccount(sessionPrivateKey);
-  const validUntil = Math.floor(Date.now() / 1000) + 60 * 30;
-  const validAfter = validUntil - 60 * 30 - 60;
+  const nowSec = Math.floor(Date.now() / 1000);
+  const TWO_YEARS_SECONDS = 60 * 60 * 24 * 365 * 2;
+  const validAfter = Math.max(0, nowSec - 60); // allow slight clock skew
+  const validUntil = nowSec + TWO_YEARS_SECONDS;
 
   console.info('*********** sessionPackageBuilder signer: sessionKeyAccount aaa:  ', sessionKeyAccount.address);  
   const burnerAccountClient = await toMetaMaskSmartAccount({
@@ -339,6 +342,45 @@ export async function generateSessionPackage(
   if (associationsProxy) {
     targets.push(associationsProxy);
     console.info('*********** sessionPackageBuilder: Added associations proxy to delegation targets:', associationsProxy);
+  } else {
+    throw new Error('AssociationsStore proxy address is required to build SC-DELEGATION + association delegation scope');
+  }
+
+  // SC-DELEGATION config must be discoverable from the AssociationsStore proxy.
+  // We persist it into the SessionPackage so the atp-agent can build 0x8004 proofs without guessing.
+  const delegationManager = (await publicClient.readContract({
+    address: associationsProxy,
+    abi: parseAbi([
+      'function delegationManager() view returns (address)',
+    ]),
+    functionName: 'delegationManager',
+    args: [],
+  })) as `0x${string}`;
+  const scDelegationEnforcer = (await publicClient.readContract({
+    address: associationsProxy,
+    abi: parseAbi([
+      'function scDelegationEnforcer() view returns (address)',
+    ]),
+    functionName: 'scDelegationEnforcer',
+    args: [],
+  })) as `0x${string}`;
+  const scDelegationVerifier = (await publicClient.readContract({
+    address: associationsProxy,
+    abi: parseAbi([
+      'function scDelegationVerifier() view returns (address)',
+    ]),
+    functionName: 'scDelegationVerifier',
+    args: [],
+  })) as `0x${string}`;
+
+  if (!delegationManager || delegationManager === zeroAddress) {
+    throw new Error('AssociationsStore proxy has delegationManager=0x0. SC-DELEGATION is not configured.');
+  }
+  if (!scDelegationEnforcer || scDelegationEnforcer === zeroAddress) {
+    throw new Error('AssociationsStore proxy has scDelegationEnforcer=0x0. SC-DELEGATION is not configured.');
+  }
+  if (!scDelegationVerifier || scDelegationVerifier === zeroAddress) {
+    throw new Error('AssociationsStore proxy has scDelegationVerifier=0x0. SC-DELEGATION is not configured.');
   }
 
   // Include getIdentityRegistry selector so the delegation test can call it successfully
@@ -536,6 +578,12 @@ export async function generateSessionPackage(
     aa: agentAccount,
     sessionAA,
     selector,
+    scDelegation: {
+      associationsStoreProxy: associationsProxy,
+      delegationManager,
+      scDelegationEnforcer,
+      scDelegationVerifier,
+    },
     sessionKey: {
       privateKey: sessionPrivateKey,
       address: sessionKeyAccount.address as `0x${string}`,

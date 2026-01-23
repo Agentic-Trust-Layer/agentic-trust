@@ -20,7 +20,7 @@ function getAssociationsProxyAddress(): string {
   const addr =
     process.env.ASSOCIATIONS_STORE_PROXY ||
     process.env.ASSOCIATIONS_PROXY_ADDRESS ||
-    '0x3418A5297C75989000985802B8ab01229CDDDD24'; // Default Sepolia deployment
+    '0x8346903837f89BaC08B095DbF5c1095071a0f349'; // Default Sepolia deployment (AssociatedAccounts proxy)
   
   if (!addr.startsWith('0x') || addr.length !== 42) {
     throw new Error(`Invalid ASSOCIATIONS_STORE_PROXY: ${addr}`);

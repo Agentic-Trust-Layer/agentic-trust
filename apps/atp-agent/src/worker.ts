@@ -23,7 +23,14 @@ import {
 } from '@agentic-trust/core/server';
 import { parseDid8004 } from '@agentic-trust/core';
 import { ethers } from 'ethers';
-import { eip712Hash, associationIdFromRecord as associationIdFromRecordSDK } from '@agentic-trust/8092-sdk';
+import {
+  DF_ROOT_AUTHORITY,
+  KEY_TYPE_SC_DELEGATION,
+  encodeScDelegationProof,
+  eip712Hash,
+  associationIdFromRecord as associationIdFromRecordSDK,
+} from '@agentic-trust/8092-sdk';
+import { encodeDelegations } from '@metamask/smart-accounts-kit/utils';
 import { getD1Database, getIndexerD1Database, type D1Database } from './lib/d1-wrapper';
 import {
   bytesToHex,
@@ -61,6 +68,94 @@ function serializeBigInt(obj: any): any {
   }
   
   return obj;
+}
+
+function randomBytes32Hex(): `0x${string}` {
+  return ethers.hexlify(ethers.randomBytes(32)) as `0x${string}`;
+}
+
+async function buildScDelegationApproverSignature(params: {
+  sessionPackage: SessionPackage;
+  chainId: number;
+  record: {
+    initiator: string;
+    approver: string;
+    validAt: number;
+    validUntil: number;
+    interfaceId: `0x${string}`;
+    data: `0x${string}`;
+  };
+  digest: `0x${string}`;
+}): Promise<`0x${string}`> {
+  const { sessionPackage, chainId, digest } = params;
+
+  // Require SC-DELEGATION config from the SessionPackage (fail-fast).
+  const sc = (sessionPackage as any)?.scDelegation as
+    | {
+        associationsStoreProxy: `0x${string}`;
+        delegationManager: `0x${string}`;
+        scDelegationEnforcer: `0x${string}`;
+        scDelegationVerifier: `0x${string}`;
+      }
+    | undefined;
+
+  if (!sc?.associationsStoreProxy || !sc?.delegationManager || !sc?.scDelegationEnforcer || !sc?.scDelegationVerifier) {
+    throw new Error(
+      'SessionPackage.scDelegation is required for SC-DELEGATION proofs. Regenerate the SessionPackage with the latest builder.',
+    );
+  }
+
+  // Build agentAccountClient so we can sign DF delegations from the agent account.
+  // NOTE: This relies on the session package/session key being a valid signer for the agent account’s
+  // `signDelegation` path (HybridDeleGator).
+  const agentAccountClient = await buildAgentAccountFromSession(sessionPackage);
+  if (typeof (agentAccountClient as any)?.signDelegation !== 'function') {
+    throw new Error('Agent account client does not support signDelegation(). Cannot create SC-DELEGATION proof.');
+  }
+
+  const delegationManager = sc.delegationManager;
+  const scDelegationEnforcer = sc.scDelegationEnforcer;
+
+  const delegationSetup = buildDelegationSetup(sessionPackage);
+  const delegateEoa = ethers.getAddress(delegationSetup.sessionKey.address) as `0x${string}`;
+
+  // Delegate signs the raw association digest (no prefix)
+  const delegateSig = new ethers.Wallet(delegationSetup.sessionKey.privateKey)
+    .signingKey.sign(ethers.getBytes(digest)).serialized as `0x${string}`;
+
+  // Root delegation: agentAccount -> delegateEOA with binding caveat terms==digest.
+  const delegation = {
+    delegate: delegateEoa,
+    delegator: ethers.getAddress(delegationSetup.aa) as `0x${string}`,
+    authority: DF_ROOT_AUTHORITY as `0x${string}`,
+    caveats: [
+      {
+        enforcer: ethers.getAddress(scDelegationEnforcer) as `0x${string}`,
+        terms: digest as `0x${string}`,
+        args: '0x' as `0x${string}`,
+      },
+    ],
+    salt: BigInt(randomBytes32Hex()),
+  };
+
+  const delegationSignature = (await (agentAccountClient as any).signDelegation({
+    delegation,
+    chainId,
+    delegationManager,
+  })) as `0x${string}`;
+
+  if (!delegationSignature || delegationSignature === '0x') {
+    throw new Error('agentAccountClient.signDelegation returned empty signature.');
+  }
+
+  const signedDelegation = { ...delegation, signature: delegationSignature };
+  const delegationsBytes = encodeDelegations([signedDelegation] as any) as `0x${string}`;
+
+  return encodeScDelegationProof({
+    delegate: delegateEoa,
+    delegateSignature: delegateSig,
+    delegations: delegationsBytes,
+  }) as `0x${string}`;
 }
 
 /**
@@ -1591,7 +1686,7 @@ const handleA2A = async (c: HonoContext) => {
             const recordRaw = (delegationSarRaw as any)?.record;
             const initiatorSignatureRaw = String((delegationSarRaw as any)?.initiatorSignature || '').trim();
             const initiatorKeyTypeRaw = String((delegationSarRaw as any)?.initiatorKeyType || '0x0001').trim();
-            const approverKeyTypeRaw = String((delegationSarRaw as any)?.approverKeyType || '0x8002').trim();
+            const approverKeyTypeRaw = String((delegationSarRaw as any)?.approverKeyType || '0x0001').trim();
             if (!recordRaw || typeof recordRaw !== 'object') {
               throw new Error('delegationSar.record is required');
             }
@@ -1631,6 +1726,21 @@ const handleA2A = async (c: HonoContext) => {
               associationId,
             });
             
+            const signApproverSignature = async (recordToSign: typeof record, assocId: `0x${string}`) => {
+              const digest = eip712Hash(recordToSign as any) as `0x${string}`;
+              if (digest.toLowerCase() !== assocId.toLowerCase()) {
+                throw new Error(
+                  `Association ID mismatch (record digest != associationId). digest=${digest} associationId=${assocId}`,
+                );
+              }
+              return await buildScDelegationApproverSignature({
+                sessionPackage,
+                chainId: chainIdForStore,
+                record: recordToSign as any,
+                digest,
+              });
+            };
+
             if (existingAssociation && existingAssociation.record) {
               console.log('[ATP Agent] Found existing association on-chain, will update approver signature');
               
@@ -1645,6 +1755,11 @@ const handleA2A = async (c: HonoContext) => {
               
               // Check if approver signature is already set
               const existingApproverKeyType = String(existingAssociation.approverKeyType || '').toLowerCase();
+              if (existingApproverKeyType && existingApproverKeyType !== KEY_TYPE_SC_DELEGATION.toLowerCase()) {
+                throw new Error(
+                  `Existing delegation association has approverKeyType=${existingApproverKeyType}, expected ${KEY_TYPE_SC_DELEGATION}.`,
+                );
+              }
               const hasApproverSig =
                 existingAssociation.approverSignature &&
                 existingAssociation.approverSignature !== '0x' &&
@@ -1658,26 +1773,9 @@ const handleA2A = async (c: HonoContext) => {
                 // Update the approver signature
                 console.log('[ATP Agent] Updating approver signature for existing association');
 
-                // Build context for signing approverSignature
-                const { delegationSetup } = await buildDelegatedAssociationContext(
-                  sessionPackage,
-                  chainIdForStore,
-                );
+                const sigEip712 = await signApproverSignature(record, associationId);
 
-                // Use the working pattern: compute eip712Hash and sign raw hash bytes with ethers
-                const digest = eip712Hash(record as any) as `0x${string}`;
-                console.log('[ATP Agent] EIP-712 hash:', digest);
-
-                // For ERC-8092, sign the raw hash bytes directly (without message prefix)
-                // This matches the working pattern in assoc-delegation
-                const operatorPrivateKey = delegationSetup.sessionKey.privateKey;
-                const operatorWallet = new ethers.Wallet(operatorPrivateKey);
-                const hashBytes = ethers.getBytes(digest);
-                const sigEip712 = operatorWallet.signingKey.sign(hashBytes).serialized as `0x${string}`;
-                
-                console.log('[ATP Agent] Approver signature (operator EOA, raw hash bytes):', sigEip712.slice(0, 20) + '...');
-
-                const approverKeyType = (approverKeyTypeRaw || '0x8002') as `0x${string}`;
+                const approverKeyType = KEY_TYPE_SC_DELEGATION as `0x${string}`;
 
                 console.log('[ATP Agent] Updating approver signature on-chain (ERC-8092 updateAssociationSignatures)', {
                   chainId: chainIdForStore,
@@ -1700,23 +1798,24 @@ const handleA2A = async (c: HonoContext) => {
                 console.log('[ATP Agent] ✓ Updated approver signature on-chain', { txHash, associationId });
               }
             } else {
-              // INITIAL STORE FLOW (matches assoc-delegation): store initiator signature only.
-              // The tx is authorized gaslessly via MetaMask delegation (sessionAA -> agentAccount -> allowedTargets).
-              console.log('[ATP Agent] Association not found on-chain, storing new association (initiator-only initial store)');
-              
+              // NEW FLOW (as requested): store the association ONCE with both signatures.
+              // - initiatorSignature comes from the client (admin)
+              // - approverSignature is produced by this agent using SessionPackage sessionKey (raw digest bytes)
+              // - tx is submitted gaslessly via SessionPackage delegation/sessionAA
               if (!initiatorSignatureRaw || initiatorSignatureRaw === '0x') {
-                throw new Error('delegationSar.initiatorSignature is required for new associations');
+                throw new Error('delegationSar.initiatorSignature is required to store a new association');
               }
 
-              // Important: do NOT set approverSignature during the initial store.
-              // It will be added via updateAssociationSignatures once the association exists on-chain.
+              console.log('[ATP Agent] Association not found on-chain, storing new association (with both signatures)');
+
+              const approverSig = await signApproverSignature(record, associationId);
 
               const sar = {
                 revokedAt: 0,
-                initiatorKeyType: initiatorKeyTypeRaw || '0x0001', // K1
-                approverKeyType: approverKeyTypeRaw || '0x8002', // DELEGATED (typical for this flow)
+                initiatorKeyType: initiatorKeyTypeRaw || '0x0001', // K1 (EOA)
+                approverKeyType: KEY_TYPE_SC_DELEGATION as `0x${string}`,
                 initiatorSignature: initiatorSignatureRaw,
-                approverSignature: '0x',
+                approverSignature: approverSig,
                 record,
               };
 
@@ -1725,11 +1824,11 @@ const handleA2A = async (c: HonoContext) => {
                 chainId: chainIdForStore,
                 sar,
               });
-              
+
               responseContent.delegationStoredTxHash = txHash;
               responseContent.delegationStoredAssociationId = associationId;
               responseContent.delegationUpdateMethod = 'storeAssociation';
-              console.log('[ATP Agent] ✓ Stored new association on-chain (initiator-only)', { txHash, associationId });
+              console.log('[ATP Agent] ✓ Stored new association on-chain (both signatures)', { txHash, associationId });
             }
           } catch (storeErr: any) {
             console.warn('[ATP Agent] Failed to store client delegation SAR on-chain:', storeErr);
@@ -2211,6 +2310,303 @@ const handleA2A = async (c: HonoContext) => {
       } catch (error: any) {
         console.error('[ATP Agent] Error processing validation response:', error);
         responseContent.error = error?.message || 'Failed to process validation response';
+        responseContent.skill = skillId;
+        responseContent.success = false;
+      }
+    } else if (skillId === 'governance_and_trust/membership/add_member') {
+      // Handle add member request: extract ERC-8092 association payload, sign as approver, commit on-chain
+      console.log('[ATP Agent] Entering add_member handler, subdomain:', subdomain, 'skillId:', skillId);
+      try {
+        responseContent.skill = skillId;
+
+        // Extract association payload from payload parameter or message body
+        let associationPayload: any = null;
+        
+        // Try to get from payload directly
+        if ((payload as any)?.associationPayload) {
+          associationPayload = (payload as any).associationPayload;
+        } else if ((payload as any)?.body) {
+          // Extract from message body if present
+          const body = String((payload as any).body || '');
+          const ASSOCIATION_PAYLOAD_MARKER_BEGIN = '---BEGIN ASSOCIATION PAYLOAD---';
+          const ASSOCIATION_PAYLOAD_MARKER_END = '---END ASSOCIATION PAYLOAD---';
+          const start = body.indexOf(ASSOCIATION_PAYLOAD_MARKER_BEGIN);
+          const end = body.indexOf(ASSOCIATION_PAYLOAD_MARKER_END);
+          if (start !== -1 && end !== -1 && end > start) {
+            const json = body.slice(start + ASSOCIATION_PAYLOAD_MARKER_BEGIN.length, end).trim();
+            if (json) {
+              try {
+                associationPayload = JSON.parse(json);
+              } catch (parseErr) {
+                console.warn('[ATP Agent] Failed to parse association payload from message body:', parseErr);
+              }
+            }
+          }
+        }
+
+        if (!associationPayload) {
+          responseContent.error = 'Association payload is required for add_member skill. Include it in payload.associationPayload or in message body with ---BEGIN ASSOCIATION PAYLOAD--- markers.';
+          responseContent.skill = skillId;
+          return c.json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          }, 400);
+        }
+
+        console.log('[ATP Agent] Add member - association payload extracted:', {
+          initiatorDid: associationPayload.initiatorDid,
+          approverDid: associationPayload.approverDid,
+          assocType: associationPayload.assocType,
+          chainId: associationPayload.chainId,
+        });
+
+        // Load session package for the approver agent
+        let sessionPackage: SessionPackage | null = null;
+
+        // Try to load from database using subdomain
+        if (subdomain) {
+          try {
+            const db = c.env?.DB || getD1Database(c.env);
+            let baseAgentName = subdomain.trim();
+            baseAgentName = baseAgentName.replace(/-8004-agent-eth$/i, '').replace(/-8004-agent$/i, '');
+            const baseAgentNameLower = baseAgentName.toLowerCase();
+            const ensName = `${baseAgentNameLower}.8004-agent.eth`;
+
+            const agentRecord = await db.prepare(
+              `SELECT id, ens_name, agent_name, session_package, updated_at
+               FROM agents
+               WHERE ens_name = ? COLLATE NOCASE
+                  OR agent_name = ? COLLATE NOCASE
+               ORDER BY (session_package IS NOT NULL) DESC, updated_at DESC
+               LIMIT 1`
+            )
+              .bind(ensName, baseAgentNameLower)
+              .first<{ id: number; ens_name: string; agent_name: string; session_package: string | null; updated_at: number }>();
+
+            if (agentRecord?.session_package) {
+              try {
+                sessionPackage = JSON.parse(agentRecord.session_package) as SessionPackage;
+                console.log('[ATP Agent] ✅ Successfully loaded SessionPackage from database for add_member');
+              } catch (parseError) {
+                console.error('[ATP Agent] Failed to parse session package from database:', parseError);
+              }
+            }
+          } catch (dbError) {
+            console.error('[ATP Agent] Error loading session package from database:', dbError);
+          }
+        }
+
+        // Fallback to env path
+        if (!sessionPackage) {
+          const sessionPackagePath = c.env?.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
+          if (sessionPackagePath) {
+            try {
+              sessionPackage = loadSessionPackage(sessionPackagePath);
+              console.log('[ATP Agent] Loaded session package from environment variable for add_member');
+            } catch (loadError: any) {
+              console.warn('[ATP Agent] Failed to load session package from env:', loadError?.message || loadError);
+            }
+          }
+        }
+
+        if (!sessionPackage) {
+          responseContent.error = 'Session package is required for add_member skill. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+          responseContent.skill = skillId;
+          return c.json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          }, 400);
+        }
+
+        // Verify we are the approver
+        const approverDid = associationPayload.approverDid;
+        const sessionPackageAgentId = (sessionPackage as any)?.agentId;
+        const sessionPackageChainId = (sessionPackage as any)?.chainId;
+        const expectedApproverDid = `did:8004:${sessionPackageChainId}:${sessionPackageAgentId}`;
+        
+        if (approverDid !== expectedApproverDid) {
+          responseContent.error = `Approver DID mismatch. Expected ${expectedApproverDid}, got ${approverDid}`;
+          responseContent.skill = skillId;
+          return c.json({
+            success: false,
+            messageId: `msg_${Date.now()}_${Math.random().toString(36).substring(7)}`,
+            response: responseContent,
+          }, 400);
+        }
+
+        // Build ERC-8092 record from payload
+        const { ethers } = await import('ethers');
+        const toMinimalBigEndianBytes = (n: bigint): Uint8Array => {
+          if (n === 0n) return new Uint8Array([0]);
+          let hex = n.toString(16);
+          if (hex.length % 2) hex = `0${hex}`;
+          return ethers.getBytes(`0x${hex}`);
+        };
+        const formatEvmV1 = (chainId: number, address: string): string => {
+          const addr = ethers.getAddress(address);
+          const chainRef = toMinimalBigEndianBytes(BigInt(chainId));
+          const head = ethers.getBytes('0x00010000');
+          const out = ethers.concat([
+            head,
+            new Uint8Array([chainRef.length]),
+            chainRef,
+            new Uint8Array([20]),
+            ethers.getBytes(addr),
+          ]);
+          return ethers.hexlify(out);
+        };
+
+        const initiatorInterop = formatEvmV1(associationPayload.chainId, associationPayload.initiatorAddress) as `0x${string}`;
+        const approverInterop = formatEvmV1(associationPayload.chainId, associationPayload.approverAddress) as `0x${string}`;
+        
+        const record = {
+          initiator: initiatorInterop,
+          approver: approverInterop,
+          validAt: Number(associationPayload.validAt),
+          validUntil: Number(associationPayload.validUntil),
+          interfaceId: associationPayload.interfaceId as `0x${string}`,
+          data: associationPayload.data as `0x${string}`,
+        };
+
+        // Compute association ID (digest)
+        const abiCoder = ethers.AbiCoder.defaultAbiCoder();
+        const DOMAIN_TYPEHASH = ethers.id('EIP712Domain(string name,string version)');
+        const NAME_HASH = ethers.id('AssociatedAccounts');
+        const VERSION_HASH = ethers.id('1');
+        const MESSAGE_TYPEHASH = ethers.id(
+          'AssociatedAccountRecord(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data)',
+        );
+        const domainSeparator = ethers.keccak256(
+          abiCoder.encode(['bytes32', 'bytes32', 'bytes32'], [DOMAIN_TYPEHASH, NAME_HASH, VERSION_HASH]),
+        );
+        const hashStruct = ethers.keccak256(
+          abiCoder.encode(
+            ['bytes32', 'bytes32', 'bytes32', 'uint40', 'uint40', 'bytes4', 'bytes32'],
+            [
+              MESSAGE_TYPEHASH,
+              ethers.keccak256(initiatorInterop),
+              ethers.keccak256(approverInterop),
+              record.validAt,
+              record.validUntil,
+              record.interfaceId,
+              ethers.keccak256(record.data),
+            ],
+          ),
+        );
+        const associationId = ethers.keccak256(
+          ethers.solidityPacked(['bytes2', 'bytes32', 'bytes32'], ['0x1901', domainSeparator, hashStruct]),
+        ) as `0x${string}`;
+
+        console.log('[ATP Agent] Add member - computed association ID:', associationId);
+
+        // Sign as approver using session package (DELEGATED key type flow: 0x8002)
+        // Sign as approver using the SESSION SMART ACCOUNT client.
+        // The on-chain store validates via SignatureChecker → ERC-1271 on the agent account.
+        const { buildDelegatedAssociationContext } = await import('@agentic-trust/core/server');
+        const { delegationSetup } = await buildDelegatedAssociationContext(
+          sessionPackage,
+          associationPayload.chainId,
+        );
+
+        const digest = eip712Hash(record as any) as `0x${string}`;
+        if (digest.toLowerCase() !== associationId.toLowerCase()) {
+          throw new Error(
+            `Association ID mismatch (manual digest != sdk eip712Hash). manual=${associationId} sdk=${digest}`,
+          );
+        }
+
+        // Build delegated association context to get a sessionAccountClient capable of producing
+        // the signature format that the agent account may accept via ERC-1271.
+        const { sessionAccountClient, publicClient } = await buildDelegatedAssociationContext(
+          sessionPackage,
+          associationPayload.chainId,
+        );
+
+        // SC-DELEGATION approverSignature proof blob (delegate EOA signs digest + DF delegation proof).
+        const approverSignature = await buildScDelegationApproverSignature({
+          sessionPackage,
+          chainId: associationPayload.chainId,
+          record,
+          digest,
+        });
+        console.log('[ATP Agent] Add member - SC-DELEGATION approverSignature generated');
+
+        // Check if association already exists on-chain
+        const { getErc8092Association } = await import('@agentic-trust/core/server');
+        const existingAssociation = await getErc8092Association({
+          chainId: associationPayload.chainId,
+          associationId,
+        }).catch(() => null);
+
+        let txHash: string;
+
+        if (existingAssociation && existingAssociation.record) {
+          const existingApproverKeyType = String(existingAssociation.approverKeyType || '').toLowerCase();
+          if (existingApproverKeyType && existingApproverKeyType !== KEY_TYPE_SC_DELEGATION.toLowerCase()) {
+            throw new Error(
+              `Existing membership association has approverKeyType=${existingApproverKeyType}, expected ${KEY_TYPE_SC_DELEGATION}.`,
+            );
+          }
+          // Association exists - check if it already has approver signature
+          const hasApproverSig =
+            existingAssociation.approverSignature &&
+            existingAssociation.approverSignature !== '0x' &&
+            existingAssociation.approverSignature.length > 2;
+
+          if (hasApproverSig) {
+            console.log('[ATP Agent] Add member - association already has approver signature, skipping update');
+            responseContent.associationId = associationId;
+            responseContent.alreadyComplete = true;
+            responseContent.message = 'Membership association already exists with approver signature';
+            responseContent.success = true;
+            return;
+          }
+
+          // Update the approver signature
+          console.log('[ATP Agent] Add member - association exists, updating approver signature');
+          const { updateErc8092ApproverSignatureWithSessionDelegation } = await import('@agentic-trust/core/server');
+          const result = await updateErc8092ApproverSignatureWithSessionDelegation({
+            sessionPackage,
+            chainId: associationPayload.chainId,
+            associationId,
+            // Note: this param is ignored by the core helper; the contract uses the stored keyType.
+            // Keep it consistent with storeAssociation (K1 → SignatureChecker → ERC-1271 on agent account).
+            approverKeyType: KEY_TYPE_SC_DELEGATION as `0x${string}`,
+            approverSignature: approverSignature,
+          });
+          txHash = result.txHash;
+          responseContent.updateMethod = 'updateAssociationSignatures';
+        } else {
+          // Association doesn't exist - store with both signatures
+          console.log('[ATP Agent] Add member - storing new association with both signatures');
+          const { storeErc8092AssociationWithSessionDelegation } = await import('@agentic-trust/core/server');
+          const sar = {
+            revokedAt: 0,
+            initiatorKeyType: '0x0001' as `0x${string}`, // K1 / ECDSA
+            approverKeyType: KEY_TYPE_SC_DELEGATION as `0x${string}`, // SC-DELEGATION proof
+            initiatorSignature: associationPayload.initiatorSignature,
+            approverSignature: approverSignature,
+            record,
+          };
+          const result = await storeErc8092AssociationWithSessionDelegation({
+            sessionPackage,
+            chainId: associationPayload.chainId,
+            sar,
+          });
+          txHash = result.txHash;
+          responseContent.updateMethod = 'storeAssociation';
+        }
+
+        responseContent.success = true;
+        responseContent.txHash = txHash;
+        responseContent.associationId = associationId;
+        responseContent.message = 'Membership association stored on-chain successfully';
+        console.log('[ATP Agent] ✅ Add member - association stored on-chain:', { txHash, associationId });
+      } catch (error: any) {
+        console.error('[ATP Agent] Error processing add_member request:', error);
+        responseContent.error = error?.message || 'Failed to process add member request';
         responseContent.skill = skillId;
         responseContent.success = false;
       }
