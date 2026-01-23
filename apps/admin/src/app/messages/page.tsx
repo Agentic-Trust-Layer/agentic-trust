@@ -2509,6 +2509,32 @@ export default function MessagesPage() {
     [composeToAgentOsafSkillIds, composeToAgentSkillIds],
   );
 
+  // Filter task types based on selected intent type
+  const filteredTaskTypeOptions = useMemo(() => {
+    if (selectedIntentType === 'general') {
+      return INBOX_TASK_TYPE_OPTIONS;
+    }
+    const intentOption = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === selectedIntentType);
+    if (!intentOption) {
+      return INBOX_TASK_TYPE_OPTIONS;
+    }
+    // Show only task types that match the intent's defaultTaskType
+    // (or task types that are the default for intents sharing the same category)
+    const defaultTaskType = intentOption.defaultTaskType;
+    return INBOX_TASK_TYPE_OPTIONS.filter((opt) => opt.value === defaultTaskType);
+  }, [selectedIntentType]);
+
+  // Reset task type if it's not in the filtered list when intent type changes
+  useEffect(() => {
+    if (!composeOpen) return;
+    const isValidTaskType = filteredTaskTypeOptions.some((opt) => opt.value === selectedMessageType);
+    if (!isValidTaskType && filteredTaskTypeOptions.length > 0) {
+      const intentOption = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === selectedIntentType);
+      const defaultTask = intentOption?.defaultTaskType ?? 'general';
+      setSelectedMessageType(defaultTask as any);
+    }
+  }, [selectedIntentType, filteredTaskTypeOptions, composeOpen, selectedMessageType]);
+
   // If the selected task type isn't supported by the chosen recipient, auto-pick the first supported type.
   useEffect(() => {
     if (!composeOpen || !composeToAgent) return;
@@ -2521,9 +2547,9 @@ export default function MessagesPage() {
     };
 
     if (isSupported(selectedMessageType)) return;
-    const first = INBOX_TASK_TYPE_OPTIONS.find((o) => isSupported(o.value));
+    const first = filteredTaskTypeOptions.find((o) => isSupported(o.value));
     if (first) setSelectedMessageType(first.value);
-  }, [composeOpen, composeToAgent, composeToAgentCardLoading, selectedMessageType, isToAgentSkillSupported]);
+  }, [composeOpen, composeToAgent, composeToAgentCardLoading, selectedMessageType, isToAgentSkillSupported, filteredTaskTypeOptions]);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
@@ -3227,7 +3253,7 @@ export default function MessagesPage() {
                 label="Task Type"
                 onChange={(e) => setSelectedMessageType(e.target.value as any)}
               >
-                {INBOX_TASK_TYPE_OPTIONS.map((opt) => (
+                {filteredTaskTypeOptions.map((opt) => (
                   <MenuItem
                     key={opt.value}
                     value={opt.value}
@@ -3245,7 +3271,9 @@ export default function MessagesPage() {
                   ? 'Pick a recipient first. Task types are derived from the recipient agent card skills.'
                   : composeToAgentCardLoading
                     ? 'Loading recipient agent card…'
-                    : 'Task types reflect what the recipient advertises in its agent card.'}
+                    : selectedIntentType === 'general'
+                      ? 'Task types reflect what the recipient advertises in its agent card.'
+                      : 'Task types are filtered based on the selected intent type.'}
               </FormHelperText>
             </FormControl>
 
