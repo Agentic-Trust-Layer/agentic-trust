@@ -15,6 +15,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { sepolia } from 'viem/chains';
 import { toMetaMaskSmartAccount, Implementation, createDelegation, getSmartAccountsEnvironment, ExecutionMode } from '@metamask/smart-accounts-kit';
 import { DelegationManager } from '@metamask/smart-accounts-kit/contracts';
+import { encodeDelegations } from '@metamask/smart-accounts-kit/utils';
 import { 
   getChainRpcUrl, 
   getChainBundlerUrl, 
@@ -22,14 +23,19 @@ import {
 } from '@agentic-trust/core/server';
 import { sendSponsoredUserOperation, waitForUserOperationReceipt } from '@agentic-trust/core';
 import IdentityRegistryAbi from '@agentic-trust/8004-ext-sdk/abis/IdentityRegistry.json';
-import { formatEvmV1, eip712Hash, associationIdFromRecord, KEY_TYPE_K1, KEY_TYPE_ERC1271, ASSOCIATIONS_STORE_ABI } from '@agentic-trust/8092-sdk';
+import {
+  formatEvmV1,
+  eip712Hash,
+  associationIdFromRecord,
+  KEY_TYPE_K1,
+  KEY_TYPE_SC_DELEGATION,
+  DF_ROOT_AUTHORITY,
+  encodeScDelegationProof,
+  ASSOCIATIONS_STORE_ABI,
+} from '@agentic-trust/8092-sdk';
 
-const AGENT_ID = 133;
+const AGENT_ID = 336;
 const CHAIN_ID = 11155111; // Sepolia
-
-// Key types
-// Smart account - ERC1271 (0x8002)
-const APPROVER_KEY_TYPE = KEY_TYPE_ERC1271;
 
 async function main() {
   try {
@@ -186,6 +192,30 @@ async function main() {
 
     const associationsProxy = requireChainEnvVar('AGENTIC_TRUST_ASSOCIATIONS_PROXY', CHAIN_ID) as `0x${string}`;
 
+    // Resolve SC-DELEGATION config from the AssociationsStore proxy.
+    const delegationManager = (await publicClient.readContract({
+      address: associationsProxy,
+      abi: parseAbi(['function delegationManager() view returns (address)']),
+      functionName: 'delegationManager',
+    })) as `0x${string}`;
+    const scDelegationEnforcer = (await publicClient.readContract({
+      address: associationsProxy,
+      abi: parseAbi(['function scDelegationEnforcer() view returns (address)']),
+      functionName: 'scDelegationEnforcer',
+    })) as `0x${string}`;
+    if (
+      !delegationManager ||
+      !scDelegationEnforcer ||
+      delegationManager === '0x0000000000000000000000000000000000000000' ||
+      scDelegationEnforcer === '0x0000000000000000000000000000000000000000'
+    ) {
+      throw new Error(
+        `AssociationsStore SC-DELEGATION config not initialized (delegationManager/scDelegationEnforcer are zero).`,
+      );
+    }
+    console.log('✓ DelegationManager:', delegationManager);
+    console.log('✓ SC Delegation Enforcer:', scDelegationEnforcer);
+
     // Step 5: Check if association already exists
     console.log('\nStep 5: Checking if association already exists on-chain...');
     let existingAssociation: any = null;
@@ -200,31 +230,27 @@ async function main() {
       if (sars && Array.isArray(sars) && sars.length > 0) {
         for (const sar of sars) {
           const sarRecord = (sar as any).record;
-          if (
-            sarRecord &&
-            sarRecord.initiator !== '0x' &&
-            sarRecord.approver === record.approver &&
-            sarRecord.interfaceId === record.interfaceId &&
-            sarRecord.data === record.data
-          ) {
+          if (!sarRecord || sarRecord.initiator === '0x') continue;
+          const sarId = associationIdFromRecord({
+            initiator: sarRecord.initiator,
+            approver: sarRecord.approver,
+            validAt: Number(sarRecord.validAt),
+            validUntil: Number(sarRecord.validUntil),
+            interfaceId: sarRecord.interfaceId,
+            data: sarRecord.data,
+          } as any);
+          if (sarId === associationId) {
             existingAssociation = sar;
-            console.log('✓ Matching association found on-chain!');
-            // IMPORTANT: If it exists already, use the *stored* record fields.
-            record = {
-              initiator: sarRecord.initiator,
-              approver: sarRecord.approver,
-              validAt: Number(sarRecord.validAt),
-              validUntil: Number(sarRecord.validUntil),
-              interfaceId: sarRecord.interfaceId,
-              data: sarRecord.data,
-            };
-            associationId = associationIdFromRecord(record);
-            console.log('  Using stored record fields:');
-            console.log('   - validAt:', record.validAt);
-            console.log('   - validUntil:', record.validUntil);
-            console.log('   - interfaceId:', record.interfaceId);
-            console.log('   - data:', record.data);
-            console.log('  Association ID (from stored record):', associationId);
+            console.log('✓ Matching association found on-chain (by associationId)!');
+            console.log('  Initiator key type:', (sar as any).initiatorKeyType);
+            console.log('  Approver key type:', (sar as any).approverKeyType);
+            const existingApproverKeyType = String((sar as any).approverKeyType ?? '').toLowerCase();
+            if (existingApproverKeyType && existingApproverKeyType !== String(KEY_TYPE_SC_DELEGATION).toLowerCase()) {
+              throw new Error(
+                `Found existing associationId=${associationId} with approverKeyType=${existingApproverKeyType}, expected ${KEY_TYPE_SC_DELEGATION}. ` +
+                  `Cannot update signatures across key types; create a new association (different validAt/validUntil) or migrate on-chain.`,
+              );
+            }
             break;
           }
         }
@@ -253,14 +279,48 @@ async function main() {
       initiatorSignature = existingAssociation.initiatorSignature;
     }
 
-    // Step 7: Generate approver signature (agent owner EOA, for ERC-1271 validation)
-    console.log('\nStep 7: Generating approver signature for ERC-1271 validation');
+    // Step 7: Generate approver signature using SC-DELEGATION proof (0x8004)
+    console.log('\nStep 7: Generating approver signature using SC-DELEGATION proof');
     console.log('  EIP-712 hash:', digest);
 
-    // For ERC-1271, sign the raw hash bytes directly (without message prefix)
-    const hashBytes = ethers.getBytes(digest);
-    const approverSignature = agentOwnerWallet.signingKey.sign(hashBytes).serialized;
-    console.log('✓ Approver signature (agent owner EOA, raw hash bytes):', approverSignature.slice(0, 20) + '...');
+    // 7.1 create session delegate EOA + signature over digest (raw bytes)
+    const sessionPriv = generatePrivateKey();
+    const sessionAccount = privateKeyToAccount(sessionPriv);
+    const delegateSig = new ethers.Wallet(sessionPriv).signingKey.sign(ethers.getBytes(digest)).serialized;
+    console.log('✓ Delegate (session EOA):', sessionAccount.address);
+    console.log('✓ Delegate signature:', delegateSig.slice(0, 20) + '...');
+
+    // 7.2 create a DF root delegation (agentAccount -> delegateEOA) with binding caveat (terms == digest)
+    const delegation = {
+      delegate: sessionAccount.address as `0x${string}`,
+      delegator: agentAccount as `0x${string}`,
+      authority: DF_ROOT_AUTHORITY as `0x${string}`,
+      caveats: [
+        {
+          enforcer: scDelegationEnforcer as `0x${string}`,
+          terms: digest as `0x${string}`,
+          args: '0x' as `0x${string}`,
+        },
+      ],
+      salt: BigInt(ethers.hexlify(ethers.randomBytes(32))),
+    };
+
+    // NOTE: This signature must validate for delegator == agentAccount (ERC-1271), so it is produced by the agent owner signer.
+    const delegationSignature = await (agentAccountClient as any).signDelegation({
+      delegation,
+      chainId: CHAIN_ID,
+    });
+    const signedDelegation = { ...delegation, signature: delegationSignature };
+    const delegationsBytes = encodeDelegations([signedDelegation] as any);
+
+    // 7.3 build SC-DELEGATION proof blob as Solidity expects:
+    // abi.encode((address delegate, bytes delegateSignature, bytes delegations))
+    const approverSignature = encodeScDelegationProof({
+      delegate: sessionAccount.address,
+      delegateSignature: delegateSig,
+      delegations: delegationsBytes,
+    });
+    console.log('✓ SC-DELEGATION approverSignature proof blob:', approverSignature.slice(0, 20) + '...');
 
     // Step 8: Store association with initiator signature only (if needed)
     let storeHash: string | null = null;
@@ -295,7 +355,7 @@ async function main() {
       const sarInitial = {
         revokedAt: 0,
         initiatorKeyType: KEY_TYPE_K1, // EOA
-        approverKeyType: APPROVER_KEY_TYPE, // ERC1271 for smart account (0x8002)
+        approverKeyType: KEY_TYPE_SC_DELEGATION, // SC-DELEGATION proof (0x8004)
         initiatorSignature,
         approverSignature: '0x', // Empty - will be set later
         record,
@@ -388,13 +448,16 @@ async function main() {
             console.log(`    Found ${sars.length} association(s) for initiator`);
             for (const sar of sars) {
               const sarRecord = (sar as any).record;
-              if (
-                sarRecord &&
-                sarRecord.initiator !== '0x' &&
-                sarRecord.approver === record.approver &&
-                sarRecord.interfaceId === record.interfaceId &&
-                sarRecord.data === record.data
-              ) {
+              if (!sarRecord || sarRecord.initiator === '0x') continue;
+              const sarId = associationIdFromRecord({
+                initiator: sarRecord.initiator,
+                approver: sarRecord.approver,
+                validAt: Number(sarRecord.validAt),
+                validUntil: Number(sarRecord.validUntil),
+                interfaceId: sarRecord.interfaceId,
+                data: sarRecord.data,
+              } as any);
+              if (sarId === associationId) {
                 associationFound = true;
                 console.log(`✓ Association found on-chain after ${attempt} attempt(s)!`);
                 console.log(`  Initiator: ${sarRecord.initiator}`);
@@ -451,29 +514,30 @@ async function main() {
       }
       console.log('    ✓ Agent account is a contract (can use ERC-1271)');
 
-      // Preflight ERC-1271 validation
-      console.log('    Preflighting ERC-1271 validation...');
+      // Preflight AssociationsStore validation for SC-DELEGATION.
+      console.log('    Preflighting AssociationsStore validation...');
       try {
-        const ERC1271_ABI = parseAbi([
-          'function isValidSignature(bytes32 hash, bytes signature) view returns (bytes4 magicValue)',
+        const VALIDATE_ABI = parseAbi([
+          'function validateSignedAssociationRecord((uint40 revokedAt,bytes2 initiatorKeyType,bytes2 approverKeyType,bytes initiatorSignature,bytes approverSignature,(bytes initiator,bytes approver,uint40 validAt,uint40 validUntil,bytes4 interfaceId,bytes data) record) sar) view returns (bool)',
         ]);
-        const isValidSigData = encodeFunctionData({
-          abi: ERC1271_ABI,
-          functionName: 'isValidSignature',
-          args: [digest as `0x${string}`, approverSignature as `0x${string}`],
+        const sarToValidate = {
+          revokedAt: 0,
+          initiatorKeyType: KEY_TYPE_K1,
+          approverKeyType: KEY_TYPE_SC_DELEGATION,
+          initiatorSignature: initiatorSignature as `0x${string}`,
+          approverSignature: approverSignature as `0x${string}`,
+          record,
+        };
+        const ok = await publicClient.readContract({
+          address: associationsProxy,
+          abi: VALIDATE_ABI,
+          functionName: 'validateSignedAssociationRecord',
+          args: [sarToValidate as any],
         });
-
-        const isValidSigResult = await publicClient.call({
-          to: agentAccount as `0x${string}`,
-          data: isValidSigData,
-        });
-
-        if (!isValidSigResult.data || isValidSigResult.data === '0xffffffff' || !isValidSigResult.data.startsWith('0x1626ba7e')) {
-          throw new Error(`ERC-1271 preflight validation failed. Magic value: ${isValidSigResult.data}`);
-        }
-        console.log('    ✓ ERC-1271 preflight validation passed');
+        if (!ok) throw new Error('validateSignedAssociationRecord returned false');
+        console.log('    ✓ AssociationsStore preflight validation passed');
       } catch (preflightErr: any) {
-        throw new Error(`ERC-1271 preflight validation failed: ${preflightErr?.message}`);
+        throw new Error(`AssociationsStore preflight validation failed: ${preflightErr?.message}`);
       }
 
       // Build the call we want the agent account to execute (via delegation redemption)

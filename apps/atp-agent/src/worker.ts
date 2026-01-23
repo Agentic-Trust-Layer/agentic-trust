@@ -14,7 +14,6 @@ import {
   DEFAULT_CHAIN_ID,
   type SessionPackage,
   buildDelegationSetup,
-  buildAgentAccountFromSession,
   createDelegationAssociationWithIpfs,
   buildDelegatedAssociationContext,
   storeErc8092AssociationWithSessionDelegation,
@@ -29,8 +28,11 @@ import {
   encodeScDelegationProof,
   eip712Hash,
   associationIdFromRecord as associationIdFromRecordSDK,
+  dfHashDelegationStruct,
 } from '@agentic-trust/8092-sdk';
 import { encodeDelegations } from '@metamask/smart-accounts-kit/utils';
+import { Implementation, toMetaMaskSmartAccount } from '@metamask/smart-accounts-kit';
+import { createWalletClient, http } from 'viem';
 import { getD1Database, getIndexerD1Database, type D1Database } from './lib/d1-wrapper';
 import {
   bytesToHex,
@@ -105,29 +107,81 @@ async function buildScDelegationApproverSignature(params: {
     );
   }
 
-  // Build agentAccountClient so we can sign DF delegations from the agent account.
-  // NOTE: This relies on the session package/session key being a valid signer for the agent account’s
-  // `signDelegation` path (HybridDeleGator).
-  const agentAccountClient = await buildAgentAccountFromSession(sessionPackage);
-  if (typeof (agentAccountClient as any)?.signDelegation !== 'function') {
-    throw new Error('Agent account client does not support signDelegation(). Cannot create SC-DELEGATION proof.');
-  }
-
-  const delegationManager = sc.delegationManager;
   const scDelegationEnforcer = sc.scDelegationEnforcer;
+  const delegationManager = sc.delegationManager;
 
   const delegationSetup = buildDelegationSetup(sessionPackage);
-  const delegateEoa = ethers.getAddress(delegationSetup.sessionKey.address) as `0x${string}`;
+  
+  if (!delegationSetup.sessionAA) {
+    throw new Error('SessionPackage.sessionAA is required for SC-DELEGATION proofs.');
+  }
 
-  // Delegate signs the raw association digest (no prefix)
+  const delegateEoa = ethers.getAddress(delegationSetup.sessionKey.address) as `0x${string}`;
+  const sessionAA = ethers.getAddress(delegationSetup.sessionAA) as `0x${string}`;
+  const agentAA = ethers.getAddress(delegationSetup.aa) as `0x${string}`;
+
+  // Build session account client to sign the leaf delegation (sessionAA -> sessionEOA)
+  const sessionKeyAccount = privateKeyToAccount(delegationSetup.sessionKey.privateKey as `0x${string}`);
+  const sessionWalletClient = createWalletClient({
+    chain: delegationSetup.chain,
+    transport: http(delegationSetup.rpcUrl),
+    account: sessionKeyAccount,
+  });
+  const sessionAccountClient = await toMetaMaskSmartAccount({
+    address: sessionAA,
+    client: delegationSetup.publicClient as any,
+    implementation: Implementation.Hybrid,
+    signer: { walletClient: sessionWalletClient as any },
+  } as any);
+  if (typeof (sessionAccountClient as any)?.signDelegation !== 'function') {
+    throw new Error('Session account client does not support signDelegation(). Cannot create SC-DELEGATION proof.');
+  }
+
+  // Delegate (sessionEOA) signs the raw association digest (no prefix)
+  // delegateSignature can now be ERC-1271 or EOA, but we use EOA for simplicity
   const delegateSig = new ethers.Wallet(delegationSetup.sessionKey.privateKey)
     .signingKey.sign(ethers.getBytes(digest)).serialized as `0x${string}`;
 
-  // Root delegation: agentAccount -> delegateEOA with binding caveat terms==digest.
-  const delegation = {
+  // Extract the root delegation from session package (agentAA -> sessionAA, already signed)
+  const rootDelegationRaw = delegationSetup.signedDelegation as any;
+  const saltRaw = (rootDelegationRaw.message?.salt ?? rootDelegationRaw.salt) as string | undefined;
+  const saltValue = saltRaw && saltRaw !== '0x' && saltRaw.length > 2
+    ? BigInt(saltRaw)
+    : 0n; // Default to 0n if salt is missing or empty
+  
+  const rootDelegation = {
+    delegate: ethers.getAddress(
+      (rootDelegationRaw.message?.delegate ?? rootDelegationRaw.delegate) as string,
+    ) as `0x${string}`,
+    delegator: ethers.getAddress(
+      (rootDelegationRaw.message?.delegator ?? rootDelegationRaw.delegator) as string,
+    ) as `0x${string}`,
+    authority: (rootDelegationRaw.message?.authority ?? rootDelegationRaw.authority) as `0x${string}`,
+    caveats: (rootDelegationRaw.message?.caveats ?? rootDelegationRaw.caveats) as any[],
+    salt: saltValue,
+    signature: (rootDelegationRaw.signature ?? rootDelegationRaw.message?.signature) as `0x${string}`,
+  };
+
+  // Verify root delegation is agentAA -> sessionAA
+  if (rootDelegation.delegator.toLowerCase() !== agentAA.toLowerCase()) {
+    throw new Error(
+      `Session package root delegation delegator mismatch. Expected ${agentAA}, got ${rootDelegation.delegator}`,
+    );
+  }
+  if (rootDelegation.delegate.toLowerCase() !== sessionAA.toLowerCase()) {
+    throw new Error(
+      `Session package root delegation delegate mismatch. Expected ${sessionAA}, got ${rootDelegation.delegate}`,
+    );
+  }
+
+  // Compute offchain hash of root delegation for authority linking
+  const rootDelegationStructHash = dfHashDelegationStruct(rootDelegation as any);
+
+  // Leaf delegation: sessionAA -> sessionEOA with binding caveat (terms == digest)
+  const leafDelegation = {
     delegate: delegateEoa,
-    delegator: ethers.getAddress(delegationSetup.aa) as `0x${string}`,
-    authority: DF_ROOT_AUTHORITY as `0x${string}`,
+    delegator: sessionAA,
+    authority: rootDelegationStructHash, // Authority is the offchain hash of the root delegation
     caveats: [
       {
         enforcer: ethers.getAddress(scDelegationEnforcer) as `0x${string}`,
@@ -138,18 +192,20 @@ async function buildScDelegationApproverSignature(params: {
     salt: BigInt(randomBytes32Hex()),
   };
 
-  const delegationSignature = (await (agentAccountClient as any).signDelegation({
-    delegation,
+  // Sign leaf delegation using sessionAA (via ERC-1271 with session key)
+  const leafDelegationSignature = (await (sessionAccountClient as any).signDelegation({
+    delegation: leafDelegation,
     chainId,
-    delegationManager,
   })) as `0x${string}`;
 
-  if (!delegationSignature || delegationSignature === '0x') {
-    throw new Error('agentAccountClient.signDelegation returned empty signature.');
+  if (!leafDelegationSignature || leafDelegationSignature === '0x') {
+    throw new Error('sessionAccountClient.signDelegation returned empty signature.');
   }
 
-  const signedDelegation = { ...delegation, signature: delegationSignature };
-  const delegationsBytes = encodeDelegations([signedDelegation] as any) as `0x${string}`;
+  const signedLeafDelegation = { ...leafDelegation, signature: leafDelegationSignature };
+
+  // Build delegation chain: [rootDelegation (agentAA -> sessionAA), leafDelegation (sessionAA -> sessionEOA)]
+  const delegationsBytes = encodeDelegations([rootDelegation, signedLeafDelegation] as any) as `0x${string}`;
 
   return encodeScDelegationProof({
     delegate: delegateEoa,
@@ -1606,23 +1662,10 @@ const handleA2A = async (c: HonoContext) => {
           }
         }
 
-        // For feedback auth requests, session package is REQUIRED
-        // Fallback to environment variable if database lookup failed
-        if (!sessionPackage) {
-          const sessionPackagePath = c.env?.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
-          if (sessionPackagePath) {
-            try {
-              sessionPackage = loadSessionPackage(sessionPackagePath);
-              console.log('[ATP Agent] Loaded session package from environment variable');
-            } catch (loadError: any) {
-              console.warn('[ATP Agent] Failed to load session package from environment variable:', loadError?.message || loadError);
-            }
-          }
-        }
-
         // For feedback auth, session package is required - return error if missing
         if (!sessionPackage) {
-          responseContent.error = 'Session package is required for feedback auth requests. Either store it in the database (agents table) or set AGENTIC_TRUST_SESSION_PACKAGE_PATH environment variable.';
+          responseContent.error =
+            'Session package is required for feedback auth requests. Store it in the database (agents table).';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -1673,7 +1716,7 @@ const handleA2A = async (c: HonoContext) => {
         
         if (delegationSarRaw && typeof delegationSarRaw === 'object') {
           console.log('[ATP Agent] delegationSar provided; will attempt to update approver signature on-chain');
-          try {
+          {
             const chainIdForStore =
               typeof (payload as any)?.chainId === 'number'
                 ? (payload as any).chainId
@@ -1689,6 +1732,11 @@ const handleA2A = async (c: HonoContext) => {
             const approverKeyTypeRaw = String((delegationSarRaw as any)?.approverKeyType || '0x0001').trim();
             if (!recordRaw || typeof recordRaw !== 'object') {
               throw new Error('delegationSar.record is required');
+            }
+            if (approverKeyTypeRaw.toLowerCase() !== KEY_TYPE_SC_DELEGATION.toLowerCase()) {
+              throw new Error(
+                `delegationSar.approverKeyType must be ${KEY_TYPE_SC_DELEGATION} (SC-DELEGATION). Got ${approverKeyTypeRaw}`,
+              );
             }
 
             const record = {
@@ -1830,19 +1878,20 @@ const handleA2A = async (c: HonoContext) => {
               responseContent.delegationUpdateMethod = 'storeAssociation';
               console.log('[ATP Agent] ✓ Stored new association on-chain (both signatures)', { txHash, associationId });
             }
-          } catch (storeErr: any) {
-            console.warn('[ATP Agent] Failed to store client delegation SAR on-chain:', storeErr);
-            responseContent.delegationStoreError = storeErr?.message || String(storeErr);
           }
         }
 
         console.info("governance_and_trust/trust/trust_feedback_authorization: ", agentIdParam, clientAddress, expirySeconds, subdomain ? `subdomain: ${subdomain}` : '');
+
+        // If an association was already stored/updated on-chain, pass its ID to use it instead of creating a new one
+        const existingAssociationId = (responseContent as any).delegationStoredAssociationId as `0x${string}` | undefined;
 
         const feedbackAuthResponse = await agent.requestAuth({
           clientAddress,
           agentId: agentIdParam,
           skillId: skillId,
           expirySeconds,
+          existingAssociationId,
         });
 
         responseContent.feedbackAuth = feedbackAuthResponse.feedbackAuth;
@@ -2361,6 +2410,20 @@ const handleA2A = async (c: HonoContext) => {
           chainId: associationPayload.chainId,
         });
 
+        // Fail-fast: require SC-DELEGATION for membership associations.
+        const payloadApproverKeyType = String((associationPayload as any)?.approverKeyType || '').trim();
+        if (payloadApproverKeyType.toLowerCase() !== KEY_TYPE_SC_DELEGATION.toLowerCase()) {
+          throw new Error(
+            `add_member associationPayload.approverKeyType must be ${KEY_TYPE_SC_DELEGATION} (SC-DELEGATION). Got ${payloadApproverKeyType || '(missing)'}`,
+          );
+        }
+        const payloadInitiatorKeyType = String((associationPayload as any)?.initiatorKeyType || '0x0001').trim();
+        if (payloadInitiatorKeyType.toLowerCase() !== '0x0001') {
+          throw new Error(
+            `add_member associationPayload.initiatorKeyType must be 0x0001 (K1). Got ${payloadInitiatorKeyType}`,
+          );
+        }
+
         // Load session package for the approver agent
         let sessionPackage: SessionPackage | null = null;
 
@@ -2397,21 +2460,8 @@ const handleA2A = async (c: HonoContext) => {
           }
         }
 
-        // Fallback to env path
         if (!sessionPackage) {
-          const sessionPackagePath = c.env?.AGENTIC_TRUST_SESSION_PACKAGE_PATH;
-          if (sessionPackagePath) {
-            try {
-              sessionPackage = loadSessionPackage(sessionPackagePath);
-              console.log('[ATP Agent] Loaded session package from environment variable for add_member');
-            } catch (loadError: any) {
-              console.warn('[ATP Agent] Failed to load session package from env:', loadError?.message || loadError);
-            }
-          }
-        }
-
-        if (!sessionPackage) {
-          responseContent.error = 'Session package is required for add_member skill. Store it in database or set AGENTIC_TRUST_SESSION_PACKAGE_PATH.';
+          responseContent.error = 'Session package is required for add_member skill. Store it in the database.';
           responseContent.skill = skillId;
           return c.json({
             success: false,
@@ -2501,14 +2551,15 @@ const handleA2A = async (c: HonoContext) => {
 
         console.log('[ATP Agent] Add member - computed association ID:', associationId);
 
-        // Sign as approver using session package (DELEGATED key type flow: 0x8002)
-        // Sign as approver using the SESSION SMART ACCOUNT client.
-        // The on-chain store validates via SignatureChecker → ERC-1271 on the agent account.
-        const { buildDelegatedAssociationContext } = await import('@agentic-trust/core/server');
-        const { delegationSetup } = await buildDelegatedAssociationContext(
-          sessionPackage,
-          associationPayload.chainId,
-        );
+        if (
+          String((associationPayload as any)?.approverKeyType ?? '').trim() &&
+          String((associationPayload as any)?.approverKeyType ?? '').trim().toLowerCase() !==
+            KEY_TYPE_SC_DELEGATION.toLowerCase()
+        ) {
+          throw new Error(
+            `add_member payload approverKeyType must be ${KEY_TYPE_SC_DELEGATION} (SC-DELEGATION). Got ${(associationPayload as any)?.approverKeyType}`,
+          );
+        }
 
         const digest = eip712Hash(record as any) as `0x${string}`;
         if (digest.toLowerCase() !== associationId.toLowerCase()) {
@@ -2516,13 +2567,6 @@ const handleA2A = async (c: HonoContext) => {
             `Association ID mismatch (manual digest != sdk eip712Hash). manual=${associationId} sdk=${digest}`,
           );
         }
-
-        // Build delegated association context to get a sessionAccountClient capable of producing
-        // the signature format that the agent account may accept via ERC-1271.
-        const { sessionAccountClient, publicClient } = await buildDelegatedAssociationContext(
-          sessionPackage,
-          associationPayload.chainId,
-        );
 
         // SC-DELEGATION approverSignature proof blob (delegate EOA signs digest + DF delegation proof).
         const approverSignature = await buildScDelegationApproverSignature({
@@ -2584,7 +2628,7 @@ const handleA2A = async (c: HonoContext) => {
           const { storeErc8092AssociationWithSessionDelegation } = await import('@agentic-trust/core/server');
           const sar = {
             revokedAt: 0,
-            initiatorKeyType: '0x0001' as `0x${string}`, // K1 / ECDSA
+            initiatorKeyType: payloadInitiatorKeyType as `0x${string}`, // K1 / ECDSA
             approverKeyType: KEY_TYPE_SC_DELEGATION as `0x${string}`, // SC-DELEGATION proof
             initiatorSignature: associationPayload.initiatorSignature,
             approverSignature: approverSignature,

@@ -77,6 +77,7 @@ export interface FeedbackAuthIssueParams {
   agentId?: bigint | string;
   skillId?: string;
   expirySeconds?: number;
+  existingAssociationId?: `0x${string}`; // If provided, use this existing on-chain association instead of creating a new one
 }
 
 export type GiveFeedbackInput = Omit<GiveFeedbackParams, 'agent' | 'agentId'> & {
@@ -727,6 +728,7 @@ export class Agent {
       signer: providerApp.agentAccount,
       walletClient: providerApp.walletClient as any,
       expirySeconds: params.expirySeconds,
+      existingAssociationId: params.existingAssociationId,
     });
 
     return {

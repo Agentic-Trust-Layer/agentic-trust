@@ -97,17 +97,17 @@ function getValidationRegistryAddress(chainId: number): `0x${string}` | undefine
 }
 
 function getAssociationsProxyAddress(chainId: number): `0x${string}` | undefined {
-  // Try chain-specific env var first, then fallback to generic env var, then default
-  const cfg = getChainConfig(chainId);
-  if (cfg) {
-    const chainKey = `ASSOCIATIONS_STORE_PROXY_${cfg.suffix}`;
-    const chainValue = normalizeHex(process.env[chainKey] ?? process.env[`NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY_${cfg.suffix}`]);
-    if (chainValue) return chainValue;
+  // IMPORTANT (Next.js): in client bundles, only *statically-referenced*
+  // `process.env.NEXT_PUBLIC_*` keys are inlined. Dynamic access like `process.env[key]`
+  // will be undefined at runtime. Therefore we must read explicit keys here.
+  //
+  // No fallbacks: require the chain-specific key.
+  if (chainId === 11155111) {
+    return normalizeHex(process.env.NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY_SEPOLIA ?? undefined);
   }
-  const genericValue = normalizeHex(process.env.ASSOCIATIONS_STORE_PROXY ?? process.env.ASSOCIATIONS_PROXY_ADDRESS ?? process.env.NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY);
-  if (genericValue) return genericValue;
-  // Default Sepolia address
-  return '0x3418A5297C75989000985802B8ab01229CDDDD24' as `0x${string}`;
+
+  // If we add more chains, extend this mapping explicitly (no dynamic env lookups).
+  return undefined;
 }
 
 async function switchChain(provider: any, chainId: number, rpcUrl: string) {
@@ -339,12 +339,16 @@ export async function generateSessionPackage(
 
   // Add ERC-8092 associations proxy to allowed targets
   const associationsProxy = getAssociationsProxyAddress(chainId);
-  if (associationsProxy) {
-    targets.push(associationsProxy);
-    console.info('*********** sessionPackageBuilder: Added associations proxy to delegation targets:', associationsProxy);
-  } else {
-    throw new Error('AssociationsStore proxy address is required to build SC-DELEGATION + association delegation scope');
+  if (!associationsProxy) {
+    const cfg = getChainConfig(chainId);
+    const suffix = cfg?.suffix ?? String(chainId);
+    throw new Error(
+      `Missing AssociationsStore proxy for chain ${chainId}. ` +
+        `Set NEXT_PUBLIC_ASSOCIATIONS_STORE_PROXY_${suffix}=0x3d282c9E5054E3d819639246C177676A98cB0a1E`,
+    );
   }
+  targets.push(associationsProxy);
+  console.info('*********** sessionPackageBuilder: Added associations proxy to delegation targets:', associationsProxy);
 
   // SC-DELEGATION config must be discoverable from the AssociationsStore proxy.
   // We persist it into the SessionPackage so the atp-agent can build 0x8004 proofs without guessing.

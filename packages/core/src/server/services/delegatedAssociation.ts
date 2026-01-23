@@ -80,7 +80,7 @@ function getAssociationsProxyAddress(): `0x${string}` {
   const fromStoreProxy = process.env.ASSOCIATIONS_STORE_PROXY;
   const fromProxyAddress = process.env.ASSOCIATIONS_PROXY_ADDRESS;
   // Sepolia AssociationsStore proxy (upstream AssociatedAccounts deployment)
-  const fallbackDefault = '0x8346903837f89BaC08B095DbF5c1095071a0f349';
+  const fallbackDefault = '0x3d282c9E5054E3d819639246C177676A98cB0a1E';
 
   const addr = fromStoreProxy || fromProxyAddress || fallbackDefault;
   if (!addr.startsWith('0x') || addr.length !== 42) {

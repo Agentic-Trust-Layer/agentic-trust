@@ -53,6 +53,7 @@ import FolderOpenOutlinedIcon from '@mui/icons-material/FolderOpenOutlined';
 import { useRouter } from 'next/navigation';
 import { buildDid8004, parseDid8004, getDeployedAccountClientByAgentName, getDeployedAccountClientByAddress } from '@agentic-trust/core';
 import { getChainById, DEFAULT_CHAIN_ID } from '@agentic-trust/core/server';
+import { KEY_TYPE_K1, KEY_TYPE_SC_DELEGATION } from '@agentic-trust/8092-sdk';
 import {
   finalizeAssociationWithWallet,
   requestNameValidationWithWallet,
@@ -97,6 +98,8 @@ type AssociationRequestPayload = {
   approverDid: string;
   initiatorAddress: `0x${string}`;
   approverAddress: `0x${string}`;
+  initiatorKeyType?: `0x${string}`;
+  approverKeyType?: `0x${string}`;
   assocType: number;
   description: string;
   validAt: number;
@@ -1761,6 +1764,8 @@ export default function MessagesPage() {
               approverDid: composeToAgent.did,
               initiatorAddress,
               approverAddress,
+              initiatorKeyType: KEY_TYPE_K1 as `0x${string}`,
+              approverKeyType: KEY_TYPE_SC_DELEGATION as `0x${string}`,
               assocType: associationRequestType,
               description: associationRequestDescription || '',
               validAt,
@@ -2000,6 +2005,8 @@ export default function MessagesPage() {
               approverDid: composeToAgent.did,
               initiatorAddress,
               approverAddress,
+              initiatorKeyType: KEY_TYPE_K1 as `0x${string}`,
+              approverKeyType: KEY_TYPE_SC_DELEGATION as `0x${string}`,
               assocType: AssocType.Membership,
               description,
               validAt,

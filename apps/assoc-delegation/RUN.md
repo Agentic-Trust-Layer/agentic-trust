@@ -16,7 +16,7 @@ pnpm dev
 Create a `.env` file in the **root of the monorepo** (or export them in your shell):
 
 ```bash
-# Required: Private key of the agent owner EOA for agentId 133
+# Required: Private key of the agent owner EOA for agentId 336
 # This must match the owner of the agent account
 AGENT_OWNER_PRIVATE_KEY=0x...
 
@@ -42,7 +42,7 @@ AGENTIC_TRUST_ASSOCIATIONS_PROXY_SEPOLIA=0x...
 
 ## Notes
 
-- The app uses **agentId 133** (hardcoded in the code)
+- The app uses **agentId 336** (hardcoded in the code)
 - The `AGENT_OWNER_PRIVATE_KEY` must match the owner of the agent account
 - The initiator account needs sufficient Sepolia ETH to pay for gas (or the transaction will fail)
 - The app uses `tsx` which runs TypeScript directly - no build step needed for `dev`

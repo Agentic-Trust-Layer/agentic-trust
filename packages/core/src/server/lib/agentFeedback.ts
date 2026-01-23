@@ -9,6 +9,9 @@ import { ethers } from 'ethers';
 import { getReputationRegistryClient } from '../singletons/reputationClient';
 import { encodeAssociationData } from './association';
 import { getIPFSStorage } from './ipfs';
+import { getErc8092Association } from '../services/delegatedAssociation';
+import { tryParseEvmV1 } from '@agentic-trust/8092-sdk';
+import { KEY_TYPE_SC_DELEGATION } from '@agentic-trust/8092-sdk';
 
 // Cache for the ABI to avoid reloading it multiple times
 let abiCache: any = null;
@@ -43,6 +46,7 @@ export interface RequestAuthParams {
   signer: Account;
   walletClient?: any;
   expirySeconds?: number;
+  existingAssociationId?: `0x${string}`; // If provided, use this existing on-chain association instead of creating a new one
 }
 
 export type FeedbackAuthDelegationAssociation = {
@@ -221,8 +225,7 @@ export async function createFeedbackAuthWithDelegation(
     authorityAddress,
   } = await createFeedbackAuthInternal(params);
 
-  // Best-effort: build delegation association. If it fails, still return feedbackAuth.
-  try {
+  {
     const chainIdNum = Number(chainId);
     if (!Number.isFinite(chainIdNum) || chainIdNum <= 0) {
       throw new Error(`Invalid chainId for delegation association: ${String(chainId)}`);
@@ -258,16 +261,10 @@ export async function createFeedbackAuthWithDelegation(
     };
 
     // Upload the full delegation payload to IPFS so the ERC-8092 record can carry a small pointer.
-    let payloadTokenUri: string | null = null;
-    let payloadCid: string | null = null;
-    try {
-      const ipfs = getIPFSStorage();
-      const upload = await ipfs.upload(JSON.stringify(delegation, null, 2), 'feedbackAuth-delegation.json');
-      payloadCid = upload.cid;
-      payloadTokenUri = upload.tokenUri; // ipfs://CID
-    } catch (ipfsErr) {
-      console.warn('[createFeedbackAuthWithDelegation] Failed to upload delegation payload to IPFS (continuing):', ipfsErr);
-    }
+    const ipfs = getIPFSStorage();
+    const upload = await ipfs.upload(JSON.stringify(delegation, null, 2), 'feedbackAuth-delegation.json');
+    const payloadCid = upload.cid;
+    const payloadTokenUri = upload.tokenUri; // ipfs://CID
 
     const delegationRef = {
       type: 'erc8004.feedbackAuth.delegation',
@@ -297,6 +294,99 @@ export async function createFeedbackAuthWithDelegation(
 
     const associationId = erc8092RecordDigest(record);
 
+    // Check if we should use an existing on-chain association (e.g., SC-DELEGATION)
+    if (params.existingAssociationId) {
+      const existingAssociation = await getErc8092Association({
+        chainId: chainIdNum,
+        associationId: params.existingAssociationId,
+      });
+
+      if (!existingAssociation || !existingAssociation.record) {
+        throw new Error(`Existing association ${params.existingAssociationId} not found on-chain`);
+      }
+
+      const existingRecord = existingAssociation.record as any;
+      const existingInitiatorParsed = tryParseEvmV1(String(existingRecord.initiator));
+      const existingApproverParsed = tryParseEvmV1(String(existingRecord.approver));
+      const existingInitiatorAddr = existingInitiatorParsed?.address;
+      const existingApproverAddr = existingApproverParsed?.address;
+
+      // Verify the existing association matches what we expect
+      if (existingInitiatorAddr?.toLowerCase() !== initiatorAddress.toLowerCase()) {
+        throw new Error(
+          `Existing association initiator mismatch. Expected ${initiatorAddress}, got ${existingInitiatorAddr}`,
+        );
+      }
+      if (existingApproverAddr?.toLowerCase() !== approverAddress.toLowerCase()) {
+        throw new Error(
+          `Existing association approver mismatch. Expected ${approverAddress}, got ${existingApproverAddr}`,
+        );
+      }
+
+      // Use the existing association's data
+      const existingApproverKeyTypeRaw = String(existingAssociation.approverKeyType || '');
+      const existingInitiatorKeyTypeRaw = String(existingAssociation.initiatorKeyType || '');
+      const existingApproverSignatureRaw = String(existingAssociation.approverSignature || '0x');
+      const existingInitiatorSignatureRaw = String(existingAssociation.initiatorSignature || '0x');
+
+      // Ensure proper 0x prefix for key types
+      const existingApproverKeyType = (existingApproverKeyTypeRaw.startsWith('0x') 
+        ? existingApproverKeyTypeRaw 
+        : `0x${existingApproverKeyTypeRaw}`) as `0x${string}`;
+      const existingInitiatorKeyType = (existingInitiatorKeyTypeRaw.startsWith('0x') 
+        ? existingInitiatorKeyTypeRaw 
+        : `0x${existingInitiatorKeyTypeRaw}`) as `0x${string}`;
+      const existingApproverSignature = (existingApproverSignatureRaw.startsWith('0x') 
+        ? existingApproverSignatureRaw 
+        : `0x${existingApproverSignatureRaw}`) as `0x${string}`;
+      const existingInitiatorSignature = (existingInitiatorSignatureRaw.startsWith('0x') 
+        ? existingInitiatorSignatureRaw 
+        : `0x${existingInitiatorSignatureRaw}`) as `0x${string}`;
+
+      // For SC-DELEGATION (0x8004), we don't need to validate via ERC-1271
+      // The association is already stored and validated on-chain
+      const existingRecordInitiator = String(existingRecord.initiator);
+      const existingRecordApprover = String(existingRecord.approver);
+      const existingRecordInterfaceId = String(existingRecord.interfaceId || '0x00000000');
+      const existingRecordData = String(existingRecord.data || '0x');
+
+      const sar = {
+        revokedAt: Number(existingAssociation.revokedAt || 0),
+        initiatorKeyType: (existingInitiatorKeyType || '0x0001') as `0x${string}`,
+        approverKeyType: (existingApproverKeyType || '0x0001') as `0x${string}`,
+        initiatorSignature: existingInitiatorSignature,
+        approverSignature: existingApproverSignature,
+        record: {
+          initiator: (existingRecordInitiator.startsWith('0x') ? existingRecordInitiator : `0x${existingRecordInitiator}`) as `0x${string}`,
+          approver: (existingRecordApprover.startsWith('0x') ? existingRecordApprover : `0x${existingRecordApprover}`) as `0x${string}`,
+          validAt: Number(existingRecord.validAt || 0),
+          validUntil: Number(existingRecord.validUntil || 0),
+          interfaceId: (existingRecordInterfaceId.startsWith('0x') ? existingRecordInterfaceId : `0x${existingRecordInterfaceId}`) as `0x${string}`,
+          data: (existingRecordData.startsWith('0x') ? existingRecordData : `0x${existingRecordData}`) as `0x${string}`,
+        },
+      };
+
+      return {
+        feedbackAuth: signedAuth,
+        delegationAssociation: {
+          associationId: params.existingAssociationId,
+          initiatorAddress,
+          approverAddress,
+          assocType: 1,
+          validAt: Number(existingRecord.validAt || 0),
+          validUntil: Number(existingRecord.validUntil || 0),
+          data: (existingRecordData.startsWith('0x') ? existingRecordData : `0x${existingRecordData}`) as `0x${string}`,
+          approverSignature: existingApproverSignature,
+          sar,
+          delegation: {
+            ...delegationRef,
+            payload: { ...delegation, signatureScheme: 'sc-delegation' },
+          },
+        },
+      };
+    }
+
+    // Fallback to ERC-1271 validation path (for backward compatibility)
     if (!params.walletClient) {
       throw new Error('walletClient is required to sign delegation association');
     }
@@ -305,46 +395,40 @@ export async function createFeedbackAuthWithDelegation(
     // that approverAddress will accept for `isValidSignature(digest, signature)`.
     // Different account implementations expect different signature schemes (EIP-712 digest-signing vs EIP-191 personal_sign).
     // We'll generate a small set of candidates and pick the one that validates via ERC-1271.
-    const selectApproverSignature = async (candidates: Array<{ scheme: string; sig: `0x${string}` }>) => {
-      try {
-        const code = await params.publicClient.getBytecode({ address: approverAddress });
-        // If not a contract, don't attempt ERC-1271 selection.
-        if (!code || code === '0x') {
-          return { selected: candidates[0]!, checked: false, reason: 'approver has no code (EOA/counterfactual)' };
-        }
-        const ERC1271_MAGIC = '0x1626ba7e' as const;
-        const ERC1271_ABI = [
-          {
-            type: 'function',
-            name: 'isValidSignature',
-            stateMutability: 'view',
-            inputs: [
-              { name: 'hash', type: 'bytes32' },
-              { name: 'signature', type: 'bytes' },
-            ],
-            outputs: [{ name: 'magicValue', type: 'bytes4' }],
-          },
-        ] as const;
-
-        for (const c of candidates) {
-          try {
-            const magic = (await params.publicClient.readContract({
-              address: approverAddress,
-              abi: ERC1271_ABI as any,
-              functionName: 'isValidSignature',
-              args: [associationId, c.sig],
-            })) as `0x${string}`;
-            if (String(magic).toLowerCase() === ERC1271_MAGIC) {
-              return { selected: c, checked: true, reason: 'erc1271 magic matched' };
-            }
-          } catch {
-            // try next
-          }
-        }
-        return { selected: candidates[0]!, checked: true, reason: 'no candidate validated via ERC-1271' };
-      } catch (e: any) {
-        return { selected: candidates[0]!, checked: false, reason: e?.message || String(e) };
+    const selectApproverSignature = async (
+      candidates: Array<{ scheme: string; sig: `0x${string}` }>,
+    ): Promise<{ selected: { scheme: string; sig: `0x${string}` } }> => {
+      const code = await params.publicClient.getBytecode({ address: approverAddress });
+      if (!code || code === '0x') {
+        throw new Error(`Approver ${approverAddress} has no code. Expected smart account for feedbackAuth delegation.`);
       }
+      const ERC1271_MAGIC = '0x1626ba7e' as const;
+      const ERC1271_ABI = [
+        {
+          type: 'function',
+          name: 'isValidSignature',
+          stateMutability: 'view',
+          inputs: [
+            { name: 'hash', type: 'bytes32' },
+            { name: 'signature', type: 'bytes' },
+          ],
+          outputs: [{ name: 'magicValue', type: 'bytes4' }],
+        },
+      ] as const;
+
+      for (const c of candidates) {
+        const magic = (await params.publicClient.readContract({
+          address: approverAddress,
+          abi: ERC1271_ABI as any,
+          functionName: 'isValidSignature',
+          args: [associationId, c.sig],
+        })) as `0x${string}`;
+        if (String(magic).toLowerCase() === ERC1271_MAGIC) {
+          return { selected: c };
+        }
+      }
+
+      throw new Error('No candidate approver signature validated via ERC-1271.');
     };
 
     // IMPORTANT:
@@ -377,19 +461,14 @@ export async function createFeedbackAuthWithDelegation(
     })) as `0x${string}`;
 
     // Candidate 2: EIP-191 personal_sign of the 32-byte digest (some smart accounts validate this scheme).
-    let sigPersonal: `0x${string}` = '0x';
-    try {
-      sigPersonal = (await params.walletClient.signMessage({
-        account: params.signer,
-        message: { raw: ethers.getBytes(associationId) },
-      })) as `0x${string}`;
-    } catch {
-      // ignore
-    }
+    const sigPersonal = (await params.walletClient.signMessage({
+      account: params.signer,
+      message: { raw: ethers.getBytes(associationId) },
+    })) as `0x${string}`;
 
     const chosen = await selectApproverSignature([
       { scheme: 'eip712', sig: sigEip712 },
-      ...(sigPersonal && sigPersonal !== '0x' ? [{ scheme: 'personal_sign', sig: sigPersonal } as const] : []),
+      { scheme: 'personal_sign', sig: sigPersonal },
     ]);
 
     const approverSignature = chosen.selected.sig;
@@ -433,15 +512,10 @@ export async function createFeedbackAuthWithDelegation(
         sar,
         delegation: {
           ...delegationRef,
-          // Include the full payload inline too (best-effort convenience for clients),
-          // but the canonical copy is the IPFS payload when available.
-          payload: { ...delegation, signatureScheme: (chosen as any).selected?.scheme, signatureChecked: (chosen as any).checked, signatureCheckReason: (chosen as any).reason },
+          payload: { ...delegation, signatureScheme: chosen.selected.scheme },
         },
       },
     };
-  } catch (e) {
-    console.warn('[createFeedbackAuthWithDelegation] Failed to create delegation association (continuing):', e);
-    return { feedbackAuth: signedAuth };
   }
 }
 

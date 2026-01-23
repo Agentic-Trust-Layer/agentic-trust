@@ -13,12 +13,12 @@ When working with the Agentic Trust library, ERC-8004, agent identity, reputatio
     -   **Agent Identity**: Veramo integration, DID management.
     -   **Reputation**: ERC-8004 feedback mechanisms.
     -   **Validation**: Agent validation workflows.
--   **ERC-8092 Sepolia Deployments (AssociatedAccounts)**:
-    - **AssociationsStore proxy**: `0x8346903837f89BaC08B095DbF5c1095071a0f349`
-    - **Implementation**: `0x8a0d549E7799D54B7730BB167Ff92983b1F3e5b5`
-    - **ProxyAdmin**: `0x341aA8119033340173C1A6944124d52bF8198551`
-    - **SC Delegation Enforcer**: `0xd92ccc840b130920c2041BEEd4dB143d8EbF72a8`
-    - **SC Delegation Verifier**: `0x3F5795716DffEc92bd3eb861BBc9Bc01d5b9bCb9`
+-   **ERC-8092 Sepolia Deployments (AssociatedAccounts - Updated 2026-01-23)**:
+    - **AssociationsStore proxy**: `0x3d282c9E5054E3d819639246C177676A98cB0a1E`
+    - **Implementation**: `0x1719f33e9F86d7a6AE905621C9dcAaa5e4214410`
+    - **ProxyAdmin**: `0x0C16e38cf224FF95bD241aA8051Db3995C9a2A4E`
+    - **SC Delegation Enforcer**: `0x107d5586Cb98C00d03B696d594eA15e6CE9F50d3`
+    - **SC Delegation Verifier**: `0xAd762a8bBFafc2BeA41a2400F9bE5de8B5Fd1617`
     - **DelegationManager (configured)**: `0xdb9B1e94B5b69Df7e401DDbedE43491141047dB3`
 -   **Agent Ownership Determination**:
     -   **Relationship**: Agent NFT is owned by Agent Account (account abstraction/smart contract), which is owned by an EOA (user wallet).
