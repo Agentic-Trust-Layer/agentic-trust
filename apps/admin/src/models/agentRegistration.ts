@@ -149,130 +149,37 @@ export const AGENT_DOMAIN_OPTIONS: readonly AgentDomainOption[] = [
  * ATP / AgenticTrust “skills” (A2A-level capabilities) and how they relate to domains.
  * These are extensions over the currently published OASF/OASF skill identifiers.
  */
-export type AgentSkillId =
-  | 'agent_interaction.request_handling'
-  | 'integration.protocol_handling'
-  | 'trust.identity.validation'
-  | 'trust.feedback.authorization'
-  | 'trust.validate.name'
-  | 'trust.validate.account'
-  | 'trust.validate.app'
-  | 'trust.association.attestation'
-  | 'trust.membership.attestation'
-  | 'trust.delegation.attestation'
-  | 'relationship.association.revocation'
-  | 'delegation.request.authorization'
-  | 'delegation.payload.verification'
-  | 'governance.audit.provenance';
+export type AgentSkillId = string;
 
 export type AgentSkillOption = {
-  id: AgentSkillId;
+  id: string;
   label: string;
-  description: string;
-  domains: AgentDomainId[];
-  oasfExtension: boolean;
+  description?: string | null;
+  domains?: string[];
+  oasfExtension?: boolean;
 };
 
-export const AGENT_SKILL_OPTIONS: readonly AgentSkillOption[] = [
-  {
-    id: 'agent_interaction.request_handling',
-    label: 'Agent interaction · request handling',
-    description: 'Accept, validate, and route inbound A2A requests/messages/tasks.',
-    domains: ['collaboration'],
-    oasfExtension: true,
-  },
-  {
-    id: 'integration.protocol_handling',
-    label: 'Integration · protocol handling',
-    description: 'Implement protocol bindings and message envelope handling (e.g., JSON-RPC, HTTP+JSON).',
-    domains: ['collaboration'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.identity.validation',
-    label: 'Trust · identity validation',
-    description: 'Verify identities, credentials, keys, and signatures (e.g., ERC-1271, VC proofs).',
-    domains: ['governance-and-trust', 'security'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.feedback.authorization',
-    label: 'Trust · feedback authorization',
-    description: 'Issue/verify authorization to submit feedback (e.g., ERC-8004 feedbackAuth).',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.validate.name',
-    label: 'Trust · name validation',
-    description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.validate.account',
-    label: 'Trust · account validation',
-    description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.validate.app',
-    label: 'Trust · app validation',
-    description: 'Create/verify attestations for validations (e.g., validation responses, registry evidence).',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.association.attestation',
-    label: 'Trust · association attestation',
-    description: 'Create/verify attestations for associations and relationship trust decisions.',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.membership.attestation',
-    label: 'Trust · membership attestation',
-    description: 'Create/verify attestations for memberships (e.g., group/org membership proofs).',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'trust.delegation.attestation',
-    label: 'Trust · delegation attestation',
-    description: 'Create/verify attestations for delegations and delegated authority.',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'relationship.association.revocation',
-    label: 'Relationship · association revocation',
-    description: 'Revoke/expire associations and publish revocation evidence.',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'delegation.request.authorization',
-    label: 'Delegation · request authorization',
-    description: 'Authorize delegated actions and time-bounded permissions.',
-    domains: ['governance-and-trust'],
-    oasfExtension: true,
-  },
-  {
-    id: 'delegation.payload.verification',
-    label: 'Delegation · payload verification',
-    description: 'Verify delegated payload integrity/provenance (e.g., signatures, scopes, constraints).',
-    domains: ['governance-and-trust', 'security'],
-    oasfExtension: true,
-  },
-  {
-    id: 'governance.audit.provenance',
-    label: 'Governance · audit provenance',
-    description: 'Produce audit/provenance trails for trust and compliance decisions.',
-    domains: ['governance-and-trust', 'security'],
-    oasfExtension: true,
-  },
-] as const;
+/**
+ * Fetch OASF skills from discovery GraphQL.
+ * Returns empty array if discovery is unavailable.
+ */
+export async function fetchAgentSkillOptions(): Promise<AgentSkillOption[]> {
+  try {
+    const res = await fetch('/api/oasf/skills', { cache: 'no-store' });
+    const data = await res.json().catch(() => ({}));
+    const skills = Array.isArray(data?.skills) ? data.skills : [];
+    return skills.map((s: any) => ({
+      id: String(s.key || s.id || ''),
+      label: String(s.caption || s.label || s.key || ''),
+      description: s.description || null,
+      domains: s.category ? [s.category] : [],
+      oasfExtension: true,
+    })).filter((s: AgentSkillOption) => s.id);
+  } catch (e) {
+    console.warn('[agentRegistration] Failed to fetch skills from discovery:', e);
+    return [];
+  }
+}
 
 /**
  * Supported trust mechanism options

@@ -15,10 +15,13 @@ export type TaxonomyMapping = {
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 let cached: { at: number; intentTypes: TaxonomyIntentType[]; taskTypes: TaxonomyTaskType[]; mappings: TaxonomyMapping[] } | null = null;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const bypassCache = url.searchParams.get('nocache') === 'true' || url.searchParams.get('_') !== null;
+    
     const now = Date.now();
-    if (cached && now - cached.at < CACHE_TTL_MS) {
+    if (!bypassCache && cached && now - cached.at < CACHE_TTL_MS) {
       return NextResponse.json(
         {
           intentTypes: cached.intentTypes,
@@ -69,8 +72,9 @@ export async function GET() {
       },
       {
         headers: {
-          'Cache-Control':
-            intentList.length > 0 || taskList.length > 0 || mappingList.length > 0
+          'Cache-Control': bypassCache
+            ? 'no-store, no-cache, must-revalidate'
+            : intentList.length > 0 || taskList.length > 0 || mappingList.length > 0
               ? 'public, s-maxage=3600, stale-while-revalidate=86400'
               : 'no-store',
         },

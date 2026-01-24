@@ -105,10 +105,11 @@ export async function POST(req: NextRequest) {
     }
 
     const typeStr = typeof type === 'string' ? type : undefined;
+    const k = typeStr?.toLowerCase() || '';
     const shouldAutoTask =
-      typeStr === 'feedback_auth_request' ||
-      typeStr === 'validation_request' ||
-      typeStr === 'association_request';
+      (k.includes('feedback') && (k.includes('auth') || k.includes('request'))) ||
+      (k.includes('validation') && k.includes('request')) ||
+      (k.includes('association') && k.includes('request'));
     const resolvedTaskId =
       typeof taskId === 'string' && taskId.trim().length > 0
         ? taskId.trim()

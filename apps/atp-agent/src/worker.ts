@@ -353,19 +353,31 @@ function getCorsHeaders() {
  * A2A "Task" primitives
  * - Tasks are long-lived threads (a conversation) and messages are events within a task.
  * - We keep legacy context_type/context_id fields, but also persist explicit task_id/task_type.
+ * - Task types are fetched from discovery GraphQL.
  */
-const ATP_TASK_TYPES = [
-  'feedback_auth_request',
-  'validation_request',
-  'association_request',
-  'feedback_request_approved',
-] as const;
-type ATPTaskType = (typeof ATP_TASK_TYPES)[number];
+type ATPTaskType = string;
 
-function normalizeTaskType(value: unknown): ATPTaskType | null {
+async function normalizeTaskType(value: unknown, env: Record<string, any>): Promise<ATPTaskType | null> {
   const v = String(value ?? '').trim();
   if (!v) return null;
-  return (ATP_TASK_TYPES as readonly string[]).includes(v) ? (v as ATPTaskType) : null;
+  const taskTypes = await fetchTaskTypes(env);
+  return taskTypes.includes(v) ? v : null;
+}
+
+function normalizeTaskTypeSync(value: unknown, knownTaskTypes: string[]): ATPTaskType | null {
+  const v = String(value ?? '').trim();
+  if (!v) return null;
+  return knownTaskTypes.includes(v) ? v : null;
+}
+
+function inferTaskTypeFromContext(contextType: string | null | undefined): string | null {
+  if (!contextType) return null;
+  const k = String(contextType).toLowerCase();
+  if (k.includes('feedback') && (k.includes('auth') || k.includes('request'))) return 'feedback_auth_request';
+  if (k.includes('validation') && k.includes('request')) return 'validation_request';
+  if (k.includes('association') && k.includes('request')) return 'association_request';
+  if (k.includes('feedback') && (k.includes('approved') || k.includes('approval'))) return 'feedback_request_approved';
+  return null;
 }
 
 function generateTaskId(prefix: string = 'task'): string {
@@ -575,17 +587,6 @@ app.get('/', (c: HonoContext) => {
   });
 });
 
-const DEFAULT_OASF_DOMAINS = ['governance-and-trust', 'security', 'collaboration'];
-const DEFAULT_OASF_SKILLS = [
-  'trust.feedback.authorization',
-  'trust.validate.name',
-  'trust.validate.account',
-  'trust.validate.app',
-  'trust.association.attestation',
-  'trust.membership.attestation',
-  'trust.delegation.attestation',
-];
-
 async function fetchOasfTaxonomy(env: Record<string, any>): Promise<{ skills: string[]; domains: string[] }> {
   const raw = (env.AGENTIC_TRUST_GRAPHQL_URL || env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
   const graphqlUrl = /\/graphql\/?$/i.test(raw)
@@ -594,7 +595,7 @@ async function fetchOasfTaxonomy(env: Record<string, any>): Promise<{ skills: st
       ? `${raw.replace(/\/+$/, '')}/graphql`
       : '';
   if (!graphqlUrl) {
-    return { skills: [...DEFAULT_OASF_SKILLS], domains: [...DEFAULT_OASF_DOMAINS] };
+    return { skills: [], domains: [] };
   }
   const query = `query { oasfSkills(limit: 10000) { key } oasfDomains(limit: 10000) { key } }`;
   try {
@@ -606,17 +607,42 @@ async function fetchOasfTaxonomy(env: Record<string, any>): Promise<{ skills: st
     const data = await res.json().catch(() => ({}));
     const skills = Array.isArray((data as any)?.data?.oasfSkills)
       ? (data as any).data.oasfSkills.map((s: any) => String(s?.key ?? '').trim()).filter(Boolean)
-      : DEFAULT_OASF_SKILLS;
+      : [];
     const domains = Array.isArray((data as any)?.data?.oasfDomains)
       ? (data as any).data.oasfDomains.map((d: any) => String(d?.key ?? '').trim()).filter(Boolean)
-      : DEFAULT_OASF_DOMAINS;
-    return {
-      skills: skills.length ? skills : DEFAULT_OASF_SKILLS,
-      domains: domains.length ? domains : DEFAULT_OASF_DOMAINS,
-    };
+      : [];
+    return { skills, domains };
   } catch (e) {
-    console.warn('[ATP Agent] fetchOasfTaxonomy failed, using defaults:', e);
-    return { skills: [...DEFAULT_OASF_SKILLS], domains: [...DEFAULT_OASF_DOMAINS] };
+    console.warn('[ATP Agent] fetchOasfTaxonomy failed:', e);
+    return { skills: [], domains: [] };
+  }
+}
+
+async function fetchTaskTypes(env: Record<string, any>): Promise<string[]> {
+  const raw = (env.AGENTIC_TRUST_GRAPHQL_URL || env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
+  const graphqlUrl = /\/graphql\/?$/i.test(raw)
+    ? raw.replace(/\/+$/, '')
+    : raw
+      ? `${raw.replace(/\/+$/, '')}/graphql`
+      : '';
+  if (!graphqlUrl) {
+    return [];
+  }
+  const query = `query { taskTypes(limit: 10000) { key } }`;
+  try {
+    const res = await fetch(graphqlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const taskTypes = Array.isArray((data as any)?.data?.taskTypes)
+      ? (data as any).data.taskTypes.map((t: any) => String(t?.key ?? '').trim()).filter(Boolean)
+      : [];
+    return taskTypes;
+  } catch (e) {
+    console.warn('[ATP Agent] fetchTaskTypes failed:', e);
+    return [];
   }
 }
 
@@ -3300,7 +3326,7 @@ const handleA2A = async (c: HonoContext) => {
             )
             .bind(
               taskId,
-              'feedback_auth_request',
+              inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
               'open',
               'Request Feedback Permission',
               fromAgentDid,
@@ -3332,10 +3358,10 @@ const handleA2A = async (c: HonoContext) => {
               toAgentName,
               'Feedback request',
               messageBody,
-              'feedback_auth_request',
+              inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
               String(feedbackRequestId),
               taskId,
-              'feedback_auth_request',
+              inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
               now * 1000, // messages table uses milliseconds
               null,
             )
@@ -3684,7 +3710,7 @@ const handleA2A = async (c: HonoContext) => {
           )
           .bind(
             taskId,
-            'feedback_auth_request',
+            inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
             'open',
             'Request Feedback Permission',
             fromAgentDid,
@@ -3714,10 +3740,10 @@ const handleA2A = async (c: HonoContext) => {
             req.from_agent_name || null,
             subject,
             body,
-            'feedback_request_approved',
+            inferTaskTypeFromContext('feedback_request_approved') || 'feedback_request_approved',
             String(feedbackRequestId),
             taskId,
-            'feedback_auth_request',
+            inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
             nowMs,
             null,
           )
@@ -3913,7 +3939,8 @@ const handleA2A = async (c: HonoContext) => {
         // - If contextType matches a known task type, we treat this message as the start of (or part of) a task thread.
         // - If a contextId is not provided, we generate one and use it as the task id.
         await ensureTasksSchema(db);
-        const taskType = normalizeTaskType(contextType);
+        const knownTaskTypes = await fetchTaskTypes(c.env || {});
+        const taskType = normalizeTaskTypeSync(contextType, knownTaskTypes) || inferTaskTypeFromContext(contextType);
         let taskId: string | null = contextId != null ? String(contextId) : null;
         if (taskType && !taskId) {
           taskId = generateTaskId(taskType);

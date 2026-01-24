@@ -856,10 +856,19 @@ export default function AgentDetailsPageContent({
       const fromAgentDid = buildDid8004(parsedFromChainId, Number(fromAgentId));
       const toAgentDid = did8004;
 
+      // Fetch task type from discovery
+      const taxonomyRes = await fetch('/api/discovery/taxonomy', { cache: 'no-store' }).catch(() => null);
+      const taxonomy = taxonomyRes?.ok ? await taxonomyRes.json().catch(() => ({})) : {};
+      const taskTypes = Array.isArray(taxonomy?.taskTypes) ? taxonomy.taskTypes : [];
+      const feedbackTaskType = taskTypes.find((t: any) => {
+        const k = String(t?.key || '').toLowerCase();
+        return k.includes('feedback') && (k.includes('auth') || k.includes('request'));
+      })?.key || 'feedback_auth_request';
+
       const messageRequest = {
         message: `Feedback Request: ${feedbackRequestReason}`,
         payload: {
-          type: 'feedback_auth_request',
+          type: feedbackTaskType,
           comment: feedbackRequestReason,
           clientAddress: walletAddress,
           fromAgentId: fromAgentId,
@@ -872,7 +881,7 @@ export default function AgentDetailsPageContent({
           toAgentName: agent.agentName || `Agent #${agent.agentId}`,
         },
         metadata: {
-          requestType: 'feedback_auth_request',
+          requestType: feedbackTaskType,
           timestamp: new Date().toISOString(),
           fromAgentId: fromAgentId,
           fromAgentChainId: parsedFromChainId,

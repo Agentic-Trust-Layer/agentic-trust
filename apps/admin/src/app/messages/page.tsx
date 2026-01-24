@@ -1125,7 +1125,11 @@ export default function MessagesPage() {
       }
 
       // Reply back to requester in the same task thread (this is what shows up in Inbox UI).
-      // Keep contextType as 'validation_request' so ATP threads it under the original task.
+      // Use pattern matching to determine task type for threading.
+      const validationTaskType = taskOptions.find((t) => {
+        const k = t.value.toLowerCase();
+        return k.includes('validation') && k.includes('request');
+      })?.value || 'validation_request';
       const replyBody = [
         `Validation response submitted.`,
         ``,
@@ -1156,7 +1160,7 @@ export default function MessagesPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          type: 'validation_request',
+          type: validationTaskType,
           subject: `Validation Response: ${responseScore}`,
           content: replyBody,
           fromClientAddress: walletAddress,
@@ -1312,8 +1316,13 @@ export default function MessagesPage() {
     setComposeSubject('');
     setComposeBody('');
     const threadType = selectedThread.taskType as string;
-    const pinnedTaskType =
-      threadType === 'feedback_request_approved' ? 'feedback_auth_request' : threadType;
+    const k = String(threadType).toLowerCase();
+    const pinnedTaskType = (k.includes('feedback') && (k.includes('approved') || k.includes('approval')))
+      ? (taskOptions.find((t) => {
+          const tk = t.value.toLowerCase();
+          return tk.includes('feedback') && (tk.includes('auth') || tk.includes('request'));
+        })?.value || 'feedback_auth_request')
+      : threadType;
     setSelectedMessageType(pinnedTaskType);
     const mapping = taxonomyMappings.find((m) => m.task.key === pinnedTaskType);
     setSelectedIntentType(mapping?.intent.key ?? GENERAL_INTENT_KEY);

@@ -1082,16 +1082,18 @@ export class AIAgentDiscoveryClient {
     `;
 
     try {
-      const data = await this.client.request<{ oasfSkills?: OasfSkill[] }>(query, {
-        key: params?.key ?? null,
-        nameKey: params?.nameKey ?? null,
-        category: params?.category ?? null,
-        extendsKey: params?.extendsKey ?? null,
+      const variables: Record<string, unknown> = {
         limit: typeof params?.limit === 'number' ? params.limit : 10000,
         offset: typeof params?.offset === 'number' ? params.offset : 0,
         orderBy: params?.orderBy ?? 'category',
         orderDirection: params?.orderDirection ?? 'ASC',
-      });
+      };
+      if (params?.key) variables.key = params.key;
+      if (params?.nameKey) variables.nameKey = params.nameKey;
+      if (params?.category) variables.category = params.category;
+      if (params?.extendsKey) variables.extendsKey = params.extendsKey;
+
+      const data = await this.client.request<{ oasfSkills?: OasfSkill[] }>(query, variables);
       return Array.isArray(data?.oasfSkills) ? data.oasfSkills : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1102,6 +1104,11 @@ export class AIAgentDiscoveryClient {
       // Some deployments expose the field but error due to resolver returning null for a non-null list.
       // Treat this as "taxonomy unavailable" rather than failing the caller.
       if (/Cannot return null for non-nullable field\s+Query\.oasfSkills\b/i.test(message)) {
+        return [];
+      }
+      // Handle SPARQL translation errors (GraphDB backend)
+      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
+        console.warn('[AIAgentDiscoveryClient] oasfSkills SPARQL translation error (backend issue):', message);
         return [];
       }
       console.warn('[AIAgentDiscoveryClient] oasfSkills query failed:', error);
@@ -1155,16 +1162,18 @@ export class AIAgentDiscoveryClient {
     `;
 
     try {
-      const data = await this.client.request<{ oasfDomains?: OasfDomain[] }>(query, {
-        key: params?.key ?? null,
-        nameKey: params?.nameKey ?? null,
-        category: params?.category ?? null,
-        extendsKey: params?.extendsKey ?? null,
+      const variables: Record<string, unknown> = {
         limit: typeof params?.limit === 'number' ? params.limit : 10000,
         offset: typeof params?.offset === 'number' ? params.offset : 0,
         orderBy: params?.orderBy ?? 'category',
         orderDirection: params?.orderDirection ?? 'ASC',
-      });
+      };
+      if (params?.key) variables.key = params.key;
+      if (params?.nameKey) variables.nameKey = params.nameKey;
+      if (params?.category) variables.category = params.category;
+      if (params?.extendsKey) variables.extendsKey = params.extendsKey;
+
+      const data = await this.client.request<{ oasfDomains?: OasfDomain[] }>(query, variables);
       return Array.isArray(data?.oasfDomains) ? data.oasfDomains : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1172,6 +1181,11 @@ export class AIAgentDiscoveryClient {
         return [];
       }
       if (/Cannot return null for non-nullable field\s+Query\.oasfDomains\b/i.test(message)) {
+        return [];
+      }
+      // Handle SPARQL translation errors (GraphDB backend)
+      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
+        console.warn('[AIAgentDiscoveryClient] oasfDomains SPARQL translation error (backend issue):', message);
         return [];
       }
       console.warn('[AIAgentDiscoveryClient] oasfDomains query failed:', error);
@@ -1199,17 +1213,23 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
-      const data = await this.client.request<{ intentTypes?: DiscoveryIntentType[] }>(query, {
-        key: params?.key ?? null,
-        label: params?.label ?? null,
+      const variables: Record<string, unknown> = {
         limit: typeof params?.limit === 'number' ? params.limit : 10000,
         offset: typeof params?.offset === 'number' ? params.offset : 0,
-      });
+      };
+      if (params?.key) variables.key = params.key;
+      if (params?.label) variables.label = params.label;
+
+      const data = await this.client.request<{ intentTypes?: DiscoveryIntentType[] }>(query, variables);
       return Array.isArray(data?.intentTypes) ? data.intentTypes : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('Cannot query field "intentTypes"')) return [];
       if (/Cannot return null for non-nullable field\s+Query\.intentTypes\b/i.test(message)) return [];
+      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
+        console.warn('[AIAgentDiscoveryClient] intentTypes SPARQL translation error (backend issue):', message);
+        return [];
+      }
       console.warn('[AIAgentDiscoveryClient] intentTypes query failed:', error);
       throw error;
     }
@@ -1235,17 +1255,23 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
-      const data = await this.client.request<{ taskTypes?: DiscoveryTaskType[] }>(query, {
-        key: params?.key ?? null,
-        label: params?.label ?? null,
+      const variables: Record<string, unknown> = {
         limit: typeof params?.limit === 'number' ? params.limit : 10000,
         offset: typeof params?.offset === 'number' ? params.offset : 0,
-      });
+      };
+      if (params?.key) variables.key = params.key;
+      if (params?.label) variables.label = params.label;
+
+      const data = await this.client.request<{ taskTypes?: DiscoveryTaskType[] }>(query, variables);
       return Array.isArray(data?.taskTypes) ? data.taskTypes : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('Cannot query field "taskTypes"')) return [];
       if (/Cannot return null for non-nullable field\s+Query\.taskTypes\b/i.test(message)) return [];
+      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
+        console.warn('[AIAgentDiscoveryClient] taskTypes SPARQL translation error (backend issue):', message);
+        return [];
+      }
       console.warn('[AIAgentDiscoveryClient] taskTypes query failed:', error);
       throw error;
     }
@@ -1272,17 +1298,23 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
-      const data = await this.client.request<{ intentTaskMappings?: DiscoveryIntentTaskMapping[] }>(query, {
-        intentKey: params?.intentKey ?? null,
-        taskKey: params?.taskKey ?? null,
+      const variables: Record<string, unknown> = {
         limit: typeof params?.limit === 'number' ? params.limit : 10000,
         offset: typeof params?.offset === 'number' ? params.offset : 0,
-      });
+      };
+      if (params?.intentKey) variables.intentKey = params.intentKey;
+      if (params?.taskKey) variables.taskKey = params.taskKey;
+
+      const data = await this.client.request<{ intentTaskMappings?: DiscoveryIntentTaskMapping[] }>(query, variables);
       return Array.isArray(data?.intentTaskMappings) ? data.intentTaskMappings : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('Cannot query field "intentTaskMappings"')) return [];
       if (/Cannot return null for non-nullable field\s+Query\.intentTaskMappings\b/i.test(message)) return [];
+      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
+        console.warn('[AIAgentDiscoveryClient] intentTaskMappings SPARQL translation error (backend issue):', message);
+        return [];
+      }
       console.warn('[AIAgentDiscoveryClient] intentTaskMappings query failed:', error);
       throw error;
     }

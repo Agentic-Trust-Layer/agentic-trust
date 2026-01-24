@@ -307,19 +307,52 @@ function getCorsHeaders() {
  * A2A "Task" primitives
  * - Tasks are long-lived threads (a conversation) and messages are events within a task.
  * - We keep legacy context_type/context_id fields, but also persist explicit task_id/task_type.
+ * - Task types are fetched from discovery GraphQL.
  */
-const ATP_TASK_TYPES = [
-  'feedback_auth_request',
-  'validation_request',
-  'association_request',
-  'feedback_request_approved',
-] as const;
-type ATPTaskType = (typeof ATP_TASK_TYPES)[number];
+type ATPTaskType = string;
 
-function normalizeTaskType(value: unknown): ATPTaskType | null {
+async function fetchTaskTypes(): Promise<string[]> {
+  const url = (process.env.AGENTIC_TRUST_GRAPHQL_URL || process.env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
+  const graphqlUrl = /\/graphql\/?$/i.test(url)
+    ? url.replace(/\/+$/, '')
+    : url
+      ? `${url.replace(/\/+$/, '')}/graphql`
+      : '';
+  if (!graphqlUrl) {
+    return [];
+  }
+  const query = `query { taskTypes(limit: 10000) { key } }`;
+  try {
+    const res = await fetch(graphqlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const taskTypes = Array.isArray((data as any)?.data?.taskTypes)
+      ? (data as any).data.taskTypes.map((t: any) => String(t?.key ?? '').trim()).filter(Boolean)
+      : [];
+    return taskTypes;
+  } catch (e) {
+    console.warn('[ATP Agent Server] fetchTaskTypes failed:', e);
+    return [];
+  }
+}
+
+function normalizeTaskTypeSync(value: unknown, knownTaskTypes: string[]): ATPTaskType | null {
   const v = String(value ?? '').trim();
   if (!v) return null;
-  return (ATP_TASK_TYPES as readonly string[]).includes(v) ? (v as ATPTaskType) : null;
+  return knownTaskTypes.includes(v) ? v : null;
+}
+
+function inferTaskTypeFromContext(contextType: string | null | undefined): string | null {
+  if (!contextType) return null;
+  const k = String(contextType).toLowerCase();
+  if (k.includes('feedback') && (k.includes('auth') || k.includes('request'))) return 'feedback_auth_request';
+  if (k.includes('validation') && k.includes('request')) return 'validation_request';
+  if (k.includes('association') && k.includes('request')) return 'association_request';
+  if (k.includes('feedback') && (k.includes('approved') || k.includes('approval'))) return 'feedback_request_approved';
+  return null;
 }
 
 function generateTaskId(prefix: string = 'task'): string {
@@ -860,23 +893,38 @@ const serveAgentCard = async (req: Request, res: Response) => {
     return filtered;
   })();
 
-  const oasfDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
-  const oasfSkills = [
-    'agent_interaction.request_handling',
-    'integration.protocol_handling',
-    'trust.identity.validation',
-    'trust.feedback.authorization',
-    'trust.validate.name',
-    'trust.validate.account',
-    'trust.validate.app',
-    'trust.association.attestation',
-    'trust.membership.attestation',
-    'trust.delegation.attestation',
-    'relationship.association.revocation',
-    'delegation.request.authorization',
-    'delegation.payload.verification',
-    'governance.audit.provenance',
-  ] as const;
+  async function fetchOasfTaxonomy(): Promise<{ skills: string[]; domains: string[] }> {
+    const url = (process.env.AGENTIC_TRUST_GRAPHQL_URL || process.env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
+    const graphqlUrl = /\/graphql\/?$/i.test(url)
+      ? url.replace(/\/+$/, '')
+      : url
+        ? `${url.replace(/\/+$/, '')}/graphql`
+        : '';
+    if (!graphqlUrl) {
+      return { skills: [], domains: [] };
+    }
+    const query = `query { oasfSkills(limit: 10000) { key } oasfDomains(limit: 10000) { key } }`;
+    try {
+      const res = await fetch(graphqlUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const skills = Array.isArray((data as any)?.data?.oasfSkills)
+        ? (data as any).data.oasfSkills.map((s: any) => String(s?.key ?? '').trim()).filter(Boolean)
+        : [];
+      const domains = Array.isArray((data as any)?.data?.oasfDomains)
+        ? (data as any).data.oasfDomains.map((d: any) => String(d?.key ?? '').trim()).filter(Boolean)
+        : [];
+      return { skills, domains };
+    } catch (e) {
+      console.warn('[ATP Agent Server] fetchOasfTaxonomy failed:', e);
+      return { skills: [], domains: [] };
+    }
+  }
+
+  const { skills: oasfSkills, domains: oasfDomains } = await fetchOasfTaxonomy();
 
   const agentCard = {
     protocolVersion: '1.0',
@@ -2266,7 +2314,7 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
           )
           .bind(
             taskId,
-            'feedback_auth_request',
+            inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
             'open',
             'Request Feedback Permission',
             fromAgentDid,
@@ -2296,10 +2344,10 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
             req.from_agent_name || null,
             subject,
             body,
-            'feedback_request_approved',
+            inferTaskTypeFromContext('feedback_request_approved') || 'feedback_request_approved',
             String(feedbackRequestId),
             taskId,
-            'feedback_auth_request',
+            inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
             nowMs,
             null,
           )
@@ -2837,10 +2885,10 @@ app.post('/api/a2a', waitForClientInit, async (req: Request, res: Response) => {
               toAgentName,
               'Feedback request',
               messageBody,
-              'feedback_auth_request',
+              inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
               String(feedbackRequestId),
               taskId,
-              'feedback_auth_request',
+              inferTaskTypeFromContext('feedback_auth_request') || 'feedback_auth_request',
               now * 1000,
               null,
             )
