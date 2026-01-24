@@ -48,4 +48,5 @@ coverage/
 .cache/
 temp/
 tmp/
+.tmp/
 
