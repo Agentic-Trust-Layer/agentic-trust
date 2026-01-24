@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
 
     if (!a2aEndpoint) {
       return NextResponse.json(
-        { error: 'A2A agent card URL (agent.json) is required' },
+        { error: 'A2A agent card URL (agent-card.json) is required' },
         { status: 400 }
       );
     }
@@ -25,17 +25,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const toAgentJsonUrl = (input: string): string => {
+    const toAgentCardUrl = (input: string): string => {
       const url = new URL(input);
       const origin = url.origin;
       const path = url.pathname || '';
-      // If already an agent.json / agent-card.json URL, keep verbatim. Otherwise, use canonical well-known path.
-      if (/\/agent-card\.json\/?$/i.test(path) || /\/agent\.json\/?$/i.test(path)) return url.toString();
+      // If already an agent-card.json URL, keep verbatim. Otherwise, use canonical well-known path.
+      if (/\/agent-card\.json\/?$/i.test(path)) return url.toString();
       return `${origin}/.well-known/agent-card.json`;
     };
 
-    const extractA2AMessageEndpoint = (agentJson: any, agentJsonUrl: string): string | null => {
-      const baseOrigin = new URL(agentJsonUrl).origin.replace(/\/$/, '');
+    const extractA2AMessageEndpoint = (agentCard: any, agentCardUrl: string): string | null => {
+      const baseOrigin = new URL(agentCardUrl).origin.replace(/\/$/, '');
       const normalize = (raw: any): string | null => {
         const s = typeof raw === 'string' ? raw.trim() : '';
         if (!s) return null;
@@ -54,56 +54,56 @@ export async function POST(request: NextRequest) {
       };
 
       // Prefer v1.0 supportedInterfaces (JSON-RPC first, then HTTP+JSON)
-      if (Array.isArray(agentJson?.supportedInterfaces)) {
-        const interfaces = agentJson.supportedInterfaces as any[];
+      if (Array.isArray(agentCard?.supportedInterfaces)) {
+        const interfaces = agentCard.supportedInterfaces as any[];
         const pick = (binding: string) =>
           interfaces.find((x: any) => String(x?.protocolBinding || '') === binding)?.url;
         const fromInterfaces = normalize(pick('JSONRPC') ?? pick('HTTP+JSON'));
         if (fromInterfaces) return fromInterfaces;
       }
 
-      // Prefer explicit provider.url (common A2A agent.json shape)
-      const fromProviderUrl = normalize(agentJson?.provider?.url);
+      // Prefer explicit provider.url (common A2A agent card shape)
+      const fromProviderUrl = normalize(agentCard?.provider?.url);
       if (fromProviderUrl) return fromProviderUrl;
 
       // Alternate shapes supported for robustness
-      if (Array.isArray(agentJson?.endpoints)) {
-        const entry = agentJson.endpoints.find(
+      if (Array.isArray(agentCard?.endpoints)) {
+        const entry = agentCard.endpoints.find(
           (e: any) => String(e?.name || '').toLowerCase() === 'a2a',
         );
         const fromArray = normalize(entry?.url ?? entry?.endpoint);
         if (fromArray) return fromArray;
       }
-      const fromObject = normalize(agentJson?.endpoints?.a2a);
+      const fromObject = normalize(agentCard?.endpoints?.a2a);
       if (fromObject) return fromObject;
 
       return null;
     };
 
-    // Load agent.json (agent card) first, then send the message to the declared A2A message endpoint.
-    const agentJsonUrlRaw = toAgentJsonUrl(String(a2aEndpoint));
-    const agentJsonUrl =
-      agentJsonUrlRaw.includes('localhost')
-        ? agentJsonUrlRaw.replace(/localhost/g, '127.0.0.1')
-        : agentJsonUrlRaw;
+    // Load agent-card.json (agent card) first, then send the message to the declared A2A message endpoint.
+    const agentCardUrlRaw = toAgentCardUrl(String(a2aEndpoint));
+    const agentCardUrl =
+      agentCardUrlRaw.includes('localhost')
+        ? agentCardUrlRaw.replace(/localhost/g, '127.0.0.1')
+        : agentCardUrlRaw;
 
-    console.log('[API] Loading agent.json for A2A proxy:', agentJsonUrl);
+    console.log('[API] Loading agent-card.json for A2A proxy:', agentCardUrl);
 
-    // Use native http/https for agent.json too (avoids fetch issues with blocked ports / localhost)
-    const agentJsonUrlObj = new URL(agentJsonUrl);
-    const agentJsonIsHttps = agentJsonUrlObj.protocol === 'https:';
-    const agentJsonHttpModule = agentJsonIsHttps ? await import('https') : await import('http');
-    const agentJson = await new Promise<any>((resolve, reject) => {
+    // Use native http/https for agent-card.json too (avoids fetch issues with blocked ports / localhost)
+    const agentCardUrlObj = new URL(agentCardUrl);
+    const agentCardIsHttps = agentCardUrlObj.protocol === 'https:';
+    const agentCardHttpModule = agentCardIsHttps ? await import('https') : await import('http');
+    const agentCard = await new Promise<any>((resolve, reject) => {
       const options = {
-        hostname: agentJsonUrlObj.hostname,
-        port: agentJsonUrlObj.port || (agentJsonIsHttps ? 443 : 80),
-        path: agentJsonUrlObj.pathname + agentJsonUrlObj.search,
+        hostname: agentCardUrlObj.hostname,
+        port: agentCardUrlObj.port || (agentCardIsHttps ? 443 : 80),
+        path: agentCardUrlObj.pathname + agentCardUrlObj.search,
         method: 'GET',
         headers: {
           Accept: 'application/json',
         },
       };
-      const req = agentJsonHttpModule.request(options, (res) => {
+      const req = agentCardHttpModule.request(options, (res) => {
         let data = '';
         res.on('data', (chunk) => {
           data += chunk;
@@ -112,14 +112,14 @@ export async function POST(request: NextRequest) {
           if (!res.statusCode || res.statusCode < 200 || res.statusCode >= 300) {
             return reject(
               new Error(
-                `Failed to fetch agent.json (HTTP ${res.statusCode} ${res.statusMessage || ''})`,
+                `Failed to fetch agent-card.json (HTTP ${res.statusCode} ${res.statusMessage || ''})`,
               ),
             );
           }
           try {
             resolve(data ? JSON.parse(data) : {});
           } catch (e: any) {
-            reject(new Error(`Failed to parse agent.json: ${e?.message || 'unknown error'}`));
+            reject(new Error(`Failed to parse agent-card.json: ${e?.message || 'unknown error'}`));
           }
         });
       });
@@ -127,10 +127,10 @@ export async function POST(request: NextRequest) {
       req.end();
     });
 
-    const messageEndpoint = extractA2AMessageEndpoint(agentJson, agentJsonUrl);
+    const messageEndpoint = extractA2AMessageEndpoint(agentCard, agentCardUrl);
     if (!messageEndpoint) {
       return NextResponse.json(
-        { error: 'agent.json did not declare an A2A message endpoint (provider.url or endpoints.a2a).' },
+        { error: 'agent-card.json did not declare an A2A message endpoint (provider.url or endpoints.a2a).' },
         { status: 400 },
       );
     }

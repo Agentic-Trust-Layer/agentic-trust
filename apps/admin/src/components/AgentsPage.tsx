@@ -241,18 +241,14 @@ export function AgentsPage({
     loading: boolean;
     error: string | null;
     messageEndpointUrl: string | null;
-    agentJsonUrl: string | null;
     agentCardUrl: string | null;
-    agentJsonText: string | null;
     agentCardText: string | null;
   }>({
     key: null,
     loading: false,
     error: null,
     messageEndpointUrl: null,
-    agentJsonUrl: null,
     agentCardUrl: null,
-    agentJsonText: null,
     agentCardText: null,
   });
   const [sessionPreview, setSessionPreview] = useState<{
@@ -752,8 +748,8 @@ export function AgentsPage({
         setFeedbackSkillsError(null);
         (async () => {
           try {
-            const { agentJsonUrl } = deriveA2ADiscoveryUrls(agent.a2aEndpoint as string);
-            const text = agentJsonUrl ? await loadAgentCardContent(agentJsonUrl) : await loadAgentCardContent(agent.a2aEndpoint as string);
+            const { agentCardUrl } = deriveA2ADiscoveryUrls(agent.a2aEndpoint as string);
+            const text = agentCardUrl ? await loadAgentCardContent(agentCardUrl) : await loadAgentCardContent(agent.a2aEndpoint as string);
             let skills: AgentSkill[] = [];
             try {
               const parsed = JSON.parse(text);
@@ -886,9 +882,7 @@ export function AgentsPage({
         loading: false,
         error: 'No agent card (agent-card.json) URL configured for this agent.',
         messageEndpointUrl: null,
-        agentJsonUrl: null,
         agentCardUrl: null,
-        agentJsonText: null,
         agentCardText: null,
       });
       return;
@@ -900,15 +894,12 @@ export function AgentsPage({
       loading: true,
       error: null,
       messageEndpointUrl: derived.messageEndpointUrl ?? endpoint,
-      agentJsonUrl: derived.agentJsonUrl,
       agentCardUrl: derived.agentCardUrl,
-      agentJsonText: null,
       agentCardText: null,
     });
     (async () => {
       try {
-        const [agentJsonResult, agentCardResult] = await Promise.allSettled([
-          derived.agentJsonUrl ? loadAgentCardContent(derived.agentJsonUrl) : Promise.resolve(null),
+        const [agentCardResult] = await Promise.allSettled([
           derived.agentCardUrl ? loadAgentCardContent(derived.agentCardUrl) : Promise.resolve(null),
         ]);
         if (cancelled) return;
@@ -917,9 +908,7 @@ export function AgentsPage({
           loading: false,
           error: null,
           messageEndpointUrl: derived.messageEndpointUrl ?? endpoint,
-          agentJsonUrl: derived.agentJsonUrl,
           agentCardUrl: derived.agentCardUrl,
-          agentJsonText: agentJsonResult.status === 'fulfilled' ? agentJsonResult.value : null,
           agentCardText: agentCardResult.status === 'fulfilled' ? agentCardResult.value : null,
         });
       } catch (error: any) {
@@ -929,9 +918,7 @@ export function AgentsPage({
           loading: false,
           error: error?.message ?? 'Unable to load agent card JSON.',
           messageEndpointUrl: derived.messageEndpointUrl ?? endpoint,
-          agentJsonUrl: derived.agentJsonUrl,
           agentCardUrl: derived.agentCardUrl,
-          agentJsonText: null,
           agentCardText: null,
         });
       }
@@ -1565,13 +1552,8 @@ export function AgentsPage({
                 <span style={{ color: palette.dangerText }}>{a2aPreview.error}</span>
               ) : (
                 <>
-                  <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>agent-card.json</div>
                   <div style={{ marginBottom: '0.9rem' }}>
                     {a2aPreview.agentCardText ? formatJsonIfPossible(a2aPreview.agentCardText) : '—'}
-                  </div>
-                  <div style={{ fontWeight: 700, marginBottom: '0.35rem' }}>agent.json (legacy)</div>
-                  <div>
-                    {a2aPreview.agentJsonText ? formatJsonIfPossible(a2aPreview.agentJsonText) : '—'}
                   </div>
                 </>
               )}
@@ -4634,29 +4616,24 @@ async function loadAgentCardContent(uri: string): Promise<string> {
 
 function deriveA2ADiscoveryUrls(endpoint: string): {
   messageEndpointUrl: string | null;
-  agentJsonUrl: string | null;
   agentCardUrl: string | null;
 } {
   if (!endpoint || typeof endpoint !== 'string') {
-    return { messageEndpointUrl: null, agentJsonUrl: null, agentCardUrl: null };
+    return { messageEndpointUrl: null, agentCardUrl: null };
   }
   try {
     const url = new URL(endpoint);
     const origin = url.origin;
     const path = url.pathname || '';
 
-    const agentJsonUrl = `${origin}/.well-known/agent.json`; // legacy alias
     const agentCardUrl = `${origin}/.well-known/agent-card.json`; // canonical v1.0 agent card
 
     // `a2aEndpoint` is expected to point to the agent card (agent-card.json).
-    // Keep it verbatim if it already looks like an agent-card.json (or legacy agent.json) URL.
+    // Keep it verbatim if it already looks like an agent-card.json URL.
     const looksLikeAgentCard =
       /\/agent-card\.json\/?$/i.test(path) ||
-      /\/agent\.json\/?$/i.test(path) ||
       path.endsWith('/.well-known/agent-card.json') ||
-      path.endsWith('/.well-known/agent-card.json/') ||
-      path.endsWith('/.well-known/agent.json') ||
-      path.endsWith('/.well-known/agent.json/');
+      path.endsWith('/.well-known/agent-card.json/');
     const explicitAgentCardUrl = looksLikeAgentCard ? url.toString() : agentCardUrl;
 
     // Back-compat: if we are given a historical message endpoint like /api/a2a,
@@ -4665,11 +4642,10 @@ function deriveA2ADiscoveryUrls(endpoint: string): {
     return {
       // For UI, we want a stable link. Prefer the agent card URL if present.
       messageEndpointUrl: looksLikeAgentCard ? url.toString() : looksLikeMessageEndpoint ? url.toString() : null,
-      agentJsonUrl,
       agentCardUrl: explicitAgentCardUrl,
     };
   } catch {
-    return { messageEndpointUrl: null, agentJsonUrl: null, agentCardUrl: null };
+    return { messageEndpointUrl: null, agentCardUrl: null };
   }
 }
 
