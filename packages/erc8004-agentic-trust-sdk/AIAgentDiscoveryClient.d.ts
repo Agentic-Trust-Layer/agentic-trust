@@ -88,6 +88,22 @@ export interface OasfDomain {
     extendsKey?: string | null;
     category?: string | null;
 }
+export interface DiscoveryIntentType {
+    key: string;
+    label?: string | null;
+    description?: string | null;
+}
+export interface DiscoveryTaskType {
+    key: string;
+    label?: string | null;
+    description?: string | null;
+}
+export interface DiscoveryIntentTaskMapping {
+    intent: DiscoveryIntentType;
+    task: DiscoveryTaskType;
+    requiredSkills: string[];
+    optionalSkills: string[];
+}
 /**
  * Discovery query response types
  */
@@ -270,6 +286,9 @@ export declare class AIAgentDiscoveryClient {
         orderBy?: string;
         orderDirection?: string;
     }): Promise<OasfDomain[]>;
+    intentTypes(params?: { key?: string; label?: string; limit?: number; offset?: number }): Promise<DiscoveryIntentType[]>;
+    taskTypes(params?: { key?: string; label?: string; limit?: number; offset?: number }): Promise<DiscoveryTaskType[]>;
+    intentTaskMappings(params?: { intentKey?: string; taskKey?: string; limit?: number; offset?: number }): Promise<DiscoveryIntentTaskMapping[]>;
     searchAgentsAdvanced(options: SearchAgentsAdvancedOptions): Promise<{
         agents: AgentData[];
         total?: number | null;

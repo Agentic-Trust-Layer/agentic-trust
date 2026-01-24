@@ -575,32 +575,61 @@ app.get('/', (c: HonoContext) => {
   });
 });
 
+const DEFAULT_OASF_DOMAINS = ['governance-and-trust', 'security', 'collaboration'];
+const DEFAULT_OASF_SKILLS = [
+  'trust.feedback.authorization',
+  'trust.validate.name',
+  'trust.validate.account',
+  'trust.validate.app',
+  'trust.association.attestation',
+  'trust.membership.attestation',
+  'trust.delegation.attestation',
+];
+
+async function fetchOasfTaxonomy(env: Record<string, any>): Promise<{ skills: string[]; domains: string[] }> {
+  const raw = (env.AGENTIC_TRUST_GRAPHQL_URL || env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
+  const graphqlUrl = /\/graphql\/?$/i.test(raw)
+    ? raw.replace(/\/+$/, '')
+    : raw
+      ? `${raw.replace(/\/+$/, '')}/graphql`
+      : '';
+  if (!graphqlUrl) {
+    return { skills: [...DEFAULT_OASF_SKILLS], domains: [...DEFAULT_OASF_DOMAINS] };
+  }
+  const query = `query { oasfSkills(limit: 10000) { key } oasfDomains(limit: 10000) { key } }`;
+  try {
+    const res = await fetch(graphqlUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+    });
+    const data = await res.json().catch(() => ({}));
+    const skills = Array.isArray((data as any)?.data?.oasfSkills)
+      ? (data as any).data.oasfSkills.map((s: any) => String(s?.key ?? '').trim()).filter(Boolean)
+      : DEFAULT_OASF_SKILLS;
+    const domains = Array.isArray((data as any)?.data?.oasfDomains)
+      ? (data as any).data.oasfDomains.map((d: any) => String(d?.key ?? '').trim()).filter(Boolean)
+      : DEFAULT_OASF_DOMAINS;
+    return {
+      skills: skills.length ? skills : DEFAULT_OASF_SKILLS,
+      domains: domains.length ? domains : DEFAULT_OASF_DOMAINS,
+    };
+  } catch (e) {
+    console.warn('[ATP Agent] fetchOasfTaxonomy failed, using defaults:', e);
+    return { skills: [...DEFAULT_OASF_SKILLS], domains: [...DEFAULT_OASF_DOMAINS] };
+  }
+}
+
 const buildAgentCard = (params: {
   subdomain: string | null | undefined;
   env: Record<string, any>;
   origin: string;
   messageEndpoint: string;
   skills: any[];
+  oasfSkills: string[];
+  oasfDomains: string[];
 }) => {
-  const { subdomain, env, origin, messageEndpoint, skills } = params;
-
-  const oasfDomains = ['governance-and-trust', 'security', 'collaboration'] as const;
-  const oasfSkills = [
-    'agent_interaction.request_handling',
-    'integration.protocol_handling',
-    'trust.identity.validation',
-    'trust.feedback.authorization',
-    'trust.validate.name',
-    'trust.validate.account',
-    'trust.validate.app',
-    'trust.association.attestation',
-    'trust.membership.attestation',
-    'trust.delegation.attestation',
-    'relationship.association.revocation',
-    'delegation.request.authorization',
-    'delegation.payload.verification',
-    'governance.audit.provenance',
-  ] as const;
+  const { subdomain, env, origin, messageEndpoint, skills, oasfSkills, oasfDomains } = params;
 
   return {
     protocolVersion: '1.0',
@@ -1119,12 +1148,15 @@ const serveAgentCard = async (c: HonoContext) => {
     return filtered;
   })();
 
+  const { skills: oasfSkills, domains: oasfDomains } = await fetchOasfTaxonomy(env);
   const agentCard = buildAgentCard({
     subdomain,
     env,
     origin,
     messageEndpoint,
     skills,
+    oasfSkills,
+    oasfDomains,
   });
 
   return c.json(agentCard);

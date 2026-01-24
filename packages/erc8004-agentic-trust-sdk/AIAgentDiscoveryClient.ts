@@ -94,6 +94,28 @@ export interface OasfDomain {
   category?: string | null;
 }
 
+/** Intent type from discovery GraphQL */
+export interface DiscoveryIntentType {
+  key: string;
+  label?: string | null;
+  description?: string | null;
+}
+
+/** Task type from discovery GraphQL */
+export interface DiscoveryTaskType {
+  key: string;
+  label?: string | null;
+  description?: string | null;
+}
+
+/** Intent-to-task mapping from discovery GraphQL */
+export interface DiscoveryIntentTaskMapping {
+  intent: DiscoveryIntentType;
+  task: DiscoveryTaskType;
+  requiredSkills: string[];
+  optionalSkills: string[];
+}
+
 type GraphQLTypeRef = {
   kind: string;
   name?: string | null;
@@ -1153,6 +1175,115 @@ export class AIAgentDiscoveryClient {
         return [];
       }
       console.warn('[AIAgentDiscoveryClient] oasfDomains query failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch intent types from the discovery GraphQL endpoint (best-effort).
+   * Returns [] if the backend does not expose `intentTypes`.
+   */
+  async intentTypes(params?: {
+    key?: string;
+    label?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DiscoveryIntentType[]> {
+    const query = `
+      query IntentTypes($key: String, $label: String, $limit: Int, $offset: Int) {
+        intentTypes(key: $key, label: $label, limit: $limit, offset: $offset) {
+          key
+          label
+          description
+        }
+      }
+    `;
+    try {
+      const data = await this.client.request<{ intentTypes?: DiscoveryIntentType[] }>(query, {
+        key: params?.key ?? null,
+        label: params?.label ?? null,
+        limit: typeof params?.limit === 'number' ? params.limit : 10000,
+        offset: typeof params?.offset === 'number' ? params.offset : 0,
+      });
+      return Array.isArray(data?.intentTypes) ? data.intentTypes : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Cannot query field "intentTypes"')) return [];
+      if (/Cannot return null for non-nullable field\s+Query\.intentTypes\b/i.test(message)) return [];
+      console.warn('[AIAgentDiscoveryClient] intentTypes query failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch task types from the discovery GraphQL endpoint (best-effort).
+   * Returns [] if the backend does not expose `taskTypes`.
+   */
+  async taskTypes(params?: {
+    key?: string;
+    label?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DiscoveryTaskType[]> {
+    const query = `
+      query TaskTypes($key: String, $label: String, $limit: Int, $offset: Int) {
+        taskTypes(key: $key, label: $label, limit: $limit, offset: $offset) {
+          key
+          label
+          description
+        }
+      }
+    `;
+    try {
+      const data = await this.client.request<{ taskTypes?: DiscoveryTaskType[] }>(query, {
+        key: params?.key ?? null,
+        label: params?.label ?? null,
+        limit: typeof params?.limit === 'number' ? params.limit : 10000,
+        offset: typeof params?.offset === 'number' ? params.offset : 0,
+      });
+      return Array.isArray(data?.taskTypes) ? data.taskTypes : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Cannot query field "taskTypes"')) return [];
+      if (/Cannot return null for non-nullable field\s+Query\.taskTypes\b/i.test(message)) return [];
+      console.warn('[AIAgentDiscoveryClient] taskTypes query failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fetch intent-task mappings from the discovery GraphQL endpoint (best-effort).
+   * Returns [] if the backend does not expose `intentTaskMappings`.
+   */
+  async intentTaskMappings(params?: {
+    intentKey?: string;
+    taskKey?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<DiscoveryIntentTaskMapping[]> {
+    const query = `
+      query IntentTaskMappings($intentKey: String, $taskKey: String, $limit: Int, $offset: Int) {
+        intentTaskMappings(intentKey: $intentKey, taskKey: $taskKey, limit: $limit, offset: $offset) {
+          intent { key label description }
+          task { key label description }
+          requiredSkills
+          optionalSkills
+        }
+      }
+    `;
+    try {
+      const data = await this.client.request<{ intentTaskMappings?: DiscoveryIntentTaskMapping[] }>(query, {
+        intentKey: params?.intentKey ?? null,
+        taskKey: params?.taskKey ?? null,
+        limit: typeof params?.limit === 'number' ? params.limit : 10000,
+        offset: typeof params?.offset === 'number' ? params.offset : 0,
+      });
+      return Array.isArray(data?.intentTaskMappings) ? data.intentTaskMappings : [];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('Cannot query field "intentTaskMappings"')) return [];
+      if (/Cannot return null for non-nullable field\s+Query\.intentTaskMappings\b/i.test(message)) return [];
+      console.warn('[AIAgentDiscoveryClient] intentTaskMappings query failed:', error);
       throw error;
     }
   }

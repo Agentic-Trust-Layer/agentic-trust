@@ -64,10 +64,12 @@ import { getClientBundlerUrl, getClientRpcUrl, getClientRegistryAddresses } from
 import { createPublicClient, encodeAbiParameters, getAddress, http, keccak256, parseAbiParameters, toHex } from 'viem';
 import type { Chain } from 'viem';
 import {
-  INBOX_INTENT_TYPE_OPTIONS,
-  INBOX_TASK_TYPE_OPTIONS,
+  GENERAL_INTENT_KEY,
+  GENERAL_TASK_KEY,
   type InboxIntentType,
   type InboxTaskType,
+  type InboxIntentTypeOption,
+  type InboxTaskTypeOption,
 } from '@/models/a2aTasks';
 
 type Message = {
@@ -380,7 +382,7 @@ export default function MessagesPage() {
   const [messageSearch, setMessageSearch] = useState('');
   const [mailboxMode, setMailboxMode] = useState<'inbox' | 'sent'>('inbox');
 
-  const [selectedIntentType, setSelectedIntentType] = useState<InboxIntentType>('general');
+  const [selectedIntentType, setSelectedIntentType] = useState<InboxIntentType>(GENERAL_INTENT_KEY);
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeSubject, setComposeSubject] = useState('');
   const [composeBody, setComposeBody] = useState('');
@@ -398,6 +400,17 @@ export default function MessagesPage() {
   const [validationRequestDomain, setValidationRequestDomain] = useState('');
   const [associationRequestType, setAssociationRequestType] = useState<number>(0); // AssocType.Membership
   const [associationRequestDescription, setAssociationRequestDescription] = useState('');
+
+  const [taxonomyIntentTypes, setTaxonomyIntentTypes] = useState<Array<{ key: string; label?: string | null; description?: string | null }>>([]);
+  const [taxonomyTaskTypes, setTaxonomyTaskTypes] = useState<Array<{ key: string; label?: string | null; description?: string | null }>>([]);
+  const [taxonomyMappings, setTaxonomyMappings] = useState<Array<{
+    intent: { key: string; label?: string | null };
+    task: { key: string; label?: string | null };
+    requiredSkills: string[];
+    optionalSkills: string[];
+  }>>([]);
+  const [taxonomyLoading, setTaxonomyLoading] = useState(true);
+  const [taxonomyError, setTaxonomyError] = useState<string | null>(null);
 
   const [approveOpen, setApproveOpen] = useState(false);
   const [approveExpiryDays, setApproveExpiryDays] = useState<number>(30);
@@ -427,8 +440,71 @@ export default function MessagesPage() {
   const [validationResponseAlreadySubmitted, setValidationResponseAlreadySubmitted] = useState(false);
 
   const isValidationRequestTaskType = useCallback((t: InboxTaskType) => {
-    return t === 'name_validation_request' || t === 'account_validation_request' || t === 'app_validation_request';
+    return String(t).toLowerCase().includes('validation');
   }, []);
+
+  const isFeedbackAuthTask = useCallback((t: InboxTaskType) => {
+    return String(t).toLowerCase().includes('feedback');
+  }, []);
+
+  const isAssociationTask = useCallback((t: InboxTaskType) => {
+    return String(t).toLowerCase().includes('association');
+  }, []);
+
+  const isAddMemberTask = useCallback((t: InboxTaskType) => {
+    const k = String(t).toLowerCase();
+    return k.includes('add_member') || (k.includes('member') && !k.includes('verify'));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        setTaxonomyLoading(true);
+        setTaxonomyError(null);
+        const r = await fetch('/api/discovery/taxonomy', { cache: 'no-store' });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) {
+          setTaxonomyError(data?.message || data?.error || 'Failed to load taxonomy');
+          return;
+        }
+        setTaxonomyIntentTypes(Array.isArray(data?.intentTypes) ? data.intentTypes : []);
+        setTaxonomyTaskTypes(Array.isArray(data?.taskTypes) ? data.taskTypes : []);
+        setTaxonomyMappings(Array.isArray(data?.intentTaskMappings) ? data.intentTaskMappings : []);
+      } catch (e) {
+        if (!cancelled) {
+          setTaxonomyError(e instanceof Error ? e.message : 'Failed to load taxonomy');
+        }
+      } finally {
+        if (!cancelled) setTaxonomyLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const intentOptions: InboxIntentTypeOption[] = useMemo(() => {
+    const general: InboxIntentTypeOption = { value: GENERAL_INTENT_KEY, label: 'General', defaultTaskKey: GENERAL_TASK_KEY };
+    const fromApi = taxonomyIntentTypes.map((i) => {
+      const first = taxonomyMappings.find((m) => m.intent.key === i.key);
+      return {
+        value: i.key,
+        label: i.label ?? i.key,
+        defaultTaskKey: first?.task.key ?? GENERAL_TASK_KEY,
+      };
+    });
+    return [general, ...fromApi];
+  }, [taxonomyIntentTypes, taxonomyMappings]);
+
+  const taskOptions: InboxTaskTypeOption[] = useMemo(() => {
+    const general: InboxTaskTypeOption = { value: GENERAL_TASK_KEY, label: 'General Message' };
+    const fromApi = taxonomyTaskTypes.map((t) => ({
+      value: t.key,
+      label: t.label ?? t.key,
+      requiredSkills: taxonomyMappings.find((m) => m.task.key === t.key)?.requiredSkills,
+    }));
+    return [general, ...fromApi];
+  }, [taxonomyTaskTypes, taxonomyMappings]);
 
   const resolvePlainAddress = useCallback((value: unknown): `0x${string}` | null => {
     if (typeof value !== 'string') return null;
@@ -1171,21 +1247,9 @@ export default function MessagesPage() {
     setComposeToAgent(null);
     setComposeToAgentInput('');
     setComposeToAgentCard(null);
-    setSelectedIntentType('general');
-    setSelectedMessageType('general');
-    setComposeSubject(
-      selectedMessageType === 'feedback_auth_request'
-        ? 'Request Feedback Permission'
-        : selectedMessageType === 'name_validation_request'
-          ? 'Request Name Validation'
-          : selectedMessageType === 'account_validation_request'
-            ? 'Request Account Validation'
-            : selectedMessageType === 'app_validation_request'
-              ? 'Request App Validation'
-          : selectedMessageType === 'association_request'
-            ? 'Request Association'
-            : '',
-    );
+    setSelectedIntentType(GENERAL_INTENT_KEY);
+    setSelectedMessageType(GENERAL_TASK_KEY);
+    setComposeSubject('');
     setComposeBody('');
     setFeedbackRequestComment('');
     setValidationRequestKind('compliance');
@@ -1247,26 +1311,14 @@ export default function MessagesPage() {
     setComposeToAgentCard(null);
     setComposeSubject('');
     setComposeBody('');
-    // Pin the task type to the current thread's type when possible.
-    const threadType = selectedThread.taskType as any;
+    const threadType = selectedThread.taskType as string;
     const pinnedTaskType =
       threadType === 'feedback_request_approved' ? 'feedback_auth_request' : threadType;
     setSelectedMessageType(pinnedTaskType);
-    setSelectedIntentType(
-      pinnedTaskType === 'name_validation_request'
-        ? 'trust.name_validation'
-        : pinnedTaskType === 'account_validation_request'
-          ? 'trust.account_validation'
-          : pinnedTaskType === 'app_validation_request'
-            ? 'trust.app_validation'
-        : pinnedTaskType === 'feedback_auth_request'
-          ? 'trust.feedback'
-          : pinnedTaskType === 'association_request'
-            ? 'trust.association'
-            : 'general',
-    );
+    const mapping = taxonomyMappings.find((m) => m.task.key === pinnedTaskType);
+    setSelectedIntentType(mapping?.intent.key ?? GENERAL_INTENT_KEY);
     setComposeOpen(true);
-  }, [selectedFolderAgent, selectedFromAgentDid, selectedThread, mailboxMode]);
+  }, [selectedFolderAgent, selectedFromAgentDid, selectedThread, mailboxMode, taxonomyMappings]);
 
   // Async agent search for "To Agent" autocomplete
   // Always show a default list (latest agents) when the dialog opens, and filter as user types.
@@ -1280,21 +1332,13 @@ export default function MessagesPage() {
     (async () => {
       try {
         const buildIntentJson = (intent: InboxIntentType, query: string) => {
-          if (intent === 'general') return null;
-          const base: any = { intentType: intent };
-          if (intent === 'trust.name_validation') base.action = 'validate-name';
-          if (intent === 'trust.account_validation') base.action = 'validate-account';
-          if (intent === 'trust.app_validation') base.action = 'validate-app';
-          if (intent === 'trust.feedback') base.action = 'request-authorization';
-          if (intent === 'trust.association') base.action = 'request-attestation';
-          if (intent === 'trust.membership') base.action = 'attest-membership';
-          if (intent === 'trust.delegation') base.action = 'attest-delegation';
+          if (intent === GENERAL_INTENT_KEY) return null;
+          const base: Record<string, string> = { intentType: intent };
           if (query) base.query = query;
           return JSON.stringify(base);
         };
 
-        // Intent-first: when intent != general, query agents by required skills.
-        if (selectedIntentType !== 'general') {
+        if (selectedIntentType !== GENERAL_INTENT_KEY) {
           const mapAgentToOption = (a: any): AgentSearchOption | null => {
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
             const agentId = a?.agentId != null ? String(a.agentId) : '';
@@ -1350,15 +1394,15 @@ export default function MessagesPage() {
             return agents.map(mapAgentToOption).filter(Boolean) as AgentSearchOption[];
           };
 
-          // For validation intents, always include the canonical validator agents.
+          const k = String(selectedIntentType).toLowerCase();
           const mappedPinned =
-            selectedIntentType === 'trust.name_validation'
+            k.includes('name') && k.includes('validation')
               ? await fetchAgentsByName('name-validation')
-              : selectedIntentType === 'trust.account_validation'
+              : k.includes('account') && k.includes('validation')
               ? await fetchAgentsByName('account-validation')
-              : selectedIntentType === 'trust.app_validation'
-                ? await fetchAgentsByName('app-validation')
-                  : [];
+              : k.includes('app') && k.includes('validation')
+              ? await fetchAgentsByName('app-validation')
+              : [];
 
           // Merge all results, prioritizing intent-based matches
           const merged = (() => {
@@ -1505,7 +1549,7 @@ export default function MessagesPage() {
     setError(null);
 
     try {
-      if (selectedMessageType === 'feedback_auth_request') {
+      if (isFeedbackAuthTask(selectedMessageType)) {
         const comment = feedbackRequestComment.trim();
         if (!comment) {
           throw new Error('Reason is required for a feedback request.');
@@ -1542,41 +1586,43 @@ export default function MessagesPage() {
         }
       } else {
         const content = composeBody.trim();
-        if (!content && !isValidationRequestTaskType(selectedMessageType) && selectedMessageType !== 'association_request' && selectedMessageType !== 'add_member_request') {
+        if (!content && !isValidationRequestTaskType(selectedMessageType) && !isAssociationTask(selectedMessageType) && !isAddMemberTask(selectedMessageType)) {
           throw new Error('Message body is required.');
         }
+        const k = String(selectedMessageType).toLowerCase();
         let contentToSend =
           content ||
-          (selectedMessageType === 'name_validation_request'
+          (k.includes('name') && k.includes('validation')
             ? `Request name validation (${validationRequestKind})`
-            : selectedMessageType === 'account_validation_request'
+            : k.includes('account') && k.includes('validation')
               ? `Request account validation (${validationRequestKind})`
-              : selectedMessageType === 'app_validation_request'
+              : k.includes('app') && k.includes('validation')
                 ? `Request app validation (${validationRequestKind})`
-            : selectedMessageType === 'association_request'
-              ? 'Request association'
-              : selectedMessageType === 'add_member_request'
-                ? 'Add member'
-                : '');
+                : isAssociationTask(selectedMessageType)
+                  ? 'Request association'
+                  : isAddMemberTask(selectedMessageType)
+                    ? 'Add member'
+                    : '');
 
+        const sk = String(selectedMessageType).toLowerCase();
         const subject =
           composeSubject.trim() ||
-          (selectedMessageType === 'name_validation_request'
+          (sk.includes('name') && sk.includes('validation')
             ? `Request Name Validation: ${validationRequestKind}`
-            : selectedMessageType === 'account_validation_request'
+            : sk.includes('account') && sk.includes('validation')
               ? `Request Account Validation: ${validationRequestKind}`
-              : selectedMessageType === 'app_validation_request'
+              : sk.includes('app') && sk.includes('validation')
                 ? `Request App Validation: ${validationRequestKind}`
-            : selectedMessageType === 'association_request'
-              ? 'Request Association'
-              : selectedMessageType === 'add_member_request'
-                ? 'Add Member'
-                : 'Message');
+                : isAssociationTask(selectedMessageType)
+                  ? 'Request Association'
+                  : isAddMemberTask(selectedMessageType)
+                    ? 'Add Member'
+                    : 'Message');
 
         // For association requests: prepare + execute via client wallet (AA + bundler).
         // If approver is a different agent account, we send a message containing the payload
         // and the approver signs + submits later from their inbox.
-        if (selectedMessageType === 'association_request') {
+        if (isAssociationTask(selectedMessageType)) {
           try {
             if (!composeToAgent) {
               throw new Error('To Agent is required for association requests');
@@ -1816,9 +1862,7 @@ export default function MessagesPage() {
             // Association requests must include a payload block to be actionable.
             throw assocError;
           }
-        } else if (selectedMessageType === 'add_member_request') {
-          // For add_member requests: create ERC-8092 membership association payload
-          // Similar to association_request but with membership-specific type
+        } else if (isAddMemberTask(selectedMessageType)) {
           try {
             if (!composeToAgent) {
               throw new Error('To Agent is required for add member requests');
@@ -2116,11 +2160,11 @@ export default function MessagesPage() {
               validatorAddress,
             });
 
-            // Determine which validation function to use based on selected message type.
+            const vk = String(selectedMessageType).toLowerCase();
             const requestValidationFn =
-              selectedMessageType === 'name_validation_request'
+              vk.includes('name') && vk.includes('validation')
                 ? requestNameValidationWithWallet
-                : selectedMessageType === 'account_validation_request'
+                : vk.includes('account') && vk.includes('validation')
                   ? requestAccountValidationWithWallet
                   : requestAppValidationWithWallet;
 
@@ -2296,7 +2340,7 @@ export default function MessagesPage() {
 
 
         // For add_member requests, send directly to the agent's A2A endpoint with the skill
-        if (selectedMessageType === 'add_member_request') {
+        if (isAddMemberTask(selectedMessageType)) {
           // Extract message endpoint from agent card's supportedInterfaces (required)
           if (!composeToAgentCard?.supportedInterfaces || !Array.isArray(composeToAgentCard.supportedInterfaces)) {
             throw new Error('To Agent agent card is missing or does not have supportedInterfaces. Cannot send add member request.');
@@ -2413,67 +2457,47 @@ export default function MessagesPage() {
     return date.toLocaleString();
   };
 
-  const getMessageTypeLabel = (type: string) => {
-    switch (type) {
-      case 'feedback_auth_request':
-        return 'Request Feedback Permission';
-      case 'name_validation_request':
-        return 'Request Name Validation';
-      case 'account_validation_request':
-        return 'Request Account Validation';
-      case 'app_validation_request':
-        return 'Request App Validation';
-      case 'association_request':
-        return 'Request Association';
-      case 'feedback_request_approved':
-        return 'Feedback Request Approved';
-      default:
-        return 'General Message';
-    }
-  };
+  const getMessageTypeLabel = useCallback((type: string) => {
+    if (type === GENERAL_TASK_KEY) return 'General Message';
+    const t = taskOptions.find((o) => o.value === type);
+    if (t?.label) return t.label;
+    if (String(type).toLowerCase().includes('validation')) return 'Validation Request';
+    if (String(type).toLowerCase().includes('feedback')) return 'Feedback Request';
+    if (String(type).toLowerCase().includes('association')) return 'Request Association';
+    return type || 'General Message';
+  }, [taskOptions]);
 
-  const getMessageTypeColor = (type: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
-    switch (type) {
-      case 'feedback_auth_request':
-        return 'primary';
-      case 'name_validation_request':
-      case 'account_validation_request':
-      case 'app_validation_request':
-        return 'warning';
-      case 'feedback_request_approved':
-        return 'success';
-      default:
-        return 'default';
-    }
-  };
+  const getMessageTypeColor = useCallback((type: string): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
+    const k = String(type).toLowerCase();
+    if (k.includes('feedback') && k.includes('approved')) return 'success';
+    if (k.includes('feedback')) return 'primary';
+    if (k.includes('validation')) return 'warning';
+    return 'default';
+  }, []);
 
 
 
-  // Filter task types based on selected intent type
   const filteredTaskTypeOptions = useMemo(() => {
-    if (selectedIntentType === 'general') {
-      return INBOX_TASK_TYPE_OPTIONS;
+    if (selectedIntentType === GENERAL_INTENT_KEY) return taskOptions;
+    const mapped = taxonomyMappings
+      .filter((m) => m.intent.key === selectedIntentType)
+      .map((m) => m.task.key);
+    if (mapped.length === 0) {
+      const intentOpt = intentOptions.find((o) => o.value === selectedIntentType);
+      const defaultKey = intentOpt?.defaultTaskKey ?? GENERAL_TASK_KEY;
+      return taskOptions.filter((t) => t.value === defaultKey);
     }
-    const intentOption = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === selectedIntentType);
-    if (!intentOption) {
-      return INBOX_TASK_TYPE_OPTIONS;
-    }
-    // Show only task types that match the intent's defaultTaskType
-    // (or task types that are the default for intents sharing the same category)
-    const defaultTaskType = intentOption.defaultTaskType;
-    return INBOX_TASK_TYPE_OPTIONS.filter((opt) => opt.value === defaultTaskType);
-  }, [selectedIntentType]);
+    return taskOptions.filter((t) => mapped.includes(t.value));
+  }, [selectedIntentType, taskOptions, intentOptions, taxonomyMappings]);
 
-  // Reset task type if it's not in the filtered list when intent type changes
   useEffect(() => {
     if (!composeOpen) return;
-    const isValidTaskType = filteredTaskTypeOptions.some((opt) => opt.value === selectedMessageType);
-    if (!isValidTaskType && filteredTaskTypeOptions.length > 0) {
-      const intentOption = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === selectedIntentType);
-      const defaultTask = intentOption?.defaultTaskType ?? 'general';
-      setSelectedMessageType(defaultTask as any);
+    const valid = filteredTaskTypeOptions.some((o) => o.value === selectedMessageType);
+    if (!valid && filteredTaskTypeOptions.length > 0) {
+      const intentOpt = intentOptions.find((o) => o.value === selectedIntentType);
+      setSelectedMessageType((intentOpt?.defaultTaskKey ?? GENERAL_TASK_KEY) as InboxTaskType);
     }
-  }, [selectedIntentType, filteredTaskTypeOptions, composeOpen, selectedMessageType]);
+  }, [selectedIntentType, filteredTaskTypeOptions, composeOpen, selectedMessageType, intentOptions]);
 
 
   return (
@@ -3076,7 +3100,7 @@ export default function MessagesPage() {
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <FormControl fullWidth size="small">
+            <FormControl fullWidth size="small" disabled={taxonomyLoading}>
               <InputLabel id="compose-intent-type-label">Intent Type</InputLabel>
               <Select
                 id="compose-intent-type"
@@ -3086,23 +3110,17 @@ export default function MessagesPage() {
                 onChange={(e) => {
                   const next = e.target.value as InboxIntentType;
                   setSelectedIntentType(next);
-
-                  // Reset recipient when intent changes (agent list is intent-scoped).
                   setComposeToAgent(null);
                   setComposeToAgentInput('');
                   setComposeToAgentCard(null);
-
-                  // Default task type for the intent.
-                  const opt = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === next);
-                  const defaultTask = opt?.defaultTaskType ?? 'general';
-                  setSelectedMessageType(defaultTask as any);
-
-                  // Default association subtype for membership/delegation intents.
-                  if (next === 'trust.membership') setAssociationRequestType(AssocType.Membership);
-                  if (next === 'trust.delegation') setAssociationRequestType(AssocType.Delegation);
+                  const opt = intentOptions.find((o) => o.value === next);
+                  setSelectedMessageType((opt?.defaultTaskKey ?? GENERAL_TASK_KEY) as InboxTaskType);
+                  const key = String(next).toLowerCase();
+                  if (key.includes('membership')) setAssociationRequestType(AssocType.Membership);
+                  else if (key.includes('delegation')) setAssociationRequestType(AssocType.Delegation);
                 }}
               >
-                {INBOX_INTENT_TYPE_OPTIONS.map((opt) => (
+                {intentOptions.map((opt) => (
                   <MenuItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </MenuItem>
@@ -3151,7 +3169,7 @@ export default function MessagesPage() {
                   {...params}
                   label="To Agent"
                   placeholder={
-                    selectedIntentType === 'general'
+                    selectedIntentType === GENERAL_INTENT_KEY
                       ? 'Search agents…'
                       : 'Search agents (intent-scoped)…'
                   }
@@ -3169,7 +3187,7 @@ export default function MessagesPage() {
               )}
             />
 
-            <FormControl fullWidth size="small" disabled={!composeToAgent || composeToAgentCardLoading}>
+            <FormControl fullWidth size="small" disabled={taxonomyLoading || !composeToAgent || composeToAgentCardLoading}>
               <InputLabel id="compose-message-type-label">Task Type</InputLabel>
               <Select
                 id="compose-message-type"
@@ -3179,28 +3197,27 @@ export default function MessagesPage() {
                 onChange={(e) => setSelectedMessageType(e.target.value as any)}
               >
                 {filteredTaskTypeOptions.map((opt) => (
-                  <MenuItem
-                    key={opt.value}
-                    value={opt.value}
-                  >
+                  <MenuItem key={opt.value} value={opt.value}>
                     {opt.label}
                   </MenuItem>
                 ))}
               </Select>
               <FormHelperText>
-                {!composeToAgent
-                  ? 'Pick a recipient first. Task types are derived from the recipient agent card skills.'
-                  : composeToAgentCardLoading
-                    ? 'Loading recipient agent card…'
-                    : selectedIntentType === 'general'
-                      ? 'Task types reflect what the recipient advertises in its agent card.'
-                      : 'Task types are filtered based on the selected intent type.'}
+                {taxonomyError
+                  ? taxonomyError
+                  : !composeToAgent
+                    ? 'Pick a recipient first. Task types from discovery taxonomy.'
+                    : composeToAgentCardLoading
+                      ? 'Loading recipient agent card…'
+                      : selectedIntentType === GENERAL_INTENT_KEY
+                        ? 'Task types from discovery taxonomy.'
+                        : 'Task types filtered by selected intent (discovery mappings).'}
               </FormHelperText>
             </FormControl>
 
 
 
-            {selectedMessageType === 'feedback_auth_request' ? (
+            {isFeedbackAuthTask(selectedMessageType) ? (
               <TextField
                 label="Why do you want to give feedback?"
                 value={feedbackRequestComment}
@@ -3277,7 +3294,7 @@ export default function MessagesPage() {
                   placeholder="Optional additional context…"
                 />
               </Stack>
-            ) : selectedMessageType === 'association_request' ? (
+            ) : isAssociationTask(selectedMessageType) ? (
               <Stack spacing={2}>
                 <FormControl fullWidth size="small">
                   <InputLabel id="association-request-type-label">Association Type</InputLabel>
