@@ -44,93 +44,29 @@ export type InboxTaskTypeOption = {
   value: InboxTaskType;
   label: string;
   /**
-   * A2A/ATP task types map to OASF/OASF-style skill identifiers.
-   * If set, the "To Agent" card must advertise at least one of these OASF skills to enable the task type.
-   * This is our primary mapping layer (tasks → OASF skills → executable A2A skills).
+   * Skill identifier (A2A or OASF format) that maps to this task type.
+   * Used for mapping between intent type, skill, and task type.
+   * This is metadata only and not used for validation/checking.
    */
-  requiredOsafSkills?: string[];
-  /**
-   * Back-compat: if the recipient does not publish OASF overlay tags, fall back to checking raw A2A skill ids.
-   */
-  requiredToAgentSkills?: string[];
+  skill?: string;
 };
 
 export const INBOX_TASK_TYPE_OPTIONS: InboxTaskTypeOption[] = [
   { value: 'general', label: 'General Message' },
-  {
-    value: 'feedback_auth_request',
-    label: 'Request Feedback Permission',
-    requiredOsafSkills: ['trust.feedback.authorization'],
-    requiredToAgentSkills: ['governance_and_trust/trust/trust_feedback_authorization'],
-  },
-  {
-    value: 'name_validation_request',
-    label: 'Request Name Validation',
-    requiredOsafSkills: ['trust.validate.name'],
-    requiredToAgentSkills: ['governance_and_trust/trust/trust_validate_name'],
-  },
-  {
-    value: 'account_validation_request',
-    label: 'Request Account Validation',
-    requiredOsafSkills: ['trust.validate.account'],
-    requiredToAgentSkills: ['governance_and_trust/trust/trust_validate_account'],
-  },
-  {
-    value: 'app_validation_request',
-    label: 'Request App Validation',
-    requiredOsafSkills: ['trust.validate.app'],
-    requiredToAgentSkills: ['governance_and_trust/trust/trust_validate_app'],
-  },
-  {
-    value: 'association_request',
-    label: 'Request Association',
-    requiredOsafSkills: ['trust.association.attestation'],
-  },
-  {
-    value: 'join_alliance_request',
-    label: 'Join Alliance',
-    requiredToAgentSkills: ['governance_and_trust/alliance/join_alliance'],
-  },
-  {
-    value: 'leave_alliance_request',
-    label: 'Leave Alliance',
-    requiredToAgentSkills: ['governance_and_trust/alliance/leave_alliance'],
-  },
-  {
-    value: 'verify_alliance_membership_request',
-    label: 'Verify Alliance Membership',
-    requiredToAgentSkills: ['governance_and_trust/alliance/verify_alliance_membership'],
-  },
-  {
-    value: 'add_delegation_request',
-    label: 'Add Delegation',
-    requiredToAgentSkills: ['governance_and_trust/delegation/add_delegation'],
-  },
-  {
-    value: 'revoke_delegation_request',
-    label: 'Revoke Delegation',
-    requiredToAgentSkills: ['governance_and_trust/delegation/revoke_delegation'],
-  },
-  {
-    value: 'verify_delegation_request',
-    label: 'Verify Delegation',
-    requiredToAgentSkills: ['governance_and_trust/delegation/verify_delegation'],
-  },
-  {
-    value: 'add_member_request',
-    label: 'Add Member',
-    requiredToAgentSkills: ['governance_and_trust/membership/add_member'],
-  },
-  {
-    value: 'remove_member_request',
-    label: 'Remove Member',
-    requiredToAgentSkills: ['governance_and_trust/membership/remove_member'],
-  },
-  {
-    value: 'verify_membership_request',
-    label: 'Verify Membership',
-    requiredToAgentSkills: ['governance_and_trust/membership/verify_membership'],
-  },
+  { value: 'feedback_auth_request', label: 'Request Feedback Permission', skill: 'governance_and_trust/trust/trust_feedback_authorization' },
+  { value: 'name_validation_request', label: 'Request Name Validation', skill: 'governance_and_trust/trust/trust_validate_name' },
+  { value: 'account_validation_request', label: 'Request Account Validation', skill: 'governance_and_trust/trust/trust_validate_account' },
+  { value: 'app_validation_request', label: 'Request App Validation', skill: 'governance_and_trust/trust/trust_validate_app' },
+  { value: 'association_request', label: 'Request Association' },
+  { value: 'join_alliance_request', label: 'Join Alliance', skill: 'governance_and_trust/alliance/join_alliance' },
+  { value: 'leave_alliance_request', label: 'Leave Alliance', skill: 'governance_and_trust/alliance/leave_alliance' },
+  { value: 'verify_alliance_membership_request', label: 'Verify Alliance Membership', skill: 'governance_and_trust/alliance/verify_alliance_membership' },
+  { value: 'add_delegation_request', label: 'Add Delegation', skill: 'governance_and_trust/delegation/add_delegation' },
+  { value: 'revoke_delegation_request', label: 'Revoke Delegation', skill: 'governance_and_trust/delegation/revoke_delegation' },
+  { value: 'verify_delegation_request', label: 'Verify Delegation', skill: 'governance_and_trust/delegation/verify_delegation' },
+  { value: 'add_member_request', label: 'Add Member', skill: 'governance_and_trust/membership/add_member' },
+  { value: 'remove_member_request', label: 'Remove Member', skill: 'governance_and_trust/membership/remove_member' },
+  { value: 'verify_membership_request', label: 'Verify Membership', skill: 'governance_and_trust/membership/verify_membership' },
 ];
 
 export const INBOX_INTENT_TYPE_OPTIONS: InboxIntentTypeOption[] = [

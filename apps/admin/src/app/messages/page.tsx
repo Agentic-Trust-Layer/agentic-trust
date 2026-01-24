@@ -1314,20 +1314,11 @@ export default function MessagesPage() {
 
           // Build intent-based request for discovery backend
           const intentJson = buildIntentJson(selectedIntentType, q);
-          
-          // Get required skills from intent type's defaultTaskType for fallback/validation
-          const intentOption = INBOX_INTENT_TYPE_OPTIONS.find((o) => o.value === selectedIntentType);
-          const taskOption = intentOption
-            ? INBOX_TASK_TYPE_OPTIONS.find((o) => o.value === intentOption.defaultTaskType)
-            : null;
-          
-          const requiredSkills = taskOption?.requiredToAgentSkills || [];
 
           // Primary: Intent-based semantic search (discovery backend interprets intent and returns matching agents)
           const requestBody = { 
             intentJson,
             intentType: selectedIntentType,
-            requiredSkills, // Provide skills for backend to use in filtering/validation (governance_and_trust/* format)
             topK: 50 
           };
           console.log('[messages] Semantic search request body:', JSON.stringify(requestBody, null, 2));
@@ -2456,58 +2447,7 @@ export default function MessagesPage() {
     }
   };
 
-  const composeToAgentSkillIds = useMemo(() => {
-    const skills = Array.isArray(composeToAgentCard?.skills) ? composeToAgentCard.skills : [];
-    return new Set(
-      skills
-        .map((s: any) => String(s?.id || '').trim())
-        .filter(Boolean),
-    );
-  }, [composeToAgentCard]);
 
-  const composeToAgentOsafSkillIds = useMemo(() => {
-    const skills = Array.isArray(composeToAgentCard?.skills) ? composeToAgentCard.skills : [];
-    const out = new Set<string>();
-
-    // Primary: per-skill tags like "governance_and_trust/trust/trust_feedback_authorization"
-    for (const s of skills) {
-      const tags = Array.isArray((s as any)?.tags) ? (s as any).tags : [];
-      for (const t of tags) {
-        const tag = String(t || '').trim();
-        if (tag.startsWith('oasf:')) out.add(tag.slice('oasf:'.length));
-      }
-    }
-
-    // Secondary: the agent-card extension (if present) may list supported OASF skills globally.
-    const exts = Array.isArray((composeToAgentCard as any)?.capabilities?.extensions)
-      ? (composeToAgentCard as any).capabilities.extensions
-      : [];
-    const oasfExt = exts.find((e: any) => String(e?.uri || '') === 'https://schema.oasf.outshift.com/');
-    const extSkills = Array.isArray(oasfExt?.params?.skills) ? oasfExt.params.skills : [];
-    for (const id of extSkills) out.add(String(id || '').trim());
-
-    return out;
-  }, [composeToAgentCard]);
-
-  const isToAgentSkillSupported = useCallback(
-    (requiredExecutable?: string[], requiredOsaf?: string[]) => {
-      // No constraints => always allowed.
-      if ((!requiredExecutable || requiredExecutable.length === 0) && (!requiredOsaf || requiredOsaf.length === 0)) return true;
-
-      // Prefer OASF overlay if present.
-      if (requiredOsaf && requiredOsaf.length > 0 && composeToAgentOsafSkillIds.size > 0) {
-        return requiredOsaf.some((id) => composeToAgentOsafSkillIds.has(id));
-      }
-
-      // Fallback to raw executable A2A skill ids.
-      if (requiredExecutable && requiredExecutable.length > 0) {
-        return requiredExecutable.some((id) => composeToAgentSkillIds.has(id));
-      }
-
-      return true;
-    },
-    [composeToAgentOsafSkillIds, composeToAgentSkillIds],
-  );
 
   // Filter task types based on selected intent type
   const filteredTaskTypeOptions = useMemo(() => {
@@ -2535,21 +2475,6 @@ export default function MessagesPage() {
     }
   }, [selectedIntentType, filteredTaskTypeOptions, composeOpen, selectedMessageType]);
 
-  // If the selected task type isn't supported by the chosen recipient, auto-pick the first supported type.
-  useEffect(() => {
-    if (!composeOpen || !composeToAgent) return;
-    if (composeToAgentCardLoading) return;
-
-    const isSupported = (taskType: InboxTaskType) => {
-      const opt = INBOX_TASK_TYPE_OPTIONS.find((o) => o.value === taskType);
-      if (!opt) return true;
-      return isToAgentSkillSupported(opt.requiredToAgentSkills, opt.requiredOsafSkills);
-    };
-
-    if (isSupported(selectedMessageType)) return;
-    const first = filteredTaskTypeOptions.find((o) => isSupported(o.value));
-    if (first) setSelectedMessageType(first.value);
-  }, [composeOpen, composeToAgent, composeToAgentCardLoading, selectedMessageType, isToAgentSkillSupported, filteredTaskTypeOptions]);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
@@ -3257,10 +3182,6 @@ export default function MessagesPage() {
                   <MenuItem
                     key={opt.value}
                     value={opt.value}
-                    disabled={
-                      Boolean(composeToAgent) &&
-                      !isToAgentSkillSupported(opt.requiredToAgentSkills, opt.requiredOsafSkills)
-                    }
                   >
                     {opt.label}
                   </MenuItem>
