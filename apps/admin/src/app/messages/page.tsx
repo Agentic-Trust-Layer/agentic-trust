@@ -3,6 +3,22 @@
 // Avoid static prerendering for this route to speed up `next build` page-data collection.
 export const dynamic = 'force-dynamic';
 
+// ============================================================================
+// Validation Use Cases: Two Separate Use Cases
+// ============================================================================
+// Use-case A (Membership): Validator agent applies to join Validation Agents Collection
+//   - IntentType: joinValidationAgentsCollection
+//   - Admin UI: Sends intent payload with applicant agent identifiers + evidence
+//   - Flow: Async workflow (eligibility → evidence → submit → monitor)
+//
+// Use-case B (Service Request): Client agent requests validator to validate name/account/app
+//   - IntentTypes: requestValidation.name | requestValidation.account | requestValidation.appEndpoint
+//   - Admin UI: Sends validation request payload (agentId, chainId, requestHash, etc.)
+//   - Flow: Synchronous validation response (request → validate → attestation)
+// ============================================================================
+
+const INTENT_JOIN_VALIDATION_AGENTS_COLLECTION = 'joinValidationAgentsCollection';
+
 import React, { useEffect, useMemo, useCallback, useState } from 'react';
 import {
   Alert,
@@ -454,6 +470,21 @@ export default function MessagesPage() {
   const isAddMemberTask = useCallback((t: InboxTaskType) => {
     const k = String(t).toLowerCase();
     return k.includes('add_member') || (k.includes('member') && !k.includes('verify'));
+  }, []);
+
+  // Use-case A: Check if intent is for validation collection membership
+  const isJoinValidationCollectionIntent = useCallback((intent: string): boolean => {
+    return String(intent).toLowerCase() === 'joinvalidationagentscollection' ||
+           (String(intent).toLowerCase().includes('join') && String(intent).toLowerCase().includes('validation'));
+  }, []);
+
+  // Use-case B: Check if intent is for validation service request
+  const isRequestValidationIntent = useCallback((intent: string): boolean => {
+    const k = String(intent).toLowerCase();
+    return k === 'requestvalidation.name' ||
+           k === 'requestvalidation.account' ||
+           k === 'requestvalidation.appendpoint' ||
+           (k.includes('request') && k.includes('validation') && (k.includes('name') || k.includes('account') || k.includes('app')));
   }, []);
 
   useEffect(() => {
@@ -1599,34 +1630,58 @@ export default function MessagesPage() {
           throw new Error('Message body is required.');
         }
         const k = String(selectedMessageType).toLowerCase();
+        const intentK = String(selectedIntentType).toLowerCase();
         let contentToSend =
           content ||
-          (k.includes('name') && k.includes('validation')
+          // Use-case A: Validation collection membership
+          (isJoinValidationCollectionIntent(selectedIntentType)
+            ? 'Request to join Validation Agents Collection'
+            // Use-case B: Validation service requests
+            : isRequestValidationIntent(selectedIntentType) && (intentK.includes('name') || intentK === 'requestvalidation.name')
             ? `Request name validation (${validationRequestKind})`
-            : k.includes('account') && k.includes('validation')
+            : isRequestValidationIntent(selectedIntentType) && (intentK.includes('account') || intentK === 'requestvalidation.account')
               ? `Request account validation (${validationRequestKind})`
-              : k.includes('app') && k.includes('validation')
+              : isRequestValidationIntent(selectedIntentType) && (intentK.includes('app') || intentK.includes('endpoint') || intentK === 'requestvalidation.appendpoint')
                 ? `Request app validation (${validationRequestKind})`
-                : isAssociationTask(selectedMessageType)
-                  ? 'Request association'
-                  : isAddMemberTask(selectedMessageType)
-                    ? 'Add member'
-                    : '');
+                // Legacy pattern matching (fallback)
+                : k.includes('name') && k.includes('validation')
+                  ? `Request name validation (${validationRequestKind})`
+                  : k.includes('account') && k.includes('validation')
+                    ? `Request account validation (${validationRequestKind})`
+                    : k.includes('app') && k.includes('validation')
+                      ? `Request app validation (${validationRequestKind})`
+                      : isAssociationTask(selectedMessageType)
+                        ? 'Request association'
+                        : isAddMemberTask(selectedMessageType)
+                          ? 'Add member'
+                          : '');
 
         const sk = String(selectedMessageType).toLowerCase();
+        const intentSk = String(selectedIntentType).toLowerCase();
         const subject =
           composeSubject.trim() ||
-          (sk.includes('name') && sk.includes('validation')
+          // Use-case A: Validation collection membership
+          (isJoinValidationCollectionIntent(selectedIntentType)
+            ? 'Request to Join Validation Agents Collection'
+            // Use-case B: Validation service requests
+            : isRequestValidationIntent(selectedIntentType) && (intentSk.includes('name') || intentSk === 'requestvalidation.name')
             ? `Request Name Validation: ${validationRequestKind}`
-            : sk.includes('account') && sk.includes('validation')
+            : isRequestValidationIntent(selectedIntentType) && (intentSk.includes('account') || intentSk === 'requestvalidation.account')
               ? `Request Account Validation: ${validationRequestKind}`
-              : sk.includes('app') && sk.includes('validation')
+              : isRequestValidationIntent(selectedIntentType) && (intentSk.includes('app') || intentSk.includes('endpoint') || intentSk === 'requestvalidation.appendpoint')
                 ? `Request App Validation: ${validationRequestKind}`
-                : isAssociationTask(selectedMessageType)
-                  ? 'Request Association'
-                  : isAddMemberTask(selectedMessageType)
-                    ? 'Add Member'
-                    : 'Message');
+                // Legacy pattern matching (fallback)
+                : sk.includes('name') && sk.includes('validation')
+                  ? `Request Name Validation: ${validationRequestKind}`
+                  : sk.includes('account') && sk.includes('validation')
+                    ? `Request Account Validation: ${validationRequestKind}`
+                    : sk.includes('app') && sk.includes('validation')
+                      ? `Request App Validation: ${validationRequestKind}`
+                      : isAssociationTask(selectedMessageType)
+                        ? 'Request Association'
+                        : isAddMemberTask(selectedMessageType)
+                          ? 'Add Member'
+                          : 'Message');
 
         // For association requests: prepare + execute via client wallet (AA + bundler).
         // If approver is a different agent account, we send a message containing the payload
@@ -2348,8 +2403,70 @@ export default function MessagesPage() {
 
 
 
+        // ========================================================================
+        // Use-Case A: Validation Collection Membership
+        // ========================================================================
+        // Send directly to validation collection membership agent's A2A endpoint
+        // ========================================================================
+        if (isJoinValidationCollectionIntent(selectedIntentType)) {
+          // Extract message endpoint from agent card's supportedInterfaces (required)
+          if (!composeToAgentCard?.supportedInterfaces || !Array.isArray(composeToAgentCard.supportedInterfaces)) {
+            throw new Error('To Agent agent card is missing or does not have supportedInterfaces. Cannot send joinValidationAgentsCollection request.');
+          }
+          const supportedInterfaces = composeToAgentCard.supportedInterfaces as Array<{ url?: string; protocolBinding?: string }>;
+          const pickEndpoint = (binding: string): string | undefined =>
+            supportedInterfaces.find((x) => String(x?.protocolBinding || '') === binding)?.url;
+          const messageEndpoint = pickEndpoint('JSONRPC') ?? pickEndpoint('HTTP+JSON');
+          
+          if (!messageEndpoint || typeof messageEndpoint !== 'string') {
+            throw new Error('To Agent does not have a message endpoint configured. The agent must have a supportedInterfaces entry with protocolBinding "JSONRPC" or "HTTP+JSON" in its agent card.');
+          }
+
+          // Build intent payload for validation collection membership
+          // Note: The applicant is the "From Agent" (validator applying), not the "To Agent" (collection membership agent)
+          const intentPayload = {
+            intentType: selectedIntentType,
+            targetOrganization: 'Validation Agents Collection',
+            desiredStatus: 'Member',
+            applicantAgentId: selectedFolderAgent?.agentId,
+            applicantChainId: selectedFolderAgent?.chainId,
+            applicantDid: selectedFromAgentDid,
+            context: contentToSend || '',
+          };
+
+          // Send A2A request with the skill
+          const a2aResponse = await fetch(messageEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              skillId: INTENT_JOIN_VALIDATION_AGENTS_COLLECTION,
+              message: contentToSend || 'Request to join Validation Agents Collection',
+              payload: intentPayload,
+              metadata: {
+                intentType: selectedIntentType,
+                targetOrganization: 'Validation Agents Collection',
+                desiredStatus: 'Member',
+                source: 'admin-app',
+                timestamp: new Date().toISOString(),
+              },
+            }),
+          });
+
+          if (!a2aResponse.ok) {
+            const errorData = await a2aResponse.json().catch(() => ({}));
+            throw new Error(errorData?.error || errorData?.response?.error || errorData?.message || 'Failed to send joinValidationAgentsCollection request to agent');
+          }
+
+          const a2aData = await a2aResponse.json();
+          console.log('[Join Validation Collection] A2A response:', a2aData);
+          
+          // Display tracking ID if provided
+          if (a2aData?.response?.trackingId) {
+            console.log('[Join Validation Collection] Tracking ID:', a2aData.response.trackingId);
+          }
+        }
         // For add_member requests, send directly to the agent's A2A endpoint with the skill
-        if (isAddMemberTask(selectedMessageType)) {
+        else if (isAddMemberTask(selectedMessageType)) {
           // Extract message endpoint from agent card's supportedInterfaces (required)
           if (!composeToAgentCard?.supportedInterfaces || !Array.isArray(composeToAgentCard.supportedInterfaces)) {
             throw new Error('To Agent agent card is missing or does not have supportedInterfaces. Cannot send add member request.');
@@ -2402,7 +2519,22 @@ export default function MessagesPage() {
           const a2aData = await a2aResponse.json();
           console.log('[Add Member] A2A response:', a2aData);
         } else {
+          // ========================================================================
+          // Use-Case B: Validation Service Requests (and other messages)
+          // ========================================================================
           // Create the ATP inbox message (this is what creates/updates the task thread).
+          // For validation service requests, include intent type in metadata.
+          // ========================================================================
+          const messageMetadata: Record<string, unknown> = {
+            source: 'admin-app',
+            timestamp: new Date().toISOString(),
+          };
+          
+          // Use-case B: Add intent type for validation service requests
+          if (isRequestValidationIntent(selectedIntentType)) {
+            messageMetadata.intentType = selectedIntentType;
+          }
+
           const res = await fetch('/api/messages', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -2416,10 +2548,7 @@ export default function MessagesPage() {
               toAgentDid: composeToAgent.did,
               toAgentName: composeToAgent.agentName,
               taskId: composeTaskId,
-              metadata: {
-                source: 'admin-app',
-                timestamp: new Date().toISOString(),
-              },
+              metadata: messageMetadata,
             }),
           });
 

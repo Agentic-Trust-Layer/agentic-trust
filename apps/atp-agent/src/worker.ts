@@ -587,63 +587,82 @@ app.get('/', (c: HonoContext) => {
   });
 });
 
-async function fetchOasfTaxonomy(env: Record<string, any>): Promise<{ skills: string[]; domains: string[] }> {
+// ============================================================================
+// Validation Use Cases: Two Separate Use Cases
+// ============================================================================
+// Use-case A (Membership): Validator agent applies to join Validation Agents Collection
+//   - IntentType: joinValidationAgentsCollection
+//   - Skills: validation_collection/* (OASF from KB)
+//   - Flow: Async workflow (eligibility → evidence → submit → monitor)
+//
+// Use-case B (Service Request): Client agent requests validator to validate name/account/app
+//   - IntentTypes: requestValidation.name | requestValidation.account | requestValidation.appEndpoint
+//   - Skills: governance_and_trust/trust/trust_validate_* (executable)
+//   - Flow: Synchronous validation response (request → validate → attestation)
+// ============================================================================
+
+const VALIDATION_COLLECTION_PREFIX = 'validation_collection/';
+const INTENT_JOIN_VALIDATION_AGENTS_COLLECTION = 'joinValidationAgentsCollection';
+
+async function graphqlRequest(env: Record<string, any>, query: string, variables?: Record<string, unknown>): Promise<any> {
   const raw = (env.AGENTIC_TRUST_GRAPHQL_URL || env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
   const graphqlUrl = /\/graphql\/?$/i.test(raw)
     ? raw.replace(/\/+$/, '')
     : raw
       ? `${raw.replace(/\/+$/, '')}/graphql`
       : '';
-  if (!graphqlUrl) {
-    return { skills: [], domains: [] };
-  }
-  const query = `query { oasfSkills(limit: 10000) { key } oasfDomains(limit: 10000) { key } }`;
+  if (!graphqlUrl) return null;
   try {
     const res = await fetch(graphqlUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, variables: variables ?? {} }),
     });
     const data = await res.json().catch(() => ({}));
-    const skills = Array.isArray((data as any)?.data?.oasfSkills)
-      ? (data as any).data.oasfSkills.map((s: any) => String(s?.key ?? '').trim()).filter(Boolean)
-      : [];
-    const domains = Array.isArray((data as any)?.data?.oasfDomains)
-      ? (data as any).data.oasfDomains.map((d: any) => String(d?.key ?? '').trim()).filter(Boolean)
-      : [];
-    return { skills, domains };
+    return (data as any)?.data ?? null;
   } catch (e) {
-    console.warn('[ATP Agent] fetchOasfTaxonomy failed:', e);
-    return { skills: [], domains: [] };
+    console.warn('[ATP Agent] graphqlRequest failed:', e);
+    return null;
   }
 }
 
+async function fetchOasfTaxonomy(env: Record<string, any>): Promise<{ skills: string[]; domains: string[]; validationCollectionSkills: string[] }> {
+  const data = await graphqlRequest(env, `query { oasfSkills(limit: 10000) { key } oasfDomains(limit: 10000) { key } }`);
+  const skills = Array.isArray((data as any)?.oasfSkills)
+    ? (data as any).oasfSkills.map((s: any) => String(s?.key ?? '').trim()).filter(Boolean)
+    : [];
+  const domains = Array.isArray((data as any)?.oasfDomains)
+    ? (data as any).oasfDomains.map((d: any) => String(d?.key ?? '').trim()).filter(Boolean)
+    : [];
+  const validationCollectionSkills = skills.filter((k: string) =>
+    k.startsWith(VALIDATION_COLLECTION_PREFIX),
+  );
+  return { skills, domains, validationCollectionSkills };
+}
+
+async function fetchIntentTaskMappings(env: Record<string, any>, intentKey?: string): Promise<Array<{ intent: { key: string }; task: { key: string }; requiredSkills: string[]; optionalSkills: string[] }>> {
+  const variables: Record<string, unknown> = { limit: 10000, offset: 0 };
+  if (intentKey) variables.intentKey = intentKey;
+  const data = await graphqlRequest(
+    env,
+    `query IntentTaskMappings($intentKey: String, $taskKey: String, $limit: Int, $offset: Int) {
+      intentTaskMappings(intentKey: $intentKey, taskKey: $taskKey, limit: $limit, offset: $offset) {
+        intent { key label description }
+        task { key label description }
+        requiredSkills
+        optionalSkills
+      }
+    }`,
+    variables,
+  );
+  return Array.isArray((data as any)?.intentTaskMappings) ? (data as any).intentTaskMappings : [];
+}
+
 async function fetchTaskTypes(env: Record<string, any>): Promise<string[]> {
-  const raw = (env.AGENTIC_TRUST_GRAPHQL_URL || env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
-  const graphqlUrl = /\/graphql\/?$/i.test(raw)
-    ? raw.replace(/\/+$/, '')
-    : raw
-      ? `${raw.replace(/\/+$/, '')}/graphql`
-      : '';
-  if (!graphqlUrl) {
-    return [];
-  }
-  const query = `query { taskTypes(limit: 10000) { key } }`;
-  try {
-    const res = await fetch(graphqlUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-    });
-    const data = await res.json().catch(() => ({}));
-    const taskTypes = Array.isArray((data as any)?.data?.taskTypes)
-      ? (data as any).data.taskTypes.map((t: any) => String(t?.key ?? '').trim()).filter(Boolean)
-      : [];
-    return taskTypes;
-  } catch (e) {
-    console.warn('[ATP Agent] fetchTaskTypes failed:', e);
-    return [];
-  }
+  const data = await graphqlRequest(env, `query { taskTypes(limit: 10000) { key } }`);
+  return Array.isArray((data as any)?.taskTypes)
+    ? (data as any).taskTypes.map((t: any) => String(t?.key ?? '').trim()).filter(Boolean)
+    : [];
 }
 
 const buildAgentCard = (params: {
@@ -654,8 +673,9 @@ const buildAgentCard = (params: {
   skills: any[];
   oasfSkills: string[];
   oasfDomains: string[];
+  validationCollectionSkills?: string[];
 }) => {
-  const { subdomain, env, origin, messageEndpoint, skills, oasfSkills, oasfDomains } = params;
+  const { subdomain, env, origin, messageEndpoint, skills, oasfSkills, oasfDomains, validationCollectionSkills = [] } = params;
 
   return {
     protocolVersion: '1.0',
@@ -704,6 +724,10 @@ const buildAgentCard = (params: {
               'atp.inbox.listClientMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.listAgentMessages': ['agent_interaction.request_handling', 'collaboration'],
               'atp.inbox.markRead': ['agent_interaction.request_handling', 'collaboration'],
+              [INTENT_JOIN_VALIDATION_AGENTS_COLLECTION]: validationCollectionSkills.length > 0
+                ? validationCollectionSkills
+                : ['validation_collection/eligibility_evaluate', 'validation_collection/evidence_bundle_prepare', 'validation_collection/membership_request_submit', 'validation_collection/membership_status_monitor'],
+              ...Object.fromEntries((validationCollectionSkills as string[]).map((k) => [k, [k]])),
             },
           },
         },
@@ -758,6 +782,14 @@ function addOsafOverlayTags(skill: any): any {
     add('oasf:trust.validate.app');
     add('oasfDomain:governance-and-trust');
     add('oasfDomain:collaboration');
+  }
+  if (id.startsWith(VALIDATION_COLLECTION_PREFIX)) {
+    add(`oasf:${id}`);
+    add('oasfDomain:validation-collection');
+  }
+  if (id === INTENT_JOIN_VALIDATION_AGENTS_COLLECTION) {
+    add('oasf:validation_collection.eligibility_evaluate');
+    add('oasfDomain:validation-collection');
   }
 
   return { ...skill, tags: Array.from(outTags) };
@@ -1174,15 +1206,47 @@ const serveAgentCard = async (c: HonoContext) => {
     return filtered;
   })();
 
-  const { skills: oasfSkills, domains: oasfDomains } = await fetchOasfTaxonomy(env);
+  const { skills: oasfSkills, domains: oasfDomains, validationCollectionSkills } = await fetchOasfTaxonomy(env);
+
+  const validatorSubdomains = ['name-validation', 'account-validation', 'app-validation'];
+  const isValidator = Boolean(subdomain && validatorSubdomains.includes(String(subdomain).toLowerCase()));
+  let skillsFinal = skills as any[];
+
+  if (isValidator && validationCollectionSkills.length > 0) {
+    const joinIntentSkill = {
+      id: INTENT_JOIN_VALIDATION_AGENTS_COLLECTION,
+      name: INTENT_JOIN_VALIDATION_AGENTS_COLLECTION,
+      tags: ['validation', 'collection', 'membership', 'a2a', 'oasfExtension:true'],
+      examples: ['Request to join the Validation Agents Collection'],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: 'Start join-validation-agents-collection workflow. Payload: intentType, targetOrganization, desiredStatus, context.',
+    };
+    const vcSkills = validationCollectionSkills.map((key) => ({
+      id: key,
+      name: key,
+      tags: ['validation', 'collection', 'a2a', 'oasfExtension:true'],
+      examples: [],
+      inputModes: ['text', 'json'],
+      outputModes: ['text', 'json'],
+      description: `KB-backed validation collection skill: ${key}`,
+    }));
+    skillsFinal = [
+      ...skillsFinal,
+      addOsafOverlayTags({ ...joinIntentSkill, inputModes: normalizeModes(joinIntentSkill.inputModes), outputModes: normalizeModes(joinIntentSkill.outputModes) }),
+      ...vcSkills.map((s) => addOsafOverlayTags({ ...s, inputModes: normalizeModes(s.inputModes), outputModes: normalizeModes(s.outputModes) })),
+    ];
+  }
+
   const agentCard = buildAgentCard({
     subdomain,
     env,
     origin,
     messageEndpoint,
-    skills,
+    skills: skillsFinal,
     oasfSkills,
     oasfDomains,
+    validationCollectionSkills,
   });
 
   return c.json(agentCard);
@@ -1367,6 +1431,7 @@ const handleA2A = async (c: HonoContext) => {
       'governance_and_trust/trust/trust_validate_name',
       'governance_and_trust/trust/trust_validate_account',
       'governance_and_trust/trust/trust_validate_app',
+      INTENT_JOIN_VALIDATION_AGENTS_COLLECTION,
       'governance_and_trust/alliance/join_alliance',
       'governance_and_trust/alliance/leave_alliance',
       'governance_and_trust/alliance/verify_alliance_membership',
@@ -2019,8 +2084,13 @@ const handleA2A = async (c: HonoContext) => {
       skillId === 'governance_and_trust/trust/trust_validate_account' ||
       skillId === 'governance_and_trust/trust/trust_validate_app'
     ) {
-      // Process validation response using session package
-      console.log('[ATP Agent] Entering validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
+      // ========================================================================
+      // Use-Case B: Validation Service Request
+      // ========================================================================
+      // Handler for clients requesting validation service (name/account/app).
+      // This is a service request (synchronous, single-step validation response).
+      // ========================================================================
+      console.log('[ATP Agent] Use-Case B: Validation Service Request - validation.respond handler, subdomain:', subdomain, 'skillId:', skillId);
       try {
         responseContent.skill = skillId;
         
@@ -2417,6 +2487,51 @@ const handleA2A = async (c: HonoContext) => {
       } catch (error: any) {
         console.error('[ATP Agent] Error processing validation response:', error);
         responseContent.error = error?.message || 'Failed to process validation response';
+        responseContent.skill = skillId;
+        responseContent.success = false;
+      }
+    } else if (skillId === INTENT_JOIN_VALIDATION_AGENTS_COLLECTION) {
+      // ========================================================================
+      // Use-Case A: Validation Collection Membership
+      // ========================================================================
+      // Handler for validator agents applying to join Validation Agents Collection.
+      // This is a membership workflow (async, multi-step).
+      // ========================================================================
+      const validatorSubs = ['name-validation', 'account-validation', 'app-validation'];
+      const isValidatorSub = Boolean(subdomain && validatorSubs.includes(String(subdomain).toLowerCase()));
+      if (!isValidatorSub) {
+        responseContent.skill = skillId;
+        responseContent.error = `${INTENT_JOIN_VALIDATION_AGENTS_COLLECTION} is only available on validator subdomains (name-validation, account-validation, app-validation).`;
+        return c.json({ success: false, messageId: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`, response: responseContent }, 403);
+      }
+      console.log('[ATP Agent] Use-Case A: Validation Collection Membership - joinValidationAgentsCollection handler, subdomain:', subdomain);
+      try {
+        responseContent.skill = skillId;
+        const meta = (typeof metadata === 'object' && metadata !== null ? metadata : {}) as Record<string, unknown>;
+        const p = (typeof payload === 'object' && payload !== null ? payload : {}) as Record<string, unknown>;
+        const intentType = String(p.intentType ?? meta.intentType ?? INTENT_JOIN_VALIDATION_AGENTS_COLLECTION).trim();
+        const targetOrganization = String(p.targetOrganization ?? meta.targetOrganization ?? 'Validation Agents Collection').trim();
+        const desiredStatus = String(p.desiredStatus ?? meta.desiredStatus ?? 'Member').trim();
+        const context = p.context ?? meta.context ?? message ?? '';
+
+        const mappings = await fetchIntentTaskMappings(c.env || {}, intentType);
+        const taskTypes = [...new Set(mappings.map((m: any) => m.task?.key).filter(Boolean))];
+        const requiredSkills = [...new Set(mappings.flatMap((m: any) => m.requiredSkills || []).filter(Boolean))];
+
+        const trackingId = `jvac_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        responseContent.accepted = true;
+        responseContent.trackingId = trackingId;
+        responseContent.planId = 'plan.joinValidationAgentsCollection';
+        responseContent.intentType = intentType;
+        responseContent.targetOrganization = targetOrganization;
+        responseContent.desiredStatus = desiredStatus;
+        responseContent.taskTypes = taskTypes;
+        responseContent.requiredSkills = requiredSkills;
+        if (context) responseContent.context = context;
+        responseContent.success = true;
+      } catch (err: any) {
+        console.error('[ATP Agent] joinValidationAgentsCollection error:', err);
+        responseContent.error = err?.message || 'Failed to process joinValidationAgentsCollection';
         responseContent.skill = skillId;
         responseContent.success = false;
       }
@@ -4493,6 +4608,12 @@ const handleA2A = async (c: HonoContext) => {
         responseContent.skill = skillId;
         responseContent.success = false;
       }
+    } else if (typeof skillId === 'string' && skillId.startsWith(VALIDATION_COLLECTION_PREFIX)) {
+      // Use-Case A: Step-specific validation_collection/* skills are used internally by the plan.
+      // Clients should use joinValidationAgentsCollection to start the workflow.
+      responseContent.skill = skillId;
+      responseContent.response = `Use ${INTENT_JOIN_VALIDATION_AGENTS_COLLECTION} to start the join-validation-agents-collection workflow. Step-specific skills (e.g. ${skillId}) are used internally by the plan.`;
+      responseContent.success = true;
     } else if (skillId) {
       console.warn('[ATP Agent] Skill not handled. Request will fall through to generic handler.', {
         skillId,

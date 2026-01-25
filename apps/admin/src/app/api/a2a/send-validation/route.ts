@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { a2aEndpoint, skillId, message, payload } = body;
+    const { a2aEndpoint, skillId, message, payload, metadata } = body;
 
     if (!a2aEndpoint) {
       return NextResponse.json(
@@ -18,9 +18,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (!skillId || !message || !payload) {
+    if (!skillId) {
       return NextResponse.json(
-        { error: 'skillId, message, and payload are required' },
+        { error: 'skillId is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!message || !payload) {
+      return NextResponse.json(
+        { error: 'message and payload are required' },
         { status: 400 }
       );
     }
@@ -154,6 +161,7 @@ export async function POST(request: NextRequest) {
       skillId,
       message,
       payload,
+      ...(typeof metadata === 'object' && metadata !== null && { metadata }),
     });
 
     const response = await new Promise<{ statusCode?: number; statusMessage?: string; data: any }>((resolve, reject) => {

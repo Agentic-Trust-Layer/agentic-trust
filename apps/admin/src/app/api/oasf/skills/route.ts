@@ -14,44 +14,66 @@ type ApiSkill = {
   category?: string | null;
 };
 
-// Per-instance cache (Vercel/Node) + CDN cache via Cache-Control headers.
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
-const cacheByCategory = new Map<string, { at: number; skills: ApiSkill[] }>();
-
 export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url);
     const category = (url.searchParams.get('category') || '').trim();
-    const cacheKey = category || '__all__';
 
-    const now = Date.now();
-    const cached = cacheByCategory.get(cacheKey);
-    if (cached && now - cached.at < CACHE_TTL_MS) {
+    const discovery = await getDiscoveryClient();
+    const hasMethod = typeof (discovery as any).oasfSkills === 'function';
+    
+    if (!hasMethod) {
+      console.warn('[oasf/skills] Discovery client does not expose oasfSkills() method');
       return NextResponse.json(
         {
-          skills: cached.skills,
-          count: cached.skills.length,
-          source: 'cache',
+          skills: [],
+          count: 0,
+          source: 'discovery_graphql',
+          warning: 'Discovery client does not expose oasfSkills(). Taxonomy is unavailable in this deployment.',
         },
         {
           headers: {
-            'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+            'Pragma': 'no-cache',
+            'Expires': '0',
           },
         },
       );
     }
 
-    const discovery = await getDiscoveryClient();
-    const hasMethod = typeof (discovery as any).oasfSkills === 'function';
-    const raw = hasMethod
-      ? await (discovery as any).oasfSkills({
-      category: category || undefined,
+    const params: {
+      category?: string;
+      limit?: number;
+      offset?: number;
+      orderBy?: string;
+      orderDirection?: string;
+    } = {
       limit: 10000,
       offset: 0,
-      orderBy: 'category',
-      orderDirection: 'ASC',
-      })
-      : undefined;
+    };
+    if (category) params.category = category;
+
+    console.log('[oasf/skills] Calling discovery.oasfSkills with params:', params);
+
+    let raw: any;
+    let queryError: Error | null = null;
+    try {
+      raw = await (discovery as any).oasfSkills(params);
+    } catch (err) {
+      queryError = err instanceof Error ? err : new Error(String(err));
+      console.error('[oasf/skills] Error calling discovery.oasfSkills:', queryError);
+      // The discovery client may catch and return [] for some errors, so check if raw is undefined
+      if (raw === undefined) {
+        raw = [];
+      }
+    }
+
+    console.log('[oasf/skills] Raw response from discovery:', {
+      isArray: Array.isArray(raw),
+      length: Array.isArray(raw) ? raw.length : 'N/A',
+      sample: Array.isArray(raw) && raw.length > 0 ? raw[0] : null,
+      error: queryError ? queryError.message : null,
+    });
 
     const list = Array.isArray(raw) ? raw : [];
 
@@ -69,22 +91,12 @@ export async function GET(request: NextRequest) {
       .filter((s) => s.id);
 
     const warning =
-      !hasMethod
-        ? 'Discovery client does not expose oasfSkills(). Taxonomy is unavailable in this deployment.'
-        : !category && skills.length === 0
-          ? 'Discovery GraphQL returned 0 OASF skills. Taxonomy may be unavailable or not populated in this deployment.'
-          : null;
+      !category && skills.length === 0
+        ? 'Discovery GraphQL returned 0 OASF skills. Taxonomy may be unavailable or not populated in this deployment.'
+        : null;
 
-    // IMPORTANT: Do NOT cache empty results in production.
-    // If the taxonomy is temporarily unavailable (or being populated), CDN/in-memory caching would "lock in"
-    // an empty list and make it look like discovery is never queried.
-    const cacheable = skills.length > 0;
-    const cacheControl = cacheable
-      ? 'public, s-maxage=3600, stale-while-revalidate=86400'
-      : 'no-store';
-
-    if (cacheable) {
-      cacheByCategory.set(cacheKey, { at: now, skills });
+    if (warning) {
+      console.warn('[oasf/skills]', warning);
     }
 
     return NextResponse.json(
@@ -96,7 +108,9 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          'Cache-Control': cacheControl,
+          'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0',
         },
       },
     );
@@ -106,6 +120,7 @@ export async function GET(request: NextRequest) {
       {
         error: 'Failed to fetch OASF skills',
         message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
       },
       { status: 500 }
     );

@@ -1082,12 +1082,11 @@ export class AIAgentDiscoveryClient {
     `;
 
     try {
-      const variables: Record<string, unknown> = {
-        limit: typeof params?.limit === 'number' ? params.limit : 10000,
-        offset: typeof params?.offset === 'number' ? params.offset : 0,
-        orderBy: params?.orderBy ?? 'category',
-        orderDirection: params?.orderDirection ?? 'ASC',
-      };
+      const variables: Record<string, unknown> = {};
+      if (typeof params?.limit === 'number') variables.limit = params.limit;
+      if (typeof params?.offset === 'number') variables.offset = params.offset;
+      if (params?.orderBy) variables.orderBy = params.orderBy;
+      if (params?.orderDirection) variables.orderDirection = params.orderDirection;
       if (params?.key) variables.key = params.key;
       if (params?.nameKey) variables.nameKey = params.nameKey;
       if (params?.category) variables.category = params.category;
@@ -1162,12 +1161,11 @@ export class AIAgentDiscoveryClient {
     `;
 
     try {
-      const variables: Record<string, unknown> = {
-        limit: typeof params?.limit === 'number' ? params.limit : 10000,
-        offset: typeof params?.offset === 'number' ? params.offset : 0,
-        orderBy: params?.orderBy ?? 'category',
-        orderDirection: params?.orderDirection ?? 'ASC',
-      };
+      const variables: Record<string, unknown> = {};
+      if (typeof params?.limit === 'number') variables.limit = params.limit;
+      if (typeof params?.offset === 'number') variables.offset = params.offset;
+      if (params?.orderBy) variables.orderBy = params.orderBy;
+      if (params?.orderDirection) variables.orderDirection = params.orderDirection;
       if (params?.key) variables.key = params.key;
       if (params?.nameKey) variables.nameKey = params.nameKey;
       if (params?.category) variables.category = params.category;
