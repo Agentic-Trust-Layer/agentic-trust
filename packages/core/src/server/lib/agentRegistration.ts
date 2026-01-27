@@ -135,13 +135,13 @@ export function createRegistrationJSON(params: {
         });
       }
       existingA2A.endpoint = a2aEndpoint;
-      existingA2A.version = existingA2A.version || '0.30';
+      existingA2A.version = existingA2A.version || '0.3.0';
       // Preserve a2aSkills if already set
     } else {
       endpoints.push({
         name: 'A2A',
         endpoint: a2aEndpoint,
-        version: '0.30',
+        version: '0.3.0',
       });
     }
   }

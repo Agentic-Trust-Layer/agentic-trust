@@ -1161,7 +1161,7 @@ export default function AgentRegistrationPage() {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
-              version: '0.30',
+              version: '0.3.0',
               a2aSkills: protocolSettings.a2aSkills.length > 0 ? protocolSettings.a2aSkills : undefined,
               a2aDomains: protocolSettings.a2aDomains.length > 0 ? protocolSettings.a2aDomains : undefined,
             });
@@ -1228,7 +1228,7 @@ export default function AgentRegistrationPage() {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
-              version: '0.30',
+              version: '0.3.0',
               a2aSkills: protocolSettings.a2aSkills.length > 0 ? protocolSettings.a2aSkills : undefined,
               a2aDomains: protocolSettings.a2aDomains.length > 0 ? protocolSettings.a2aDomains : undefined,
             });

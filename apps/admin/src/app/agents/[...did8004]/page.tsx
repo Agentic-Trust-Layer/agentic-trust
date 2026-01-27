@@ -89,7 +89,8 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
       ...(regularAgent as any).data,
       agentId: regularAgent.agentId,
       agentName: regularAgent.agentName,
-      chainId: regularAgent.chainId,
+      // `Agent` type may not expose chainId; use the route param instead.
+      chainId,
     };
   }
 
