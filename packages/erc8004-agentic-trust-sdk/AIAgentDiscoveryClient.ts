@@ -123,10 +123,19 @@ export type KbAgent = {
   isSmartAgent: boolean;
   identity8004?: KbIdentity | null;
   identityEns?: KbIdentity | null;
-  ownerAccount?: KbAccount | null;
-  walletAccount?: KbAccount | null;
-  operatorAccount?: KbAccount | null;
-  smartAccount?: KbAccount | null;
+  // Accounts attached to the ERC-8004 identity (identity-scoped)
+  identityOwnerAccount?: KbAccount | null;
+  identityOperatorAccount?: KbAccount | null;
+  identityWalletAccount?: KbAccount | null;
+
+  // Accounts attached to the agent (agent-scoped)
+  agentOwnerAccount?: KbAccount | null;
+  agentOperatorAccount?: KbAccount | null;
+  agentWalletAccount?: KbAccount | null;
+  agentOwnerEOAAccount?: KbAccount | null;
+
+  // SmartAgent -> ERC-8004 agent-controlled account (AgentAccount)
+  agentAccount?: KbAccount | null;
 };
 
 type KbAgentSearchResult = {
@@ -666,19 +675,45 @@ export class AIAgentDiscoveryClient {
 
     // Best-effort: infer chainId from the most specific account we have.
     const chainId =
-      (typeof a.smartAccount?.chainId === 'number' ? a.smartAccount?.chainId : null) ??
-      (typeof a.walletAccount?.chainId === 'number' ? a.walletAccount?.chainId : null) ??
-      (typeof a.ownerAccount?.chainId === 'number' ? a.ownerAccount?.chainId : null) ??
+      (typeof a.agentAccount?.chainId === 'number' ? a.agentAccount?.chainId : null) ??
+      (typeof a.agentWalletAccount?.chainId === 'number' ? a.agentWalletAccount?.chainId : null) ??
+      (typeof a.agentOwnerEOAAccount?.chainId === 'number' ? a.agentOwnerEOAAccount?.chainId : null) ??
+      (typeof a.identityOwnerAccount?.chainId === 'number' ? a.identityOwnerAccount?.chainId : null) ??
+      (typeof a.identityWalletAccount?.chainId === 'number' ? a.identityWalletAccount?.chainId : null) ??
       null;
 
+    // "agentAccount" in KB v2 is the SmartAgent-controlled account (AgentAccount).
+    // For non-smart agents, fall back to agent/identity wallet/owner accounts.
     const agentAccount =
-      pickAccountAddress(a.smartAccount, a.walletAccount, a.ownerAccount) ??
+      pickAccountAddress(
+        a.agentAccount,
+        a.agentWalletAccount,
+        a.identityWalletAccount,
+        a.agentOwnerEOAAccount,
+        a.identityOwnerAccount,
+        a.agentOwnerAccount,
+      ) ?? null;
+
+    const identityOwner =
+      pickAccountAddress(a.identityOwnerAccount, a.agentOwnerEOAAccount, a.agentOwnerAccount) ?? null;
+
+    const registeredBy =
+      (typeof a.identity8004?.descriptor?.registeredBy === 'string' && a.identity8004.descriptor.registeredBy.trim()
+        ? a.identity8004.descriptor.registeredBy.trim()
+        : null) ??
+      (typeof a.identityEns?.descriptor?.registeredBy === 'string' && a.identityEns.descriptor.registeredBy.trim()
+        ? a.identityEns.descriptor.registeredBy.trim()
+        : null) ??
       null;
 
-    const identityOwner = pickAccountAddress(a.ownerAccount, a.walletAccount) ?? null;
+    const registeredByAddress =
+      registeredBy && /^0x[a-fA-F0-9]{40}$/.test(registeredBy) ? registeredBy : null;
 
     const isOwnerEoa =
-      (a.ownerAccount?.accountType ?? '').toString().toLowerCase().includes('eoa');
+      (a.agentOwnerEOAAccount?.accountType ?? a.identityOwnerAccount?.accountType ?? '')
+        .toString()
+        .toLowerCase()
+        .includes('eoa');
 
     // Pull descriptor JSON where available.
     const rawJson =
@@ -708,9 +743,18 @@ export class AIAgentDiscoveryClient {
       agentName: typeof a.agentName === 'string' ? a.agentName : undefined,
       chainId: chainId ?? undefined,
       agentAccount: agentAccount ?? undefined,
-      agentIdentityOwnerAccount: identityOwner ?? undefined,
-      eoaAgentIdentityOwnerAccount: isOwnerEoa ? identityOwner : null,
+      agentIdentityOwnerAccount: (registeredByAddress ?? identityOwner) ?? undefined,
+      eoaAgentIdentityOwnerAccount: registeredByAddress ?? (isOwnerEoa ? identityOwner : null),
       eoaAgentAccount: isOwnerEoa ? agentAccount : null,
+      // Extra KB v2 account fields (flattened)
+      identityOwnerAccount: pickAccountAddress(a.identityOwnerAccount) ?? undefined,
+      identityWalletAccount: pickAccountAddress(a.identityWalletAccount) ?? undefined,
+      identityOperatorAccount: pickAccountAddress(a.identityOperatorAccount) ?? undefined,
+      agentOwnerAccount: pickAccountAddress(a.agentOwnerAccount) ?? undefined,
+      agentWalletAccount: pickAccountAddress(a.agentWalletAccount) ?? undefined,
+      agentOperatorAccount: pickAccountAddress(a.agentOperatorAccount) ?? undefined,
+      agentOwnerEOAAccount: pickAccountAddress(a.agentOwnerEOAAccount) ?? undefined,
+      smartAgentAccount: pickAccountAddress(a.agentAccount) ?? undefined,
       didIdentity: did8004,
       did: did8004,
       a2aEndpoint,
@@ -780,10 +824,16 @@ export class AIAgentDiscoveryClient {
           }
         }
       }
-      ownerAccount { iri chainId address accountType didEthr }
-      walletAccount { iri chainId address accountType didEthr }
-      operatorAccount { iri chainId address accountType didEthr }
-      smartAccount { iri chainId address accountType didEthr }
+      identityOwnerAccount { iri chainId address accountType didEthr }
+      identityOperatorAccount { iri chainId address accountType didEthr }
+      identityWalletAccount { iri chainId address accountType didEthr }
+
+      agentOwnerAccount { iri chainId address accountType didEthr }
+      agentOperatorAccount { iri chainId address accountType didEthr }
+      agentWalletAccount { iri chainId address accountType didEthr }
+      agentOwnerEOAAccount { iri chainId address accountType didEthr }
+
+      agentAccount { iri chainId address accountType didEthr }
     `;
   }
 
@@ -2937,6 +2987,10 @@ export class AIAgentDiscoveryClient {
   async getOwnedAgents(
     eoaAddress: string,
     options?: {
+      /**
+       * Optional chainIds to query. If omitted, queries common test chains and merges results.
+       */
+      chainIds?: number[];
       limit?: number;
       offset?: number;
       orderBy?:
@@ -2959,22 +3013,39 @@ export class AIAgentDiscoveryClient {
       throw new Error('Invalid EOA address. Must be a valid Ethereum address starting with 0x');
     }
 
-    // Indexer/storage can vary: some deployments store checksum addresses as strings; others store lowercased hex.
-    // Keep this strict: do not guess alternate encodings (CAIP-10 / EIP-155 / did:pkh). If production differs,
-    // fix the indexer/config rather than adding client-side heuristics.
-    const addrLower = eoaAddress.toLowerCase();
-    const addrCandidates: string[] = [];
-    addrCandidates.push(eoaAddress);
-    if (addrLower !== eoaAddress) addrCandidates.push(addrLower);
-
     const limit = options?.limit ?? 100;
     const offset = options?.offset ?? 0;
     const orderBy = options?.orderBy ?? 'agentId';
     const orderDirection = options?.orderDirection ?? 'DESC';
 
+    const effectiveOrderDirection: 'ASC' | 'DESC' =
+      (orderDirection ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    const orderByKb: 'agentId8004' | 'agentName' | 'uaid' =
+      orderBy === 'agentName' ? 'agentName' : 'agentId8004';
+
+    const chainIds =
+      Array.isArray(options?.chainIds) && options.chainIds.length > 0
+        ? options.chainIds.filter((x) => typeof x === 'number' && Number.isFinite(x) && x > 0)
+        : [11155111, 84532, 11155420];
+
     const query = `
-      query KbOwnedAgents($first: Int, $skip: Int) {
-        kbAgents(first: $first, skip: $skip, orderBy: agentId8004, orderDirection: DESC) {
+      query KbOwnedAgents(
+        $chainId: Int!
+        $ownerAddress: String!
+        $first: Int
+        $skip: Int
+        $orderBy: KbAgentOrderBy
+        $orderDirection: OrderDirection
+      ) {
+        kbOwnedAgents(
+          chainId: $chainId
+          ownerAddress: $ownerAddress
+          first: $first
+          skip: $skip
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
           agents { ${this.buildKbAgentSelection()} }
           total
           hasMore
@@ -2982,42 +3053,34 @@ export class AIAgentDiscoveryClient {
       }
     `;
 
-    const pageSize = Math.min(250, Math.max(25, limit));
-    const results: AgentData[] = [];
+    // For multi-chain merge, over-fetch per chain then slice.
+    const perChainFirst = Math.min(2000, Math.max(50, limit + offset));
 
-    let scannedSkip = 0;
-    let matchedSeen = 0;
+    const perChain = await Promise.all(
+      chainIds.map(async (chainId) => {
+        const data = await this.gqlRequest<{ kbOwnedAgents: KbAgentSearchResult }>(query, {
+          chainId,
+          ownerAddress: eoaAddress,
+          first: perChainFirst,
+          skip: 0,
+          orderBy: orderByKb,
+          orderDirection: effectiveOrderDirection,
+        });
+        const list = data?.kbOwnedAgents?.agents ?? [];
+        return list.map((a) => this.mapKbAgentToAgentData(a));
+      }),
+    );
 
-    // Safety cap to prevent runaway scans on large graphs.
-    const maxScanned = 5000;
+    const merged = perChain.flat();
 
-    while (scannedSkip < maxScanned && results.length < limit) {
-      const data = await this.client.request<{ kbAgents?: KbAgentSearchResult }>(query, {
-        first: pageSize,
-        skip: scannedSkip,
-      });
+    // Deterministic default sorting (matches UI expectations).
+    merged.sort((a, b) => {
+      const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId ?? 0) || 0;
+      const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId ?? 0) || 0;
+      return effectiveOrderDirection === 'ASC' ? idA - idB : idB - idA;
+    });
 
-      const page = data?.kbAgents?.agents ?? [];
-      for (const agent of page) {
-        const ownerAddr = agent?.ownerAccount?.address?.toLowerCase?.() ?? '';
-        const walletAddr = agent?.walletAccount?.address?.toLowerCase?.() ?? '';
-        const isOwned = addrCandidates.some((c) => c.toLowerCase() === ownerAddr || c.toLowerCase() === walletAddr);
-        if (!isOwned) continue;
-
-        if (matchedSeen < offset) {
-          matchedSeen += 1;
-          continue;
-        }
-
-        results.push(this.mapKbAgentToAgentData(agent));
-        if (results.length >= limit) break;
-      }
-
-      if (!data?.kbAgents?.hasMore) break;
-      scannedSkip += pageSize;
-    }
-
-    return results;
+    return merged.slice(offset, offset + limit);
   }
 }
 

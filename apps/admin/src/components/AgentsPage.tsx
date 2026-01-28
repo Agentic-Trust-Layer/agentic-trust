@@ -29,6 +29,17 @@ export type AgentsPageAgent = {
   agentIdentityOwnerAccount?: string | null;
   eoaAgentIdentityOwnerAccount?: string | null;
   eoaAgentAccount?: string | null;
+  /**
+   * KB v2 account fields (best-effort; may be null/undefined depending on agent type).
+   */
+  identityOwnerAccount?: string | null;
+  identityWalletAccount?: string | null;
+  identityOperatorAccount?: string | null;
+  agentOwnerAccount?: string | null;
+  agentWalletAccount?: string | null;
+  agentOperatorAccount?: string | null;
+  agentOwnerEOAAccount?: string | null;
+  smartAgentAccount?: string | null;
   agentCategory?: string | null;
   active?: boolean | null;
   agentUri?: string | null;

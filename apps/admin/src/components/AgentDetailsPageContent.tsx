@@ -1027,6 +1027,44 @@ export default function AgentDetailsPageContent({
             >
               Agent: #{agent.agentId}
             </p>
+
+            {/* Accounts (KB v2) */}
+            {(() => {
+              const entries = [
+                { label: 'Agent Account', value: agent.agentAccount },
+                { label: 'SmartAgent Account', value: (agent as any).smartAgentAccount },
+                { label: 'Agent Owner EOA', value: (agent as any).agentOwnerEOAAccount },
+                { label: 'Agent Owner', value: (agent as any).agentOwnerAccount },
+                { label: 'Agent Wallet', value: (agent as any).agentWalletAccount },
+                { label: 'Agent Operator', value: (agent as any).agentOperatorAccount },
+                { label: 'Identity Owner', value: (agent as any).identityOwnerAccount },
+                { label: 'Identity Wallet', value: (agent as any).identityWalletAccount },
+                { label: 'Identity Operator', value: (agent as any).identityOperatorAccount },
+              ].filter((e) => typeof e.value === 'string' && e.value.trim().startsWith('0x'));
+
+              if (entries.length === 0) return null;
+
+              return (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" sx={{ color: palette.textSecondary, mb: 0.75 }}>
+                    Accounts
+                  </Typography>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1 }}>
+                    {entries.map((e) => (
+                      <Box key={e.label} sx={{ display: 'flex', gap: 1, minWidth: 0 }}>
+                        <Typography variant="caption" sx={{ color: palette.textSecondary, minWidth: 140 }}>
+                          {e.label}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: palette.textPrimary }} noWrap>
+                          {String(e.value)}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              );
+            })()}
+
             {/* Action Buttons */}
             <Stack direction="row" spacing={1.5} sx={{ mt: 3.5 }}>
               {showManageButton && (
