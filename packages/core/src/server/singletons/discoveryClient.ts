@@ -18,24 +18,29 @@ class DiscoveryDomainClient extends DomainClient<AIAgentDiscoveryClient, Discove
     super('discovery');
   }
 
+  private normalizeDiscoveryUrl(value: string | undefined | null): string | undefined {
+    const raw = (value || '').toString().trim().replace(/\/+$/, '');
+    if (!raw) return undefined;
+    if (/\/graphql-kb$/i.test(raw)) return raw;
+    if (/\/graphql$/i.test(raw)) return raw.replace(/\/graphql$/i, '/graphql-kb');
+    return `${raw}/graphql-kb`;
+  }
+
   // initArg is an optional Partial<AIAgentDiscoveryClientConfig> override
   protected async buildClient(_key: DiscoveryKey, initArg?: unknown): Promise<AIAgentDiscoveryClient> {
     const overrideConfig = (initArg || {}) as Partial<AIAgentDiscoveryClientConfig>;
 
     // Get configuration from environment variables or provided config
-    // Note: endpoint should be the full discovery GraphQL URL (e.g., https://api.example.com/graphql)
-    let discoveryUrl = overrideConfig.endpoint;
+    // Note: endpoint should be the full discovery GraphQL URL (e.g., https://api.example.com/graphql-kb)
+    let discoveryUrl = this.normalizeDiscoveryUrl(overrideConfig.endpoint);
     if (!discoveryUrl) {
       // Try environment variable
-      discoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL;
-      // If it doesn't end with /graphql, append it
-      if (discoveryUrl && !discoveryUrl.endsWith('/graphql')) {
-        discoveryUrl = `${discoveryUrl.replace(/\/$/, '')}/graphql`;
-      }
+      discoveryUrl = this.normalizeDiscoveryUrl(process.env.AGENTIC_TRUST_DISCOVERY_URL);
     }
 
     const apiKey =
       overrideConfig.apiKey ??
+      process.env.GRAPHQL_ACCESS_CODE ??
       process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
 
     if (!discoveryUrl) {

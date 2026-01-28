@@ -606,10 +606,10 @@ const INTENT_JOIN_VALIDATION_AGENTS_COLLECTION = 'joinValidationAgentsCollection
 
 async function graphqlRequest(env: Record<string, any>, query: string, variables?: Record<string, unknown>): Promise<any> {
   const raw = (env.AGENTIC_TRUST_GRAPHQL_URL || env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
-  const graphqlUrl = /\/graphql\/?$/i.test(raw)
+  const graphqlUrl = /\/graphql-kb\/?$/i.test(raw)
     ? raw.replace(/\/+$/, '')
     : raw
-      ? `${raw.replace(/\/+$/, '')}/graphql`
+      ? `${raw.replace(/\/+$/, '')}/graphql-kb`
       : '';
   if (!graphqlUrl) return null;
   try {

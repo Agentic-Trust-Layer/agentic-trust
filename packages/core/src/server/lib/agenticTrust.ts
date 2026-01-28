@@ -20,7 +20,7 @@ import { getChainRpcUrl, DEFAULT_CHAIN_ID } from './chainConfig';
 export async function getAgenticTrustClient(): Promise<AgenticTrustClient> {
   try {
     const discoveryUrl = process.env.AGENTIC_TRUST_DISCOVERY_URL;
-    const apiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
+    const apiKey = process.env.GRAPHQL_ACCESS_CODE || process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
 
     if (!discoveryUrl) {
       throw new Error(

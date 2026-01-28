@@ -74,6 +74,78 @@ export interface SemanticAgentSearchResult {
 }
 
 /**
+ * KB v2 GraphQL types (graphql-kb).
+ */
+export type KbProtocolDescriptor = {
+  iri: string;
+  protocol: string;
+  serviceUrl: string;
+  protocolVersion?: string | null;
+  json?: string | null;
+  skills: string[];
+  domains: string[];
+};
+
+export type KbIdentityDescriptor = {
+  iri: string;
+  kind: string;
+  json?: string | null;
+  onchainMetadataJson?: string | null;
+  registeredBy?: string | null;
+  registryNamespace?: string | null;
+  skills: string[];
+  domains: string[];
+  protocolDescriptors: KbProtocolDescriptor[];
+};
+
+export type KbIdentity = {
+  iri: string;
+  kind: string;
+  did: string;
+  descriptor?: KbIdentityDescriptor | null;
+};
+
+export type KbAccount = {
+  iri: string;
+  chainId?: number | null;
+  address?: string | null;
+  accountType?: string | null;
+  didEthr?: string | null;
+};
+
+export type KbAgent = {
+  iri: string;
+  uaid?: string | null;
+  agentName?: string | null;
+  agentTypes: string[];
+  did8004?: string | null;
+  agentId8004?: number | null;
+  isSmartAgent: boolean;
+  identity8004?: KbIdentity | null;
+  identityEns?: KbIdentity | null;
+  ownerAccount?: KbAccount | null;
+  walletAccount?: KbAccount | null;
+  operatorAccount?: KbAccount | null;
+  smartAccount?: KbAccount | null;
+};
+
+type KbAgentSearchResult = {
+  agents: KbAgent[];
+  total: number;
+  hasMore: boolean;
+};
+
+type KbSemanticAgentSearchResult = {
+  matches: Array<{
+    agent?: KbAgent | null;
+    score: number;
+    matchReasons?: string[] | null;
+  }>;
+  total: number;
+  intentType?: string | null;
+};
+
+/**
  * OASF taxonomy types (served by discovery GraphQL when enabled)
  */
 export interface OasfSkill {
@@ -424,9 +496,22 @@ export class AIAgentDiscoveryClient {
   private agentMetadataValueField?: 'valueText' | 'value' | null;
   private queryFieldsCache?: GraphQLField[] | null;
   private queryFieldsPromise?: Promise<GraphQLField[] | null>;
+  private kbV2SupportCache?: boolean;
+  private kbV2SupportPromise?: Promise<boolean>;
 
   constructor(config: AIAgentDiscoveryClientConfig) {
-    this.config = config;
+    const endpoint = (() => {
+      const raw = (config.endpoint || '').toString().trim().replace(/\/+$/, '');
+      if (!raw) return raw;
+      // Force KB endpoint:
+      // - if caller passed ".../graphql", replace with ".../graphql-kb"
+      // - if caller passed base URL, append "/graphql-kb"
+      if (/\/graphql$/i.test(raw)) return raw.replace(/\/graphql$/i, '/graphql-kb');
+      if (/\/graphql-kb$/i.test(raw)) return raw;
+      return `${raw}/graphql-kb`;
+    })();
+
+    this.config = { ...config, endpoint };
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(config.headers || {}),
@@ -436,11 +521,69 @@ export class AIAgentDiscoveryClient {
       headers['Authorization'] = `Bearer ${config.apiKey}`;
       // Also support API key in header
       headers['X-API-Key'] = config.apiKey;
+      // Some deployments use an explicit access-code header
+      headers['X-Access-Code'] = config.apiKey;
     }
 
-    this.client = new GraphQLClient(config.endpoint, {
+    this.client = new GraphQLClient(endpoint, {
       headers,
     });
+  }
+
+  private extractOperationName(query: string): string | null {
+    const m = /\b(query|mutation)\s+([A-Za-z0-9_]+)/.exec(query);
+    return m?.[2] ? String(m[2]) : null;
+  }
+
+  private decorateGraphqlError(error: unknown, query: string): Error {
+    const op = this.extractOperationName(query) ?? 'unknown_operation';
+    const endpoint = this.config.endpoint;
+
+    const status =
+      typeof error === 'object' &&
+      error !== null &&
+      'response' in error &&
+      typeof (error as any).response?.status === 'number'
+        ? (error as any).response.status
+        : undefined;
+
+    const gqlMessages: string[] = [];
+    const responseErrors = (error as any)?.response?.errors;
+    if (Array.isArray(responseErrors)) {
+      for (const e of responseErrors) {
+        if (typeof e?.message === 'string' && e.message.trim()) gqlMessages.push(e.message.trim());
+      }
+    }
+
+    const combined = (gqlMessages.join(' ') || (error instanceof Error ? error.message : '')).trim();
+    const lower = combined.toLowerCase();
+
+    const kind =
+      status === 401 || status === 403
+        ? 'auth'
+        : status === 404
+          ? 'missing_endpoint'
+          : lower.includes('cannot query field') || lower.includes('unknown argument')
+            ? 'schema_mismatch'
+            : 'unknown';
+
+    const msg =
+      `[DiscoveryGraphQL:${kind}] ` +
+      `operation=${op} status=${typeof status === 'number' ? status : 'unknown'} ` +
+      `endpoint=${endpoint} ` +
+      (combined ? `message=${combined}` : 'message=Unknown error');
+
+    const wrapped = new Error(msg);
+    if (error instanceof Error) (wrapped as any).cause = error;
+    return wrapped;
+  }
+
+  private async gqlRequest<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+    try {
+      return await this.client.request<T>(query, variables);
+    } catch (error) {
+      throw this.decorateGraphqlError(error, query);
+    }
   }
 
   private async getQueryFields(): Promise<GraphQLField[] | null> {
@@ -453,7 +596,7 @@ export class AIAgentDiscoveryClient {
 
     this.queryFieldsPromise = (async () => {
       try {
-        const data = await this.client.request<IntrospectionQueryResult>(INTROSPECTION_QUERY);
+        const data = await this.gqlRequest<IntrospectionQueryResult>(INTROSPECTION_QUERY);
         const fields = data.__schema?.queryType?.fields ?? [];
         this.queryFieldsCache = fields;
         return fields;
@@ -467,6 +610,181 @@ export class AIAgentDiscoveryClient {
     })();
 
     return this.queryFieldsPromise;
+  }
+
+  private async hasQueryField(fieldName: string): Promise<boolean> {
+    const fields = await this.getQueryFields();
+    return Array.isArray(fields) ? fields.some((f) => f?.name === fieldName) : false;
+  }
+
+  private async supportsKbV2Queries(): Promise<boolean> {
+    if (typeof this.kbV2SupportCache === 'boolean') return this.kbV2SupportCache;
+    if (this.kbV2SupportPromise) return this.kbV2SupportPromise;
+
+    this.kbV2SupportPromise = (async () => {
+      try {
+        const fields = await this.getQueryFields();
+        if (!Array.isArray(fields) || fields.length === 0) {
+          // Introspection disabled or failed → assume legacy.
+          this.kbV2SupportCache = false;
+          return false;
+        }
+        const names = new Set(fields.map((f) => f?.name).filter(Boolean) as string[]);
+        const ok = names.has('kbAgents') && names.has('kbAgent') && names.has('kbSemanticAgentSearch');
+        this.kbV2SupportCache = ok;
+        return ok;
+      } catch {
+        this.kbV2SupportCache = false;
+        return false;
+      } finally {
+        this.kbV2SupportPromise = undefined;
+      }
+    })();
+
+    return this.kbV2SupportPromise;
+  }
+
+  /**
+   * Map a KB v2 agent node into the legacy AgentData shape used across the monorepo.
+   */
+  private mapKbAgentToAgentData(agent: KbAgent | null | undefined): AgentData {
+    const a = (agent ?? {}) as Partial<KbAgent>;
+
+    const pickAccountAddress = (...accounts: Array<KbAccount | null | undefined>): string | null => {
+      for (const acc of accounts) {
+        const addr = acc?.address;
+        if (typeof addr === 'string' && addr.trim()) {
+          return addr.trim();
+        }
+      }
+      return null;
+    };
+
+    const did8004 = typeof a.did8004 === 'string' && a.did8004.trim() ? a.did8004.trim() : null;
+    const agentId8004 =
+      typeof a.agentId8004 === 'number' && Number.isFinite(a.agentId8004) ? a.agentId8004 : null;
+
+    // Best-effort: infer chainId from the most specific account we have.
+    const chainId =
+      (typeof a.smartAccount?.chainId === 'number' ? a.smartAccount?.chainId : null) ??
+      (typeof a.walletAccount?.chainId === 'number' ? a.walletAccount?.chainId : null) ??
+      (typeof a.ownerAccount?.chainId === 'number' ? a.ownerAccount?.chainId : null) ??
+      null;
+
+    const agentAccount =
+      pickAccountAddress(a.smartAccount, a.walletAccount, a.ownerAccount) ??
+      null;
+
+    const identityOwner = pickAccountAddress(a.ownerAccount, a.walletAccount) ?? null;
+
+    const isOwnerEoa =
+      (a.ownerAccount?.accountType ?? '').toString().toLowerCase().includes('eoa');
+
+    // Pull descriptor JSON where available.
+    const rawJson =
+      (typeof a.identity8004?.descriptor?.json === 'string' && a.identity8004.descriptor.json) ||
+      (typeof a.identityEns?.descriptor?.json === 'string' && a.identityEns.descriptor.json) ||
+      null;
+
+    // Infer A2A/MCP endpoints from protocol descriptors.
+    const protocolDescriptors = [
+      ...(Array.isArray(a.identity8004?.descriptor?.protocolDescriptors)
+        ? (a.identity8004?.descriptor?.protocolDescriptors as KbProtocolDescriptor[])
+        : []),
+      ...(Array.isArray(a.identityEns?.descriptor?.protocolDescriptors)
+        ? (a.identityEns?.descriptor?.protocolDescriptors as KbProtocolDescriptor[])
+        : []),
+    ];
+
+    const a2aEndpoint =
+      protocolDescriptors.find((p) => String(p?.protocol || '').toLowerCase() === 'a2a')?.serviceUrl ??
+      null;
+
+    const hasMcp =
+      protocolDescriptors.some((p) => String(p?.protocol || '').toLowerCase() === 'mcp') || false;
+
+    const normalized: AgentData = {
+      agentId: agentId8004 ?? undefined,
+      agentName: typeof a.agentName === 'string' ? a.agentName : undefined,
+      chainId: chainId ?? undefined,
+      agentAccount: agentAccount ?? undefined,
+      agentIdentityOwnerAccount: identityOwner ?? undefined,
+      eoaAgentIdentityOwnerAccount: isOwnerEoa ? identityOwner : null,
+      eoaAgentAccount: isOwnerEoa ? agentAccount : null,
+      didIdentity: did8004,
+      did: did8004,
+      a2aEndpoint,
+      mcp: hasMcp,
+      rawJson,
+      // Minimal capability hints
+      active: true,
+    };
+
+    return this.normalizeAgent(normalized);
+  }
+
+  private buildKbAgentSelection(): string {
+    return `
+      iri
+      uaid
+      agentName
+      agentTypes
+      did8004
+      agentId8004
+      isSmartAgent
+      identity8004 {
+        iri
+        kind
+        did
+        descriptor {
+          iri
+          kind
+          json
+          onchainMetadataJson
+          registeredBy
+          registryNamespace
+          skills
+          domains
+          protocolDescriptors {
+            iri
+            protocol
+            serviceUrl
+            protocolVersion
+            json
+            skills
+            domains
+          }
+        }
+      }
+      identityEns {
+        iri
+        kind
+        did
+        descriptor {
+          iri
+          kind
+          json
+          onchainMetadataJson
+          registeredBy
+          registryNamespace
+          skills
+          domains
+          protocolDescriptors {
+            iri
+            protocol
+            serviceUrl
+            protocolVersion
+            json
+            skills
+            domains
+          }
+        }
+      }
+      ownerAccount { iri chainId address accountType didEthr }
+      walletAccount { iri chainId address accountType didEthr }
+      operatorAccount { iri chainId address accountType didEthr }
+      smartAccount { iri chainId address accountType didEthr }
+    `;
   }
 
   private async supportsQueryField(fieldName: string): Promise<boolean> {
@@ -741,95 +1059,30 @@ export class AIAgentDiscoveryClient {
    * @returns List of agents
    */
   async listAgents(limit?: number, offset?: number): Promise<AgentData[]> {
-    let allAgents: AgentData[] = [];
     const effectiveLimit = limit ?? 100;
     const effectiveOffset = offset ?? 0;
 
     const query = `
-      query ListAgents($limit: Int, $offset: Int) {
-        agents(limit: $limit, offset: $offset) {
-          chainId
-          agentId
-          agentName
-          agentAccount
-          agentIdentityOwnerAccount
-          eoaAgentIdentityOwnerAccount
-          eoaAgentAccount
-          agentCategory
-          didIdentity
-          didAccount
-          didName
-          agentUri
-          createdAtBlock
-          createdAtTime
-          updatedAtTime
-          type
-          description
-          image
-          a2aEndpoint
-          did
-          mcp
-          x402support
-          active
-          supportedTrust
-          rawJson
-          agentCardJson
-          agentCardReadAt
-          feedbackCount
-          feedbackAverageScore
-          validationPendingCount
-          validationCompletedCount
-          validationRequestedCount
-          initiatedAssociationCount
-          approvedAssociationCount
-          atiOverallScore
-          atiOverallConfidence
-          atiVersion
-          atiComputedAt
-          atiBundleJson
-          trustLedgerScore
-          trustLedgerBadgeCount
-          trustLedgerOverallRank
-          trustLedgerCapabilityRank
+      query ListKbAgents($first: Int, $skip: Int) {
+        kbAgents(first: $first, skip: $skip, orderBy: agentId8004, orderDirection: DESC) {
+          agents { ${this.buildKbAgentSelection()} }
+          total
+          hasMore
         }
       }
     `;
 
     try {
-      const data = await this.client.request<ListAgentsResponse>(query, {
-        limit: effectiveLimit,
-        offset: effectiveOffset,
+      const data = await this.gqlRequest<{ kbAgents: KbAgentSearchResult }>(query, {
+        first: effectiveLimit,
+        skip: effectiveOffset,
       });
-      const pageAgents = (data.agents || []).map((agent) => {
-        const normalized = this.normalizeAgent(agent);
-        console.log('[AIAgentDiscoveryClient.listAgents] Normalized agent:', {
-          agentId: normalized.agentId,
-          rawAgentName: agent.agentName,
-          normalizedAgentName: normalized.agentName,
-          agentNameType: typeof normalized.agentName,
-          hasRawJson: !!normalized.rawJson,
-        });
-        return normalized;
-      });
-      allAgents = allAgents.concat(pageAgents);
-      
 
-      // Apply client-side ordering to ensure deterministic results,
-      // since the base agents query may not support orderBy/orderDirection
-      // arguments. Default is agentId DESC for "newest first".
-      // Default to newest agents first by agentId DESC
-      allAgents.sort((a, b) => {
-        const idA =
-          typeof a.agentId === 'number' ? a.agentId : Number(a.agentId ?? 0) || 0;
-        const idB =
-          typeof b.agentId === 'number' ? b.agentId : Number(b.agentId ?? 0) || 0;
-        return idB - idA;
-      });
+      const list = data?.kbAgents?.agents ?? [];
+      return list.map((a) => this.mapKbAgentToAgentData(a));
     } catch (error) {
-      console.warn('[AIAgentDiscoveryClient.listAgents] Error fetching agents with pagination:', error);
+      throw error;
     }
-
-    return allAgents;
   }
 
   /**
@@ -867,53 +1120,7 @@ export class AIAgentDiscoveryClient {
         score
         matchReasons
         agent {
-          chainId
-          agentId
-          agentName
-          agentAccount
-          agentIdentityOwnerAccount
-          eoaAgentIdentityOwnerAccount
-          eoaAgentAccount
-          agentCategory
-          didIdentity
-          didAccount
-          didName
-          agentUri
-          createdAtBlock
-          createdAtTime
-          updatedAtTime
-          type
-          description
-          image
-          a2aEndpoint
-          supportedTrust
-          rawJson
-          agentCardJson
-          agentCardReadAt
-          did
-          mcp
-          x402support
-          active
-          feedbackCount
-          feedbackAverageScore
-          validationPendingCount
-          validationCompletedCount
-          validationRequestedCount
-          initiatedAssociationCount
-          approvedAssociationCount
-          atiOverallScore
-          atiOverallConfidence
-          atiVersion
-          atiComputedAt
-          atiBundleJson
-          trustLedgerScore
-          trustLedgerBadgeCount
-          trustLedgerOverallRank
-          trustLedgerCapabilityRank
-          metadata {
-            key
-            valueText
-          }
+          ${this.buildKbAgentSelection()}
         }
       }
     `;
@@ -922,48 +1129,26 @@ export class AIAgentDiscoveryClient {
       // Note: intentType is not sent to GraphQL - backend should extract it from intentJson
       // We keep it in params for logging/debugging but don't include it in the GraphQL query
 
-      const query = intentJson
-        ? `
-        query SearchByIntent($intentJson: String!, $topK: Int, $requiredSkills: [String!]) {
-          semanticAgentSearch(input: { 
-            intentJson: $intentJson, 
-            topK: $topK,
-            requiredSkills: $requiredSkills
-          }) {
-            ${selection}
-          }
-        }
-      `
-        : `
-        query SearchByText($text: String!) {
-          semanticAgentSearch(input: { text: $text }) {
+      const query = `
+        query KbSemanticAgentSearch($input: SemanticAgentSearchInput!) {
+          kbSemanticAgentSearch(input: $input) {
             ${selection}
           }
         }
       `;
 
-      const variables = intentJson
-        ? { intentJson, topK, requiredSkills }
-        : { text };
-      
-      console.log('[AIAgentDiscoveryClient.semanticAgentSearch] GraphQL variables:', JSON.stringify(variables, null, 2));
-      
       try {
-        const data = await this.client.request<{
-          semanticAgentSearch?: {
-            total?: number | null;
-            matches?: Array<{
-              score?: number | null;
-              matchReasons?: string[] | null;
-              agent?: Record<string, unknown> | null;
-            }> | null;
-          };
-        }>(
-          query,
-          variables,
-        );
+        const input: Record<string, unknown> = {};
+        if (text) input.text = text;
+        if (intentJson) input.intentJson = intentJson;
+        if (typeof topK === 'number') input.topK = topK;
+        if (Array.isArray(requiredSkills) && requiredSkills.length > 0) input.requiredSkills = requiredSkills;
 
-      const root = data.semanticAgentSearch;
+        const data = await this.client.request<{ kbSemanticAgentSearch?: KbSemanticAgentSearchResult }>(query, {
+          input,
+        });
+
+      const root = data.kbSemanticAgentSearch;
       if (!root) {
         return { total: 0, matches: [] };
       }
@@ -983,31 +1168,7 @@ export class AIAgentDiscoveryClient {
           continue;
         }
 
-        const normalizedAgent = this.normalizeAgent(item.agent as AgentData);
-
-        // Extract metadata entries (if present) into a strongly-typed array.
-        const metadataRaw = (item.agent as any).metadata;
-        let metadata: SemanticAgentMetadataEntry[] | null = null;
-        if (Array.isArray(metadataRaw)) {
-          const entries: SemanticAgentMetadataEntry[] = [];
-          for (const entry of metadataRaw) {
-            if (!entry || typeof entry.key !== 'string') continue;
-            entries.push({
-              key: entry.key,
-              valueText:
-                entry.valueText === null || entry.valueText === undefined
-                  ? null
-                  : String(entry.valueText),
-            });
-          }
-          if (entries.length > 0) {
-            metadata = entries;
-          }
-        }
-
-        if (metadata) {
-          (normalizedAgent as any).metadata = metadata;
-        }
+        const normalizedAgent = this.mapKbAgentToAgentData(item.agent as any);
 
         matches.push({
           score:
@@ -1755,14 +1916,14 @@ export class AIAgentDiscoveryClient {
     orderDirection?: 'ASC' | 'DESC';
   }): Promise<{ agents: AgentData[]; total: number; hasMore: boolean }> {
     const query = `
-      query SearchAgentsGraph(
-        $where: AgentWhereInput
+      query KbAgents(
+        $where: KbAgentWhereInput
         $first: Int
         $skip: Int
-        $orderBy: AgentOrderBy
+        $orderBy: KbAgentOrderBy
         $orderDirection: OrderDirection
       ) {
-        searchAgentsGraph(
+        kbAgents(
           where: $where
           first: $first
           skip: $skip
@@ -1770,49 +1931,7 @@ export class AIAgentDiscoveryClient {
           orderDirection: $orderDirection
         ) {
           agents {
-            chainId
-            agentId
-            agentAccount
-            agentName
-            agentIdentityOwnerAccount
-            eoaAgentIdentityOwnerAccount
-            eoaAgentAccount
-            agentCategory
-            didIdentity
-            didAccount
-            didName
-            agentUri
-            createdAtBlock
-            createdAtTime
-            updatedAtTime
-            type
-            description
-            image
-            a2aEndpoint
-            supportedTrust
-            rawJson
-            agentCardJson
-            agentCardReadAt
-            did
-            mcp
-            x402support
-            active
-            feedbackCount
-            feedbackAverageScore
-            validationPendingCount
-            validationCompletedCount
-            validationRequestedCount
-            initiatedAssociationCount
-            approvedAssociationCount
-            atiOverallScore
-            atiOverallConfidence
-            atiVersion
-            atiComputedAt
-            atiBundleJson
-            trustLedgerScore
-            trustLedgerBadgeCount
-            trustLedgerOverallRank
-            trustLedgerCapabilityRank
+            ${this.buildKbAgentSelection()}
           }
           total
           hasMore
@@ -1822,32 +1941,85 @@ export class AIAgentDiscoveryClient {
 
     // Default ordering when not explicitly provided: newest agents first
     // by agentId DESC.
-    const effectiveOrderBy = options.orderBy ?? 'agentId';
     const effectiveOrderDirection: 'ASC' | 'DESC' =
       (options.orderDirection ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
+    // Map legacy orderBy to KB orderBy.
+    const effectiveOrderByKb: 'agentId8004' | 'agentName' | 'uaid' =
+      options.orderBy === 'agentName' ? 'agentName' : 'agentId8004';
+
+    const whereIn = (options.where ?? {}) as Record<string, unknown>;
+    const kbWhere: Record<string, unknown> = {};
+    // chainId: v1 can provide chainId or chainId_in.
+    if (typeof whereIn.chainId === 'number') kbWhere.chainId = whereIn.chainId;
+    if (!('chainId' in kbWhere) && Array.isArray(whereIn.chainId_in) && whereIn.chainId_in.length === 1) {
+      const v = whereIn.chainId_in[0];
+      if (typeof v === 'number') kbWhere.chainId = v;
+    }
+
+    // agentId: v1 can provide agentId or agentId_in.
+    const agentIdCandidate =
+      typeof whereIn.agentId === 'string' || typeof whereIn.agentId === 'number'
+        ? whereIn.agentId
+        : Array.isArray(whereIn.agentId_in) && whereIn.agentId_in.length === 1
+          ? whereIn.agentId_in[0]
+          : undefined;
+    if (typeof agentIdCandidate === 'string' || typeof agentIdCandidate === 'number') {
+      const n = Number(agentIdCandidate);
+      if (Number.isFinite(n)) kbWhere.agentId8004 = Math.floor(n);
+    }
+
+    // did: v1 can provide did/didIdentity or did_contains_nocase.
+    const didCandidate =
+      (typeof whereIn.didIdentity === 'string' && whereIn.didIdentity) ||
+      (typeof whereIn.did === 'string' && whereIn.did) ||
+      (typeof (whereIn as any).did_contains_nocase === 'string' && (whereIn as any).did_contains_nocase) ||
+      undefined;
+    if (typeof didCandidate === 'string' && didCandidate.trim().startsWith('did:')) {
+      kbWhere.did8004 = didCandidate.trim();
+    }
+
+    // agentName: v1 commonly uses agentName_contains_nocase.
+    const nameCandidate =
+      (typeof whereIn.agentName_contains === 'string' && whereIn.agentName_contains) ||
+      (typeof whereIn.agentName === 'string' && whereIn.agentName) ||
+      (typeof (whereIn as any).agentName_contains_nocase === 'string' && (whereIn as any).agentName_contains_nocase) ||
+      undefined;
+    if (typeof nameCandidate === 'string' && nameCandidate.trim()) {
+      kbWhere.agentName_contains = nameCandidate.trim();
+    }
+
+    // A2A: v1 uses hasA2aEndpoint or a2aEndpoint_not: null.
+    const hasA2aEndpoint =
+      (typeof (whereIn as any).hasA2aEndpoint === 'boolean' && (whereIn as any).hasA2aEndpoint) ||
+      ((whereIn as any).a2aEndpoint_not === null);
+    if (hasA2aEndpoint) {
+      kbWhere.hasA2a = true;
+    }
+
+    // Smart agent: v1 may provide isSmartAgent.
+    if (typeof (whereIn as any).isSmartAgent === 'boolean') {
+      kbWhere.isSmartAgent = (whereIn as any).isSmartAgent;
+    }
+
     const variables: Record<string, unknown> = {
-      where: options.where,
+      where: Object.keys(kbWhere).length ? kbWhere : undefined,
       first: typeof options.first === 'number' ? options.first : undefined,
       skip: typeof options.skip === 'number' ? options.skip : undefined,
-      orderBy: effectiveOrderBy,
+      orderBy: effectiveOrderByKb,
       orderDirection: effectiveOrderDirection,
     };
 
     const data = await this.client.request<{
-      searchAgentsGraph?: {
-        agents?: AgentData[];
+      kbAgents?: {
+        agents?: KbAgent[];
         total?: number;
         hasMore?: boolean;
       };
     }>(query, variables);
 
-    const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
-    const agents = (result.agents ?? []).map((agent) => {
-      const rawAgent = agent as AgentData;
-      const normalized = this.normalizeAgent(rawAgent);
-      return normalized;
-    });
+    const result = data.kbAgents ?? { agents: [], total: 0, hasMore: false };
+    const agents = (result.agents ?? []).map((agent) => this.mapKbAgentToAgentData(agent));
 
     return {
       agents,
@@ -2396,269 +2568,82 @@ export class AIAgentDiscoveryClient {
    * @returns Agent data with metadata or null if not found
    */
   async getAgent(chainId: number, agentId: number | string): Promise<AgentData | null> {
-    const metadataValueField = await this.getAgentMetadataValueField();
-    const metadataSelection =
-      metadataValueField === 'valueText'
-        ? `
-            metadata {
-              key
-              valueText
-            }`
-        : metadataValueField === 'value'
-          ? `
-            metadata {
-              key
-              valueText: value
-            }`
-          : '';
-
-    // Try searchAgentsGraph first to get metadata
-    const graphQuery = `
-      query GetAgentWithMetadata($where: AgentWhereInput, $first: Int) {
-        searchAgentsGraph(
-          where: $where
-          first: $first
-        ) {
-          agents {
-            chainId
-            agentId
-            agentAccount
-            agentName
-            agentIdentityOwnerAccount
-            eoaAgentIdentityOwnerAccount
-            eoaAgentAccount
-            agentCategory
-            didIdentity
-            didAccount
-            didName
-            agentUri
-            createdAtBlock
-            createdAtTime
-            updatedAtTime
-            type
-            description
-            image
-            a2aEndpoint
-            did
-            mcp
-            x402support
-            active
-            supportedTrust
-            rawJson
-            agentCardJson
-            agentCardReadAt
-            feedbackCount
-            feedbackAverageScore
-            validationPendingCount
-            validationCompletedCount
-            validationRequestedCount
-            initiatedAssociationCount
-            approvedAssociationCount
-            atiOverallScore
-            atiOverallConfidence
-            atiVersion
-            atiComputedAt
-            atiBundleJson
-            trustLedgerScore
-            trustLedgerBadgeCount
-            trustLedgerOverallRank
-            trustLedgerCapabilityRank
-${metadataSelection}
-          }
-        }
-      }
-    `;
-
-    try {
-      const graphData = await this.client.request<{
-        searchAgentsGraph?: {
-          agents?: Array<{
-            chainId?: number;
-            agentId?: string | number;
-            agentAccount?: string;
-            agentName?: string;
-            agentIdentityOwnerAccount?: string;
-            eoaAgentIdentityOwnerAccount?: string | null;
-            eoaAgentAccount?: string | null;
-            didIdentity?: string | null;
-            didAccount?: string | null;
-            didName?: string | null;
-            agentUri?: string | null;
-            createdAtBlock?: number;
-            createdAtTime?: string | number;
-            updatedAtTime?: string | number;
-            type?: string | null;
-            description?: string | null;
-            image?: string | null;
-            a2aEndpoint?: string | null;
-            did?: string | null;
-            mcp?: boolean | null;
-            x402support?: boolean | null;
-            active?: boolean | null;
-            supportedTrust?: string | null;
-            rawJson?: string | null;
-            agentCardJson?: string | null;
-            agentCardReadAt?: number | null;
-            metadata?: Array<{
-              key: string;
-              valueText: string;
-            }>;
-          }>;
-        };
-      }>(graphQuery, {
-        where: {
-          chainId,
-          agentId: String(agentId),
-        },
-        first: 1,
-      });
-
-      if (graphData.searchAgentsGraph?.agents && graphData.searchAgentsGraph.agents.length > 0) {
-        const agentData = graphData.searchAgentsGraph.agents[0];
-        if (!agentData) {
-          return null;
-        }
-        
-        // Convert metadata array to record and add to agent data
-        const normalized = this.normalizeAgent(agentData);
-        if (agentData.metadata && Array.isArray(agentData.metadata)) {
-          // Add metadata as a flat object on the agent data
-          for (const meta of agentData.metadata) {
-            if (meta.key && meta.valueText) {
-              (normalized as any)[meta.key] = meta.valueText;
-            }
-          }
-          // Also store as metadata property for easy access
-          (normalized as any).metadata = agentData.metadata.reduce((acc, meta) => {
-            if (meta.key && meta.valueText) {
-              acc[meta.key] = meta.valueText;
-            }
-            return acc;
-          }, {} as Record<string, string>);
-        }
-        
-        return normalized;
-      }
-    } catch (error) {
-      console.warn('[AIAgentDiscoveryClient.getAgent] GraphQL searchAgentsGraph failed, trying fallback:', error);
+    const id = typeof agentId === 'number' ? agentId : Number.parseInt(String(agentId), 10);
+    if (!Number.isFinite(id)) {
+      return null;
     }
 
-    // Fallback to original agent query if searchAgentsGraph doesn't work
     const query = `
-      query GetAgent($chainId: Int!, $agentId: String!) {
-        agent(chainId: $chainId, agentId: $agentId) {
-          chainId
-          agentId
-          agentAccount
-          agentName
-          agentIdentityOwnerAccount
-          eoaAgentIdentityOwnerAccount
-          eoaAgentAccount
-          agentCategory
-          didIdentity
-          didAccount
-          didName
-          agentUri
-          createdAtBlock
-          createdAtTime
-          updatedAtTime
-          type
-          description
-          image
-          a2aEndpoint
-          did
-          mcp
-          x402support
-          active
-          supportedTrust
-          rawJson
-          agentCardJson
-          agentCardReadAt
-          atiOverallScore
-          atiOverallConfidence
-          atiVersion
-          atiComputedAt
-          atiBundleJson
-          trustLedgerScore
-          trustLedgerBadgeCount
-          trustLedgerOverallRank
-          trustLedgerCapabilityRank
+      query KbAgent($chainId: Int!, $agentId8004: Int!) {
+        kbAgent(chainId: $chainId, agentId8004: $agentId8004) {
+          ${this.buildKbAgentSelection()}
         }
       }
     `;
 
     try {
-      const data = await this.client.request<GetAgentResponse>(query, {
+      const data = await this.client.request<{ kbAgent?: KbAgent | null }>(query, {
         chainId,
-        agentId: String(agentId),
+        agentId8004: id,
       });
 
-      if (!data.agent) {
-        return null;
-      }
-
-      return this.normalizeAgent(data.agent);
+      if (!data.kbAgent) return null;
+      return this.mapKbAgentToAgentData(data.kbAgent);
     } catch (error) {
-      console.error('[AIAgentDiscoveryClient.getAgent] Error fetching agent:', error);
+      console.warn('[AIAgentDiscoveryClient.getAgent] kbAgent query failed, trying kbAgents fallback:', error);
+    }
+
+    const fallback = `
+      query KbAgentsFallback($where: KbAgentWhereInput, $first: Int) {
+        kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
+          agents { ${this.buildKbAgentSelection()} }
+          total
+          hasMore
+        }
+      }
+    `;
+
+    try {
+      const data = await this.client.request<{ kbAgents?: KbAgentSearchResult }>(fallback, {
+        where: { chainId, agentId8004: id },
+        first: 1,
+      });
+      const agent = data?.kbAgents?.agents?.[0];
+      return agent ? this.mapKbAgentToAgentData(agent) : null;
+    } catch (error) {
+      console.error('[AIAgentDiscoveryClient.getAgent] kbAgents fallback failed:', error);
       return null;
     }
   }
 
   async getAgentByName(agentName: string): Promise<AgentData | null> {
+    const trimmed = agentName?.trim();
+    if (!trimmed) return null;
+
     const query = `
-      query GetAgentByName($agentName: String!) {
-        agentByName(agentName: $agentName) {
-          chainId
-          agentId
-          agentAccount
-          agentName
-          agentIdentityOwnerAccount
-          eoaAgentIdentityOwnerAccount
-          eoaAgentAccount
-          agentCategory
-          didIdentity
-      didAccount
-      didName
-      agentUri
-          createdAtBlock
-          createdAtTime
-          updatedAtTime
-          type
-          description
-          image
-          a2aEndpoint
-          did
-          mcp
-          x402support
-          active
-          supportedTrust
-          rawJson
-          agentCardJson
-          agentCardReadAt
-          atiOverallScore
-          atiOverallConfidence
-          atiVersion
-          atiComputedAt
-          atiBundleJson
-          trustLedgerScore
-          trustLedgerBadgeCount
-          trustLedgerOverallRank
-          trustLedgerCapabilityRank
+      query KbAgentsByName($where: KbAgentWhereInput, $first: Int) {
+        kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
+          agents { ${this.buildKbAgentSelection()} }
+          total
+          hasMore
         }
       }
     `;
 
     try {
-      const data = await this.client.request<GetAgentByNameResponse>(query, {
-        agentName,
+      const data = await this.client.request<{ kbAgents?: KbAgentSearchResult }>(query, {
+        where: { agentName_contains: trimmed },
+        first: 20,
       });
-      console.log("*********** AIAgentDiscoveryClient.getAgentByName: data", data);
 
-      if (!data.agentByName) {
-        return null;
-      }
+      const list = data?.kbAgents?.agents ?? [];
+      if (!list.length) return null;
 
-      return this.normalizeAgent(data.agentByName);
+      const exact =
+        list.find((a) => String(a.agentName ?? '').toLowerCase() === trimmed.toLowerCase()) ??
+        list[0];
+
+      return exact ? this.mapKbAgentToAgentData(exact) : null;
     } catch (error) {
       console.error('[AIAgentDiscoveryClient.getAgentByName] Error fetching agent:', error);
       return null;
@@ -2988,125 +2973,51 @@ ${metadataSelection}
     const orderDirection = options?.orderDirection ?? 'DESC';
 
     const query = `
-      query GetOwnedAgents(
-        $where: AgentWhereInput
-        $first: Int
-        $skip: Int
-        $orderBy: AgentOrderBy
-        $orderDirection: OrderDirection
-      ) {
-        searchAgentsGraph(
-          where: $where
-          first: $first
-          skip: $skip
-          orderBy: $orderBy
-          orderDirection: $orderDirection
-        ) {
-          agents {
-            chainId
-            agentId
-            agentAccount
-            agentName
-            agentCategory
-            didIdentity
-            didAccount
-            didName
-            agentIdentityOwnerAccount
-            eoaAgentIdentityOwnerAccount
-            eoaAgentAccount
-            agentUri
-            createdAtBlock
-            createdAtTime
-            updatedAtTime
-            type
-            description
-            image
-            a2aEndpoint
-            supportedTrust
-            rawJson
-            agentCardJson
-            agentCardReadAt
-            did
-            mcp
-            x402support
-            active
-            feedbackCount
-            feedbackAverageScore
-            validationPendingCount
-            validationCompletedCount
-            validationRequestedCount
-            initiatedAssociationCount
-            approvedAssociationCount
-            atiOverallScore
-            atiOverallConfidence
-            atiVersion
-            atiComputedAt
-            atiBundleJson
-            trustLedgerScore
-            trustLedgerBadgeCount
-            trustLedgerOverallRank
-            trustLedgerCapabilityRank
-          }
+      query KbOwnedAgents($first: Int, $skip: Int) {
+        kbAgents(first: $first, skip: $skip, orderBy: agentId8004, orderDirection: DESC) {
+          agents { ${this.buildKbAgentSelection()} }
           total
           hasMore
         }
       }
     `;
 
-    try {
-      // Prefer _in filter (works for string fields and some bytes fields). If schema doesn't support it,
-      // fall back to exact-match attempts across candidates.
-      const tryQuery = async (where: Record<string, unknown>) => {
-        const variables: Record<string, unknown> = {
-          where,
-          first: limit,
-          skip: offset,
-          orderBy,
-          orderDirection,
-        };
-        const data = await this.client.request<{
-          searchAgentsGraph?: {
-            agents?: AgentData[];
-            total?: number;
-            hasMore?: boolean;
-          };
-        }>(query, variables);
-        const result = data.searchAgentsGraph ?? { agents: [], total: 0, hasMore: false };
-        return (result.agents ?? []).map((agent) => this.normalizeAgent(agent));
-      };
+    const pageSize = Math.min(250, Math.max(25, limit));
+    const results: AgentData[] = [];
 
-      // 1) Try eoaAgentIdentityOwnerAccount_in: [candidates]
-      try {
-        const owned = await tryQuery({ eoaAgentIdentityOwnerAccount_in: addrCandidates });
-        if (owned.length > 0) return owned;
-      } catch (e: any) {
-        const responseErrors = e?.response?.errors;
-        const inNotSupported =
-          Array.isArray(responseErrors) &&
-          responseErrors.some(
-            (err) =>
-              typeof err?.message === 'string' &&
-              (err.message.includes('eoaAgentIdentityOwnerAccount_in') ||
-                err.message.includes('Field "eoaAgentIdentityOwnerAccount_in"') ||
-                err.message.includes('Unknown argument') ||
-                err.message.includes('Cannot query field')),
-          );
-        if (!inNotSupported) {
-          throw e;
+    let scannedSkip = 0;
+    let matchedSeen = 0;
+
+    // Safety cap to prevent runaway scans on large graphs.
+    const maxScanned = 5000;
+
+    while (scannedSkip < maxScanned && results.length < limit) {
+      const data = await this.client.request<{ kbAgents?: KbAgentSearchResult }>(query, {
+        first: pageSize,
+        skip: scannedSkip,
+      });
+
+      const page = data?.kbAgents?.agents ?? [];
+      for (const agent of page) {
+        const ownerAddr = agent?.ownerAccount?.address?.toLowerCase?.() ?? '';
+        const walletAddr = agent?.walletAccount?.address?.toLowerCase?.() ?? '';
+        const isOwned = addrCandidates.some((c) => c.toLowerCase() === ownerAddr || c.toLowerCase() === walletAddr);
+        if (!isOwned) continue;
+
+        if (matchedSeen < offset) {
+          matchedSeen += 1;
+          continue;
         }
+
+        results.push(this.mapKbAgentToAgentData(agent));
+        if (results.length >= limit) break;
       }
 
-      // 2) Exact match attempts
-      for (const candidate of addrCandidates) {
-        const owned = await tryQuery({ eoaAgentIdentityOwnerAccount: candidate });
-        if (owned.length > 0) return owned;
-      }
-
-      return [];
-    } catch (error) {
-      console.error('[AIAgentDiscoveryClient.getOwnedAgents] Error fetching owned agents:', error);
-      throw error;
+      if (!data?.kbAgents?.hasMore) break;
+      scannedSkip += pageSize;
     }
+
+    return results;
   }
 }
 
