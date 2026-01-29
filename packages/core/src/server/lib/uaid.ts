@@ -7,6 +7,12 @@ export type Hcs14RoutingParams = {
   src?: string;
 };
 
+export type ParsedUaidDidTarget = {
+  uaid: string;
+  targetDid: string;
+  routing: Record<string, string>;
+};
+
 function encodeParamValue(value: string): string {
   // UAID params are delimited with ';' and '='. We only encode the characters that
   // would break parsing, while keeping CAIP-10 / DID strings human-readable.
@@ -14,6 +20,13 @@ function encodeParamValue(value: string): string {
     .replace(/%/g, '%25')
     .replace(/;/g, '%3B')
     .replace(/=/g, '%3D');
+}
+
+function decodeParamValue(value: string): string {
+  return String(value || '')
+    .replace(/%3D/gi, '=')
+    .replace(/%3B/gi, ';')
+    .replace(/%25/gi, '%');
 }
 
 function didMethodSpecificId(did: string): string {
@@ -27,6 +40,46 @@ function didMethodSpecificId(did: string): string {
     throw new Error(`Invalid DID: ${decoded}`);
   }
   return parts.slice(2).join(':');
+}
+
+/**
+ * Parse a UAID DID-target:
+ *   uaid:did:<methodSpecificId>;k=v;...
+ *
+ * Returns the reconstructed target DID (e.g. did:ethr:..., did:web:...).
+ */
+export function parseHcs14UaidDidTarget(rawUaid: string): ParsedUaidDidTarget {
+  const uaid = decodeURIComponent(String(rawUaid ?? '').trim());
+  if (!uaid) {
+    throw new Error('Missing UAID');
+  }
+  if (!uaid.startsWith('uaid:did:')) {
+    throw new Error(`Unsupported UAID format: ${uaid}`);
+  }
+
+  const withoutPrefix = uaid.slice('uaid:did:'.length);
+  const [msid, ...rest] = withoutPrefix.split(';');
+  const methodSpecificId = String(msid ?? '').trim();
+  if (!methodSpecificId) {
+    throw new Error(`Invalid UAID (missing target DID): ${uaid}`);
+  }
+
+  const routing: Record<string, string> = {};
+  for (const part of rest) {
+    if (!part) continue;
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const k = part.slice(0, idx).trim();
+    const v = part.slice(idx + 1);
+    if (!k) continue;
+    routing[k] = decodeParamValue(v);
+  }
+
+  return {
+    uaid,
+    targetDid: `did:${methodSpecificId}`,
+    routing,
+  };
 }
 
 /**

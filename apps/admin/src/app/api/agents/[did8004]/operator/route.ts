@@ -9,15 +9,35 @@ export async function GET(
 ) {
   try {
     const { did8004 } = await params;
-    const decodedDid = decodeURIComponent(did8004);
-    
-    // Extract chainId and agentId from did8004
-    const match = decodedDid.match(/^did:8004:(\d+):(\d+)$/);
+    const decoded = decodeURIComponent(did8004);
+
+    // UAID is the canonical identifier; resolve to did:8004 when possible.
+    const client = await getAgenticTrustClient();
+    let did8004Resolved: string | null =
+      decoded.startsWith('did:8004:') ? decoded : null;
+
+    if (!did8004Resolved) {
+      const detail = await (client as any).getAgentDetailsByUaidUniversal?.(decoded, {
+        includeRegistration: false,
+      });
+      const candidate = typeof detail?.didIdentity === 'string' ? detail.didIdentity : null;
+      if (candidate && candidate.startsWith('did:8004:')) {
+        did8004Resolved = candidate;
+      }
+    }
+
+    if (!did8004Resolved) {
+      // Non-chain agents: no NFT operator.
+      return NextResponse.json({
+        success: true,
+        operatorAddress: null,
+        hasOperator: false,
+      });
+    }
+
+    const match = did8004Resolved.match(/^did:8004:(\d+):(\d+)$/);
     if (!match) {
-      return NextResponse.json(
-        { error: 'Invalid DID format' },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: 'Invalid DID format' }, { status: 400 });
     }
 
     const chainId = Number.parseInt(match[1], 10);
@@ -31,7 +51,6 @@ export async function GET(
     }
 
     // Get agent first, then call getNFTOperator on the agent instance
-    const client = await getAgenticTrustClient();
     const agent = await client.getAgent(agentId.toString(), chainId);
 
     if (!agent) {

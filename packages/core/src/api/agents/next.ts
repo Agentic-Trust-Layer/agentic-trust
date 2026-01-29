@@ -23,6 +23,8 @@ import type {
   DirectFeedbackPayload,
 } from './types';
 import { parseDid8004 } from '../../shared/did8004';
+import { parseHcs14UaidDidTarget } from '../../server/lib/uaid';
+import { getDiscoveryClient } from '../../server/singletons/discoveryClient';
 
 type RouteParams = Record<string, string | string[] | undefined>;
 
@@ -115,8 +117,10 @@ export function createAgentRouteHandler(
   };
 }
 
-function extractDidParam(params: RouteParams) {
+function extractAgentIdentifierParam(params: RouteParams) {
   const candidateKeys = [
+    'uaid',
+    'uaid%3Adid',
     'did:8004',
     'did%3A8004',
     'did8004',
@@ -141,7 +145,43 @@ function extractDidParam(params: RouteParams) {
       }
     }
   }
-  throw new AgentApiError('Missing did:8004 parameter', 400);
+  throw new AgentApiError('Missing agent identifier parameter (uaid or did:8004)', 400);
+}
+
+async function resolveUaidToDid8004(uaid: string): Promise<string | null> {
+  const trimmed = String(uaid ?? '').trim();
+  if (!trimmed) return null;
+  if (!trimmed.startsWith('uaid:')) return null;
+
+  try {
+    const parsed = parseHcs14UaidDidTarget(trimmed);
+    if (parsed.targetDid.startsWith('did:8004:')) {
+      return parsed.targetDid;
+    }
+  } catch {
+    // ignore and try KB lookup
+  }
+
+  try {
+    const discoveryClient: any = await getDiscoveryClient();
+    const agent = await discoveryClient.getAgentByUaid?.(trimmed);
+    const didIdentity = typeof agent?.didIdentity === 'string' ? agent.didIdentity : null;
+    if (didIdentity && didIdentity.startsWith('did:8004:')) {
+      return didIdentity;
+    }
+    const chainId = typeof agent?.chainId === 'number' ? agent.chainId : null;
+    const agentId8004 =
+      typeof agent?.agentId === 'string' || typeof agent?.agentId === 'number'
+        ? String(agent.agentId)
+        : null;
+    if (chainId && agentId8004 && /^\d+$/.test(agentId8004)) {
+      return `did:8004:${chainId}:${agentId8004}`;
+    }
+  } catch {
+    // ignore
+  }
+
+  return null;
 }
 
 export function updateAgentRegistrationRouteHandler(
@@ -152,7 +192,17 @@ export function updateAgentRegistrationRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
       const body = (await req.json()) as {
         registration: unknown;
         mode?: unknown;
@@ -198,7 +248,14 @@ export function requestFeedbackAuthRouteHandler(
       let agentIdParam =
         (isPost && typeof body.agentId === 'string' ? (body.agentId as string) : null) ??
         params.get('agentId') ??
-        (context?.params ? extractDidParam(context.params) : undefined);
+        (context?.params ? extractAgentIdentifierParam(context.params) : undefined);
+
+      if (agentIdParam && agentIdParam.startsWith('uaid:')) {
+        const did8004 = await resolveUaidToDid8004(agentIdParam);
+        if (did8004) {
+          agentIdParam = did8004;
+        }
+      }
 
       const parsedDid =
         agentIdParam && agentIdParam.startsWith('did:8004:')
@@ -249,7 +306,17 @@ export function prepareFeedbackRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
       const body = (await req.json()) as Omit<PrepareFeedbackPayload, 'did8004'>;
       const ctx = createContext(req);
       const input: PrepareFeedbackPayload = {
@@ -272,7 +339,17 @@ export function prepareValidationRequestRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
       const body = (await req.json()) as Omit<PrepareValidationRequestPayload, 'did8004'>;
       const ctx = createContext(req);
       const input: PrepareValidationRequestPayload = {
@@ -295,7 +372,17 @@ export function prepareAssociationRequestRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
       const body = (await req.json()) as Omit<PrepareAssociationRequestPayload, 'did8004'>;
       const ctx = createContext(req);
       const input: PrepareAssociationRequestPayload = {
@@ -318,7 +405,17 @@ export function getFeedbackRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
 
       const url = new URL(req.url);
       const searchParams = url.searchParams;
@@ -353,7 +450,17 @@ export function directFeedbackRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
       const body = (await req.json()) as Omit<DirectFeedbackPayload, 'did8004'>;
       const ctx = createContext(req);
       const input: DirectFeedbackPayload = {
@@ -376,7 +483,17 @@ export function getValidationsRouteHandler(
     context: { params: RouteParams },
   ) => {
     try {
-      const did8004 = extractDidParam(context.params || {});
+      const agentIdentifier = extractAgentIdentifierParam(context.params || {});
+      const did8004 =
+        agentIdentifier.startsWith('uaid:')
+          ? await resolveUaidToDid8004(agentIdentifier)
+          : agentIdentifier;
+      if (!did8004 || !did8004.startsWith('did:8004:')) {
+        throw new AgentApiError(
+          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
+          400,
+        );
+      }
       const parsed = parseDid8004(did8004);
       const ctx = createContext(req);
       const result = await getValidationsCore(ctx, {

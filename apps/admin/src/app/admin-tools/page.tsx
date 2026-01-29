@@ -458,30 +458,67 @@ export default function AdminPage() {
   }
 
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
-  // Parse DID from path or query if present
-  let parsedDid: { chainId: number; agentId: string } | null = null;
-  if (didSource) {
-    try {
-      let decoded = didSource;
-      // Handle double-encoding
-      while (decoded.includes('%')) {
-        try {
-          const next = decodeURIComponent(decoded);
-          if (next === decoded) break;
-          decoded = next;
-        } catch {
-          break;
+  // UAID is the canonical navigation identifier. For admin-tools, we still need
+  // did:8004 (chainId/agentId) for on-chain operations, so we resolve UAID -> did:8004.
+  const [parsedDidFromSource, setParsedDidFromSource] = useState<{
+    chainId: number;
+    agentId: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setParsedDidFromSource(null);
+
+    if (!didSource) return;
+
+    (async () => {
+      try {
+        let decoded = didSource;
+        // Handle double-encoding
+        while (decoded.includes('%')) {
+          try {
+            const next = decodeURIComponent(decoded);
+            if (next === decoded) break;
+            decoded = next;
+          } catch {
+            break;
+          }
         }
+
+        if (decoded.startsWith('uaid:')) {
+          const resp = await fetch(`/api/agents/${encodeURIComponent(decoded)}`, {
+            cache: 'no-store',
+          });
+          if (!resp.ok) {
+            throw new Error(`Failed to resolve UAID (HTTP ${resp.status})`);
+          }
+          const details = await resp.json();
+          const didIdentity =
+            typeof details?.didIdentity === 'string' ? details.didIdentity : null;
+          if (!didIdentity || !didIdentity.startsWith('did:8004:')) {
+            throw new Error('UAID does not resolve to a did:8004 identity (on-chain admin tools unavailable)');
+          }
+          const parsed = parseDid8004(didIdentity);
+          if (!cancelled) setParsedDidFromSource(parsed);
+          return;
+        }
+
+        const parsed = parseDid8004(decoded);
+        if (!cancelled) setParsedDidFromSource(parsed);
+      } catch (error) {
+        console.error('Failed to resolve agent identifier:', error);
+        if (!cancelled) setParsedDidFromSource(null);
       }
-      parsedDid = parseDid8004(decoded);
-    } catch (error) {
-      console.error('Failed to parse DID:', error);
-    }
-  }
-  
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [didSource]);
+
   // Use parsed DID or fall back to query params
-  const effectiveAgentId = parsedDid?.agentId?.toString() ?? queryAgentId;
-  const effectiveChainId = parsedDid?.chainId?.toString() ?? queryChainId;
+  const effectiveAgentId = parsedDidFromSource?.agentId?.toString() ?? queryAgentId;
+  const effectiveChainId = parsedDidFromSource?.chainId?.toString() ?? queryChainId;
   
   // Update queryAgentId/queryChainId to use effective values for backward compatibility
   const finalAgentId = effectiveAgentId ?? queryAgentId;

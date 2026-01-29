@@ -1123,6 +1123,130 @@ export class AgenticTrustClient {
   }
 
   /**
+   * UAID-first detail lookup (KB v2).
+   * Resolves UAID -> did:8004 via discovery, then reuses the existing did-based loader.
+   */
+  async getAgentDetailsByUaid(
+    uaid: string,
+    options?: { includeRegistration?: boolean },
+  ): Promise<AgentDetail> {
+    const trimmed = String(uaid ?? '').trim();
+    if (!trimmed) {
+      throw new Error('uaid is required');
+    }
+
+    const discoveryClient = await getDiscoveryClient();
+    const agent = await (discoveryClient as any).getAgentByUaid?.(trimmed);
+    const did8004 = typeof agent?.didIdentity === 'string' ? agent.didIdentity : null;
+    if (!did8004 || !did8004.startsWith('did:8004:')) {
+      throw new Error(`Agent not found for uaid=${trimmed}`);
+    }
+
+    return loadAgentDetail(this, did8004, DEFAULT_CHAIN_ID, options);
+  }
+
+  /**
+   * UAID universal resolver: UAID -> target DID -> DID-method resolver.
+   *
+   * IMPORTANT: UAIDs are not guaranteed to be did:8004. They may target did:ethr, did:web, etc.
+   *
+   * Policy:
+   * - did:8004 -> use existing on-chain aware loader
+   * - otherwise -> KB-first details (no on-chain), return empty on-chain sections
+   */
+  async getAgentDetailsByUaidUniversal(
+    uaid: string,
+    options?: { includeRegistration?: boolean },
+  ): Promise<AgentDetail> {
+    const { parseHcs14UaidDidTarget } = await import('../lib/uaid');
+    const parsed = parseHcs14UaidDidTarget(uaid);
+    const targetDid = parsed.targetDid;
+
+    // If UAID targets did:8004, we can reuse the full loader.
+    if (targetDid.startsWith('did:8004:')) {
+      return this.getAgentDetailsByDid(targetDid, options);
+    }
+
+    // Otherwise: fetch via KB by UAID and return a best-effort "details" view (no on-chain).
+    const discoveryClient = await getDiscoveryClient();
+    const agent = await (discoveryClient as any).getAgentByUaid?.(parsed.uaid);
+    if (!agent) {
+      throw new Error(`Agent not found for uaid=${parsed.uaid}`);
+    }
+
+    // If KB can supply a did:8004 identity for this UAID, upgrade to the full loader.
+    const did8004 = typeof agent.didIdentity === 'string' ? agent.didIdentity : null;
+    if (did8004 && did8004.startsWith('did:8004:')) {
+      return this.getAgentDetailsByDid(did8004, options);
+    }
+
+    // Build a minimal AgentDetail payload.
+    return {
+      success: true,
+      agentId: String(agent.agentId ?? parsed.uaid),
+      agentName: String(agent.agentName ?? parsed.uaid),
+      chainId: typeof agent.chainId === 'number' ? agent.chainId : 0,
+      agentAccount: String(agent.agentAccount ?? ''),
+      agentIdentityOwnerAccount: String(agent.agentIdentityOwnerAccount ?? ''),
+      eoaAgentIdentityOwnerAccount: (agent as any).eoaAgentIdentityOwnerAccount ?? null,
+      eoaAgentAccount: (agent as any).eoaAgentAccount ?? null,
+      didIdentity: (agent as any).didIdentity ?? null,
+      didAccount: (agent as any).didAccount ?? null,
+      didName: (agent as any).didName ?? null,
+      agentUri: (agent as any).agentUri ?? null,
+      createdAtBlock: typeof (agent as any).createdAtBlock === 'number' ? (agent as any).createdAtBlock : 0,
+      createdAtTime:
+        typeof (agent as any).createdAtTime === 'number'
+          ? (agent as any).createdAtTime
+          : Number((agent as any).createdAtTime ?? 0) || 0,
+      updatedAtTime:
+        typeof (agent as any).updatedAtTime === 'number'
+          ? (agent as any).updatedAtTime
+          : (agent as any).updatedAtTime != null
+            ? Number((agent as any).updatedAtTime)
+            : null,
+      type: (agent as any).type ?? null,
+      description: (agent as any).description ?? null,
+      image: (agent as any).image ?? null,
+      a2aEndpoint: (agent as any).a2aEndpoint ?? null,
+      mcpEndpoint: (agent as any).mcpEndpoint ?? null,
+      supportedTrust: (agent as any).supportedTrust ?? null,
+      rawJson: (agent as any).rawJson ?? null,
+      agentCardJson: (agent as any).agentCardJson ?? null,
+      agentCardReadAt: (agent as any).agentCardReadAt ?? null,
+      did: (agent as any).did ?? null,
+      mcp: (agent as any).mcp ?? null,
+      x402support: (agent as any).x402support ?? null,
+      active: (agent as any).active ?? null,
+      feedbackCount: (agent as any).feedbackCount ?? null,
+      feedbackAverageScore: (agent as any).feedbackAverageScore ?? null,
+      validationPendingCount: (agent as any).validationPendingCount ?? null,
+      validationCompletedCount: (agent as any).validationCompletedCount ?? null,
+      validationRequestedCount: (agent as any).validationRequestedCount ?? null,
+      initiatedAssociationCount: (agent as any).initiatedAssociationCount ?? null,
+      approvedAssociationCount: (agent as any).approvedAssociationCount ?? null,
+      atiOverallScore: (agent as any).atiOverallScore ?? null,
+      atiOverallConfidence: (agent as any).atiOverallConfidence ?? null,
+      atiVersion: (agent as any).atiVersion ?? null,
+      atiComputedAt: (agent as any).atiComputedAt ?? null,
+      atiBundleJson: (agent as any).atiBundleJson ?? null,
+      trustLedgerScore: (agent as any).trustLedgerScore ?? null,
+      trustLedgerBadgeCount: (agent as any).trustLedgerBadgeCount ?? null,
+      trustLedgerOverallRank: (agent as any).trustLedgerOverallRank ?? null,
+      trustLedgerCapabilityRank: (agent as any).trustLedgerCapabilityRank ?? null,
+
+      // On-chain sections: empty for non-chain UAIDs.
+      identityMetadata: { tokenUri: null, metadata: {} },
+      identityRegistration: null,
+
+      // Preserve discovery record for UI inspection.
+      discovery: agent as any,
+      uaid: parsed.uaid,
+      targetDid,
+    };
+  }
+
+  /**
    * Resolve an agent by its owner account address.
    *
    * Strategy:

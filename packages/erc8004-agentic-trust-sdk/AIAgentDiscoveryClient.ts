@@ -12,6 +12,7 @@ import { GraphQLClient } from 'graphql-request';
  */
 export interface AgentData {
   agentId?: number | string;
+  uaid?: string | null;
   agentName?: string;
   chainId?: number;
   agentAccount?: string;
@@ -740,6 +741,10 @@ export class AIAgentDiscoveryClient {
 
     const normalized: AgentData = {
       agentId: agentId8004 ?? undefined,
+      uaid:
+        typeof a.uaid === 'string' && a.uaid.trim().startsWith('uaid:')
+          ? a.uaid.trim()
+          : null,
       agentName: typeof a.agentName === 'string' ? a.agentName : undefined,
       chainId: chainId ?? undefined,
       agentAccount: agentAccount ?? undefined,
@@ -901,6 +906,37 @@ export class AIAgentDiscoveryClient {
       // Merge all metadata from parsed rawJson
       ...parsedMetadata,
     };
+
+    // UAID is required (do not synthesize from did:8004).
+    const uaidRaw = record.uaid;
+    const uaidStr = typeof uaidRaw === 'string' ? uaidRaw.trim() : '';
+    if (!uaidStr) {
+      const agentId8004 =
+        typeof record.agentId === 'string' || typeof record.agentId === 'number'
+          ? String(record.agentId)
+          : '';
+      const chainId =
+        typeof record.chainId === 'number' || typeof record.chainId === 'string'
+          ? String(record.chainId)
+          : '';
+      throw new Error(
+        `[Discovery] Missing uaid for agent (chainId=${chainId || '?'}, agentId=${agentId8004 || '?'}) from KB GraphQL. Ensure Query.kbAgents / Query.kbOwnedAgentsAllChains returns KbAgent.uaid.`,
+      );
+    }
+    if (!uaidStr.startsWith('uaid:')) {
+      const agentId8004 =
+        typeof record.agentId === 'string' || typeof record.agentId === 'number'
+          ? String(record.agentId)
+          : '';
+      const chainId =
+        typeof record.chainId === 'number' || typeof record.chainId === 'string'
+          ? String(record.chainId)
+          : '';
+      throw new Error(
+        `[Discovery] Invalid uaid value for agent (chainId=${chainId || '?'}, agentId=${agentId8004 || '?'}, uaid=${uaidStr}). Expected uaid to start with "uaid:". Your KB is currently returning a DID (e.g. "did:8004:...") in the uaid field.`,
+      );
+    }
+    normalized.uaid = uaidStr;
 
     const agentAccount = toOptionalString(record.agentAccount);
     if (agentAccount !== undefined) {
@@ -2701,6 +2737,32 @@ export class AIAgentDiscoveryClient {
   }
 
   /**
+   * Resolve a single agent by UAID (KB v2).
+   */
+  async getAgentByUaid(uaid: string): Promise<AgentData | null> {
+    const trimmed = String(uaid ?? '').trim();
+    if (!trimmed) return null;
+
+    const query = `
+      query KbAgentByUaid($where: KbAgentWhereInput, $first: Int) {
+        kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
+          agents { ${this.buildKbAgentSelection()} }
+          total
+          hasMore
+        }
+      }
+    `;
+
+    const data = await this.gqlRequest<{ kbAgents: KbAgentSearchResult }>(query, {
+      where: { uaid: trimmed },
+      first: 1,
+    });
+
+    const agent = data?.kbAgents?.agents?.[0];
+    return agent ? this.mapKbAgentToAgentData(agent) : null;
+  }
+
+  /**
    * Search agents by name
    * @param searchTerm - Search term to match against agent names
    * @param limit - Maximum number of results
@@ -2987,10 +3049,6 @@ export class AIAgentDiscoveryClient {
   async getOwnedAgents(
     eoaAddress: string,
     options?: {
-      /**
-       * Optional chainIds to query. If omitted, queries common test chains and merges results.
-       */
-      chainIds?: number[];
       limit?: number;
       offset?: number;
       orderBy?:
@@ -3024,22 +3082,15 @@ export class AIAgentDiscoveryClient {
     const orderByKb: 'agentId8004' | 'agentName' | 'uaid' =
       orderBy === 'agentName' ? 'agentName' : 'agentId8004';
 
-    const chainIds =
-      Array.isArray(options?.chainIds) && options.chainIds.length > 0
-        ? options.chainIds.filter((x) => typeof x === 'number' && Number.isFinite(x) && x > 0)
-        : [11155111, 84532, 11155420];
-
     const query = `
-      query KbOwnedAgents(
-        $chainId: Int!
+      query KbOwnedAgentsAllChains(
         $ownerAddress: String!
         $first: Int
         $skip: Int
         $orderBy: KbAgentOrderBy
         $orderDirection: OrderDirection
       ) {
-        kbOwnedAgents(
-          chainId: $chainId
+        kbOwnedAgentsAllChains(
           ownerAddress: $ownerAddress
           first: $first
           skip: $skip
@@ -3053,34 +3104,38 @@ export class AIAgentDiscoveryClient {
       }
     `;
 
-    // For multi-chain merge, over-fetch per chain then slice.
-    const perChainFirst = Math.min(2000, Math.max(50, limit + offset));
-
-    const perChain = await Promise.all(
-      chainIds.map(async (chainId) => {
-        const data = await this.gqlRequest<{ kbOwnedAgents: KbAgentSearchResult }>(query, {
-          chainId,
-          ownerAddress: eoaAddress,
-          first: perChainFirst,
-          skip: 0,
-          orderBy: orderByKb,
-          orderDirection: effectiveOrderDirection,
-        });
-        const list = data?.kbOwnedAgents?.agents ?? [];
-        return list.map((a) => this.mapKbAgentToAgentData(a));
-      }),
-    );
-
-    const merged = perChain.flat();
-
-    // Deterministic default sorting (matches UI expectations).
-    merged.sort((a, b) => {
-      const idA = typeof a.agentId === 'number' ? a.agentId : Number(a.agentId ?? 0) || 0;
-      const idB = typeof b.agentId === 'number' ? b.agentId : Number(b.agentId ?? 0) || 0;
-      return effectiveOrderDirection === 'ASC' ? idA - idB : idB - idA;
+    const data = await this.gqlRequest<{ kbOwnedAgentsAllChains: KbAgentSearchResult }>(query, {
+      ownerAddress: eoaAddress,
+      first: limit,
+      skip: offset,
+      orderBy: orderByKb,
+      orderDirection: effectiveOrderDirection,
     });
 
-    return merged.slice(offset, offset + limit);
+    const list = data?.kbOwnedAgentsAllChains?.agents ?? [];
+    return list.map((a) => this.mapKbAgentToAgentData(a));
+  }
+
+  /**
+   * UAID-native ownership check (KB v2).
+   */
+  async isOwnerByUaid(uaid: string, walletAddress: string): Promise<boolean> {
+    const u = String(uaid ?? '').trim();
+    const w = String(walletAddress ?? '').trim();
+    if (!u || !w) return false;
+
+    const query = `
+      query KbIsOwner($uaid: String!, $walletAddress: String!) {
+        kbIsOwner(uaid: $uaid, walletAddress: $walletAddress)
+      }
+    `;
+
+    const data = await this.gqlRequest<{ kbIsOwner?: boolean }>(query, {
+      uaid: u,
+      walletAddress: w,
+    });
+
+    return Boolean(data?.kbIsOwner);
   }
 }
 

@@ -137,6 +137,23 @@ export async function discoverAgents(
       }
 
       return {
+        uaid:
+          (() => {
+            const v = stringOrNull(raw?.uaid);
+            if (!v) {
+              const agentId = stringOrNull(raw?.agentId) ?? '';
+              const didIdentity = stringOrNull(raw?.didIdentity) ?? '';
+              throw new Error(
+                `[discoverAgents] Missing uaid in discovery response (agentId=${agentId || '?'}, didIdentity=${didIdentity || '?'}) from KB GraphQL. Ensure Query.kbAgents returns KbAgent.uaid.`,
+              );
+            }
+            if (v.startsWith('uaid:')) return v;
+            const agentId = stringOrNull(raw?.agentId) ?? '';
+            const didIdentity = stringOrNull(raw?.didIdentity) ?? '';
+            throw new Error(
+              `[discoverAgents] Invalid uaid value in discovery response (agentId=${agentId || '?'}, didIdentity=${didIdentity || '?'}, uaid=${v}). Expected uaid to start with "uaid:". Your KB is currently returning a DID (e.g. "did:8004:...") in the uaid field.`,
+            );
+          })(),
         chainId,
         agentId: stringOrNull(raw?.agentId) ?? '',
         createdAtTime: numeric(raw?.createdAtTime, 0) ?? 0,

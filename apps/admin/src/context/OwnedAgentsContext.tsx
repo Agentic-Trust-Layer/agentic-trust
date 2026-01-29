@@ -18,6 +18,7 @@ function mapOwnedAgentToAgentsPageAgent(agent: any): AgentsPageAgent {
   return {
     agentId: String(agent?.agentId ?? ''),
     chainId: typeof agent?.chainId === 'number' ? agent.chainId : 0,
+    uaid: agent?.uaid ?? null,
     agentName: agent?.agentName ?? null,
     agentAccount: agent?.agentAccount ?? null,
     agentIdentityOwnerAccount: agent?.agentIdentityOwnerAccount ?? null,

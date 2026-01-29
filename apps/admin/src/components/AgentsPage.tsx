@@ -24,6 +24,7 @@ import { getClientChainEnv } from '@/lib/clientChainEnv';
 export type AgentsPageAgent = {
   agentId: string;
   chainId: number;
+  uaid?: string | null;
   agentName?: string | null;
   agentAccount?: string | null;
   agentIdentityOwnerAccount?: string | null;
@@ -637,8 +638,11 @@ export function AgentsPage({
       
       (async () => {
         try {
-          const did8004 = buildDid8004(agent.chainId, agent.agentId);
-          const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+          const uaid = String((agent as any).uaid ?? '').trim();
+          if (!uaid) {
+            throw new Error('Missing uaid for agent');
+          }
+          const response = await fetch(`/api/agents/${encodeURIComponent(uaid)}`);
           if (!response.ok) {
             throw new Error(`Failed to fetch agent details: ${response.status}`);
           }
@@ -805,17 +809,14 @@ export function AgentsPage({
 
     (async () => {
       try {
-        const parsedChainId =
-          typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
-            ? agent.chainId
-            : DEFAULT_CHAIN_ID;
-        const parsedAgentId =
-          typeof agent.agentId === 'string'
-            ? Number.parseInt(agent.agentId, 10)
-            : Number(agent.agentId ?? 0);
-        const did8004 = buildDid8004(parsedChainId, parsedAgentId);
-        
-        const feedbackResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback?includeRevoked=true`);
+        const uaid = String((agent as any).uaid ?? '').trim();
+        if (!uaid) {
+          throw new Error('Missing uaid for agent');
+        }
+
+        const feedbackResponse = await fetch(
+          `/api/agents/${encodeURIComponent(uaid)}/feedback?includeRevoked=true`,
+        );
 
         if (!feedbackResponse.ok) {
           const errorData = await feedbackResponse.json().catch(() => ({}));
@@ -971,20 +972,15 @@ export function AgentsPage({
 
     (async () => {
       try {
-        const parsedChainId =
-          typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
-            ? agent.chainId
-            : DEFAULT_CHAIN_ID;
-        const parsedAgentId =
-          typeof agent.agentId === 'string'
-            ? Number.parseInt(agent.agentId, 10)
-            : Number(agent.agentId ?? 0);
-        const did8004 = buildDid8004(parsedChainId, parsedAgentId);
+        const uaid = String((agent as any).uaid ?? '').trim();
+        if (!uaid) {
+          throw new Error('Missing uaid for agent');
+        }
         
         // Fetch both on-chain validations and GraphQL validation responses
         const [validationsResponse, validationResponsesResponse] = await Promise.all([
-          fetch(`/api/agents/${encodeURIComponent(did8004)}/validations`),
-          fetch(`/api/agents/${encodeURIComponent(did8004)}/validation-responses?limit=100&offset=0&orderBy=timestamp&orderDirection=DESC`).catch(() => null),
+          fetch(`/api/agents/${encodeURIComponent(uaid)}/validations`),
+          fetch(`/api/agents/${encodeURIComponent(uaid)}/validation-responses?limit=100&offset=0&orderBy=timestamp&orderDirection=DESC`).catch(() => null),
         ]);
 
         if (!validationsResponse.ok) {
@@ -3689,7 +3685,7 @@ export function AgentsPage({
               secondsAgo !== null ? Math.floor(secondsAgo / 60) : null;
             return (
               <article
-                key={`${agent.chainId}-${agent.agentId}`}
+                key={String((agent as any).uaid ?? `${agent.chainId}-${agent.agentId}`)}
                 style={{
                   borderRadius: '20px',
                   border: `1px solid ${palette.border}`,
@@ -3722,9 +3718,14 @@ export function AgentsPage({
                   if (target?.closest('button,[data-agent-card-link]')) {
                     return;
                   }
-                  const did8004 = buildDid8004(agent.chainId, Number(agent.agentId));
-                  setNavigatingToAgent(did8004);
-                  router.push(`/agents/${encodeURIComponent(did8004)}`);
+                  const uaid = String((agent as any).uaid ?? '').trim();
+                  if (!uaid || !uaid.startsWith('uaid:')) {
+                    throw new Error(
+                      `Invalid agent.uaid (expected uaid:*): ${uaid || '<empty>'}`,
+                    );
+                  }
+                  setNavigatingToAgent(uaid);
+                  router.push(`/agents/${encodeURIComponent(uaid)}`);
                 }}
               >
                 <div
@@ -3754,9 +3755,14 @@ export function AgentsPage({
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              const did8004 = buildDid8004(agent.chainId, Number(agent.agentId));
-                              setNavigatingToAgent(did8004);
-                              router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
+                              const uaid = String((agent as any).uaid ?? '').trim();
+                              if (!uaid || !uaid.startsWith('uaid:')) {
+                                throw new Error(
+                                  `Invalid agent.uaid (expected uaid:*): ${uaid || '<empty>'}`,
+                                );
+                              }
+                              setNavigatingToAgent(uaid);
+                              router.push(`/admin-tools/${encodeURIComponent(uaid)}`);
                             }}
                             aria-label={`Edit Agent ${agent.agentId}`}
                             title={isActive ? 'Edit agent (active)' : 'Edit agent (inactive)'}
@@ -4370,11 +4376,12 @@ export function AgentsPage({
                     ) : (
                       atiLeaderboard.map((row, idx) => (
                         <button
-                          key={`${row.chainId}:${row.agentId}`}
+                          key={String((row as any).uaid ?? `${row.chainId}:${row.agentId}`)}
                           type="button"
                           onClick={() => {
-                            const did8004 = buildDid8004(row.chainId, Number(row.agentId));
-                            router.push(`/agents/${encodeURIComponent(did8004)}`);
+                            const uaid = String((row as any).uaid ?? '').trim();
+                            if (!uaid) return;
+                            router.push(`/agents/${encodeURIComponent(uaid)}`);
                           }}
                           style={{
                             display: 'flex',

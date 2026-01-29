@@ -1,19 +1,20 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgenticTrustClient } from '@agentic-trust/core/server';
+import { getAgenticTrustClient, getDiscoveryClient } from '@agentic-trust/core/server';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { did8004: string } },
 ) {
   try {
-    const didAgent = decodeURIComponent(params.did8004);
+    const uaid = decodeURIComponent(params.did8004);
 
     const client = await getAgenticTrustClient();
-    // Avoid fetching registration JSON from IPFS in this endpoint; it can take ~1min when gateways fail.
-    // The Registration tab fetches the tokenUri directly client-side with a short timeout.
-    const agentInfo = await client.getAgentDetailsByDid(didAgent, { includeRegistration: false });
+    const agentInfo = await (client as any).getAgentDetailsByUaidUniversal?.(uaid, { includeRegistration: false });
+    if (!agentInfo) {
+      throw new Error('Agent not found for UAID');
+    }
 
     return NextResponse.json(agentInfo);
   } catch (error) {
@@ -44,7 +45,7 @@ export async function POST(
   { params }: { params: { did8004: string } },
 ) {
   try {
-    const didAgent = decodeURIComponent(params.did8004);
+    const uaid = decodeURIComponent(params.did8004);
     const body = await request.json();
     const { walletAddress, action } = body;
 
@@ -62,8 +63,11 @@ export async function POST(
       );
     }
 
-    const client = await getAgenticTrustClient();
-    const isOwner = await client.isOwner(didAgent, walletAddress as `0x${string}`);
+    const discovery = await getDiscoveryClient();
+    const isOwner =
+      typeof (discovery as any).isOwnerByUaid === 'function'
+        ? await (discovery as any).isOwnerByUaid(uaid, walletAddress)
+        : false;
 
     return NextResponse.json({ isOwner });
   } catch (error) {
