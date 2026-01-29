@@ -177,6 +177,7 @@ export async function discoverAgents(
         mcpEndpoint: mcpEndpoint, // Add extracted MCP endpoint
         supportedTrust: stringOrNull(raw?.supportedTrust) ?? undefined,
         rawJson: stringOrNull(raw?.rawJson) ?? undefined,
+        onchainMetadataJson: stringOrNull((raw as any)?.onchainMetadataJson) ?? undefined,
         agentCardJson: stringOrNull(raw?.agentCardJson) ?? undefined,
         agentCardReadAt: numeric(raw?.agentCardReadAt, null),
         did: stringOrNull(raw?.did) ?? undefined,

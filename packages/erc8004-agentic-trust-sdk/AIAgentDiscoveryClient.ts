@@ -37,6 +37,7 @@ export interface AgentData {
   active?: boolean | null;
   supportedTrust?: string | null;
   rawJson?: string | null;
+  onchainMetadataJson?: string | null;
   agentCardJson?: string | null;
   agentCardReadAt?: number | null;
   feedbackCount?: number | null;
@@ -122,6 +123,9 @@ export type KbAgent = {
   did8004?: string | null;
   agentId8004?: number | null;
   isSmartAgent: boolean;
+  createdAtBlock?: number | null;
+  createdAtTime?: number | string | null;
+  updatedAtTime?: number | string | null;
   identity8004?: KbIdentity | null;
   identityEns?: KbIdentity | null;
   // Accounts attached to the ERC-8004 identity (identity-scoped)
@@ -722,6 +726,38 @@ export class AIAgentDiscoveryClient {
       (typeof a.identityEns?.descriptor?.json === 'string' && a.identityEns.descriptor.json) ||
       null;
 
+    // Pull on-chain metadata JSON (for Info card) where available.
+    const onchainMetadataJson =
+      (typeof a.identity8004?.descriptor?.onchainMetadataJson === 'string' &&
+      a.identity8004.descriptor.onchainMetadataJson.trim()
+        ? a.identity8004.descriptor.onchainMetadataJson
+        : null) ??
+      (typeof a.identityEns?.descriptor?.onchainMetadataJson === 'string' &&
+      a.identityEns.descriptor.onchainMetadataJson.trim()
+        ? a.identityEns.descriptor.onchainMetadataJson
+        : null) ??
+      null;
+
+    // Pull registration URI from onchain metadata if present (KB-backed, not on-chain call).
+    // Per UAID migration: expect a single canonical field name `agentUri`.
+    const agentUriFromOnchainMetadata = (() => {
+      const candidates = [
+        a.identity8004?.descriptor?.onchainMetadataJson,
+        a.identityEns?.descriptor?.onchainMetadataJson,
+      ];
+      for (const raw of candidates) {
+        if (typeof raw !== 'string' || !raw.trim()) continue;
+        try {
+          const parsed = JSON.parse(raw) as Record<string, unknown>;
+          const v = typeof parsed.agentUri === 'string' ? parsed.agentUri.trim() : '';
+          if (v) return v;
+        } catch {
+          // ignore parse errors
+        }
+      }
+      return null;
+    })();
+
     // Infer A2A/MCP endpoints from protocol descriptors.
     const protocolDescriptors = [
       ...(Array.isArray(a.identity8004?.descriptor?.protocolDescriptors)
@@ -747,6 +783,19 @@ export class AIAgentDiscoveryClient {
           : null,
       agentName: typeof a.agentName === 'string' ? a.agentName : undefined,
       chainId: chainId ?? undefined,
+      createdAtBlock: typeof a.createdAtBlock === 'number' ? a.createdAtBlock : undefined,
+      createdAtTime:
+        typeof a.createdAtTime === 'number'
+          ? a.createdAtTime
+          : a.createdAtTime != null
+            ? Number(a.createdAtTime)
+            : undefined,
+      updatedAtTime:
+        typeof a.updatedAtTime === 'number'
+          ? a.updatedAtTime
+          : a.updatedAtTime != null
+            ? Number(a.updatedAtTime)
+            : undefined,
       agentAccount: agentAccount ?? undefined,
       agentIdentityOwnerAccount: (registeredByAddress ?? identityOwner) ?? undefined,
       eoaAgentIdentityOwnerAccount: registeredByAddress ?? (isOwnerEoa ? identityOwner : null),
@@ -762,9 +811,11 @@ export class AIAgentDiscoveryClient {
       smartAgentAccount: pickAccountAddress(a.agentAccount) ?? undefined,
       didIdentity: did8004,
       did: did8004,
+      agentUri: agentUriFromOnchainMetadata ?? undefined,
       a2aEndpoint,
       mcp: hasMcp,
       rawJson,
+      onchainMetadataJson,
       // Minimal capability hints
       active: true,
     };
@@ -781,6 +832,9 @@ export class AIAgentDiscoveryClient {
       did8004
       agentId8004
       isSmartAgent
+      createdAtBlock
+      createdAtTime
+      updatedAtTime
       identity8004 {
         iri
         kind
@@ -2371,6 +2425,14 @@ export class AIAgentDiscoveryClient {
    * @returns Record of all metadata key-value pairs, or null if not available
    */
   async getAllAgentMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    // KB v2 endpoint (/graphql-kb) does not expose legacy metadata fields like
+    // AgentMetadataWhereInput / Query.agentMetadata / agentMetadata_collection.
+    // Do not query them; callers should use KB fields (identity*.descriptor.json/onchainMetadataJson)
+    // or fall back to on-chain reads.
+    if (String((this as any).endpoint ?? '').includes('/graphql-kb')) {
+      return null;
+    }
+
     // If we already learned the GraphQL schema doesn't support this query field,
     // skip to avoid repeated GRAPHQL_VALIDATION_FAILED warnings.
     if (this.tokenMetadataCollectionSupported === false) {
@@ -2566,6 +2628,11 @@ export class AIAgentDiscoveryClient {
    * @returns Record of all metadata key-value pairs, or null if not available
    */
   private async getTokenMetadataCustomSchema(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
+    // KB v2 endpoint (/graphql-kb) does not support this legacy query.
+    if (String((this as any).endpoint ?? '').includes('/graphql-kb')) {
+      return null;
+    }
+
     const metadata: Record<string, string> = {};
     const pageSize = 1000;
     let skip = 0;

@@ -51,6 +51,8 @@ export type AgentsPageAgent = {
   mcpEndpoint?: string | null; // MCP endpoint URL from registration
   did?: string | null;
   supportedTrust?: string | null;
+  rawJson?: string | null;
+  onchainMetadataJson?: string | null;
    createdAtTime?: number | null;
   feedbackCount?: number | null;
   feedbackAverageScore?: number | null;
@@ -705,13 +707,14 @@ export function AgentsPage({
         cancelled = true;
       };
     } else {
-      // For regular registration view, use discovery-provided agentUri
-      const agentUri = agent.agentUri;
-      if (!agentUri) {
+      // For regular registration view, use KB-provided registration JSON (identity8004.descriptor.json),
+      // surfaced as `agent.rawJson` in discovery results.
+      const rawJson = (agent as any).rawJson;
+      if (typeof rawJson !== 'string' || !rawJson.trim()) {
         setRegistrationPreview({
           key,
           loading: false,
-          error: 'No registration URI available for this agent.',
+          error: 'No registration JSON available for this agent (missing identity descriptor json).',
           text: null,
         });
         return;
@@ -725,7 +728,7 @@ export function AgentsPage({
       });
       (async () => {
         try {
-          const text = await loadRegistrationContent(agentUri);
+          const text = await loadRegistrationContent(rawJson);
           if (cancelled) return;
           setRegistrationPreview({
             key,
@@ -1144,6 +1147,47 @@ export function AgentsPage({
             {agent.description && (
               <p style={{ color: palette.textSecondary }}>{agent.description}</p>
             )}
+            <div style={{ marginTop: '1rem' }}>
+              <strong
+                style={{
+                  color: palette.textPrimary,
+                  display: 'block',
+                  marginBottom: '0.5rem',
+                }}
+              >
+                Info (from discovery: identity8004.descriptor.onchainMetadataJson)
+              </strong>
+              <div
+                style={{
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '10px',
+                  padding: '0.75rem',
+                  backgroundColor: palette.surfaceMuted,
+                  maxHeight: '350px',
+                  overflow: 'auto',
+                  fontFamily: 'ui-monospace, monospace',
+                  fontSize: '0.85rem',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
+                }}
+              >
+                {typeof (agent as any).onchainMetadataJson === 'string' &&
+                (agent as any).onchainMetadataJson.trim() ? (
+                  (() => {
+                    try {
+                      const parsed = JSON.parse((agent as any).onchainMetadataJson);
+                      return JSON.stringify(parsed, null, 2);
+                    } catch {
+                      return String((agent as any).onchainMetadataJson);
+                    }
+                  })()
+                ) : (
+                  <span style={{ color: palette.textSecondary }}>
+                    No onchainMetadataJson provided by discovery for this agent.
+                  </span>
+                )}
+              </div>
+            </div>
             {(agent.a2aEndpoint || agent.mcpEndpoint) && (
               <div style={{ marginTop: '1rem' }}>
                 <strong style={{ color: palette.textPrimary, display: 'block', marginBottom: '0.5rem' }}>Endpoints</strong>
@@ -1204,22 +1248,8 @@ export function AgentsPage({
         return (
           <>
             <p style={{ marginTop: 0 }}>
-              The registration (tokenUri) reference for this agent.
+              Registration JSON (from discovery: identity8004.descriptor.json).
             </p>
-            {agent.agentUri ? (
-              <a
-                href={agent.agentUri}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: palette.accent, wordBreak: 'break-all' }}
-              >
-                {agent.agentUri.length > 100
-                  ? `${agent.agentUri.slice(0, 100)}...`
-                  : agent.agentUri}
-              </a>
-            ) : (
-              <p style={{ color: palette.dangerText }}>No registration URI available.</p>
-            )}
             <div
               style={{
                 marginTop: '1rem',
@@ -4044,11 +4074,11 @@ export function AgentsPage({
                         backgroundColor: palette.surface,
                         fontSize: '0.7rem',
                         fontWeight: 600,
-                        cursor: agent.agentUri ? 'pointer' : 'not-allowed',
-                        opacity: agent.agentUri ? 1 : 0.5,
+                        cursor: (agent as any).rawJson ? 'pointer' : 'not-allowed',
+                        opacity: (agent as any).rawJson ? 1 : 0.5,
                         color: palette.textPrimary,
                       }}
-                      disabled={!agent.agentUri}
+                      disabled={!(agent as any).rawJson}
                     >
                       {ACTION_LABELS.registration}
                     </button>
