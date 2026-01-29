@@ -427,7 +427,7 @@ const AgentDetailsTabs = ({
 
     let cancelled = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
+    const timeout = setTimeout(() => controller.abort(), 60_000);
 
     (async () => {
       setMetadataLoading(true);
@@ -458,7 +458,11 @@ const AgentDetailsTabs = ({
         }
       } catch (e: any) {
         if (!cancelled) {
-          setMetadataError(e?.message || 'Failed to load on-chain metadata');
+          if (controller.signal.aborted) {
+            setMetadataError('Timed out loading on-chain metadata.');
+          } else {
+            setMetadataError(e?.message || 'Failed to load on-chain metadata');
+          }
         }
       } finally {
         if (!cancelled) {

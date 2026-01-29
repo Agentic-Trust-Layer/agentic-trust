@@ -1002,8 +1002,56 @@ export async function loadAgentDetail(
 
   const identityClient = await getIdentityRegistryClient(resolvedChainId);
 
-  const tokenUri = await identityClient.getTokenURI(agentIdBigInt);
- 
+  // Load discovery row (KB) first; useful regardless of on-chain availability.
+  let discovery: Record<string, unknown> | null = null;
+  try {
+    const agentsApi = client.agents as any;
+    if (did8004 && typeof agentsApi.getAgentFromDiscoveryByDid === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscoveryByDid(
+        did8004,
+      )) as unknown as Record<string, unknown> | null;
+    } else if (typeof agentsApi.getAgentFromDiscovery === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscovery(
+        resolvedChainId,
+        agentId,
+      )) as unknown as Record<string, unknown> | null;
+    } else {
+      discovery = null;
+    }
+  } catch (error) {
+    // Check if this is an access code error and provide a clearer message
+    const { rethrowDiscoveryError } = await import('./discoveryErrors');
+    try {
+      rethrowDiscoveryError(error, 'loadAgentDetail');
+    } catch (friendlyError) {
+      // If rethrowDiscoveryError determined it's an access code error, log the friendly message
+      console.error(
+        'Failed to get GraphQL agent data:',
+        friendlyError instanceof Error ? friendlyError.message : friendlyError,
+      );
+      throw friendlyError; // Re-throw the friendly error
+    }
+    // If it's not an access code error, just log and continue
+    console.warn('Failed to get GraphQL agent data:', error);
+    discovery = null;
+  }
+
+  // On-chain source of truth is tokenURI (which is the agentUri).
+  // If RPC fails, fall back to KB agentUri.
+  const tokenUri = await (async (): Promise<string> => {
+    try {
+      return String(await identityClient.getTokenURI(agentIdBigInt));
+    } catch {
+      return (
+        firstNonEmptyString(
+          (discovery as any)?.agentUri,
+          (discovery as any)?.tokenUri,
+          (discovery as any)?.identityMetadata?.agentUri,
+        ) ?? ''
+      );
+    }
+  })();
+
   // Fetch metadata from GraphQL indexer using agentMetadata_collection query
   // This query is specifically designed to fetch ALL metadata entries with pagination
   // The metadata field on Agent type may be limited, so we use agentMetadata_collection
@@ -1029,38 +1077,31 @@ export async function loadAgentDetail(
         }
       }
       
-      // If still no metadata, fallback to on-chain getAllMetadata
       if (Object.keys(metadata).length === 0) {
-        console.log('[loadAgentDetail] No metadata found in GraphQL, falling back to on-chain getAllMetadata');
+        // Fallback: on-chain getAllMetadata
         try {
           const onChainMetadata = await (identityClient as any).getAllMetadata?.(agentIdBigInt);
           if (onChainMetadata && typeof onChainMetadata === 'object' && Object.keys(onChainMetadata).length > 0) {
             metadata = onChainMetadata as Record<string, string>;
-            console.log('[loadAgentDetail] Got metadata from getAllMetadata:', Object.keys(metadata).length, 'keys');
           }
-        } catch (onChainError) {
-          console.warn('[loadAgentDetail] Failed to fetch on-chain metadata:', onChainError);
+        } catch {
+          // ignore
         }
       }
     }
   } catch (error) {
-    console.warn('[loadAgentDetail] Failed to fetch metadata from GraphQL, falling back to on-chain getAllMetadata:', error);
     // Fallback to on-chain getAllMetadata when GraphQL fails
     try {
       const onChainMetadata = await (identityClient as any).getAllMetadata?.(agentIdBigInt);
       if (onChainMetadata && typeof onChainMetadata === 'object' && Object.keys(onChainMetadata).length > 0) {
         metadata = onChainMetadata as Record<string, string>;
-        console.log('[loadAgentDetail] Got metadata from getAllMetadata (fallback):', Object.keys(metadata).length, 'keys');
       }
-    } catch (onChainError) {
-      console.warn('[loadAgentDetail] Failed to fetch on-chain metadata (fallback):', onChainError);
+    } catch {
+      // ignore
     }
   }
 
   // Ensure reserved agentWallet is displayed as a readable address.
-  // GraphQL/indexer metadata may represent raw bytes as a lossy UTF-8 string (garbled characters).
-  // The contract provides a canonical `getAgentWallet(agentId)` that returns an address.
-  // Only set if not already present in metadata (getAllMetadata may have already fetched it)
   if (!metadata.agentWallet) {
     try {
       const agentWallet = await (identityClient as any).getAgentWallet?.(agentIdBigInt);
@@ -1082,42 +1123,9 @@ export async function loadAgentDetail(
     registration: Record<string, unknown> | null;
   } | null =
     null;
-  // IMPORTANT: By default, we do NOT fetch registration JSON from IPFS. UIs should only do that
-  // when the user explicitly opens the Registration tab.
-  const includeRegistration = options?.includeRegistration === true;
-
-  let discovery: Record<string, unknown> | null = null;
-  try {
-    const agentsApi = client.agents as any;
-    if (did8004 && typeof agentsApi.getAgentFromDiscoveryByDid === 'function') {
-      discovery = (await agentsApi.getAgentFromDiscoveryByDid(
-        did8004,
-      )) as unknown as Record<string, unknown> | null;
-    } else if (typeof agentsApi.getAgentFromDiscovery === 'function') {
-      discovery = (await agentsApi.getAgentFromDiscovery(
-        resolvedChainId,
-        agentId,
-      )) as unknown as Record<string, unknown> | null;
-    } else {
-      discovery = null;
-    }
-  } catch (error) {
-    // Check if this is an access code error and provide a clearer message
-    const { rethrowDiscoveryError } = await import('./discoveryErrors');
-    try {
-      rethrowDiscoveryError(error, 'loadAgentDetail');
-    } catch (friendlyError) {
-      // If rethrowDiscoveryError determined it's an access code error, log the friendly message
-      console.error('Failed to get GraphQL agent data:', friendlyError instanceof Error ? friendlyError.message : friendlyError);
-      throw friendlyError; // Re-throw the friendly error
-    }
-    // If it's not an access code error, just log and continue
-    console.warn('Failed to get GraphQL agent data:', error);
-    discovery = null;
-  }
-
   // Prefer cached registration JSON from discovery row (rawJson) instead of hitting IPFS.
   // This keeps "agent details" fast and avoids gateway dependency.
+  const includeRegistration = options?.includeRegistration === true;
   if (tokenUri) {
     let registrationFromDiscovery: Record<string, unknown> | null = null;
     try {

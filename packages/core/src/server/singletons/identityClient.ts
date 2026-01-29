@@ -33,7 +33,10 @@ class IdentityDomainClient extends DomainClient<AIAgentIdentityClient, number> {
     
     const publicClient = createPublicClient({
       chain: chain as any,
-      transport: http(rpcUrl),
+      // viem http transport defaults to a relatively short timeout; the abort error often shows up as
+      // "signal is aborted without reason" during slower RPC responses. Increase timeout for
+      // agent detail pages that may perform many reads (e.g., getAllMetadata).
+      transport: http(rpcUrl, { timeout: 60_000 }),
     });
 
     const accountProvider = new ViemAccountProvider({

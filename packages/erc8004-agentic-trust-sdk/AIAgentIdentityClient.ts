@@ -268,6 +268,53 @@ export class AIAgentIdentityClient extends BaseIdentityClient {
     ];
 
     const metadata: Record<string, string> = {};
+
+    // Fast path: use viem multicall when available to reduce RPC round-trips.
+    // This turns "N keys => N RPC calls" into ~1 RPC call (provider-dependent).
+    if (this.publicClient && typeof (this.publicClient as any).multicall === 'function') {
+      try {
+        const contracts = METADATA_KEYS.map((key) => ({
+          address: this.identityRegistryAddress as `0x${string}`,
+          abi: IdentityRegistryABI as any,
+          functionName: 'getMetadata' as const,
+          args: [agentId, key] as const,
+        }));
+
+        const results = await (this.publicClient as any).multicall({
+          contracts,
+          allowFailure: true,
+        });
+
+        for (let i = 0; i < METADATA_KEYS.length; i += 1) {
+          const key = METADATA_KEYS[i]!;
+          const r = results?.[i];
+          const ok = r && (r.status === 'success' || r.status === undefined);
+          const raw = ok ? String(r.result ?? '').trim() : '';
+          if (!raw || raw === '0x') continue;
+
+          // Same decoding behavior as getMetadata()
+          if (key === 'agentWallet' && /^0x[0-9a-fA-F]{40}$/.test(raw)) {
+            metadata[key] = getAddress(raw);
+            continue;
+          }
+
+          try {
+            const decoded = hexToString(raw as `0x${string}`);
+            if (decoded && decoded.trim().length > 0) {
+              metadata[key] = decoded;
+            } else {
+              metadata[key] = raw;
+            }
+          } catch {
+            metadata[key] = raw;
+          }
+        }
+
+        return metadata;
+      } catch {
+        // Fall back to per-key calls below
+      }
+    }
     
     // Process requests in batches to avoid rate limiting
     // Batch size: 5 requests at a time

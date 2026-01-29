@@ -1158,19 +1158,8 @@ export class AgenticTrustClient {
     uaid: string,
     options?: { includeRegistration?: boolean },
   ): Promise<AgentDetail> {
-    const trimmed = String(uaid ?? '').trim();
-    if (!trimmed) {
-      throw new Error('uaid is required');
-    }
-
-    const discoveryClient = await getDiscoveryClient();
-    const agent = await (discoveryClient as any).getAgentByUaid?.(trimmed);
-    const did8004 = typeof agent?.didIdentity === 'string' ? agent.didIdentity : null;
-    if (!did8004 || !did8004.startsWith('did:8004:')) {
-      throw new Error(`Agent not found for uaid=${trimmed}`);
-    }
-
-    return loadAgentDetail(this, did8004, DEFAULT_CHAIN_ID, options);
+    // KB-only UAID details (no on-chain).
+    return this.getAgentDetailsByUaidUniversal(String(uaid ?? '').trim(), options);
   }
 
   /**
@@ -1190,7 +1179,7 @@ export class AgenticTrustClient {
     const parsed = parseHcs14UaidDidTarget(uaid);
     const targetDid = parsed.targetDid;
 
-    // If UAID targets did:8004, we can reuse the full loader.
+    // If UAID targets did:8004, use the full on-chain aware loader.
     if (targetDid.startsWith('did:8004:')) {
       return this.getAgentDetailsByDid(targetDid, options);
     }
@@ -1202,7 +1191,7 @@ export class AgenticTrustClient {
       throw new Error(`Agent not found for uaid=${parsed.uaid}`);
     }
 
-    // If KB can supply a did:8004 identity for this UAID, upgrade to the full loader.
+    // If KB supplies a did:8004 identity, upgrade to full loader.
     const did8004 = typeof agent.didIdentity === 'string' ? agent.didIdentity : null;
     if (did8004 && did8004.startsWith('did:8004:')) {
       return this.getAgentDetailsByDid(did8004, options);
