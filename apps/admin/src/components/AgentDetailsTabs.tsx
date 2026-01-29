@@ -39,7 +39,7 @@ export type AgentDetailsValidationsSummary = {
 };
 
 type AgentDetailsTabsProps = {
-  did8004: string;
+  uaid: string;
   agent: AgentsPageAgent;
   feedbackItems?: unknown[];
   feedbackSummary?: AgentDetailsFeedbackSummary;
@@ -86,7 +86,7 @@ const formatRelativeTime = (timestamp?: number | null) => {
 };
 
 const AgentDetailsTabs = ({
-  did8004,
+  uaid,
   agent,
   feedbackItems: initialFeedbackItems,
   feedbackSummary: initialFeedbackSummary,
@@ -126,9 +126,9 @@ const AgentDetailsTabs = ({
   );
   const [metadataError, setMetadataError] = useState<string | null>(null);
 
-  // Normalize DID to avoid double-encoding (e.g. did%253A8004...).
-  const canonicalDid8004 = useMemo(() => {
-    let v = String(did8004 || '');
+  // Normalize UAID to avoid double-encoding (e.g. uaid%253Adid...).
+  const canonicalUaid = useMemo(() => {
+    let v = String(uaid || '');
     for (let i = 0; i < 3; i++) {
       if (!v.includes('%')) break;
       try {
@@ -140,7 +140,7 @@ const AgentDetailsTabs = ({
       }
     }
     return v;
-  }, [did8004]);
+  }, [uaid]);
   
   // Associations state
   const [associationsData, setAssociationsData] = useState<{
@@ -297,7 +297,7 @@ const AgentDetailsTabs = ({
       setFeedbackError(null);
       try {
         const res = await fetch(
-          `/api/agents/${encodeURIComponent(canonicalDid8004)}/feedback?includeRevoked=true&limit=200`,
+          `/api/agents/${encodeURIComponent(canonicalUaid)}/feedback?includeRevoked=true&limit=200`,
           { signal: controller.signal },
         );
         const json = await res.json().catch(() => null);
@@ -352,7 +352,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalDid8004]);
+  }, [activeTab, canonicalUaid]);
 
   // Lazy load validations data when validation tab is selected
   useEffect(() => {
@@ -368,7 +368,7 @@ const AgentDetailsTabs = ({
       setValidationsError(null);
       try {
         const res = await fetch(
-          `/api/agents/${encodeURIComponent(canonicalDid8004)}/validations`,
+          `/api/agents/${encodeURIComponent(canonicalUaid)}/validations`,
           { signal: controller.signal },
         );
         const json = await res.json().catch(() => null);
@@ -418,7 +418,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalDid8004]);
+  }, [activeTab, canonicalUaid]);
 
   // Lazy load on-chain metadata when Overview tab is selected (shown in Metadata pane)
   useEffect(() => {
@@ -433,7 +433,7 @@ const AgentDetailsTabs = ({
       setMetadataLoading(true);
       setMetadataError(null);
       try {
-        const res = await fetch(`/api/agents/${encodeURIComponent(canonicalDid8004)}`, {
+        const res = await fetch(`/api/agents/${encodeURIComponent(canonicalUaid)}`, {
           method: 'GET',
           signal: controller.signal,
         });
@@ -474,7 +474,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalDid8004]);
+  }, [activeTab, canonicalUaid]);
 
   // Fetch agent info for association addresses
   useEffect(() => {

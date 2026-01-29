@@ -1478,8 +1478,12 @@ export function AgentsPage({
                       },
                     });
                     try {
+                      const uaid =
+                        typeof agent.uaid === 'string' && agent.uaid.trim()
+                          ? agent.uaid.trim()
+                          : did8004;
                       await fetch(
-                        `/api/agents/${encodeURIComponent(did8004)}/refresh`,
+                        `/api/agents/${encodeURIComponent(uaid)}/refresh`,
                         { method: 'POST' },
                       );
                     } catch (refreshError) {

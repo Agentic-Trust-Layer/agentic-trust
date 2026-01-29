@@ -187,7 +187,7 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
   return (
     <AgentDetailsPageContent
       agent={serializedAgent}
-      did8004={did8004}
+      uaid={uaid}
       heroImageSrc={heroImageSrc}
       heroImageFallbackSrc={shadowAgentSrc}
       displayDid={displayDid}

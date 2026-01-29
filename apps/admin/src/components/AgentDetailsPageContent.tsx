@@ -168,13 +168,13 @@ async function signErc8092Digest(params: {
 }
 
 async function storeErc8092SarOnChainEoa(params: {
-  did8004: string;
+  uaid: string;
   chainId: number;
   provider: any;
   account: `0x${string}`;
   sar: any;
 }): Promise<void> {
-  const { did8004, chainId, provider, account, sar } = params;
+  const { uaid, chainId, provider, account, sar } = params;
   // NOTE: We do NOT modify record.validAt here because:
   // 1. The associationId (digest) was computed from the original record
   // 2. The signatures (initiator + approver) were computed for that digest
@@ -263,7 +263,7 @@ async function storeErc8092SarOnChainEoa(params: {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      did8004: decodeURIComponent(String(did8004 || '')),
+      uaid: decodeURIComponent(String(uaid || '')),
       mode: 'eoa',
       sar: jsonSafe(normalizedSar),
     }),
@@ -314,7 +314,7 @@ async function storeErc8092SarOnChainEoa(params: {
 
 type AgentDetailsPageContentProps = {
   agent: AgentsPageAgent;
-  did8004: string;
+  uaid: string;
   heroImageSrc: string;
   heroImageFallbackSrc: string;
   displayDid: string;
@@ -330,7 +330,7 @@ type DialogState = {
 
 export default function AgentDetailsPageContent({
   agent,
-  did8004,
+  uaid,
   heroImageSrc,
   heroImageFallbackSrc,
   displayDid,
@@ -425,7 +425,7 @@ export default function AgentDetailsPageContent({
       setTrustGraphValidationsLoading(true);
       try {
         const res = await fetch(
-          `/api/agents/${encodeURIComponent(did8004)}/validations`,
+          `/api/agents/${encodeURIComponent(uaid)}/validations`,
           { signal: controller.signal },
         );
         const json = await res.json().catch(() => null);
@@ -475,9 +475,9 @@ export default function AgentDetailsPageContent({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [trustGraphModalOpen, did8004]);
+  }, [trustGraphModalOpen, uaid]);
 
-  // NOTE: did8004 is provided by the server page to avoid recomputation and to keep the
+  // NOTE: uaid is provided by the server page to avoid recomputation and to keep the
   // canonical route param around for API fetches.
   const chainFor = useCallback((id: number) => {
     switch (id) {
@@ -535,7 +535,7 @@ export default function AgentDetailsPageContent({
 
     setOwnershipChecking(true);
     try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(uaid)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -558,7 +558,7 @@ export default function AgentDetailsPageContent({
     } finally {
       setOwnershipChecking(false);
     }
-  }, [isConnected, walletAddress, did8004]);
+  }, [isConnected, walletAddress, uaid]);
 
   // Show Manage Agent button when user is connected AND ownership is verified
   const showManageButton = isConnected && ownershipVerified === true;
@@ -759,7 +759,7 @@ export default function AgentDetailsPageContent({
         approverKeyType: KEY_TYPE_SC_DELEGATION,
       };
 
-      const resp = await fetch(`/api/agents/${encodeURIComponent(did8004)}/feedback-auth`, {
+      const resp = await fetch(`/api/agents/${encodeURIComponent(uaid)}/feedback-auth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -779,7 +779,7 @@ export default function AgentDetailsPageContent({
     } finally {
       setDelegationNotifyLoading(false);
     }
-  }, [agent, chainId, did8004, eip1193Provider, isConnected, onChainMetadata, walletAddress]);
+  }, [agent, chainId, uaid, eip1193Provider, isConnected, onChainMetadata, walletAddress]);
 
   const openDialog = useCallback((type: DialogState['type'], loadData?: () => Promise<void>) => {
     setDialogState({ type, loading: true });
@@ -798,8 +798,8 @@ export default function AgentDetailsPageContent({
 
   const handleOpenRegistrationEdit = useCallback(() => {
     if (!agent.agentUri) return;
-    router.push(`/admin-tools/${encodeURIComponent(did8004)}?tab=registration`);
-  }, [agent.agentUri, did8004, router]);
+    router.push(`/admin-tools/${encodeURIComponent(uaid)}?tab=registration`);
+  }, [agent.agentUri, uaid, router]);
 
   const handleGiveFeedback = useCallback(() => {
     if (!isConnected) {
@@ -854,7 +854,7 @@ export default function AgentDetailsPageContent({
       // Build DID8004 for both agents
       const parsedFromChainId = parseInt(fromChainId, 10);
       const fromAgentDid = buildDid8004(parsedFromChainId, Number(fromAgentId));
-      const toAgentDid = did8004;
+      const toAgentDid = uaid;
 
       // Fetch task type from discovery
       const taxonomyRes = await fetch('/api/discovery/taxonomy', { cache: 'no-store' }).catch(() => null);
@@ -920,7 +920,7 @@ export default function AgentDetailsPageContent({
     } finally {
       setSendingFeedbackRequest(false);
     }
-  }, [feedbackRequestReason, agent.a2aEndpoint, agent.agentId, chainId, walletAddress, did8004]);
+  }, [feedbackRequestReason, agent.a2aEndpoint, agent.agentId, chainId, walletAddress, uaid]);
 
   const handleShare = useCallback(() => {
     setShareOpen(true);
@@ -1073,7 +1073,7 @@ export default function AgentDetailsPageContent({
                   color="primary"
                   startIcon={<SettingsIcon />}
                   onClick={() => {
-                    router.push(`/admin-tools/${encodeURIComponent(did8004)}`);
+                    router.push(`/admin-tools/${encodeURIComponent(uaid)}`);
                   }}
                   sx={{
                     backgroundColor: palette.accent,
@@ -1232,7 +1232,7 @@ export default function AgentDetailsPageContent({
         </Box>
 
           <AgentDetailsTabs
-            did8004={did8004}
+            uaid={uaid}
           agent={agent}
             onChainMetadata={onChainMetadata}
         />

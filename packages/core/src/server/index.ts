@@ -166,7 +166,7 @@ export {
   resetDiscoveryClient,
 } from './singletons/discoveryClient';
 
-export { generateHcs14UaidDidTarget } from './lib/uaid';
+export { generateHcs14UaidDidTarget, parseHcs14UaidDidTarget } from './lib/uaid';
 
 export {
   getAssociationsClient,

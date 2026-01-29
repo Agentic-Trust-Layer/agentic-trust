@@ -533,6 +533,7 @@ export default function AdminPage() {
       const fetchAgentInfo = async () => {
         try {
           const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
+          // Prefer UAID navigation, but allow did:8004 for legacy edit flows.
           const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
           if (response.ok) {
             const data = await response.json();
