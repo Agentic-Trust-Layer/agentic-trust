@@ -115,6 +115,12 @@ export type KbAccount = {
   didEthr?: string | null;
 };
 
+export type KbAssertionsSummary = {
+  feedback8004?: { total: number } | null;
+  validation8004?: { total: number } | null;
+  total?: number | null;
+};
+
 export type KbAgent = {
   iri: string;
   uaid?: string | null;
@@ -126,6 +132,7 @@ export type KbAgent = {
   createdAtBlock?: number | null;
   createdAtTime?: number | string | null;
   updatedAtTime?: number | string | null;
+  assertions?: KbAssertionsSummary | null;
   identity8004?: KbIdentity | null;
   identityEns?: KbIdentity | null;
   // Accounts attached to the ERC-8004 identity (identity-scoped)
@@ -775,6 +782,15 @@ export class AIAgentDiscoveryClient {
     const hasMcp =
       protocolDescriptors.some((p) => String(p?.protocol || '').toLowerCase() === 'mcp') || false;
 
+    const feedbackCount =
+      typeof a.assertions?.feedback8004?.total === 'number' && Number.isFinite(a.assertions.feedback8004.total)
+        ? a.assertions.feedback8004.total
+        : undefined;
+    const validationTotal =
+      typeof a.assertions?.validation8004?.total === 'number' && Number.isFinite(a.assertions.validation8004.total)
+        ? a.assertions.validation8004.total
+        : undefined;
+
     const normalized: AgentData = {
       agentId: agentId8004 ?? undefined,
       uaid:
@@ -796,6 +812,11 @@ export class AIAgentDiscoveryClient {
           : a.updatedAtTime != null
             ? Number(a.updatedAtTime)
             : undefined,
+      feedbackCount,
+      // KB assertions only provide totals (not pending/requested breakdowns). Treat them as "completed".
+      validationCompletedCount: validationTotal ?? undefined,
+      validationPendingCount: validationTotal !== undefined ? 0 : undefined,
+      validationRequestedCount: validationTotal ?? undefined,
       agentAccount: agentAccount ?? undefined,
       agentIdentityOwnerAccount: (registeredByAddress ?? identityOwner) ?? undefined,
       eoaAgentIdentityOwnerAccount: registeredByAddress ?? (isOwnerEoa ? identityOwner : null),
@@ -835,6 +856,11 @@ export class AIAgentDiscoveryClient {
       createdAtBlock
       createdAtTime
       updatedAtTime
+      assertions {
+        feedback8004 { total }
+        validation8004 { total }
+        total
+      }
       identity8004 {
         iri
         kind
@@ -1229,9 +1255,8 @@ export class AIAgentDiscoveryClient {
    * Run a semantic search over agents using the discovery indexer's
    * `semanticAgentSearch` GraphQL field.
    *
-   * NOTE: This API is best-effort. If the backend does not expose
-   * `semanticAgentSearch`, this will return an empty result instead of
-   * throwing, so callers can fall back gracefully.
+   * NOTE: This expects the KB GraphQL schema. If the backend does not expose
+   * `kbSemanticAgentSearch`, it will throw.
    */
   async semanticAgentSearch(params: {
     text?: string;
@@ -1329,11 +1354,7 @@ export class AIAgentDiscoveryClient {
         matches,
       };
     } catch (error) {
-      console.warn(
-        '[AIAgentDiscoveryClient.semanticAgentSearch] Error performing semantic search:',
-        error,
-      );
-      return { total: 0, matches: [] };
+      throw error;
     }
   }
 
@@ -1397,21 +1418,12 @@ export class AIAgentDiscoveryClient {
       return Array.isArray(data?.oasfSkills) ? data.oasfSkills : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      // If the backend schema doesn't expose the field, treat it as "unsupported".
       if (message.includes('Cannot query field "oasfSkills"')) {
-        return [];
+        throw new Error('Discovery KB schema missing Query.oasfSkills');
       }
-      // Some deployments expose the field but error due to resolver returning null for a non-null list.
-      // Treat this as "taxonomy unavailable" rather than failing the caller.
       if (/Cannot return null for non-nullable field\s+Query\.oasfSkills\b/i.test(message)) {
-        return [];
+        throw new Error('Discovery KB resolver bug: Query.oasfSkills returned null');
       }
-      // Handle SPARQL translation errors (GraphDB backend)
-      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
-        console.warn('[AIAgentDiscoveryClient] oasfSkills SPARQL translation error (backend issue):', message);
-        return [];
-      }
-      console.warn('[AIAgentDiscoveryClient] oasfSkills query failed:', error);
       throw error;
     }
   }
@@ -1477,17 +1489,11 @@ export class AIAgentDiscoveryClient {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes('Cannot query field "oasfDomains"')) {
-        return [];
+        throw new Error('Discovery KB schema missing Query.oasfDomains');
       }
       if (/Cannot return null for non-nullable field\s+Query\.oasfDomains\b/i.test(message)) {
-        return [];
+        throw new Error('Discovery KB resolver bug: Query.oasfDomains returned null');
       }
-      // Handle SPARQL translation errors (GraphDB backend)
-      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
-        console.warn('[AIAgentDiscoveryClient] oasfDomains SPARQL translation error (backend issue):', message);
-        return [];
-      }
-      console.warn('[AIAgentDiscoveryClient] oasfDomains query failed:', error);
       throw error;
     }
   }
@@ -1523,13 +1529,12 @@ export class AIAgentDiscoveryClient {
       return Array.isArray(data?.intentTypes) ? data.intentTypes : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('Cannot query field "intentTypes"')) return [];
-      if (/Cannot return null for non-nullable field\s+Query\.intentTypes\b/i.test(message)) return [];
-      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
-        console.warn('[AIAgentDiscoveryClient] intentTypes SPARQL translation error (backend issue):', message);
-        return [];
+      if (message.includes('Cannot query field "intentTypes"')) {
+        throw new Error('Discovery KB schema missing Query.intentTypes');
       }
-      console.warn('[AIAgentDiscoveryClient] intentTypes query failed:', error);
+      if (/Cannot return null for non-nullable field\s+Query\.intentTypes\b/i.test(message)) {
+        throw new Error('Discovery KB resolver bug: Query.intentTypes returned null');
+      }
       throw error;
     }
   }
@@ -1565,13 +1570,12 @@ export class AIAgentDiscoveryClient {
       return Array.isArray(data?.taskTypes) ? data.taskTypes : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('Cannot query field "taskTypes"')) return [];
-      if (/Cannot return null for non-nullable field\s+Query\.taskTypes\b/i.test(message)) return [];
-      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
-        console.warn('[AIAgentDiscoveryClient] taskTypes SPARQL translation error (backend issue):', message);
-        return [];
+      if (message.includes('Cannot query field "taskTypes"')) {
+        throw new Error('Discovery KB schema missing Query.taskTypes');
       }
-      console.warn('[AIAgentDiscoveryClient] taskTypes query failed:', error);
+      if (/Cannot return null for non-nullable field\s+Query\.taskTypes\b/i.test(message)) {
+        throw new Error('Discovery KB resolver bug: Query.taskTypes returned null');
+      }
       throw error;
     }
   }
@@ -1608,13 +1612,12 @@ export class AIAgentDiscoveryClient {
       return Array.isArray(data?.intentTaskMappings) ? data.intentTaskMappings : [];
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes('Cannot query field "intentTaskMappings"')) return [];
-      if (/Cannot return null for non-nullable field\s+Query\.intentTaskMappings\b/i.test(message)) return [];
-      if (message.includes('SPARQL') || message.includes('MALFORMED QUERY')) {
-        console.warn('[AIAgentDiscoveryClient] intentTaskMappings SPARQL translation error (backend issue):', message);
-        return [];
+      if (message.includes('Cannot query field "intentTaskMappings"')) {
+        throw new Error('Discovery KB schema missing Query.intentTaskMappings');
       }
-      console.warn('[AIAgentDiscoveryClient] intentTaskMappings query failed:', error);
+      if (/Cannot return null for non-nullable field\s+Query\.intentTaskMappings\b/i.test(message)) {
+        throw new Error('Discovery KB resolver bug: Query.intentTaskMappings returned null');
+      }
       throw error;
     }
   }
@@ -2137,6 +2140,11 @@ export class AIAgentDiscoveryClient {
       kbWhere.hasA2a = true;
     }
 
+    // Assertions: allow KB-native hasAssertions filter.
+    if (typeof (whereIn as any).hasAssertions === 'boolean') {
+      kbWhere.hasAssertions = (whereIn as any).hasAssertions;
+    }
+
     // Smart agent: v1 may provide isSmartAgent.
     if (typeof (whereIn as any).isSmartAgent === 'boolean') {
       kbWhere.isSmartAgent = (whereIn as any).isSmartAgent;
@@ -2425,200 +2433,13 @@ export class AIAgentDiscoveryClient {
    * @returns Record of all metadata key-value pairs, or null if not available
    */
   async getAllAgentMetadata(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
-    // KB v2 endpoint (/graphql-kb) does not expose legacy metadata fields like
-    // AgentMetadataWhereInput / Query.agentMetadata / agentMetadata_collection.
-    // Do not query them; callers should use KB fields (identity*.descriptor.json/onchainMetadataJson)
-    // or fall back to on-chain reads.
-    if (String((this as any).endpoint ?? '').includes('/graphql-kb')) {
-      return null;
-    }
-
-    // If we already learned the GraphQL schema doesn't support this query field,
-    // skip to avoid repeated GRAPHQL_VALIDATION_FAILED warnings.
-    if (this.tokenMetadataCollectionSupported === false) {
-      return null;
-    }
-
-    // Try The Graph subgraph format first (agentMetadata_collection with agent_ filter)
-    // Then fallback to custom schema format (agentMetadata query)
-    const metadata: Record<string, string> = {};
-    const pageSize = 1000; // The Graph's default page size
-    let skip = 0;
-    let hasMore = true;
-    let useSubgraphFormat = true; // Try subgraph format first
-
-    while (hasMore) {
-      let query: string;
-      let variables: any;
-      let data: any;
-
-      if (useSubgraphFormat) {
-        // The Graph subgraph format: agentMetadata_collection with agent_ filter
-        query = `
-          query GetTokenMetadata($where: AgentMetadata_filter, $first: Int, $skip: Int) {
-            agentMetadata_collection(
-              where: $where
-              first: $first
-              skip: $skip
-              orderBy: blockNumber
-              orderDirection: asc
-            ) {
-              id
-              key
-              value
-              valueText
-              indexedKey
-              blockNumber
-              agent {
-                id
-              }
-            }
-          }
-        `;
-        variables = {
-          where: {
-            agent_: {
-              id: String(agentId),
-            },
-          },
-          first: pageSize,
-          skip: skip,
-        };
-      } else {
-        // Custom schema format: agentMetadata query
-        query = `
-          query GetTokenMetadata($where: AgentMetadataWhereInput, $first: Int, $skip: Int) {
-            agentMetadata(
-              where: $where
-              first: $first
-              skip: $skip
-            ) {
-              entries {
-                key
-                value
-                valueText
-                id
-                indexedKey
-              }
-              total
-              hasMore
-            }
-          }
-        `;
-        variables = {
-          where: {
-            chainId,
-            agentId: String(agentId),
-          },
-          first: pageSize,
-          skip: skip,
-        };
-      }
-
-      try {
-        data = await this.client.request(query, variables);
-
-        if (useSubgraphFormat) {
-          // Handle subgraph format response
-          if (!data.agentMetadata_collection || !Array.isArray(data.agentMetadata_collection)) {
-            // Switch to custom schema format
-            useSubgraphFormat = false;
-            skip = 0; // Reset skip for new format
-            continue;
-          }
-
-          // Add entries from this page
-          for (const entry of data.agentMetadata_collection) {
-            // Extract key from id (format: "agentId-key") or use key field if available
-            let metadataKey: string | undefined;
-            if (entry.key) {
-              metadataKey = entry.key;
-            } else if (entry.id) {
-              // Extract key from id like "276-agentAccount" -> "agentAccount"
-              const parts = entry.id.split('-');
-              if (parts.length > 1) {
-                metadataKey = parts.slice(1).join('-');
-              }
-            }
-            
-            if (metadataKey) {
-              // Prefer valueText over value (valueText is the decoded string, value may be hex)
-              const entryValue = entry.valueText ?? entry.value;
-              if (entryValue) {
-                metadata[metadataKey] = entryValue;
-              }
-            }
-          }
-
-          // Check if we got a full page (might have more)
-          hasMore = data.agentMetadata_collection.length === pageSize;
-        } else {
-          // Handle custom schema format response
-          if (!data.agentMetadata?.entries || !Array.isArray(data.agentMetadata.entries)) {
-            hasMore = false;
-            break;
-          }
-
-          // Add entries from this page
-          for (const entry of data.agentMetadata.entries) {
-            if (entry.key) {
-              // Prefer valueText over value (valueText is the decoded string, value may be hex)
-              const entryValue = entry.valueText ?? entry.value;
-              if (entryValue) {
-                metadata[entry.key] = entryValue;
-              }
-            }
-          }
-
-          // Check if we got a full page (might have more)
-          hasMore = data.agentMetadata.hasMore === true && data.agentMetadata.entries.length === pageSize;
-        }
-        
-        skip += pageSize;
-
-        // Safety check: The Graph has a max skip of 5000
-        // If we've reached that, we can't fetch more (unlikely for a single agent)
-        if (skip >= 5000) {
-          console.warn(`[AIAgentDiscoveryClient.getTokenMetadata] Reached The Graph skip limit (5000) for agent ${agentId}`);
-          hasMore = false;
-        }
-      } catch (error) {
-        // If agentMetadata_collection fails, try custom schema format (agentMetadata query)
-        const responseErrors = (error as any)?.response?.errors;
-        const schemaDoesNotSupportCollection =
-          Array.isArray(responseErrors) &&
-          responseErrors.some(
-            (e: any) =>
-              typeof e?.message === 'string' &&
-              (e.message.includes('agentMetadata_collection') || e.message.includes('AgentMetadata_filter')) &&
-              (e?.extensions?.code === 'GRAPHQL_VALIDATION_FAILED' ||
-                e.message.includes('Cannot query field')),
-          );
-
-        if (schemaDoesNotSupportCollection) {
-          // Fallback to custom schema format
-          const customResult = await this.getTokenMetadataCustomSchema(chainId, agentId);
-          if (customResult) {
-            return customResult;
-          }
-          this.tokenMetadataCollectionSupported = false;
-          if (Object.keys(metadata).length > 0) {
-            return metadata;
-          }
-          return null;
-        }
-
-        console.warn('[AIAgentDiscoveryClient.getTokenMetadata] Error fetching token metadata from GraphQL:', error);
-        // If we got some metadata before the error, return what we have
-        if (Object.keys(metadata).length > 0) {
-          return metadata;
-        }
-        // Try custom schema as fallback
-        return this.getTokenMetadataCustomSchema(chainId, agentId);
-      }
-    }
-
-    return Object.keys(metadata).length > 0 ? metadata : null;
+    // Legacy metadata queries are removed. With KB v2, the client should use:
+    // - registration JSON: identity*.descriptor.json (-> `rawJson`)
+    // - info JSON: identity*.descriptor.onchainMetadataJson (-> `onchainMetadataJson`)
+    // Or fall back to on-chain reads.
+    void chainId;
+    void agentId;
+    return null;
   }
 
   /**
@@ -2628,90 +2449,10 @@ export class AIAgentDiscoveryClient {
    * @returns Record of all metadata key-value pairs, or null if not available
    */
   private async getTokenMetadataCustomSchema(chainId: number, agentId: number | string): Promise<Record<string, string> | null> {
-    // KB v2 endpoint (/graphql-kb) does not support this legacy query.
-    if (String((this as any).endpoint ?? '').includes('/graphql-kb')) {
-      return null;
-    }
-
-    const metadata: Record<string, string> = {};
-    const pageSize = 1000;
-    let skip = 0;
-    let hasMore = true;
-
-    while (hasMore) {
-      const query = `
-        query GetTokenMetadata($where: AgentMetadataWhereInput, $first: Int, $skip: Int) {
-          agentMetadata(
-            where: $where
-            first: $first
-            skip: $skip
-          ) {
-            entries {
-              key
-              value
-              valueText
-              id
-              indexedKey
-            }
-            total
-            hasMore
-          }
-        }
-      `;
-
-      try {
-        const data = await this.client.request<{
-          agentMetadata?: {
-            entries?: Array<{
-              key: string;
-              value?: string | null;
-              valueText?: string | null;
-              id?: string;
-              indexedKey?: string | null;
-            }>;
-            total?: number;
-            hasMore?: boolean;
-          };
-        }>(query, {
-          where: {
-            chainId,
-            agentId: String(agentId),
-          },
-          first: pageSize,
-          skip: skip,
-        });
-
-        if (!data.agentMetadata?.entries || !Array.isArray(data.agentMetadata.entries)) {
-          hasMore = false;
-          break;
-        }
-
-        for (const entry of data.agentMetadata.entries) {
-          if (entry.key) {
-            const entryValue = entry.valueText ?? entry.value;
-            if (entryValue) {
-              metadata[entry.key] = entryValue;
-            }
-          }
-        }
-
-        hasMore = data.agentMetadata.hasMore === true && data.agentMetadata.entries.length === pageSize;
-        skip += pageSize;
-
-        if (skip >= 5000) {
-          console.warn(`[AIAgentDiscoveryClient.getTokenMetadataCustomSchema] Reached skip limit (5000) for agent ${agentId}`);
-          hasMore = false;
-        }
-      } catch (error) {
-        console.warn('[AIAgentDiscoveryClient.getTokenMetadataCustomSchema] Error:', error);
-        if (Object.keys(metadata).length > 0) {
-          return metadata;
-        }
-        return null;
-      }
-    }
-
-    return Object.keys(metadata).length > 0 ? metadata : null;
+    // Legacy query removed.
+    void chainId;
+    void agentId;
+    return null;
   }
 
   /**
@@ -2996,19 +2737,14 @@ export class AIAgentDiscoveryClient {
       orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
     };
 
-    try {
-      const data = await this.client.request<{ validationRequests: ValidationRequestData[] }>(queryText, variables);
-      const requests = data?.validationRequests;
-      if (!Array.isArray(requests)) {
-        return null;
-      }
-      return {
-        validationRequests: requests.filter(Boolean) as ValidationRequestData[],
-      };
-    } catch (error) {
-      console.warn('[AIAgentDiscoveryClient] searchValidationRequestsAdvanced failed:', error);
-      return null;
+    const data = await this.client.request<{ validationRequests: ValidationRequestData[] }>(queryText, variables);
+    const requests = data?.validationRequests;
+    if (!Array.isArray(requests)) {
+      throw new Error('Discovery KB schema mismatch: expected Query.validationRequests to return a list');
     }
+    return {
+      validationRequests: requests.filter(Boolean) as ValidationRequestData[],
+    };
   }
 
   /**
@@ -3064,19 +2800,14 @@ export class AIAgentDiscoveryClient {
       orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
     };
 
-    try {
-      const data = await this.client.request<{ feedbacks: FeedbackData[] }>(queryText, variables);
-      const feedbacks = data?.feedbacks;
-      if (!Array.isArray(feedbacks)) {
-        return null;
-      }
-      return {
-        feedbacks: feedbacks.filter(Boolean) as FeedbackData[],
-      };
-    } catch (error) {
-      console.warn('[AIAgentDiscoveryClient] searchFeedbackAdvanced failed:', error);
-      return null;
+    const data = await this.client.request<{ feedbacks: FeedbackData[] }>(queryText, variables);
+    const feedbacks = data?.feedbacks;
+    if (!Array.isArray(feedbacks)) {
+      throw new Error('Discovery KB schema mismatch: expected Query.feedbacks to return a list');
     }
+    return {
+      feedbacks: feedbacks.filter(Boolean) as FeedbackData[],
+    };
   }
 
   /**

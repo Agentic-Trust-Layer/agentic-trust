@@ -84,10 +84,13 @@ export async function GET(request: Request) {
     const discoveryApiKey = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
     const discoveryUrl =
       discoveryUrlRaw && discoveryUrlRaw.length > 0
-        ? discoveryUrlRaw.endsWith("/graphql")
-          ? discoveryUrlRaw
-          : `${discoveryUrlRaw.replace(/\/$/, "")}/graphql`
+        ? discoveryUrlRaw.replace(/\/+$/, "")
         : null;
+    if (discoveryUrl && !discoveryUrl.endsWith("/graphql-kb")) {
+      throw new Error(
+        `AGENTIC_TRUST_DISCOVERY_URL must be the KB GraphQL endpoint and end with "/graphql-kb" (got: ${discoveryUrl})`,
+      );
+    }
 
     const debug: Record<string, unknown> = {
       requested: { account, chainId, source: sourceParam || undefined },

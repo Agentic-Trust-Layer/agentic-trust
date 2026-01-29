@@ -29,7 +29,7 @@ const CHAIN_CHOICES: ChainChoice[] = [
   { title: 'Optimism Sepolia (11155420)', value: 11155420, suffix: 'OPTIMISM_SEPOLIA' },
 ];
 
-const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io';
+const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io/graphql-kb';
 const DEFAULT_DISCOVERY_API_KEY =
   '9073051bb4bb81de87567794f24caf78f77d7985f79bc1cf6f79c33ce2cafdc3';
 

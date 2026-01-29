@@ -76,12 +76,19 @@ export async function GET(request: Request) {
     });
   } catch (error: any) {
     console.error('[API] Error fetching owned agents:', error);
+    const message = String(error?.message ?? '');
+    const isKbOwnedAgentsNull =
+      message.includes('kbOwnedAgentsAllChains') &&
+      message.includes('Cannot return null for non-nullable field');
+
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || 'Failed to fetch owned agents',
+        error: isKbOwnedAgentsNull
+          ? 'Discovery backend error: kbOwnedAgentsAllChains returned null for a non-nullable field. Fix KB resolver to return {agents:[], total:0, hasMore:false} instead of null.'
+          : (error?.message || 'Failed to fetch owned agents'),
       },
-      { status: 500 }
+      { status: isKbOwnedAgentsNull ? 502 : 500 }
     );
   }
 }

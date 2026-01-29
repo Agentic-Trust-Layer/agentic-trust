@@ -72,6 +72,10 @@ export async function POST(
     return NextResponse.json({ isOwner });
   } catch (error) {
     console.error('Error in agent isOwner route:', error);
+    const message = String((error as any)?.message ?? '');
+    const isKbIsOwnerNull =
+      message.includes('kbIsOwner') &&
+      message.includes('Cannot return null for non-nullable field');
     if (
       error instanceof Error &&
       (error.message.toLowerCase().includes('8004 did') ||
@@ -86,9 +90,11 @@ export async function POST(
     return NextResponse.json(
       {
         error: 'Failed to check ownership',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: isKbIsOwnerNull
+          ? 'Discovery backend error: kbIsOwner returned null for a non-nullable field. Fix KB resolver to always return true/false (never null).'
+          : (error instanceof Error ? error.message : 'Unknown error'),
       },
-      { status: 500 },
+      { status: isKbIsOwnerNull ? 502 : 500 },
     );
   }
 }

@@ -1,54 +1,20 @@
 import { NextResponse } from 'next/server';
+import { getDiscoveryClient } from '@agentic-trust/core/server';
 
 export const dynamic = 'force-dynamic';
 
-async function queryGraphQL(query: string, variables: any = {}) {
-  const base = (process.env.AGENTIC_TRUST_DISCOVERY_URL || '').replace(/\/+$/, '');
-  const GRAPHQL_URL = base
-    ? (base.endsWith('/graphql') ? base : `${base}/graphql`)
-    : '';
-  
-  try {
-    if (!GRAPHQL_URL) {
-      console.warn("No AGENTIC_TRUST_DISCOVERY_URL configured");
-      return null;
-    }
-
-    // Get secret access code for server-to-server authentication
-    const secretAccessCode = process.env.AGENTIC_TRUST_DISCOVERY_API_KEY;
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    
-    if (secretAccessCode) {
-      headers['Authorization'] = `Bearer ${secretAccessCode}`;
-    } else {
-      console.warn("⚠️ GRAPHQL_SECRET_ACCESS_CODE not configured! Stats requests may fail.");
-    }
-
-    const res = await fetch(GRAPHQL_URL, {
-      method: 'POST',
-      headers: headers,
-      body: JSON.stringify({ query, variables }),
-      cache: 'no-store', // Disable Next.js fetch caching
-    });
-
-    if (!res.ok) {
-      console.error(`GraphQL request failed: ${res.status} ${res.statusText}`);
-      return null;
-    }
-
-    const data = await res.json();
-    if (data.errors) {
-      console.error('GraphQL errors:', data.errors);
-      return null;
-    }
-
-    return data.data;
-  } catch (error: any) {
-    console.error('GraphQL fetch error:', error?.message || error);
-    return null;
+async function fetchAgentsFromDiscovery(): Promise<any[]> {
+  const discovery = await getDiscoveryClient();
+  if (typeof (discovery as any).searchAgentsGraph !== 'function') {
+    throw new Error('Discovery client does not expose searchAgentsGraph()');
   }
+  const res = await (discovery as any).searchAgentsGraph({
+    first: 10000,
+    skip: 0,
+    orderBy: 'agentId',
+    orderDirection: 'DESC',
+  });
+  return Array.isArray(res?.agents) ? res.agents : [];
 }
 
 // Simple in-memory cache (per server instance) to reduce load
@@ -79,47 +45,8 @@ export async function GET() {
       }
     }
 
-    // Get all agents grouped by chain, ordered by agentId DESC to get highest first
-    const query = `
-      query GetStats {
-        agents(limit: 10000, offset: 0, orderBy: "agentId", orderDirection: "desc") {
-          chainId
-          agentId
-          agentName
-          description
-          image
-          agentUri
-          didName
-          createdAtTime
-        }
-      }
-    `;
-
-    console.log('[Stats API] Cache miss or expired, fetching stats from GraphQL');
-    const data = await queryGraphQL(query);
-
-    if (!data || !data.agents) {
-      // Return empty stats if GraphQL is not available, but don't cache
-      console.warn('Stats API: No data returned from GraphQL');
-      // Don't cache empty data - return previous cache if available, otherwise empty
-      if (cachedStats) {
-        console.log('[Stats API] GraphQL failed, returning previous cached stats');
-        return NextResponse.json(cachedStats);
-      }
-      return NextResponse.json({
-        summary: {
-          totalAgents: 0,
-          totalChains: 0,
-          chains: []
-        },
-        metadata: { chains: [] },
-        ens: { chains: [] },
-        activity: { recent24h: [] },
-        topAgents: []
-      });
-    }
-
-    const agents = data.agents || [];
+    console.log('[Stats API] Cache miss or expired, fetching stats from discovery (graphql-kb)');
+    const agents = await fetchAgentsFromDiscovery();
     const last24Hours = Math.floor(Date.now() / 1000) - 86400;
 
     // Group by chain

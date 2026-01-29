@@ -34,7 +34,7 @@ import type { Address } from 'viem';
 type OwnerType = 'eoa' | 'smartAccount';
 type ExecutionMode = 'auto' | 'server' | 'client';
 
-const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io';
+const DEFAULT_DISCOVERY_URL = 'https://8004-agent.io/graphql-kb';
 const DEFAULT_DISCOVERY_API_KEY =
   '9073051bb4bb81de87567794f24caf78f77d7985f79bc1cf6f79c33ce2cafdc3';
 
@@ -323,8 +323,7 @@ export class AgenticTrustClient {
    * Fetch feedback entries for a given agent.
    *
    * Strategy:
-   *  1. Try the discovery indexer's feedback search GraphQL API
-   *     (e.g. searchFeedbacksGraph) when available.
+   *  1. Try the discovery indexer's KB GraphQL API when available.
    *  2. If that fails or is not supported, fall back to on-chain
    *     `readAllFeedback` on the ReputationRegistry via the ReputationClient.
    *
@@ -370,119 +369,144 @@ export class AgenticTrustClient {
       throw new Error(`Invalid agentId for getAgentFeedback: ${agentId}`);
     }
 
-    // 1. Try discovery indexer feedback search first (best-effort)
+    // 1. Try discovery indexer feedback search first.
+    const discoveryClient = await getDiscoveryClient();
+    if (typeof (discoveryClient as any).searchFeedbackAdvanced !== 'function') {
+      throw new Error('Discovery client does not expose searchFeedbackAdvanced()');
+    }
+
+    const res = await (discoveryClient as any).searchFeedbackAdvanced({
+      chainId: resolvedChainId,
+      agentId: trimmed,
+      limit: typeof limit === 'number' ? limit : 100,
+      offset: typeof offset === 'number' ? offset : 0,
+      orderBy: 'timestamp',
+      orderDirection: 'DESC',
+    });
+    const list = Array.isArray(res?.feedbacks) ? (res.feedbacks as unknown[]) : [];
+    if (list.length > 0) {
+      return list;
+    }
+
+    const reputationClient = await getReputationRegistryClient(resolvedChainId);
+
+    // 2. Fallback: on-chain ReputationRegistry readAllFeedback
     try {
-      const discoveryClient = await getDiscoveryClient();
+      const raw = await (reputationClient as any).readAllFeedback(
+        agentIdBigInt,
+        clientAddresses,
+        tag1,
+        tag2,
+        includeRevoked,
+      );
 
-      const query = `
-        query SearchFeedbacksGraph(
-          $where: FeedbackWhereInput
-          $first: Int
-          $skip: Int
-        ) {
-          searchFeedbacksGraph(
-            where: $where
-            first: $first
-            skip: $skip
-          ) {
-            feedbacks {
-              id
-              agentId
-              clientAddress
-              score
-              feedbackUri
-              feedbackJson
-              comment
-              ratingPct
-              txHash
-              blockNumber
-              timestamp
-              isRevoked
-              responseCount
-            }
-            total
-            hasMore
-          }
-        }
-      `;
+      const clients: string[] = raw?.clientAddresses ?? [];
+      const scores: number[] = raw?.scores ?? [];
+      const tag1s: string[] = raw?.tag1s ?? [];
+      const tag2s: string[] = raw?.tag2s ?? [];
+      const revokedStatuses: boolean[] = raw?.revokedStatuses ?? [];
 
-      const variables: Record<string, unknown> = {
-        where: {
+      const maxLen = Math.max(
+        clients.length,
+        scores.length,
+        tag1s.length,
+        tag2s.length,
+        revokedStatuses.length,
+      );
+
+      const records: unknown[] = [];
+      for (let i = 0; i < maxLen; i++) {
+        records.push({
           agentId: trimmed,
           chainId: resolvedChainId,
-        },
-        first: typeof limit === 'number' ? limit : 100,
-        skip: typeof offset === 'number' ? offset : 0,
-      };
-
-      const result = await discoveryClient.request<{
-        searchFeedbacksGraph?: {
-          feedbacks?: unknown[];
-          total?: number | null;
-          hasMore?: boolean | null;
-        };
-      }>(query, variables);
-
-      if (result && (result as any).searchFeedbacksGraph) {
-        const node = (result as any).searchFeedbacksGraph;
-        const list = Array.isArray(node.feedbacks) ? node.feedbacks : [];
-        // Indexer lag is common right after a feedback tx is mined.
-        // If the indexer returns an empty list, fall back to on-chain reads so UIs can show
-        // the newly-mined feedback immediately.
-        if (list.length > 0) {
-          return list as unknown[];
-        }
-        console.info(
-          '[AgenticTrustClient.getAgentFeedback] indexer returned 0 items; falling back to on-chain readAllFeedback',
-          { agentId: trimmed, chainId: resolvedChainId },
-        );
+          clientAddress: clients[i],
+          score: scores[i],
+          tag1: tag1s[i],
+          tag2: tag2s[i],
+          isRevoked: revokedStatuses[i],
+          index: i,
+        });
       }
+
+      return records;
     } catch (error) {
       console.warn(
-        '[AgenticTrustClient.getAgentFeedback] discovery feedback search failed; falling back to on-chain readAllFeedback:',
+        '[AgenticTrustClient.getAgentFeedback] on-chain readAllFeedback failed; falling back to per-client readFeedback:',
         error,
       );
     }
 
-    // 2. Fallback: on-chain ReputationRegistry readAllFeedback
-    const reputationClient = await getReputationRegistryClient(resolvedChainId);
-    const raw = await (reputationClient as any).readAllFeedback(
-      agentIdBigInt,
-      clientAddresses,
-      tag1,
-      tag2,
-      includeRevoked,
-    );
+    // 3. Fallback: per-client readFeedback (slower, but avoids ABI mismatches in readAllFeedback)
+    const resolvedLimit = typeof limit === 'number' ? limit : 100;
+    const resolvedOffset = typeof offset === 'number' ? offset : 0;
+    const targetCount = Math.max(0, resolvedOffset + resolvedLimit);
 
-    const clients: string[] = raw?.clientAddresses ?? [];
-    const scores: number[] = raw?.scores ?? [];
-    const tag1s: string[] = raw?.tag1s ?? [];
-    const tag2s: string[] = raw?.tag2s ?? [];
-    const revokedStatuses: boolean[] = raw?.revokedStatuses ?? [];
+    const clientsList: string[] =
+      Array.isArray(clientAddresses) && clientAddresses.length > 0
+        ? clientAddresses
+        : await (reputationClient as any).getClients(agentIdBigInt).catch(() => []);
 
-    const maxLen = Math.max(
-      clients.length,
-      scores.length,
-      tag1s.length,
-      tag2s.length,
-      revokedStatuses.length,
-    );
+    const out: unknown[] = [];
+    for (const clientAddress of clientsList) {
+      let lastIndex: bigint = 0n;
+      try {
+        lastIndex = await (reputationClient as any).getLastIndex(agentIdBigInt, clientAddress);
+      } catch {
+        continue;
+      }
 
-    const records: unknown[] = [];
-    for (let i = 0; i < maxLen; i++) {
-      records.push({
-        agentId: trimmed,
-        chainId: resolvedChainId,
-        clientAddress: clients[i],
-        score: scores[i],
-        tag1: tag1s[i],
-        tag2: tag2s[i],
-        isRevoked: revokedStatuses[i],
-        index: i,
-      });
+      // getLastIndex() returns the last used index (0 if none). Iterate backwards for "most recent" first per client.
+      for (let idx = lastIndex; idx >= 0n; idx--) {
+        let entry: any;
+        try {
+          entry = await (reputationClient as any).readFeedback(agentIdBigInt, clientAddress, idx);
+        } catch {
+          // Some registries may have sparse indexes; ignore missing entries.
+          if (idx === 0n) break;
+          continue;
+        }
+
+        const isRevoked = !!entry?.isRevoked;
+        if (!includeRevoked && isRevoked) {
+          if (idx === 0n) break;
+          continue;
+        }
+
+        const entryTag1 = String(entry?.tag1 ?? '');
+        const entryTag2 = String(entry?.tag2 ?? '');
+        if (tag1 && entryTag1 !== tag1) {
+          if (idx === 0n) break;
+          continue;
+        }
+        if (tag2 && entryTag2 !== tag2) {
+          if (idx === 0n) break;
+          continue;
+        }
+
+        out.push({
+          agentId: trimmed,
+          chainId: resolvedChainId,
+          clientAddress,
+          score: Number(entry?.score ?? 0),
+          tag1: entryTag1,
+          tag2: entryTag2,
+          isRevoked,
+          feedbackIndex: idx.toString(),
+        });
+
+        if (targetCount > 0 && out.length >= targetCount) {
+          break;
+        }
+
+        if (idx === 0n) break;
+      }
+
+      if (targetCount > 0 && out.length >= targetCount) {
+        break;
+      }
     }
 
-    return records;
+    return out.slice(resolvedOffset, resolvedOffset + resolvedLimit);
   }
 
   /**
@@ -516,12 +540,16 @@ export class AgenticTrustClient {
     }
 
     const reputationClient = await getReputationRegistryClient(resolvedChainId);
-    return (reputationClient as any).getSummary(
-      agentIdBigInt,
-      clientAddresses,
-      tag1,
-      tag2,
-    );
+    const clients =
+      Array.isArray(clientAddresses) && clientAddresses.length > 0
+        ? clientAddresses
+        : await (reputationClient as any).getClients(agentIdBigInt).catch(() => []);
+
+    if (!clients || clients.length === 0) {
+      return { count: 0n, averageScore: 0 };
+    }
+
+    return (reputationClient as any).getSummary(agentIdBigInt, clients, tag1, tag2);
   }
 
   /**

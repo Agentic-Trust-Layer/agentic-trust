@@ -329,7 +329,9 @@ const VALIDATION_COLLECTION_PREFIX = 'validation_collection/';
 const INTENT_JOIN_VALIDATION_AGENTS_COLLECTION = 'joinValidationAgentsCollection';
 
 async function graphqlRequest(query: string, variables?: Record<string, unknown>): Promise<any> {
-  const url = (process.env.AGENTIC_TRUST_GRAPHQL_URL || process.env.AGENTIC_TRUST_DISCOVERY_URL || '').toString().trim();
+  const url = (process.env.AGENTIC_TRUST_GRAPHQL_URL || process.env.AGENTIC_TRUST_DISCOVERY_URL || '')
+    .toString()
+    .trim();
   const graphqlUrl = /\/graphql-kb\/?$/i.test(url)
     ? url.replace(/\/+$/, '')
     : url
