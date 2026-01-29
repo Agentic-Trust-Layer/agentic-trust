@@ -2,45 +2,18 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
+import { parseDid8004 } from '@agentic-trust/core';
+import { resolveDid8004FromUaid } from '../../_lib/uaid';
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: { uaid: string } },
 ) {
   try {
-    const uaid = decodeURIComponent(params.uaid);
-    if (uaid.startsWith('did:8004:')) {
-      return NextResponse.json({ error: 'Only UAID is supported' }, { status: 400 });
-    }
+    const { did8004 } = resolveDid8004FromUaid(params.uaid);
+    const { chainId, agentId } = parseDid8004(did8004);
 
     const client = await getAgenticTrustClient();
-
-    // UAID is the canonical identifier; resolve to did:8004 when possible.
-    const detail = await (client as any).getAgentDetailsByUaidUniversal?.(uaid, {
-      includeRegistration: false,
-    });
-    const candidate = typeof detail?.didIdentity === 'string' ? detail.didIdentity : null;
-    const did8004Resolved = candidate && candidate.startsWith('did:8004:') ? candidate : null;
-
-    if (!did8004Resolved) {
-      return NextResponse.json({
-        success: true,
-        operatorAddress: null,
-        hasOperator: false,
-      });
-    }
-
-    const match = did8004Resolved.match(/^did:8004:(\d+):(\d+)$/);
-    if (!match) {
-      return NextResponse.json({ error: 'Invalid did:8004 format' }, { status: 400 });
-    }
-
-    const chainId = Number.parseInt(match[1], 10);
-    const agentId = Number.parseInt(match[2], 10);
-
-    if (!Number.isFinite(chainId) || !Number.isFinite(agentId)) {
-      return NextResponse.json({ error: 'Invalid chainId or agentId' }, { status: 400 });
-    }
 
     const agent = await client.getAgent(agentId.toString(), chainId);
     if (!agent) {

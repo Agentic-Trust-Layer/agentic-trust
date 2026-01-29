@@ -316,7 +316,7 @@ export default function AdminPage() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
   
-  // Extract DID from pathname if it matches /admin-tools/[encoded-did]
+  // Extract UAID from pathname if it matches /admin-tools/[encoded-uaid]
   const pathDidMatch = pathname?.match(/^\/admin-tools\/(.+)$/);
   const pathDid = pathDidMatch ? pathDidMatch[1] : null;
   
@@ -329,7 +329,7 @@ export default function AdminPage() {
   
   // Prefer path DID over query params
   const didSource = pathDid ?? queryAgent;
-  const isEditMode = (queryAgentId !== null && queryChainId !== null) || didSource !== null;
+  const isEditMode = didSource !== null;
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -460,6 +460,7 @@ export default function AdminPage() {
   const headerAddress = authPrivateKeyMode ? (adminEOA || eoaAddress) : eoaAddress;
   // UAID is the canonical navigation identifier. For admin-tools, we still need
   // did:8004 (chainId/agentId) for on-chain operations, so we resolve UAID -> did:8004.
+  const [canonicalUaid, setCanonicalUaid] = useState<string | null>(null);
   const [parsedDidFromSource, setParsedDidFromSource] = useState<{
     chainId: number;
     agentId: string;
@@ -467,6 +468,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     let cancelled = false;
+    setCanonicalUaid(null);
     setParsedDidFromSource(null);
 
     if (!didSource) return;
@@ -485,25 +487,25 @@ export default function AdminPage() {
           }
         }
 
-        if (decoded.startsWith('uaid:')) {
-          const resp = await fetch(`/api/agents/${encodeURIComponent(decoded)}`, {
-            cache: 'no-store',
-          });
-          if (!resp.ok) {
-            throw new Error(`Failed to resolve UAID (HTTP ${resp.status})`);
-          }
-          const details = await resp.json();
-          const didIdentity =
-            typeof details?.didIdentity === 'string' ? details.didIdentity : null;
-          if (!didIdentity || !didIdentity.startsWith('did:8004:')) {
-            throw new Error('UAID does not resolve to a did:8004 identity (on-chain admin tools unavailable)');
-          }
-          const parsed = parseDid8004(didIdentity);
-          if (!cancelled) setParsedDidFromSource(parsed);
-          return;
+        if (!decoded.startsWith('uaid:')) {
+          throw new Error('Only UAID is supported for admin-tools (expected prefix "uaid:")');
         }
 
-        const parsed = parseDid8004(decoded);
+        if (!cancelled) setCanonicalUaid(decoded);
+
+        const resp = await fetch(`/api/agents/${encodeURIComponent(decoded)}`, {
+          cache: 'no-store',
+        });
+        if (!resp.ok) {
+          throw new Error(`Failed to resolve UAID (HTTP ${resp.status})`);
+        }
+        const details = await resp.json();
+        const didIdentity =
+          typeof details?.didIdentity === 'string' ? details.didIdentity : null;
+        if (!didIdentity || !didIdentity.startsWith('did:8004:')) {
+          throw new Error('UAID does not resolve to a did:8004 identity (on-chain admin tools unavailable)');
+        }
+        const parsed = parseDid8004(didIdentity);
         if (!cancelled) setParsedDidFromSource(parsed);
       } catch (error) {
         console.error('Failed to resolve agent identifier:', error);
@@ -515,6 +517,18 @@ export default function AdminPage() {
       cancelled = true;
     };
   }, [didSource]);
+
+  const agentUaidForApi = useMemo(() => {
+    if (canonicalUaid && canonicalUaid.trim()) return canonicalUaid.trim();
+    if (didSource && didSource.trim()) {
+      try {
+        return decodeURIComponent(didSource).trim();
+      } catch {
+        return didSource.trim();
+      }
+    }
+    return null;
+  }, [canonicalUaid, didSource]);
 
   // Use parsed DID or fall back to query params
   const effectiveAgentId = parsedDidFromSource?.agentId?.toString() ?? queryAgentId;
@@ -529,12 +543,10 @@ export default function AdminPage() {
 
   // Fetch agent info if we have ID/Chain but missing details (e.g. via DID route)
   useEffect(() => {
-    if (isEditMode && finalAgentId && finalChainId && (!queryAgentAddress || !searchParams?.get('agentName'))) {
+    if (isEditMode && agentUaidForApi && (!queryAgentAddress || !searchParams?.get('agentName'))) {
       const fetchAgentInfo = async () => {
         try {
-          const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
-          // Prefer UAID navigation, but allow did:8004 for legacy edit flows.
-          const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+          const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi)}`);
           if (response.ok) {
             const data = await response.json();
             setFetchedAgentInfo(data);
@@ -545,7 +557,7 @@ export default function AdminPage() {
       };
       fetchAgentInfo();
     }
-  }, [isEditMode, finalAgentId, finalChainId, queryAgentAddress, searchParams]);
+  }, [isEditMode, agentUaidForApi, queryAgentAddress, searchParams]);
 
   // Use the explicitly-provided agent name (no normalization/slugification).
   const displayAgentName = searchParams?.get('agentName') ?? fetchedAgentInfo?.agentName ?? '...';
@@ -590,15 +602,11 @@ export default function AdminPage() {
   // Update URL when tab changes
   const handleTabChange = useCallback((tab: typeof activeManagementTab) => {
     setActiveManagementTab(tab);
-    if (isEditMode && effectiveAgentId && effectiveChainId) {
-      const did8004 = buildDid8004(Number(effectiveChainId), effectiveAgentId);
-      const newUrl = `/admin-tools/${encodeURIComponent(did8004)}?tab=${tab}`;
-      router.push(newUrl);
-    } else if (isEditMode && didSource) {
-      const newUrl = `/admin-tools/${didSource}?tab=${tab}`;
+    if (isEditMode && agentUaidForApi) {
+      const newUrl = `/admin-tools/${encodeURIComponent(agentUaidForApi)}?tab=${tab}`;
       router.push(newUrl);
     }
-  }, [isEditMode, effectiveAgentId, effectiveChainId, didSource, router]);
+  }, [isEditMode, agentUaidForApi, router]);
   
   // Sync tab from URL
   useEffect(() => {
@@ -698,7 +706,7 @@ export default function AdminPage() {
           // Set active=false since session package creation failed
           try {
             const did8004 = buildDid8004(parsedChainId, agentIdNumeric);
-            const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
+            const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`);
             if (operatorResponse.ok) {
               const operatorData = await operatorResponse.json().catch(() => ({}));
               const operatorAddress = operatorData?.operatorAddress || null;
@@ -724,7 +732,7 @@ export default function AdminPage() {
             
             let operatorAddress: string | null = null;
             try {
-              const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
+              const operatorResponse = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`);
               if (operatorResponse.ok) {
                 const operatorData = await operatorResponse.json().catch(() => ({}));
                 operatorAddress = operatorData?.operatorAddress || null;
@@ -772,7 +780,7 @@ export default function AdminPage() {
               let lastParsed: any = null;
 
               for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-                const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+                const agentResponse = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}`);
                 if (agentResponse.ok) {
                   const agentDetails = await agentResponse.json().catch(() => ({}));
                   const agentUri = getRegistrationUriFromAgentDetails(agentDetails);
@@ -1010,12 +1018,25 @@ export default function AdminPage() {
           }
 
           try {
-            const did8004 = buildDid8004(targetChainId as number, agentId);
-            const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
-            if (agentResponse.ok) {
-              const agentData = await agentResponse.json();
-              requestingAgentCacheRef.current.set(cacheKey, agentData);
-              return { ...req, requestingAgent: agentData };
+            const agentSearchResponse = await fetch('/api/agents/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                page: 1,
+                pageSize: 1,
+                params: {
+                  agentId: String(agentId),
+                  chains: typeof targetChainId === 'number' ? [targetChainId] : undefined,
+                },
+              }),
+            });
+            if (agentSearchResponse.ok) {
+              const searchData = await agentSearchResponse.json().catch(() => ({}));
+              const agentData = Array.isArray(searchData?.agents) ? searchData.agents[0] : null;
+              if (agentData) {
+                requestingAgentCacheRef.current.set(cacheKey, agentData);
+                return { ...req, requestingAgent: agentData };
+              }
             }
           } catch (error) {
             console.warn(`Failed to fetch agent ${agentId}:`, error);
@@ -1310,8 +1331,7 @@ export default function AdminPage() {
         const parsedChainId = Number.parseInt(finalChainId, 10);
         if (!Number.isFinite(parsedChainId)) return;
 
-        const did8004 = buildDid8004(parsedChainId, finalAgentId);
-        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/card`, {
+        const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/card`, {
           cache: 'no-store',
         });
 
@@ -1395,8 +1415,7 @@ export default function AdminPage() {
         throw new Error('Invalid chainId');
       }
 
-      const did8004 = buildDid8004(parsedChainId, finalAgentId);
-      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/card`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/card`, {
         cache: 'no-store',
       });
 
@@ -1480,8 +1499,7 @@ export default function AdminPage() {
         throw new Error('Invalid chainId');
       }
 
-      const did8004 = buildDid8004(parsedChainId, finalAgentId);
-      const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/card`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/card`, {
         cache: 'no-store',
       });
 
@@ -1629,8 +1647,7 @@ export default function AdminPage() {
           throw new Error('Invalid chainId in URL');
         }
 
-        const did8004 = buildDid8004(parsedChainId, finalAgentId);
-        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+        const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}`);
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
           throw new Error(
@@ -2240,8 +2257,7 @@ export default function AdminPage() {
             throw new Error('Invalid chainId in URL.');
           }
 
-          const did8004 = buildDid8004(parsedChainId, finalAgentId);
-          const agentResponse = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+          const agentResponse = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}`);
           if (!agentResponse.ok) {
             throw new Error('Failed to load agent details to fetch registration JSON.');
           }
@@ -2476,9 +2492,8 @@ export default function AdminPage() {
         }
 
         // Then, fetch validation status using the validator address
-        const did8004OfAgentBeingValidated = buildDid8004(Number(finalChainId), finalAgentId);
         const response = await fetch(
-          `/api/agents/${encodeURIComponent(did8004OfAgentBeingValidated)}/validations-by-validator?validatorAddress=${encodeURIComponent(validatorAddress)}`
+          `/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/validations-by-validator?validatorAddress=${encodeURIComponent(validatorAddress)}`
         );
 
         if (!response.ok) {
@@ -2576,9 +2591,7 @@ export default function AdminPage() {
         try {
 
           console.log('fetching NFT operator for agent', finalAgentId, finalChainId);
-        const did8004 = buildDid8004(Number(finalChainId), finalAgentId);
-        console.log('get operator for did8004', did8004);
-        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`);
+        const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`);
         console.log('response', response);
         if (cancelled) return;
         console.log('response ok', response.ok);
@@ -2610,7 +2623,7 @@ export default function AdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [isEditMode, activeManagementTab, queryAgentId, queryChainId]);
+  }, [isEditMode, activeManagementTab, agentUaidForApi, finalAgentId, finalChainId]);
 
   // Fetch A2A endpoint data when agentValidation tab is active
   useEffect(() => {
@@ -2630,9 +2643,7 @@ export default function AdminPage() {
 
     (async () => {
       try {
-        // Use decoded DID; we will URL-encode exactly once when building request URLs.
-        const did8004 = buildDid8004(Number(finalChainId), finalAgentId, { encode: false });
-        const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}/a2a-endpoint`);
+        const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/a2a-endpoint`);
         
         if (cancelled) return;
 
@@ -2774,9 +2785,7 @@ export default function AdminPage() {
         ? parsedChainId
         : DEFAULT_CHAIN_ID;
 
-      const did8004 = buildDid8004(chainId, updateForm.agentId);
-
-      const response = await fetch(`/api/agents/${did8004}/update`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(updateForm.agentId)}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2820,9 +2829,8 @@ export default function AdminPage() {
       const chainId = Number.isFinite(parsedChainId)
         ? parsedChainId
         : DEFAULT_CHAIN_ID;
-      const did8004 = buildDid8004(chainId, deleteForm.agentId);
 
-      const response = await fetch(`/api/agents/${did8004}/delete`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(deleteForm.agentId)}/delete`, {
         method: 'DELETE',
       });
 
@@ -2902,7 +2910,7 @@ export default function AdminPage() {
       let operatorAddress: `0x${string}` | null = null;
       let ownerAddress: `0x${string}` | null = null;
       try {
-        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`, { cache: 'no-store' });
         if (opRes.ok) {
           const opData = await opRes.json().catch(() => ({} as any));
           operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
@@ -3050,7 +3058,7 @@ export default function AdminPage() {
       let operatorAddress: `0x${string}` | null = null;
       let ownerAddress: `0x${string}` | null = null;
       try {
-        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`, { cache: 'no-store' });
         if (opRes.ok) {
           const opData = await opRes.json().catch(() => ({} as any));
           operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
@@ -3197,7 +3205,7 @@ export default function AdminPage() {
       let operatorAddress: `0x${string}` | null = null;
       let ownerAddress: `0x${string}` | null = null;
       try {
-        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`, { cache: 'no-store' });
         if (opRes.ok) {
           const opData = await opRes.json().catch(() => ({} as any));
           operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
@@ -3344,7 +3352,7 @@ export default function AdminPage() {
       let operatorAddress: `0x${string}` | null = null;
       let ownerAddress: `0x${string}` | null = null;
       try {
-        const opRes = await fetch(`/api/agents/${encodeURIComponent(did8004)}/operator`, { cache: 'no-store' });
+        const opRes = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}/operator`, { cache: 'no-store' });
         if (opRes.ok) {
           const opData = await opRes.json().catch(() => ({} as any));
           operatorAddress = (resolvePlainAddress(opData?.operatorAddress) as `0x${string}` | null) ?? null;
@@ -3456,9 +3464,8 @@ export default function AdminPage() {
       const chainId = Number.isFinite(parsedChainId)
         ? parsedChainId
         : DEFAULT_CHAIN_ID;
-      const did8004 = buildDid8004(chainId, transferForm.agentId);
 
-      const response = await fetch(`/api/agents/${did8004}/transfer`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(transferForm.agentId)}/transfer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -3941,8 +3948,7 @@ export default function AdminPage() {
                                   throw new Error('Invalid chainId in URL');
                                 }
 
-                                const did8004 = buildDid8004(parsedChainId, finalAgentId);
-                                const response = await fetch(`/api/agents/${encodeURIComponent(did8004)}`);
+                                const response = await fetch(`/api/agents/${encodeURIComponent(agentUaidForApi ?? '')}`);
                                 if (!response.ok) {
                                   const errorData = await response.json().catch(() => ({}));
                                   throw new Error(

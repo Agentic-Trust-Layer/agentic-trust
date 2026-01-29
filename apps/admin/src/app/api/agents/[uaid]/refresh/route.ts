@@ -2,14 +2,14 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
-import { resolveDid8004FromUaidOrDid } from '../../_lib/uaid';
+import { resolveDid8004FromUaid } from '../../_lib/uaid';
 
 export async function POST(
   _request: NextRequest,
   { params }: { params: { uaid: string } },
 ) {
   try {
-    const { did8004 } = resolveDid8004FromUaidOrDid(params.uaid);
+    const { did8004 } = resolveDid8004FromUaid(params.uaid);
     const client = await getAgenticTrustClient();
     // refreshAgentByDid exists on AgentsAPI at runtime but may not yet be in typings
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

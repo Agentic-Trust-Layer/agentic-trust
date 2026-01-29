@@ -2,14 +2,14 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgenticTrustClient } from '@agentic-trust/core/server';
-import { resolveDid8004FromUaidOrDid } from '../../_lib/uaid';
+import { resolveDid8004FromUaid } from '../../_lib/uaid';
 
 export async function PUT(
   request: NextRequest,
   { params }: { params: { uaid: string } },
 ) {
   try {
-    const { did8004 } = resolveDid8004FromUaidOrDid(params.uaid);
+    const { did8004 } = resolveDid8004FromUaid(params.uaid);
     const body = await request.json();
     const client = await getAgenticTrustClient();
 

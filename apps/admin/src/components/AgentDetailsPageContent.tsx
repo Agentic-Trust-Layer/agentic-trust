@@ -851,9 +851,14 @@ export default function AgentDetailsPageContent({
         throw new Error('Selected agent not found in owned agents');
       }
 
-      // Build DID8004 for both agents
+      // Use UAIDs for messaging payloads (canonical identifier).
       const parsedFromChainId = parseInt(fromChainId, 10);
-      const fromAgentDid = buildDid8004(parsedFromChainId, Number(fromAgentId));
+      const fromAgentDid =
+        typeof (fromAgent as any)?.uaid === 'string' && String((fromAgent as any).uaid).startsWith('uaid:')
+          ? String((fromAgent as any).uaid)
+          : (() => {
+              throw new Error('Selected owned agent is missing UAID');
+            })();
       const toAgentDid = uaid;
 
       // Fetch task type from discovery

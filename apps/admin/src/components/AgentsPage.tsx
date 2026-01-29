@@ -135,8 +135,6 @@ type AgentActionType =
   | 'info'
   | 'registration'
   | 'did-web'
-  | 'did-8004'
-  | 'did-agent'
   | 'a2a'
   | 'session'
   | 'feedback'
@@ -149,8 +147,6 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
   registration: 'Reg',
   'registration-edit': 'Edit Reg',
   'did-web': 'DID:Web',
-  'did-agent': 'DID:Agent',
-  'did-8004': 'DID:8004',
   a2a: 'A2A',
   session: 'Session',
   feedback: 'Feedback',
@@ -1535,21 +1531,6 @@ export function AgentsPage({
             </p>
           </>
         );
-      case 'did-agent':
-        return (
-          <>
-            <p style={{ marginTop: 0 }}>
-              DID:8004 binds ERC-8004 identities directly to smart accounts.
-            </p>
-            <p>
-              Suggested identifier:{' '}
-              <code>did:8004:{agent.chainId}:{agent.agentId}</code>
-            </p>
-            <p style={{ color: palette.textSecondary }}>
-              Use your preferred wallet to generate a signed DID document containing the ERC-8004 registry information.
-            </p>
-          </>
-        );
       case 'a2a': {
         const a2aMatchesAgent = a2aPreview.key === `${agent.chainId}:${agent.agentId}`;
         return (
@@ -2641,7 +2622,7 @@ export function AgentsPage({
           throw new Error('Agent id is invalid.');
         }
 
-        const did8004 = `did:8004:${agent.chainId}:${agent.agentId}`;
+        const did8004 = typeof agent.uaid === 'string' && agent.uaid.trim() ? agent.uaid.trim() : `${agent.chainId}:${agent.agentId}`;
         
         // Start progress bar
         setSessionProgress(prev => ({ ...prev, [agentKey]: 0 }));
@@ -4106,25 +4087,6 @@ export function AgentsPage({
                           }}
                         >
                           {ACTION_LABELS['did-web']}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={event => {
-                            event.stopPropagation();
-                            openActionDialog(agent, 'did-agent');
-                          }}
-                          style={{
-                            padding: '0.25rem 0.6rem',
-                            borderRadius: '8px',
-                            border: `1px solid ${palette.border}`,
-                            backgroundColor: palette.surface,
-                            fontSize: '0.7rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            color: palette.textPrimary,
-                          }}
-                        >
-                          {ACTION_LABELS['did-agent']}
                         </button>
                       </>
                     )}

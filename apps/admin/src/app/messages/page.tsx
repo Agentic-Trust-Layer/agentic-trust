@@ -781,21 +781,46 @@ export default function MessagesPage() {
     return Boolean(toDid) && toDid === normalizeDid(selectedFolderDid);
   }, [mailboxMode, selectedAssociationRequestMessage, selectedFolderDid]);
 
-  const selectedMessageTargetDid = useMemo(() => {
+  const selectedMessageTargetUaid = useMemo(() => {
     // For feedback_request_approved, the sender is the target agent that will issue feedbackAuth.
-    const did = normalizeDid(selectedFeedbackApprovedMessage?.fromAgentDid);
-    return did || null;
+    const uaid = normalizeDid(selectedFeedbackApprovedMessage?.fromAgentDid);
+    return uaid.startsWith('uaid:') ? uaid : null;
   }, [selectedFeedbackApprovedMessage]);
 
+  const [selectedMessageTargetDetails, setSelectedMessageTargetDetails] = useState<any | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setSelectedMessageTargetDetails(null);
+    if (!selectedMessageTargetUaid) return;
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(selectedMessageTargetUaid)}`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const details = await res.json().catch(() => null);
+        if (!cancelled) setSelectedMessageTargetDetails(details);
+      } catch {
+        // ignore
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMessageTargetUaid]);
+
   const selectedMessageTargetParsed = useMemo(() => {
-    if (!selectedMessageTargetDid) return null;
-    if (!selectedMessageTargetDid.startsWith('did:8004:')) return null;
+    const didIdentity =
+      typeof selectedMessageTargetDetails?.didIdentity === 'string'
+        ? selectedMessageTargetDetails.didIdentity
+        : '';
+    if (!didIdentity.startsWith('did:8004:')) return null;
     try {
-      return parseDid8004(selectedMessageTargetDid);
+      return parseDid8004(didIdentity);
     } catch {
       return null;
     }
-  }, [selectedMessageTargetDid]);
+  }, [selectedMessageTargetDetails]);
 
   const selectedMessageFeedbackRequestId = useMemo(() => {
     const raw = selectedFeedbackApprovedMessage?.contextId || selectedFeedbackRequestMessage?.contextId || null;
@@ -810,8 +835,8 @@ export default function MessagesPage() {
       setFeedbackAuthError('Wallet address not available. Please connect.');
       return;
     }
-    if (!selectedMessageTargetDid || !selectedMessageTargetParsed) {
-      setFeedbackAuthError('Target agent DID is missing or invalid.');
+    if (!selectedMessageTargetUaid || !selectedMessageTargetParsed) {
+      setFeedbackAuthError('Target agent UAID is missing or invalid.');
       return;
     }
     if (!selectedMessageFeedbackRequestId) {
@@ -824,7 +849,7 @@ export default function MessagesPage() {
     setFeedbackAuthValue(null);
 
     try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(selectedMessageTargetDid)}/send`, {
+      const response = await fetch(`/api/agents/${encodeURIComponent(selectedMessageTargetUaid)}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -886,7 +911,7 @@ export default function MessagesPage() {
               mode: 'eoa',
               ethereumProvider: eip1193Provider as any,
               account: getAddress(walletAddress) as `0x${string}`,
-              requesterDid: selectedMessageTargetDid,
+              requesterDid: selectedMessageTargetParsed.did,
               initiatorAddress: getAddress(walletAddress) as `0x${string}`,
               approverAddress,
               assocType: AssocType.Delegation,
@@ -912,7 +937,7 @@ export default function MessagesPage() {
     }
   }, [
     selectedFeedbackApprovedMessage,
-    selectedMessageTargetDid,
+    selectedMessageTargetUaid,
     selectedMessageTargetParsed,
     selectedMessageFeedbackRequestId,
     walletAddress,
@@ -936,17 +961,15 @@ export default function MessagesPage() {
       const expectedRequestHash =
         typeof blk?.requestHash === 'string' && blk.requestHash.startsWith('0x') ? blk.requestHash : null;
 
-      // Parse the from agent DID (the agent being validated)
-      const fromDid = normalizeDid(msg.fromAgentDid);
-      if (!fromDid.startsWith('did:8004:')) {
-        setValidationResponseError('From agent DID is not a valid did:8004');
+      // Parse the from agent UAID (the agent being validated)
+      const fromUaid = normalizeDid(msg.fromAgentDid);
+      if (!fromUaid.startsWith('uaid:')) {
+        setValidationResponseError('From agent UAID is missing or invalid.');
         return;
       }
-
-      const fromParsed = parseDid8004(fromDid);
       
       // Get validation requests for the from agent (the agent being validated)
-      const validationsResponse = await fetch(`/api/agents/${encodeURIComponent(fromDid)}/validations`);
+      const validationsResponse = await fetch(`/api/agents/${encodeURIComponent(fromUaid)}/validations`);
       if (!validationsResponse.ok) {
         throw new Error('Failed to fetch validation requests');
       }
@@ -1033,11 +1056,21 @@ export default function MessagesPage() {
 
     try {
       // Parse from agent DID to get agentId
-      const fromDid = normalizeDid(msg.fromAgentDid);
-      if (!fromDid.startsWith('did:8004:')) {
-        throw new Error('From agent DID is not a valid did:8004');
+      const fromUaid = normalizeDid(msg.fromAgentDid);
+      if (!fromUaid.startsWith('uaid:')) {
+        throw new Error('From agent UAID is missing or invalid.');
       }
-      const fromParsed = parseDid8004(fromDid);
+
+      const fromAgentResponse = await fetch(`/api/agents/${encodeURIComponent(fromUaid)}`, { cache: 'no-store' });
+      if (!fromAgentResponse.ok) {
+        throw new Error('Failed to fetch from-agent details');
+      }
+      const fromAgentDetails = await fromAgentResponse.json().catch(() => ({}));
+      const fromDidIdentity = typeof fromAgentDetails?.didIdentity === 'string' ? fromAgentDetails.didIdentity : '';
+      if (!fromDidIdentity.startsWith('did:8004:')) {
+        throw new Error('From agent UAID does not resolve to a did:8004 identity');
+      }
+      const fromParsed = parseDid8004(fromDidIdentity);
       const requestingAgentId = fromParsed.agentId.toString();
 
       // Get validation kind from message metadata (metadata is stored in message context, check API response structure)
@@ -1105,8 +1138,12 @@ export default function MessagesPage() {
 
       // Get current agent's A2A endpoint
       // Use decoded DID; we URL-encode exactly once when building request URLs.
-      const currentAgentDid = buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId, { encode: false });
-      const agentResponse = await fetch(`/api/agents/${encodeURIComponent(currentAgentDid)}`);
+      const currentAgentUaid =
+        typeof (selectedFolderAgent as any)?.uaid === 'string' ? String((selectedFolderAgent as any).uaid) : '';
+      if (!currentAgentUaid.startsWith('uaid:')) {
+        throw new Error('Current agent UAID is missing or invalid');
+      }
+      const agentResponse = await fetch(`/api/agents/${encodeURIComponent(currentAgentUaid)}`);
       if (!agentResponse.ok) {
         throw new Error('Failed to fetch current agent details');
       }
@@ -1311,33 +1348,20 @@ export default function MessagesPage() {
         ? normalizeDid(last.toAgentDid)
         : normalizeDid(last.fromAgentDid);
 
-    if (!targetDid || !targetDid.startsWith('did:8004:')) {
-      setError('Cannot reply: missing recipient agent DID on this task.');
+    if (!targetDid || !targetDid.startsWith('uaid:')) {
+      setError('Cannot reply: missing recipient agent UAID on this task.');
       return;
     }
 
     let opt: AgentSearchOption | null = null;
-    try {
-      const parsed = parseDid8004(targetDid);
-      const agentIdStr = String(parsed.agentId);
-      opt = {
-        key: `${parsed.chainId}:${agentIdStr}`,
-        chainId: parsed.chainId,
-        agentId: agentIdStr,
-        agentName: mailboxMode === 'sent' ? last.toAgentName : last.fromAgentName,
-        image: null,
-        did: targetDid,
-      };
-    } catch {
-      opt = {
-        key: targetDid,
-        chainId: DEFAULT_CHAIN_ID,
-        agentId: '0',
-        agentName: mailboxMode === 'sent' ? last.toAgentName : last.fromAgentName,
-        image: null,
-        did: targetDid,
-      };
-    }
+    opt = {
+      key: targetDid,
+      chainId: DEFAULT_CHAIN_ID,
+      agentId: '0',
+      agentName: mailboxMode === 'sent' ? last.toAgentName : last.fromAgentName,
+      image: null,
+      did: targetDid,
+    };
 
     setError(null);
     setComposeTaskId(selectedThread.taskId ?? (last.taskId ?? last.contextId ?? null));
@@ -1383,16 +1407,15 @@ export default function MessagesPage() {
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
             const agentId = a?.agentId != null ? String(a.agentId) : '';
             if (!chainId || !agentId) return null;
-            const didRaw =
-              typeof a?.did === 'string' && a.did ? normalizeDid(a.did) : buildDid8004(chainId, Number(agentId));
-            const did = didRaw || buildDid8004(chainId, Number(agentId));
+            const uaid = typeof a?.uaid === 'string' ? String(a.uaid).trim() : '';
+            if (!uaid.startsWith('uaid:')) return null;
             return {
               key: `${chainId}:${agentId}`,
               chainId,
               agentId,
               agentName: a?.agentName ?? null,
               image: a?.image ?? null,
-              did,
+              did: uaid,
             } as AgentSearchOption;
           };
 
@@ -1480,14 +1503,15 @@ export default function MessagesPage() {
               const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
               const agentId = a?.agentId != null ? String(a.agentId) : '';
               if (!chainId || !agentId) return null;
-              const did = buildDid8004(chainId, Number(agentId));
+              const uaid = typeof a?.uaid === 'string' ? String(a.uaid).trim() : '';
+              if (!uaid.startsWith('uaid:')) return null;
               return {
                 key: `${chainId}:${agentId}`,
                 chainId,
                 agentId,
                 agentName: a?.agentName ?? null,
                 image: a?.image ?? null,
-                did,
+                did: uaid,
               } as AgentSearchOption;
             })
             .filter(Boolean) as AgentSearchOption[];
@@ -1512,14 +1536,15 @@ export default function MessagesPage() {
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId || 0);
             const agentId = a?.agentId != null ? String(a.agentId) : '';
             if (!chainId || !agentId) return null;
-            const did = buildDid8004(chainId, Number(agentId));
+            const uaid = typeof a?.uaid === 'string' ? String(a.uaid).trim() : '';
+            if (!uaid.startsWith('uaid:')) return null;
             return {
               key: `${chainId}:${agentId}`,
               chainId,
               agentId,
               agentName: a?.agentName ?? null,
               image: a?.image ?? null,
-              did,
+              did: uaid,
             } as AgentSearchOption;
           })
           .filter(Boolean) as AgentSearchOption[];
@@ -1552,8 +1577,11 @@ export default function MessagesPage() {
     setComposeToAgentCardLoading(true);
     (async () => {
       try {
-        const did = normalizeDid(composeToAgent.did);
-        const resp = await fetch(`/api/agents/${encodeURIComponent(did)}/card`, {
+        const uaid = normalizeDid(composeToAgent.did);
+        if (!uaid.startsWith('uaid:')) {
+          throw new Error('Recipient UAID is missing or invalid.');
+        }
+        const resp = await fetch(`/api/agents/${encodeURIComponent(uaid)}/card`, {
           cache: 'no-store',
         });
         const data = await resp.json().catch(() => ({}));
@@ -2241,7 +2269,12 @@ export default function MessagesPage() {
             const walletEoa = getAddress(walletAddress as `0x${string}`) as `0x${string}`;
 
             // Get the agent identity owner account (may be EOA or smart account)
-            const r = await fetch(`/api/agents/${encodeURIComponent(requesterDid)}`, { cache: 'no-store' });
+            const requesterUaid =
+              typeof (selectedFolderAgent as any)?.uaid === 'string' ? String((selectedFolderAgent as any).uaid) : '';
+            if (!requesterUaid.startsWith('uaid:')) {
+              throw new Error('Requester agent UAID is missing or invalid.');
+            }
+            const r = await fetch(`/api/agents/${encodeURIComponent(requesterUaid)}`, { cache: 'no-store' });
             if (!r.ok) {
               throw new Error(
                 `Failed to fetch requester agent details: ${r.status} ${r.statusText}. Cannot determine agent identity owner.`,

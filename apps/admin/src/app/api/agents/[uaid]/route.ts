@@ -9,11 +9,11 @@ export async function GET(
 ) {
   try {
     const uaid = decodeURIComponent(params.uaid);
-    if (uaid.startsWith('did:8004:')) {
+    if (!uaid.startsWith('uaid:')) {
       return NextResponse.json(
         {
           error: 'Invalid identifier',
-          message: 'Only UAID is supported',
+          message: 'Only UAID is supported (expected prefix "uaid:")',
         },
         { status: 400 },
       );
@@ -46,11 +46,11 @@ export async function POST(
 ) {
   try {
     const uaid = decodeURIComponent(params.uaid);
-    if (uaid.startsWith('did:8004:')) {
+    if (!uaid.startsWith('uaid:')) {
       return NextResponse.json(
         {
           error: 'Invalid identifier',
-          message: 'Only UAID is supported',
+          message: 'Only UAID is supported (expected prefix "uaid:")',
         },
         { status: 400 },
       );

@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAgentValidationsSummary } from '@agentic-trust/core/server';
-import { resolveDid8004FromUaidOrDid } from '../../_lib/uaid';
+import { resolveDid8004FromUaid } from '../../_lib/uaid';
 
 function serializeValidation(validation: any): any {
   if (!validation) {
@@ -20,7 +20,7 @@ export async function GET(
   { params }: { params: { uaid: string } },
 ) {
   try {
-    const resolved = resolveDid8004FromUaidOrDid(params.uaid);
+    const resolved = resolveDid8004FromUaid(params.uaid);
 
     const searchParams = request.nextUrl.searchParams;
     const validatorAddress = searchParams.get('validatorAddress');
