@@ -1477,7 +1477,10 @@ export function AgentsPage({
                       const uaid =
                         typeof agent.uaid === 'string' && agent.uaid.trim()
                           ? agent.uaid.trim()
-                          : did8004;
+                          : '';
+                      if (!uaid.startsWith('uaid:')) {
+                        throw new Error('Agent UAID is missing; cannot refresh by UAID');
+                      }
                       await fetch(
                         `/api/agents/${encodeURIComponent(uaid)}/refresh`,
                         { method: 'POST' },
@@ -2424,6 +2427,13 @@ export function AgentsPage({
                   setFeedbackSubmitStatus('Requesting feedback authorization...');
 
                   try {
+                    const uaid =
+                      typeof agent.uaid === 'string' && agent.uaid.trim()
+                        ? agent.uaid.trim()
+                        : '';
+                    if (!uaid.startsWith('uaid:')) {
+                      throw new Error('Agent UAID is missing; cannot request feedback authorization');
+                    }
                     const parsedChainId =
                       typeof agent.chainId === 'number' &&
                       Number.isFinite(agent.chainId)
@@ -2455,7 +2465,7 @@ export function AgentsPage({
                     setFeedbackSubmitStatus('Requesting feedback authorization...');
                     const feedbackAuthResponse = await fetch(
                       `/api/agents/${encodeURIComponent(
-                        did8004,
+                        uaid,
                       )}/feedback-auth?${feedbackAuthParams.toString()}`,
                     );
 
@@ -2622,12 +2632,14 @@ export function AgentsPage({
           throw new Error('Agent id is invalid.');
         }
 
-        const did8004 = typeof agent.uaid === 'string' && agent.uaid.trim() ? agent.uaid.trim() : `${agent.chainId}:${agent.agentId}`;
+        const key = typeof agent.uaid === 'string' && agent.uaid.trim()
+          ? agent.uaid.trim()
+          : `${agent.chainId}:${agent.agentId}`;
         
         // Start progress bar
         setSessionProgress(prev => ({ ...prev, [agentKey]: 0 }));
         
-        setSessionPreview(prev => ({ ...prev, key: did8004, loading: true, error: null, text: null }));
+        setSessionPreview(prev => ({ ...prev, key, loading: true, error: null, text: null }));
 
         const chainEnv = getClientChainEnv(agent.chainId);
         if (!chainEnv.rpcUrl) {

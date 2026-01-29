@@ -576,14 +576,18 @@ export default function MessagesPage() {
       setMessages([]);
       return;
     }
-    const chainIdNum = parseInt(chainIdStr, 10);
-    const agentDid = buildDid8004(chainIdNum || 0, Number(agentId));
+    const agentUaid = typeof selectedFolderAgent?.uaid === 'string' ? selectedFolderAgent.uaid : '';
+    if (!agentUaid.startsWith('uaid:')) {
+      setError('Selected agent UAID is missing or invalid.');
+      setMessages([]);
+      return;
+    }
 
     setLoadingMessages(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/messages?agentDid=${encodeURIComponent(agentDid)}`, {
+      const response = await fetch(`/api/messages?uaid=${encodeURIComponent(agentUaid)}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -620,35 +624,35 @@ export default function MessagesPage() {
     return cachedOwnedAgents.find((a) => `${a.chainId}:${a.agentId}` === selectedAgentKey) ?? null;
   }, [cachedOwnedAgents, selectedAgentKey]);
 
-  const selectedFromAgentDid = useMemo(() => {
-    if (!selectedFolderAgent) return null;
-    return buildDid8004(selectedFolderAgent.chainId || 0, Number(selectedFolderAgent.agentId));
+  const selectedFromAgentUaid = useMemo(() => {
+    const uaid = typeof selectedFolderAgent?.uaid === 'string' ? String(selectedFolderAgent.uaid) : '';
+    return uaid.startsWith('uaid:') ? uaid : null;
   }, [selectedFolderAgent]);
 
   const isInboxMessage = useCallback(
     (m: Message) => {
-      if (!selectedFromAgentDid) return false;
-      const selectedDid = normalizeDid(selectedFromAgentDid);
+      if (!selectedFromAgentUaid) return false;
+      const selectedDid = normalizeDid(selectedFromAgentUaid);
       const toDid = normalizeDid(m.toAgentDid);
       return (
         (toDid && toDid === selectedDid) ||
         (!toDid && Boolean(selectedFolderAgent?.agentName) && (m.toAgentName || '') === selectedFolderAgent?.agentName)
       );
     },
-    [selectedFromAgentDid, selectedFolderAgent?.agentName],
+    [selectedFromAgentUaid, selectedFolderAgent?.agentName],
   );
 
   const isSentMessage = useCallback(
     (m: Message) => {
-      if (!selectedFromAgentDid) return false;
-      const selectedDid = normalizeDid(selectedFromAgentDid);
+      if (!selectedFromAgentUaid) return false;
+      const selectedDid = normalizeDid(selectedFromAgentUaid);
       const fromDid = normalizeDid(m.fromAgentDid);
       return (
         (fromDid && fromDid === selectedDid) ||
         (!fromDid && Boolean(selectedFolderAgent?.agentName) && (m.fromAgentName || '') === selectedFolderAgent?.agentName)
       );
     },
-    [selectedFromAgentDid, selectedFolderAgent?.agentName],
+    [selectedFromAgentUaid, selectedFolderAgent?.agentName],
   );
 
   const getThreadKeyForMessage = useCallback((m: Message): string => {
@@ -757,8 +761,8 @@ export default function MessagesPage() {
   }, [selectedThread]);
 
   const selectedFolderDid = useMemo(() => {
-    if (!selectedFolderAgent) return null;
-    return buildDid8004(selectedFolderAgent.chainId, selectedFolderAgent.agentId);
+    const uaid = typeof selectedFolderAgent?.uaid === 'string' ? String(selectedFolderAgent.uaid) : '';
+    return uaid.startsWith('uaid:') ? uaid : null;
   }, [selectedFolderAgent]);
 
   const canValidateSelectedThread = useMemo(() => {
@@ -1740,7 +1744,12 @@ export default function MessagesPage() {
               }
             }
 
-            const initiatorDid = buildDid8004(chainId, selectedFolderAgent.agentId);
+            const initiatorUaid =
+              typeof selectedFolderAgent?.uaid === 'string' ? String(selectedFolderAgent.uaid) : '';
+            if (!initiatorUaid.startsWith('uaid:')) {
+              throw new Error('Selected agent UAID is missing or invalid.');
+            }
+            const initiatorDid8004 = buildDid8004(chainId, selectedFolderAgent.agentId);
 
             // IMPORTANT:
             // The association record's initiator/approver addresses must be the *agent accounts* being associated.
@@ -1774,7 +1783,7 @@ export default function MessagesPage() {
             const approverAddress = getAddress(approverAddressRaw) as `0x${string}`;
 
             console.log('[Association Request] Creating association:', {
-              initiatorDid,
+              initiatorUaid,
               approverAddress,
               assocType: associationRequestType,
               description: associationRequestDescription,
@@ -1889,7 +1898,7 @@ export default function MessagesPage() {
             const payload: AssociationRequestPayload = {
               version: 1,
               chainId,
-              initiatorDid,
+              initiatorDid: initiatorUaid,
               approverDid: composeToAgent.did,
               initiatorAddress,
               approverAddress,
@@ -1929,7 +1938,7 @@ export default function MessagesPage() {
                       account: signerEoa,
                     }
                   : { mode: 'smartAccount' as const, submitterAccountClient: agentAccountClient }),
-                requesterDid: initiatorDid,
+                requesterDid: initiatorDid8004,
                 approverAddress,
                 assocType: associationRequestType,
                 description: associationRequestDescription || '',
@@ -1980,7 +1989,12 @@ export default function MessagesPage() {
               }
             }
 
-            const initiatorDid = buildDid8004(chainId, selectedFolderAgent.agentId);
+            const initiatorUaid =
+              typeof selectedFolderAgent?.uaid === 'string' ? String(selectedFolderAgent.uaid) : '';
+            if (!initiatorUaid.startsWith('uaid:')) {
+              throw new Error('Selected agent UAID is missing or invalid.');
+            }
+            const initiatorDid8004 = buildDid8004(chainId, selectedFolderAgent.agentId);
 
             if (!selectedFolderAgent?.agentAccount) {
               throw new Error(
@@ -2012,7 +2026,7 @@ export default function MessagesPage() {
             }
 
             console.log('[Add Member Request] Creating membership association:', {
-              initiatorDid,
+              initiatorUaid,
               approverAddress,
               assocType: AssocType.Membership,
               description: composeBody.trim() || 'Add member to membership group',
@@ -2128,7 +2142,7 @@ export default function MessagesPage() {
             const payload: AssociationRequestPayload = {
               version: 1,
               chainId,
-              initiatorDid,
+              initiatorDid: initiatorUaid,
               approverDid: composeToAgent.did,
               initiatorAddress,
               approverAddress,
@@ -2265,7 +2279,7 @@ export default function MessagesPage() {
             // agentIdentityOwnerAccount can be an EOA or a smart account.
             // If it's a smart account, use bundler/gasless approach.
             // Use a decoded did:8004 string (avoid percent-encoded DID leaking into logs and regex parsing).
-            const requesterDid = buildDid8004(chainId, selectedFolderAgent.agentId, { encode: false });
+            const requesterDid8004 = buildDid8004(chainId, selectedFolderAgent.agentId, { encode: false });
             const walletEoa = getAddress(walletAddress as `0x${string}`) as `0x${string}`;
 
             // Get the agent identity owner account (may be EOA or smart account)
@@ -2290,14 +2304,14 @@ export default function MessagesPage() {
 
             if (!agentIdentityOwnerAccountRaw) {
               throw new Error(
-                `Requester agent (${requesterDid}) has no agentIdentityOwnerAccount. Cannot determine owner for validation request.`,
+                `Requester agent (${requesterUaid}) has no agentIdentityOwnerAccount. Cannot determine owner for validation request.`,
               );
             }
 
             const agentIdentityOwnerAccount = resolvePlainAddress(agentIdentityOwnerAccountRaw);
             if (!agentIdentityOwnerAccount) {
               throw new Error(
-                `Requester agent (${requesterDid}) has invalid agentIdentityOwnerAccount format: ${agentIdentityOwnerAccountRaw}.`,
+                `Requester agent (${requesterUaid}) has invalid agentIdentityOwnerAccount format: ${agentIdentityOwnerAccountRaw}.`,
               );
             }
 
@@ -2339,7 +2353,7 @@ export default function MessagesPage() {
             });
 
             console.log('[Validation Request] On-chain owner verification:', {
-              requesterDid,
+              requesterUaid,
               agentId: selectedFolderAgent.agentId,
               agentIdentityOwnerAccount,
               onChainOwner,
@@ -2348,7 +2362,7 @@ export default function MessagesPage() {
 
             if (onChainOwner.toLowerCase() !== agentIdentityOwnerAccount.toLowerCase()) {
               throw new Error(
-                `On-chain owner mismatch: agentIdentityOwnerAccount (${agentIdentityOwnerAccount}) does not match on-chain ownerOf (${onChainOwner}) for agent ${requesterDid}. ValidationRegistry will reject this request.`,
+                `On-chain owner mismatch: agentIdentityOwnerAccount (${agentIdentityOwnerAccount}) does not match on-chain ownerOf (${onChainOwner}) for agent ${requesterUaid}. ValidationRegistry will reject this request.`,
               );
             }
 
@@ -2373,7 +2387,7 @@ export default function MessagesPage() {
               );
 
               console.log('[Validation Request] Using smart account owner for validation request (bundler/gasless):', {
-                requesterDid,
+                requesterUaid,
                 agentIdentityOwnerAccount,
                 walletEoa,
               });
@@ -2382,20 +2396,20 @@ export default function MessagesPage() {
               // Verify the connected wallet is the owner
               if (agentIdentityOwnerAccount.toLowerCase() !== walletEoa.toLowerCase()) {
                 throw new Error(
-                  `Connected wallet (${walletEoa}) is not the owner of agent ${requesterDid}. Owner is ${agentIdentityOwnerAccount}. Validation requests must be sent from the agent owner.`,
+                  `Connected wallet (${walletEoa}) is not the owner of agent ${requesterUaid}. Owner is ${agentIdentityOwnerAccount}. Validation requests must be sent from the agent owner.`,
                 );
               }
 
               validationMode = 'eoa';
               console.log('[Validation Request] Using EOA owner for validation request:', {
-                requesterDid,
+                requesterUaid,
                 agentIdentityOwnerAccount,
                 walletEoa,
               });
             }
 
             const validationResult = await requestValidationFn({
-              requesterDid,
+              requesterDid: requesterDid8004,
               requestUri,
               requestHash,
               chain: chain as any,
@@ -2417,7 +2431,7 @@ export default function MessagesPage() {
             const validationBlock = {
               kind: 'erc8004.validation.request@1',
               chainId,
-              requesterDid,
+              requesterDid: requesterUaid,
               validatorDid: toAgentDid,
               validatorAddress,
               requestUri,
@@ -4001,6 +4015,26 @@ export default function MessagesPage() {
                 });
 
                 let res: any = null;
+                const initiatorUaid = String(approveAssociationPayload.initiatorDid || '').trim();
+                if (!initiatorUaid.startsWith('uaid:')) {
+                  throw new Error('Association initiator UAID is missing or invalid.');
+                }
+                const initiatorAgentRes = await fetch(
+                  `/api/agents/${encodeURIComponent(initiatorUaid)}`,
+                  { cache: 'no-store' },
+                );
+                if (!initiatorAgentRes.ok) {
+                  throw new Error('Failed to resolve association initiator UAID.');
+                }
+                const initiatorAgentDetails = await initiatorAgentRes.json().catch(() => ({}));
+                const initiatorDidIdentity =
+                  typeof initiatorAgentDetails?.didIdentity === 'string'
+                    ? initiatorAgentDetails.didIdentity
+                    : '';
+                if (!initiatorDidIdentity.startsWith('did:8004:')) {
+                  throw new Error('Association initiator UAID does not resolve to a did:8004 identity.');
+                }
+                const initiatorDid8004Resolved = parseDid8004(initiatorDidIdentity).did;
                 try {
                   res = await finalizeAssociationWithWallet({
                     chain: chain as any,
@@ -4011,7 +4045,7 @@ export default function MessagesPage() {
                           account: signerEoa,
                         }
                       : { mode: 'smartAccount' as const, submitterAccountClient: approverAccountClient }),
-                    requesterDid: approveAssociationPayload.initiatorDid,
+                    requesterDid: initiatorDid8004Resolved,
                     initiatorAddress: approveAssociationPayload.initiatorAddress,
                     approverAddress: approveAssociationPayload.approverAddress,
                     assocType: approveAssociationPayload.assocType,
@@ -4045,7 +4079,7 @@ export default function MessagesPage() {
                             account: signerEoa,
                           }
                         : { mode: 'smartAccount' as const, submitterAccountClient: approverAccountClient }),
-                      requesterDid: approveAssociationPayload.initiatorDid,
+                      requesterDid: initiatorDid8004Resolved,
                       initiatorAddress: approveAssociationPayload.initiatorAddress,
                       approverAddress: approveAssociationPayload.approverAddress,
                       assocType: approveAssociationPayload.assocType,

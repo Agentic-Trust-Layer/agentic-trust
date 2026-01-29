@@ -883,8 +883,8 @@ export default function AgentRegistrationPage() {
   }, [aaAddress, createForm.agentAccount, selectedChainId]);
 
   const didAgentPreview = useMemo(() => {
-    // AgentId is not known until after registration; show a placeholder
-    return `did:8004:${selectedChainId}:<agentId>`;
+    // UAID is generated after registration; show a placeholder
+    return `uaid:<generated-after-registration>`;
   }, [selectedChainId]);
 
   const computeStepValidation = useCallback((): { valid: boolean; message?: string } => {
