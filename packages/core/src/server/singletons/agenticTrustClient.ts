@@ -165,9 +165,12 @@ export class AgenticTrustClient {
       );
     }
     
-    const endpoint = config.graphQLUrl.endsWith('/graphql')
+    // Prefer KB endpoint (graphql-kb) everywhere in admin/server flows.
+    const endpoint = config.graphQLUrl.endsWith('/graphql-kb')
       ? config.graphQLUrl
-      : `${config.graphQLUrl.replace(/\/$/, '')}/graphql`;
+      : config.graphQLUrl.endsWith('/graphql')
+        ? config.graphQLUrl.replace(/\/graphql$/i, '/graphql-kb')
+        : `${config.graphQLUrl.replace(/\/$/, '')}/graphql-kb`;
 
     // Build headers
     const headers: Record<string, string> = {
@@ -186,9 +189,8 @@ export class AgenticTrustClient {
       headers,
     });
 
-    // Initialize discovery client singleton with this client's config
-    // This ensures the singleton uses the same configuration as this client
-    // Initialize lazily (will be initialized when first used)
+    // Initialize discovery client singleton with this client's config.
+    // Ensure it uses the KB endpoint too.
     import('./discoveryClient').then(({ getDiscoveryClient }) => {
       getDiscoveryClient({
         endpoint,
@@ -385,7 +387,84 @@ export class AgenticTrustClient {
     });
     const list = Array.isArray(res?.feedbacks) ? (res.feedbacks as unknown[]) : [];
     if (list.length > 0) {
-      return list;
+      const normalize = (entry: any): any => {
+        const out: Record<string, any> =
+          entry && typeof entry === 'object' ? { ...(entry as any) } : { value: entry };
+
+        // Prefer a stable identifier for UI keys.
+        if (out.id == null && typeof out.iri === 'string') {
+          out.id = out.iri;
+        }
+
+        // Normalize score.
+        const scoreRaw = out.score;
+        const scoreNum =
+          typeof scoreRaw === 'number'
+            ? scoreRaw
+            : typeof scoreRaw === 'string' && scoreRaw.trim()
+              ? Number(scoreRaw)
+              : NaN;
+
+        if (!Number.isFinite(scoreNum)) {
+          // Try ratingPct -> score (assume 0-100 maps to 0-5 stars).
+          const ratingPctRaw = out.ratingPct ?? out.rating_pct ?? out.ratingPercent ?? out.rating_percent;
+          const ratingPct =
+            typeof ratingPctRaw === 'number'
+              ? ratingPctRaw
+              : typeof ratingPctRaw === 'string' && ratingPctRaw.trim()
+                ? Number(ratingPctRaw)
+                : NaN;
+
+          if (Number.isFinite(ratingPct)) {
+            out.ratingPct = ratingPct;
+            out.score = ratingPct / 20;
+          } else {
+            // Try parse from feedbackJson (stringified JSON payload).
+            const feedbackJsonRaw = out.feedbackJson ?? out.feedback_json;
+            if (typeof feedbackJsonRaw === 'string' && feedbackJsonRaw.trim()) {
+              try {
+                const parsed = JSON.parse(feedbackJsonRaw) as any;
+                const nestedScore = parsed?.score ?? parsed?.rating ?? parsed?.value ?? parsed?.feedback?.score;
+                const nestedRatingPct = parsed?.ratingPct ?? parsed?.rating_pct ?? parsed?.ratingPercent;
+                const s =
+                  typeof nestedScore === 'number'
+                    ? nestedScore
+                    : typeof nestedScore === 'string' && nestedScore.trim()
+                      ? Number(nestedScore)
+                      : NaN;
+                const rp =
+                  typeof nestedRatingPct === 'number'
+                    ? nestedRatingPct
+                    : typeof nestedRatingPct === 'string' && nestedRatingPct.trim()
+                      ? Number(nestedRatingPct)
+                      : NaN;
+                if (Number.isFinite(rp)) {
+                  out.ratingPct = rp;
+                }
+                if (Number.isFinite(s)) {
+                  out.score = s;
+                } else if (Number.isFinite(rp)) {
+                  out.score = rp / 20;
+                }
+              } catch {
+                // ignore parse errors
+              }
+            }
+          }
+        } else {
+          out.score = scoreNum;
+        }
+
+        // Normalize timestamp-ish values (best-effort).
+        const tRaw = out.timestamp;
+        if (typeof tRaw === 'string' && tRaw.trim() && Number.isFinite(Number(tRaw))) {
+          out.timestamp = Number(tRaw);
+        }
+
+        return out;
+      };
+
+      return list.map(normalize);
     }
 
     const reputationClient = await getReputationRegistryClient(resolvedChainId);
@@ -1774,9 +1853,12 @@ export class AgenticTrustClient {
     const graphQLUrl = this.config.graphQLUrl || '';
     
     // Recreate client with new API key
-    const endpoint = graphQLUrl.endsWith('/graphql')
+    // Prefer KB endpoint (graphql-kb) everywhere in admin/server flows.
+    const endpoint = graphQLUrl.endsWith('/graphql-kb')
       ? graphQLUrl
-      : `${graphQLUrl.replace(/\/$/, '')}/graphql`;
+      : graphQLUrl.endsWith('/graphql')
+        ? graphQLUrl.replace(/\/graphql$/i, '/graphql-kb')
+        : `${graphQLUrl.replace(/\/$/, '')}/graphql-kb`;
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',

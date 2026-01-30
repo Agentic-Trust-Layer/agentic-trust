@@ -1,16 +1,17 @@
 export const dynamic = 'force-dynamic';
 
-import { NextRequest } from 'next/server';
-import { prepareValidationRequestRouteHandler } from '@agentic-trust/core/server';
-import { resolveDid8004FromUaid } from '../../_lib/uaid';
-
-const handler = prepareValidationRequestRouteHandler();
+import { NextResponse } from 'next/server';
 
 export async function POST(
-  request: NextRequest,
-  { params }: { params: { uaid: string } },
+  _request: Request,
+  _ctx: { params: { uaid: string } },
 ) {
-  const { did8004 } = resolveDid8004FromUaid(params.uaid);
-  return handler(request, { params: { did8004 } });
+  return NextResponse.json(
+    {
+      error: 'Not supported',
+      message: 'Validation requests are disabled in UAID-only mode (did:8004 routes removed).',
+    },
+    { status: 501 },
+  );
 }
 

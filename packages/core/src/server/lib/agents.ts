@@ -152,8 +152,8 @@ export interface DiscoverParams {
 
   /**
    * Minimum total associations (initiated + approved).
-   * Note: this is applied as a post-filter in the search route handler to avoid relying on
-   * indexer-specific AgentWhereInput fields.
+   * Note: this is applied as a post-filter in the search route handler (the discovery backend
+   * does not expose a stable filter field for it across deployments).
    */
   minAssociations?: number;
 
@@ -1208,6 +1208,10 @@ export class AgentsAPI {
     const hasQuery =
       typeof options?.query === 'string' && options.query.trim().length > 0;
     const where = this.buildAgentWhereInput(options?.params);
+    const hasRequiredNumericFilters =
+      typeof options?.params?.minFeedbackCount === 'number' && options.params.minFeedbackCount > 0 ||
+      typeof options?.params?.minValidationCompletedCount === 'number' && options.params.minValidationCompletedCount > 0 ||
+      typeof options?.params?.minFeedbackAverageScore === 'number' && options.params.minFeedbackAverageScore > 0;
 
     // Always ensure we have a pageSize when performing discovery so that
     // advanced search is used consistently (even when no filters are provided).
@@ -1239,6 +1243,12 @@ export class AgentsAPI {
         // If we have a text query and the legacy advanced API is available,
         // use it so the query string is honored by the discovery service.
         if (hasQuery && hasAdvancedLegacy) {
+          if (hasRequiredNumericFilters) {
+            throw new Error(
+              'Unsupported search: minReviews/minValidations/minAvgRating cannot be applied when using text query search (searchAgentsAdvanced). ' +
+                'Clear the text query or upgrade the discovery backend to support combined text+numeric filters.',
+            );
+          }
           const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
             query: options?.query,
             params: options?.params as Record<string, unknown> | undefined,
@@ -1268,6 +1278,12 @@ export class AgentsAPI {
             };
           }
         } else if (hasAdvancedGraph) {
+          if (hasRequiredNumericFilters && !where) {
+            throw new Error(
+              'Unsupported search: numeric assertion filters were requested but could not be expressed as a discovery "where" clause. ' +
+                'Post-filtering is disabled.',
+            );
+          }
           const advanced = await advancedDiscoveryClient.searchAgentsGraph({
             where,
             first: effectivePageSize,
@@ -1296,6 +1312,12 @@ export class AgentsAPI {
             };
           }
         } else if (hasAdvancedLegacy) {
+          if (hasRequiredNumericFilters) {
+            throw new Error(
+              'Unsupported search: minReviews/minValidations/minAvgRating require a discovery backend that supports structured filters (searchAgentsGraph/kbAgents where). ' +
+                'Post-filtering is disabled.',
+            );
+          }
           // Fallback: no Graph API, but legacy advanced is available (with or
           // without a query string).
           const advanced = await advancedDiscoveryClient.searchAgentsAdvanced({
@@ -1328,14 +1350,28 @@ export class AgentsAPI {
           }
         }
       } catch (error) {
-        console.warn(
-          '[AgentsAPI.searchAgents] Advanced search failed, returning empty results.',
-          error,
-        );
+        // When the caller sets numeric filters (min reviews/validations/avg rating),
+        // we must not silently fall back to an unfiltered list. Surface an explicit error.
+        if (hasRequiredNumericFilters) {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Discovery search does not support the requested numeric filters (min reviews/validations/avg rating). ` +
+              `Either remove those filters or update the discovery backend schema. Root error: ${message}`,
+          );
+        }
+
+        console.warn('[AgentsAPI.searchAgents] Advanced search failed, returning empty results.', error);
       }
 
       // If advanced search fails or returns null, fall back to the default
       // pagination logic below which uses listAgents.
+    }
+
+    // Do not fall back to listAgents if numeric filters were requested; that would hide the problem.
+    if (hasRequiredNumericFilters) {
+      throw new Error(
+        'Discovery backend does not support numeric filters for this query path (min reviews/validations/avg rating).',
+      );
     }
 
     // If no filters, use listAgents to get default list from GraphQL endpoint.
@@ -1768,6 +1804,9 @@ export class AgentsAPI {
         return false;
       }
     }
+
+    // IMPORTANT: Do not post-filter numeric reputation/validation constraints.
+    // If callers set these filters, the discovery backend must support them.
 
     if (typeof params.minAtiOverallScore === 'number' && params.minAtiOverallScore > 0) {
       const scoreRaw = (agent as any).atiOverallScore;

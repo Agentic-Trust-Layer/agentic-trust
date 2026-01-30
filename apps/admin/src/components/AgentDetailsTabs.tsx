@@ -73,6 +73,17 @@ function formatJsonIfPossible(text: string | null | undefined): string | null {
   }
 }
 
+function parseJsonObject(text: string | null | undefined): any | null {
+  if (!text || typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
 const formatRelativeTime = (timestamp?: number | null) => {
   if (!timestamp) return 'Unknown';
   const secondsAgo = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(timestamp));
@@ -367,38 +378,80 @@ const AgentDetailsTabs = ({
       setValidationsLoading(true);
       setValidationsError(null);
       try {
-        const res = await fetch(
-          `/api/agents/${encodeURIComponent(canonicalUaid)}/validations`,
-          { signal: controller.signal },
-        );
-        const json = await res.json().catch(() => null);
+        const [validationsRes, validationResponsesRes] = await Promise.all([
+          fetch(`/api/agents/${encodeURIComponent(canonicalUaid)}/validations`, { signal: controller.signal }),
+          fetch(
+            `/api/agents/${encodeURIComponent(canonicalUaid)}/validation-responses?limit=200&offset=0&orderBy=timestamp&orderDirection=DESC`,
+            { signal: controller.signal },
+          ).catch(() => null),
+        ]);
+
+        const json = await validationsRes.json().catch(() => null);
+        const graphQLJson =
+          validationResponsesRes?.ok ? await validationResponsesRes.json().catch(() => null) : null;
         if (cancelled) return;
-        if (!res.ok) {
+        if (!validationsRes.ok) {
           setValidationsError((json as any)?.message || (json as any)?.error || `Failed to load validations (${res.status})`);
           setValidationsLoaded(true);
           return;
         }
-        const pendingRaw = Array.isArray(json?.pending) ? json.pending : [];
-        const completedRaw = Array.isArray(json?.completed) ? json.completed : [];
+
+        const pendingArray = Array.isArray(json?.pending) ? json.pending : [];
+        const completedArray = Array.isArray(json?.completed) ? json.completed : [];
+
+        const normalizeRequestHash = (hash: unknown): string | null => {
+          if (!hash) return null;
+          let hashStr: string;
+          if (typeof hash === 'string') {
+            hashStr = hash;
+          } else if (typeof hash === 'bigint' || typeof hash === 'number') {
+            hashStr = hash.toString(16);
+            if (!hashStr.startsWith('0x')) {
+              hashStr = '0x' + hashStr.padStart(64, '0');
+            }
+          } else {
+            hashStr = String(hash);
+          }
+          if (!hashStr.startsWith('0x')) {
+            hashStr = '0x' + hashStr;
+          }
+          return hashStr.toLowerCase();
+        };
+
+        const graphQLRequests = Array.isArray(graphQLJson?.validationRequests)
+          ? graphQLJson.validationRequests
+          : [];
+
+        const graphQLByRequestHash = new Map<string, any>();
+        for (const requestEntry of graphQLRequests) {
+          const normalized = normalizeRequestHash(requestEntry?.requestHash);
+          if (normalized) {
+            graphQLByRequestHash.set(normalized, requestEntry);
+          }
+        }
+
+        const augmentValidation = (entry: any): any => {
+          const normalizedRequestHash = normalizeRequestHash(entry?.requestHash);
+          if (!normalizedRequestHash) return entry;
+          const graphQLEntry = graphQLByRequestHash.get(normalizedRequestHash);
+          if (!graphQLEntry) return entry;
+          return {
+            ...entry,
+            txHash: typeof graphQLEntry.txHash === 'string' ? graphQLEntry.txHash : entry.txHash ?? null,
+            blockNumber: typeof graphQLEntry.blockNumber === 'number' ? graphQLEntry.blockNumber : entry.blockNumber ?? null,
+            timestamp: graphQLEntry.timestamp ?? entry.lastUpdate ?? null,
+            requestUri: typeof graphQLEntry.requestUri === 'string' ? graphQLEntry.requestUri : null,
+            requestJson: typeof graphQLEntry.requestJson === 'string' ? graphQLEntry.requestJson : null,
+            responseUri: typeof graphQLEntry.responseUri === 'string' ? graphQLEntry.responseUri : null,
+            responseJson: typeof graphQLEntry.responseJson === 'string' ? graphQLEntry.responseJson : null,
+            createdAt: typeof graphQLEntry.createdAt === 'string' ? graphQLEntry.createdAt : null,
+            updatedAt: typeof graphQLEntry.updatedAt === 'string' ? graphQLEntry.updatedAt : null,
+          };
+        };
+
         setValidations({
-          pending: pendingRaw.map((v: any) => ({
-            agentId: v?.agentId ?? null,
-            requestHash: v?.requestHash ?? null,
-            validatorAddress: v?.validatorAddress ?? null,
-            response: v?.response ?? null,
-            responseHash: v?.responseHash ?? null,
-            lastUpdate: v?.lastUpdate ?? null,
-            tag: v?.tag ?? null,
-          })),
-          completed: completedRaw.map((v: any) => ({
-            agentId: v?.agentId ?? null,
-            requestHash: v?.requestHash ?? null,
-            validatorAddress: v?.validatorAddress ?? null,
-            response: v?.response ?? null,
-            responseHash: v?.responseHash ?? null,
-            lastUpdate: v?.lastUpdate ?? null,
-            tag: v?.tag ?? null,
-          })),
+          pending: pendingArray.map(augmentValidation),
+          completed: completedArray.map(augmentValidation),
         });
       } catch (e: any) {
         if (!cancelled) {
@@ -1254,6 +1307,16 @@ const AgentDetailsTabs = ({
                   {completedValidations.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {completedValidations.map((item: any, index) => (
+                        (() => {
+                          const requestObj = parseJsonObject(item.requestJson);
+                          const responseObj = parseJsonObject(item.responseJson);
+                          const obj = requestObj ?? responseObj;
+                          const claimType = typeof obj?.claim?.type === 'string' ? obj.claim.type : null;
+                          const claimText = typeof obj?.claim?.text === 'string' ? obj.claim.text : null;
+                          const taskId = typeof obj?.taskId === 'string' ? obj.taskId : null;
+                          const success = typeof obj?.success === 'boolean' ? obj.success : null;
+                          const criteria = Array.isArray(obj?.criteria) ? obj.criteria : [];
+                          return (
                         <div
                           key={index}
                   style={{
@@ -1264,6 +1327,51 @@ const AgentDetailsTabs = ({
                   }}
                 >
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {(claimType || claimText || taskId || success !== null) && (
+                              <div
+                                style={{
+                                  border: `1px solid ${palette.border}`,
+                                  borderRadius: '8px',
+                                  padding: '0.5rem 0.75rem',
+                                  backgroundColor: palette.surface,
+                                  fontSize: '0.85rem',
+                                }}
+                              >
+                                {taskId && (
+                                  <div>
+                                    <strong>Task ID:</strong> <code style={{ fontFamily: 'monospace' }}>{taskId}</code>
+                                  </div>
+                                )}
+                                {(claimType || claimText) && (
+                                  <div>
+                                    <strong>Claim:</strong>{' '}
+                                    <span>
+                                      {claimType ?? '—'}
+                                      {claimText ? ` · ${claimText}` : ''}
+                                    </span>
+                                  </div>
+                                )}
+                                {success !== null && (
+                                  <div>
+                                    <strong>Success:</strong> {success ? 'true' : 'false'}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {criteria.length > 0 && (
+                              <div style={{ fontSize: '0.85rem' }}>
+                                <strong>Criteria:</strong>
+                                <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.25rem' }}>
+                                  {criteria.slice(0, 10).map((c: any, i: number) => (
+                                    <li key={c?.id ?? i}>
+                                      {typeof c?.name === 'string' ? c.name : '—'}
+                                      {typeof c?.method === 'string' ? ` (${c.method})` : ''}
+                                      {typeof c?.passCondition === 'string' ? ` — ${c.passCondition}` : ''}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                             {item.requestHash && (
                               <div>
                                 <strong>Request Hash:</strong>{' '}
@@ -1364,6 +1472,8 @@ const AgentDetailsTabs = ({
                             )}
                           </div>
                         </div>
+                          );
+                        })()
                       ))}
                     </div>
                   ) : (
@@ -1384,6 +1494,13 @@ const AgentDetailsTabs = ({
                   {pendingValidations.length > 0 ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                       {pendingValidations.map((item: any, index) => (
+                        (() => {
+                          const requestObj = parseJsonObject(item.requestJson);
+                          const claimType = typeof requestObj?.claim?.type === 'string' ? requestObj.claim.type : null;
+                          const claimText = typeof requestObj?.claim?.text === 'string' ? requestObj.claim.text : null;
+                          const taskId = typeof requestObj?.taskId === 'string' ? requestObj.taskId : null;
+                          const criteria = Array.isArray(requestObj?.criteria) ? requestObj.criteria : [];
+                          return (
                         <div
                           key={index}
                   style={{
@@ -1394,6 +1511,46 @@ const AgentDetailsTabs = ({
                   }}
                 >
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {(claimType || claimText || taskId) && (
+                              <div
+                                style={{
+                                  border: `1px solid ${palette.border}`,
+                                  borderRadius: '8px',
+                                  padding: '0.5rem 0.75rem',
+                                  backgroundColor: palette.surface,
+                                  fontSize: '0.85rem',
+                                }}
+                              >
+                                {taskId && (
+                                  <div>
+                                    <strong>Task ID:</strong> <code style={{ fontFamily: 'monospace' }}>{taskId}</code>
+                                  </div>
+                                )}
+                                {(claimType || claimText) && (
+                                  <div>
+                                    <strong>Claim:</strong>{' '}
+                                    <span>
+                                      {claimType ?? '—'}
+                                      {claimText ? ` · ${claimText}` : ''}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {criteria.length > 0 && (
+                              <div style={{ fontSize: '0.85rem' }}>
+                                <strong>Criteria:</strong>
+                                <ul style={{ margin: '0.25rem 0 0', paddingLeft: '1.25rem' }}>
+                                  {criteria.slice(0, 10).map((c: any, i: number) => (
+                                    <li key={c?.id ?? i}>
+                                      {typeof c?.name === 'string' ? c.name : '—'}
+                                      {typeof c?.method === 'string' ? ` (${c.method})` : ''}
+                                      {typeof c?.passCondition === 'string' ? ` — ${c.passCondition}` : ''}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
                             {item.requestHash && (
                               <div>
                                 <strong>Request Hash:</strong>{' '}
@@ -1452,6 +1609,8 @@ const AgentDetailsTabs = ({
                             )}
                           </div>
                         </div>
+                          );
+                        })()
                       ))}
                     </div>
                   ) : (

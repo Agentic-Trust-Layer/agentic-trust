@@ -1,4 +1,15 @@
 export async function POST(req: Request) {
+  const { NextResponse } = await import('next/server');
+  // UAID-only: did:8004-based association preparation is removed.
+  return NextResponse.json(
+    {
+      ok: false,
+      error: 'Not supported',
+      message: 'This endpoint is disabled in UAID-only mode (did:8004 routes removed).',
+    },
+    { status: 501 },
+  );
+
   // NOTE:
   // This route intentionally does NOT send a transaction server-side.
   // It ONLY prepares an AgentOperationPlan (bundlerUrl + calls) for client-side AA execution.

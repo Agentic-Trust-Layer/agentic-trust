@@ -1,6 +1,5 @@
 import { discoverAgents } from '../../server/lib/discover';
 import { getAgenticTrustClient } from '../../server/lib/agenticTrust';
-import { getDiscoveryClient } from '../../server/singletons/discoveryClient';
 const hasNativeResponse = typeof globalThis !== 'undefined' &&
     typeof globalThis.Response === 'function';
 function jsonResponse(body, status = 200) {
@@ -28,7 +27,166 @@ function handleError(error) {
         details: process.env.NODE_ENV === 'development' && error instanceof Error ? error.stack : undefined,
     }, 500);
 }
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 18;
+
+function normalizeDiscoveryUrl(value) {
+    const raw = (value || '').toString().trim().replace(/\/+$/, '');
+    if (!raw)
+        return null;
+    if (/\/graphql-kb$/i.test(raw))
+        return raw;
+    if (/\/graphql$/i.test(raw))
+        return raw.replace(/\/graphql$/i, '/graphql-kb');
+    return `${raw}/graphql-kb`;
+}
+function parseDid8004(did8004) {
+    const m = /^did:8004:(\d+):(\d+)$/.exec(did8004.trim());
+    if (!m)
+        return null;
+    const chainId = Number(m[1]);
+    const agentId8004 = Number(m[2]);
+    if (!Number.isFinite(chainId) || !Number.isFinite(agentId8004))
+        return null;
+    return { chainId, agentId8004 };
+}
+async function executeKbSearch(options) {
+    const endpoint = normalizeDiscoveryUrl(process.env.AGENTIC_TRUST_DISCOVERY_URL);
+    if (!endpoint) {
+        throw new Error('Missing required configuration: AGENTIC_TRUST_DISCOVERY_URL (expected KB endpoint)');
+    }
+    const apiKey = (process.env.GRAPHQL_ACCESS_CODE || process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || '').trim();
+    const page = typeof options.page === 'number' && Number.isFinite(options.page) ? options.page : 1;
+    const pageSize = typeof options.pageSize === 'number' && Number.isFinite(options.pageSize) && options.pageSize > 0
+        ? options.pageSize
+        : DEFAULT_PAGE_SIZE;
+    const skip = Math.max(0, (Math.max(page, 1) - 1) * pageSize);
+    const params = options.params ?? {};
+    const where = {};
+    if (Array.isArray(params.chains) && params.chains.length === 1) {
+        const v = Number(params.chains[0]);
+        if (Number.isFinite(v))
+            where.chainId = Math.floor(v);
+    }
+    const agentIdRaw = typeof params.agentId === 'string' ? params.agentId.trim() : '';
+    if (agentIdRaw && typeof where.chainId === 'number') {
+        const n = Number(agentIdRaw);
+        if (Number.isFinite(n))
+            where.agentId8004 = Math.floor(n);
+    }
+    const agentNameRaw = typeof params.agentName === 'string' ? params.agentName.trim() : '';
+    if (agentNameRaw)
+        where.agentName_contains = agentNameRaw;
+    const minFeedbackCount = params.minFeedbackCount;
+    if (typeof minFeedbackCount === 'number' && Number.isFinite(minFeedbackCount) && minFeedbackCount > 0) {
+        where.minFeedbackAssertionCount8004 = Math.floor(minFeedbackCount);
+        where.hasFeedback8004 = true;
+    }
+    const minValidationCompletedCount = params.minValidationCompletedCount;
+    if (typeof minValidationCompletedCount === 'number' &&
+        Number.isFinite(minValidationCompletedCount) &&
+        minValidationCompletedCount > 0) {
+        where.minValidationAssertionCount8004 = Math.floor(minValidationCompletedCount);
+        where.hasValidation8004 = true;
+    }
+    const orderBy = 'agentId8004';
+    const orderDirection = 'DESC';
+    const query = `
+    query SearchKbAgents($where: KbAgentWhereInput, $first: Int, $skip: Int, $orderBy: KbAgentOrderBy, $orderDirection: OrderDirection) {
+      kbAgents(where: $where, first: $first, skip: $skip, orderBy: $orderBy, orderDirection: $orderDirection) {
+        total
+        hasMore
+        agents {
+          uaid
+          did8004
+          agentId8004
+          agentName
+          createdAtTime
+          createdAtBlock
+          updatedAtTime
+          assertionsFeedback8004 { total }
+          assertionsValidation8004 { total }
+        }
+      }
+    }
+  `;
+    const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        body: JSON.stringify({
+            query,
+            variables: {
+                where: Object.keys(where).length ? where : undefined,
+                first: pageSize,
+                skip,
+                orderBy,
+                orderDirection,
+            },
+        }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+        throw new Error(json?.error || json?.message || `KB search failed (${res.status})`);
+    }
+    if (json?.errors?.length) {
+        throw new Error(json.errors?.[0]?.message || 'KB search failed (GraphQL error)');
+    }
+    const data = json?.data ?? {};
+    const payload = data.kbAgents;
+    const list = Array.isArray(payload?.agents) ? payload?.agents : [];
+    const total = typeof payload?.total === 'number' && Number.isFinite(payload.total) ? payload.total : list.length;
+    const agents = list.map((a) => {
+        const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
+        const parsed = did8004 ? parseDid8004(did8004) : null;
+        const feedbackCountRaw = a?.assertionsFeedback8004?.total;
+        const validationCountRaw = a?.assertionsValidation8004?.total;
+        const feedbackCount = typeof feedbackCountRaw === 'number' && Number.isFinite(feedbackCountRaw)
+            ? Math.max(0, feedbackCountRaw)
+            : 0;
+        const validationCompletedCount = typeof validationCountRaw === 'number' && Number.isFinite(validationCountRaw)
+            ? Math.max(0, validationCountRaw)
+            : 0;
+        return {
+            uaid: typeof a?.uaid === 'string' ? a.uaid : null,
+            chainId: parsed?.chainId ?? null,
+            agentId: parsed ? String(parsed.agentId8004) : (a?.agentId8004 != null ? String(a.agentId8004) : null),
+            createdAtTime: typeof a?.createdAtTime === 'number' ? a.createdAtTime : null,
+            agentAccount: '',
+            agentIdentityOwnerAccount: '',
+            agentName: typeof a?.agentName === 'string' ? a.agentName : null,
+            didIdentity: did8004 || null,
+            createdAtBlock: typeof a?.createdAtBlock === 'number' ? a.createdAtBlock : 0,
+            updatedAtTime: typeof a?.updatedAtTime === 'number' ? a.updatedAtTime : null,
+            agentCardReadAt: null,
+            did: did8004 || null,
+            mcp: false,
+            active: true,
+            feedbackCount,
+            feedbackAverageScore: null,
+            validationPendingCount: 0,
+            validationCompletedCount,
+            validationRequestedCount: 0,
+            initiatedAssociationCount: null,
+            approvedAssociationCount: null,
+            atiOverallScore: null,
+            atiOverallConfidence: null,
+            atiComputedAt: null,
+            trustLedgerScore: null,
+            trustLedgerBadgeCount: null,
+            trustLedgerOverallRank: null,
+            trustLedgerCapabilityRank: null,
+        };
+    });
+    return {
+        agents,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(Math.max(0, total) / Math.max(1, pageSize))),
+    };
+}
 function toNumber(value) {
     if (!value)
         return undefined;
@@ -60,7 +218,19 @@ function parseParamsParam(raw) {
 }
 async function executeSearch(options) {
     console.log('[AgenticTrust][Search] Executing search with options:', JSON.stringify(options, null, 2));
-    const result = await discoverAgents(options, getAgenticTrustClient);
+    const params = options.params ?? {};
+    const hasTextQuery = typeof options.query === 'string' && options.query.trim().length > 0;
+    const requestsUnsupported = hasTextQuery ||
+        typeof params.agentAccount === 'string' ||
+        typeof params.minAssociations === 'number' ||
+        typeof params.minFeedbackAverageScore === 'number' ||
+        typeof params.minAtiOverallScore === 'number' ||
+        typeof params.createdWithinDays === 'number' ||
+        typeof params.a2a === 'boolean' ||
+        typeof params.mcp === 'boolean';
+    const result = !requestsUnsupported
+        ? await executeKbSearch(options)
+        : await discoverAgents(options, getAgenticTrustClient);
     // Log sample validation counts if agents found
     if (result.agents && result.agents.length > 0) {
         const sample = result.agents[0];

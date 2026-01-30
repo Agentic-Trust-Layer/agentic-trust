@@ -47,6 +47,15 @@ export async function discoverAgents(req, getClient) {
                 return String(value);
             };
             const chainId = numeric(raw?.chainId, DEFAULT_CHAIN_ID) ?? DEFAULT_CHAIN_ID;
+            const feedbackCountRaw = raw?.feedbackCount ??
+                raw?.assertions?.feedback8004?.total ??
+                raw?.assertionsFeedback8004?.total ??
+                undefined;
+            const validationTotalRaw = raw?.validationCompletedCount ??
+                raw?.validationRequestedCount ??
+                raw?.assertions?.validation8004?.total ??
+                raw?.assertionsValidation8004?.total ??
+                undefined;
             // Extract MCP endpoint from registration data
             let mcpEndpoint = undefined;
             try {
@@ -123,11 +132,11 @@ export async function discoverAgents(req, getClient) {
                 x402support: booleanish(raw?.x402support) ?? undefined,
                 active: booleanish(raw?.active) ?? undefined,
                 // Aggregated metrics
-                feedbackCount: numeric(raw?.feedbackCount, 0),
+                feedbackCount: numeric(feedbackCountRaw, 0),
                 feedbackAverageScore: numeric(raw?.feedbackAverageScore, null),
-                validationPendingCount: numeric(raw?.validationPendingCount, 0),
-                validationCompletedCount: numeric(raw?.validationCompletedCount, 0),
-                validationRequestedCount: numeric(raw?.validationRequestedCount, 0),
+                validationPendingCount: numeric(raw?.validationPendingCount, validationTotalRaw !== undefined ? 0 : 0),
+                validationCompletedCount: numeric(raw?.validationCompletedCount, numeric(validationTotalRaw, 0)),
+                validationRequestedCount: numeric(raw?.validationRequestedCount, numeric(validationTotalRaw, 0)),
                 // Association counts come from the discovery indexer. Keep missing values as null
                 // (do not default to 0) so callers can distinguish "unknown" from "zero".
                 initiatedAssociationCount: numeric(raw?.initiatedAssociationCount, null),

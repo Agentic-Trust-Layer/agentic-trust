@@ -241,7 +241,9 @@ type IntrospectionQueryResult = {
 
 type TypeIntrospectionResult = {
   __type?: {
+    kind?: string;
     fields?: TypeField[];
+    inputFields?: TypeField[];
   };
 };
 
@@ -316,7 +318,14 @@ const INTROSPECTION_QUERY = `
 const TYPE_FIELDS_QUERY = `
   query TypeFields($name: String!) {
     __type(name: $name) {
+      kind
       fields {
+        name
+        type {
+          ...TypeRef
+        }
+      }
+      inputFields {
         name
         type {
           ...TypeRef
@@ -671,6 +680,46 @@ export class AIAgentDiscoveryClient {
   private mapKbAgentToAgentData(agent: KbAgent | null | undefined): AgentData {
     const a = (agent ?? {}) as Partial<KbAgent>;
 
+    const toFiniteNumberOrUndefined = (value: unknown): number | undefined => {
+      return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+    };
+
+    const parseDid8004Parts = (did: unknown): { chainId?: number; agentId?: number } => {
+      if (typeof did !== 'string') return {};
+      const trimmed = did.trim();
+      // did:8004:<chainId>:<agentId>
+      const parts = trimmed.split(':');
+      if (parts.length >= 5 && parts[0] === 'did' && parts[1] === '8004') {
+        const chainId = Number(parts[2]);
+        const agentId = Number(parts[3]);
+        return {
+          chainId: Number.isFinite(chainId) ? chainId : undefined,
+          agentId: Number.isFinite(agentId) ? agentId : undefined,
+        };
+      }
+      return {};
+    };
+
+    const parseUaidDid8004Parts = (uaid: unknown): { chainId?: number; agentId?: number } => {
+      if (typeof uaid !== 'string') return {};
+      const trimmed = uaid.trim();
+      // UAID did-target form: uaid:did:<methodSpecificId>;...
+      if (!trimmed.startsWith('uaid:did:')) return {};
+      const rest = trimmed.slice('uaid:did:'.length);
+      const msid = rest.split(';')[0] ?? '';
+      // For did:8004 target, msid looks like: 8004:<chainId>:<agentId>
+      const parts = msid.split(':');
+      if (parts.length >= 3 && parts[0] === '8004') {
+        const chainId = Number(parts[1]);
+        const agentId = Number(parts[2]);
+        return {
+          chainId: Number.isFinite(chainId) ? chainId : undefined,
+          agentId: Number.isFinite(agentId) ? agentId : undefined,
+        };
+      }
+      return {};
+    };
+
     const pickAccountAddress = (...accounts: Array<KbAccount | null | undefined>): string | null => {
       for (const acc of accounts) {
         const addr = acc?.address;
@@ -686,13 +735,24 @@ export class AIAgentDiscoveryClient {
       typeof a.agentId8004 === 'number' && Number.isFinite(a.agentId8004) ? a.agentId8004 : null;
 
     // Best-effort: infer chainId from the most specific account we have.
-    const chainId =
+    const chainIdFromAccounts =
       (typeof a.agentAccount?.chainId === 'number' ? a.agentAccount?.chainId : null) ??
       (typeof a.agentWalletAccount?.chainId === 'number' ? a.agentWalletAccount?.chainId : null) ??
       (typeof a.agentOwnerEOAAccount?.chainId === 'number' ? a.agentOwnerEOAAccount?.chainId : null) ??
       (typeof a.identityOwnerAccount?.chainId === 'number' ? a.identityOwnerAccount?.chainId : null) ??
       (typeof a.identityWalletAccount?.chainId === 'number' ? a.identityWalletAccount?.chainId : null) ??
       null;
+
+    const chainId =
+      chainIdFromAccounts ??
+      parseDid8004Parts(did8004).chainId ??
+      parseUaidDid8004Parts(a.uaid).chainId ??
+      null;
+
+    const agentIdFromParsed =
+      parseDid8004Parts(did8004).agentId ??
+      parseUaidDid8004Parts(a.uaid).agentId ??
+      undefined;
 
     // "agentAccount" in KB v2 is the SmartAgent-controlled account (AgentAccount).
     // For non-smart agents, fall back to agent/identity wallet/owner accounts.
@@ -782,17 +842,21 @@ export class AIAgentDiscoveryClient {
     const hasMcp =
       protocolDescriptors.some((p) => String(p?.protocol || '').toLowerCase() === 'mcp') || false;
 
+    // Assertions totals (schema varies across KB deployments):
+    // - Newer KB: assertions { feedback8004 { total } validation8004 { total } }
+    // - Some KBs: assertionsFeedback8004 { total } / assertionsValidation8004 { total }
     const feedbackCount =
-      typeof a.assertions?.feedback8004?.total === 'number' && Number.isFinite(a.assertions.feedback8004.total)
-        ? a.assertions.feedback8004.total
-        : undefined;
+      toFiniteNumberOrUndefined(a.assertions?.feedback8004?.total) ??
+      toFiniteNumberOrUndefined((a as any).assertionsFeedback8004?.total) ??
+      toFiniteNumberOrUndefined((a as any).assertions_feedback8004?.total);
+
     const validationTotal =
-      typeof a.assertions?.validation8004?.total === 'number' && Number.isFinite(a.assertions.validation8004.total)
-        ? a.assertions.validation8004.total
-        : undefined;
+      toFiniteNumberOrUndefined(a.assertions?.validation8004?.total) ??
+      toFiniteNumberOrUndefined((a as any).assertionsValidation8004?.total) ??
+      toFiniteNumberOrUndefined((a as any).assertions_validation8004?.total);
 
     const normalized: AgentData = {
-      agentId: agentId8004 ?? undefined,
+      agentId: agentId8004 ?? agentIdFromParsed ?? undefined,
       uaid:
         typeof a.uaid === 'string' && a.uaid.trim().startsWith('uaid:')
           ? a.uaid.trim()
@@ -844,8 +908,21 @@ export class AIAgentDiscoveryClient {
     return this.normalizeAgent(normalized);
   }
 
-  private buildKbAgentSelection(): string {
-    return `
+  private kbAgentSelectionCache: { light?: string; full?: string } = {};
+  private kbAgentSelectionPromise: { light?: Promise<string>; full?: Promise<string> } = {};
+
+  private async getKbAgentSelection(options?: { includeIdentityAndAccounts?: boolean }): Promise<string> {
+    const mode = options?.includeIdentityAndAccounts ? 'full' : 'light';
+    const cached = this.kbAgentSelectionCache[mode];
+    if (typeof cached === 'string') {
+      return cached;
+    }
+    const inflight = this.kbAgentSelectionPromise[mode];
+    if (inflight) {
+      return inflight;
+    }
+
+    const base = `
       iri
       uaid
       agentName
@@ -856,11 +933,9 @@ export class AIAgentDiscoveryClient {
       createdAtBlock
       createdAtTime
       updatedAtTime
-      assertions {
-        feedback8004 { total }
-        validation8004 { total }
-        total
-      }
+    `;
+
+    const identityAndAccounts = `
       identity8004 {
         iri
         kind
@@ -920,6 +995,75 @@ export class AIAgentDiscoveryClient {
 
       agentAccount { iri chainId address accountType didEthr }
     `;
+
+    this.kbAgentSelectionPromise[mode] = (async () => {
+      try {
+        const fields = await this.getTypeFields('KbAgent');
+        const names = new Set((fields ?? []).map((f) => f?.name).filter(Boolean) as string[]);
+
+        const assertionsParts: string[] = [];
+        if (names.has('assertions')) {
+          assertionsParts.push(`
+            assertions {
+              feedback8004 { total }
+              validation8004 { total }
+              total
+            }
+          `);
+        }
+        if (names.has('assertionsFeedback8004')) {
+          assertionsParts.push(`assertionsFeedback8004 { total }`);
+        }
+        if (names.has('assertionsValidation8004')) {
+          assertionsParts.push(`assertionsValidation8004 { total }`);
+        }
+
+        // Fallback to legacy "assertions" if we couldn't introspect field set.
+        const assertionsBlock =
+          assertionsParts.length > 0
+            ? assertionsParts.join('\n')
+            : `
+              assertions {
+                feedback8004 { total }
+                validation8004 { total }
+                total
+              }
+            `;
+
+        const selection = [
+          base,
+          assertionsBlock,
+          mode === 'full' ? identityAndAccounts : '',
+        ]
+          .filter((part) => typeof part === 'string' && part.trim().length > 0)
+          .join('\n');
+
+        this.kbAgentSelectionCache[mode] = selection;
+        return selection;
+      } catch {
+        // Introspection disabled or failed: fall back to the original selection.
+        const selection = [
+          base,
+          `
+            assertions {
+              feedback8004 { total }
+              validation8004 { total }
+              total
+            }
+          `,
+          mode === 'full' ? identityAndAccounts : '',
+        ]
+          .filter((part) => typeof part === 'string' && part.trim().length > 0)
+          .join('\n');
+
+        this.kbAgentSelectionCache[mode] = selection;
+        return selection;
+      } finally {
+        this.kbAgentSelectionPromise[mode] = undefined;
+      }
+    })();
+
+    return this.kbAgentSelectionPromise[mode] as Promise<string>;
   }
 
   private async supportsQueryField(fieldName: string): Promise<boolean> {
@@ -1196,8 +1340,6 @@ export class AIAgentDiscoveryClient {
           fromMetadataName: !!metadataName,
           agentName,
         });
-      } else {
-        console.log('[AIAgentDiscoveryClient.normalizeAgent] No valid agentName found in direct field or metadata');
       }
     }
     
@@ -1209,9 +1351,7 @@ export class AIAgentDiscoveryClient {
       // Original was empty string, and we didn't find a replacement - set to undefined
       normalized.agentName = undefined;
       console.log('[AIAgentDiscoveryClient.normalizeAgent] Original was empty string, set to undefined');
-    } else {
-      console.log('[AIAgentDiscoveryClient.normalizeAgent] Leaving agentName as-is:', normalized.agentName);
-    }
+    } 
     // If rawAgentName was undefined/null, leave it as-is (don't overwrite)
 
     return normalized;
@@ -1228,10 +1368,11 @@ export class AIAgentDiscoveryClient {
     const effectiveLimit = limit ?? 100;
     const effectiveOffset = offset ?? 0;
 
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query ListKbAgents($first: Int, $skip: Int) {
         kbAgents(first: $first, skip: $skip, orderBy: agentId8004, orderDirection: DESC) {
-          agents { ${this.buildKbAgentSelection()} }
+          agents { ${selection} }
           total
           hasMore
         }
@@ -1279,13 +1420,14 @@ export class AIAgentDiscoveryClient {
       return { total: 0, matches: [] };
     }
 
+    const agentSelection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const selection = `
       total
       matches {
         score
         matchReasons
         agent {
-          ${this.buildKbAgentSelection()}
+          ${agentSelection}
         }
       }
     `;
@@ -2058,6 +2200,7 @@ export class AIAgentDiscoveryClient {
       | 'trustLedgerCapabilityRank';
     orderDirection?: 'ASC' | 'DESC';
   }): Promise<{ agents: AgentData[]; total: number; hasMore: boolean }> {
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query KbAgents(
         $where: KbAgentWhereInput
@@ -2074,7 +2217,7 @@ export class AIAgentDiscoveryClient {
           orderDirection: $orderDirection
         ) {
           agents {
-            ${this.buildKbAgentSelection()}
+            ${selection}
           }
           total
           hasMore
@@ -2143,6 +2286,92 @@ export class AIAgentDiscoveryClient {
     // Assertions: allow KB-native hasAssertions filter.
     if (typeof (whereIn as any).hasAssertions === 'boolean') {
       kbWhere.hasAssertions = (whereIn as any).hasAssertions;
+    }
+
+    // Aggregated assertion minimums (KB v2).
+    // The v1 search layer expresses these as *_gte fields; map them onto KbAgentWhereInput.
+    const minFeedback =
+      typeof (whereIn as any).feedbackCount_gte === 'number'
+        ? (whereIn as any).feedbackCount_gte
+        : undefined;
+    const minValidations =
+      typeof (whereIn as any).validationCompletedCount_gte === 'number'
+        ? (whereIn as any).validationCompletedCount_gte
+        : undefined;
+    const minAvgRating =
+      typeof (whereIn as any).feedbackAverageScore_gte === 'number'
+        ? (whereIn as any).feedbackAverageScore_gte
+        : undefined;
+
+    const hasNumericFiltersRequested =
+      (typeof minFeedback === 'number' && Number.isFinite(minFeedback) && minFeedback > 0) ||
+      (typeof minValidations === 'number' && Number.isFinite(minValidations) && minValidations > 0) ||
+      (typeof minAvgRating === 'number' && Number.isFinite(minAvgRating) && minAvgRating > 0);
+
+    const kbWhereFieldNames = hasNumericFiltersRequested
+      ? new Set(
+          (await this.getTypeFields('KbAgentWhereInput') ?? [])
+            .map((f) => f?.name)
+            .filter((name): name is string => typeof name === 'string' && name.length > 0),
+        )
+      : new Set<string>();
+
+    const requireKbWhereField = (fieldName: string, context: string) => {
+      if (!kbWhereFieldNames.has(fieldName)) {
+        const hint = Array.from(kbWhereFieldNames)
+          .filter((n) => /feedback|validation|score/i.test(n))
+          .slice(0, 25);
+        throw new Error(
+          `[Discovery][graphql-kb] Unsupported filter (${context}). ` +
+            `KbAgentWhereInput is missing field "${fieldName}". ` +
+            `Available relevant fields: ${hint.join(', ') || '(none)'}`,
+        );
+      }
+    };
+
+    const pickKbWhereField = (candidates: string[]): string | null => {
+      for (const name of candidates) {
+        if (kbWhereFieldNames.has(name)) return name;
+      }
+      return null;
+    };
+
+    if (typeof minFeedback === 'number' && Number.isFinite(minFeedback) && minFeedback > 0) {
+      requireKbWhereField('minFeedbackAssertionCount8004', 'minFeedbackCount');
+      requireKbWhereField('hasFeedback8004', 'minFeedbackCount');
+      kbWhere.minFeedbackAssertionCount8004 = Math.floor(minFeedback);
+      kbWhere.hasFeedback8004 = true;
+    }
+
+    if (typeof minValidations === 'number' && Number.isFinite(minValidations) && minValidations > 0) {
+      requireKbWhereField('minValidationAssertionCount8004', 'minValidationCompletedCount');
+      requireKbWhereField('hasValidation8004', 'minValidationCompletedCount');
+      kbWhere.minValidationAssertionCount8004 = Math.floor(minValidations);
+      kbWhere.hasValidation8004 = true;
+    }
+
+    if (typeof minAvgRating === 'number' && Number.isFinite(minAvgRating) && minAvgRating > 0) {
+      const chosen = pickKbWhereField([
+        'minFeedbackAverageScore8004',
+        'minFeedbackAverageScore',
+        'feedbackAverageScore_gte',
+      ]);
+
+      if (!chosen) {
+        const hint = Array.from(kbWhereFieldNames)
+          .filter((n) => /feedback|score|average/i.test(n))
+          .slice(0, 25);
+        throw new Error(
+          `[Discovery][graphql-kb] Unsupported filter (minFeedbackAverageScore). ` +
+            `KbAgentWhereInput does not expose a feedback average score filter. ` +
+            `Available relevant fields: ${hint.join(', ') || '(none)'}`,
+        );
+      }
+
+      (kbWhere as any)[chosen] = minAvgRating;
+      if (kbWhereFieldNames.has('hasFeedback8004')) {
+        kbWhere.hasFeedback8004 = true;
+      }
     }
 
     // Smart agent: v1 may provide isSmartAgent.
@@ -2353,7 +2582,11 @@ export class AIAgentDiscoveryClient {
 
     try {
       const data = await this.client.request<TypeIntrospectionResult>(TYPE_FIELDS_QUERY, { name: typeName });
-      const fields = data.__type?.fields ?? null;
+      const kind = data.__type?.kind ?? null;
+      const fields =
+        kind === 'INPUT_OBJECT'
+          ? (data.__type?.inputFields ?? null)
+          : (data.__type?.fields ?? null);
       this.typeFieldsCache.set(typeName, fields ?? null);
       return fields ?? null;
     } catch (error) {
@@ -2467,10 +2700,11 @@ export class AIAgentDiscoveryClient {
       return null;
     }
 
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query KbAgent($chainId: Int!, $agentId8004: Int!) {
         kbAgent(chainId: $chainId, agentId8004: $agentId8004) {
-          ${this.buildKbAgentSelection()}
+          ${selection}
         }
       }
     `;
@@ -2490,7 +2724,7 @@ export class AIAgentDiscoveryClient {
     const fallback = `
       query KbAgentsFallback($where: KbAgentWhereInput, $first: Int) {
         kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
-          agents { ${this.buildKbAgentSelection()} }
+          agents { ${selection} }
           total
           hasMore
         }
@@ -2514,10 +2748,11 @@ export class AIAgentDiscoveryClient {
     const trimmed = agentName?.trim();
     if (!trimmed) return null;
 
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query KbAgentsByName($where: KbAgentWhereInput, $first: Int) {
         kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
-          agents { ${this.buildKbAgentSelection()} }
+          agents { ${selection} }
           total
           hasMore
         }
@@ -2551,10 +2786,11 @@ export class AIAgentDiscoveryClient {
     const trimmed = String(uaid ?? '').trim();
     if (!trimmed) return null;
 
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query KbAgentByUaid($where: KbAgentWhereInput, $first: Int) {
         kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
-          agents { ${this.buildKbAgentSelection()} }
+          agents { ${selection} }
           total
           hasMore
         }
@@ -2695,56 +2931,138 @@ export class AIAgentDiscoveryClient {
   async searchValidationRequestsAdvanced(
     options: SearchValidationRequestsAdvancedOptions,
   ): Promise<{ validationRequests: ValidationRequestData[] } | null> {
-    const { chainId, agentId, limit = 10, offset = 0, orderBy = 'blockNumber', orderDirection = 'DESC' } = options;
+    const { chainId, agentId, limit = 10, offset = 0 } = options;
 
-    const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+    const agentIdString = typeof agentId === 'number' ? agentId.toString() : String(agentId);
+    const agentId8004 = Number(agentIdString);
+    if (!Number.isFinite(agentId8004) || agentId8004 <= 0) {
+      throw new Error(
+        `Invalid agentId for searchValidationRequestsAdvanced (expected numeric agentId8004): ${agentIdString}`,
+      );
+    }
 
+    // KB v2 shape (graphql-kb):
+    // kbAgents(where:{chainId, agentId8004}) { agents { assertionsValidation8004(first:, skip:) { total items { iri agentDid8004 json record{...} } } } }
     const queryText = `
-      query ValidationRequestsForAgent(
-        $agentId: String!
-        $limit: Int
-        $offset: Int
-        $orderBy: String
-        $orderDirection: String
+      query KbValidationRequestsForAgent(
+        $chainId: Int!
+        $agentId8004: Int!
+        $first: Int
+        $skip: Int
       ) {
-        validationRequests(
-          agentId: $agentId
-          limit: $limit
-          offset: $offset
-          orderBy: $orderBy
-          orderDirection: $orderDirection
-        ) {
-          id
-          agentId
-          validatorAddress
-          requestUri
-          requestJson
-          requestHash
-          txHash
-          blockNumber
-          timestamp
-          createdAt
-          updatedAt
+        kbAgents(where: { chainId: $chainId, agentId8004: $agentId8004 }, first: 1) {
+          agents {
+            assertionsValidation8004(first: $first, skip: $skip) {
+              total
+              items {
+                iri
+                agentDid8004
+                json
+                record {
+                  txHash
+                  blockNumber
+                  timestamp
+                  rawJson
+                }
+              }
+            }
+          }
         }
       }
     `;
 
     const variables: Record<string, unknown> = {
-      agentId: agentIdString,
-      limit: typeof limit === 'number' ? limit : undefined,
-      offset: typeof offset === 'number' ? offset : undefined,
-      orderBy: typeof orderBy === 'string' ? orderBy : undefined,
-      orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+      chainId,
+      agentId8004: Math.floor(agentId8004),
+      first: typeof limit === 'number' ? limit : undefined,
+      skip: typeof offset === 'number' ? offset : undefined,
     };
 
-    const data = await this.client.request<{ validationRequests: ValidationRequestData[] }>(queryText, variables);
-    const requests = data?.validationRequests;
-    if (!Array.isArray(requests)) {
-      throw new Error('Discovery KB schema mismatch: expected Query.validationRequests to return a list');
-    }
-    return {
-      validationRequests: requests.filter(Boolean) as ValidationRequestData[],
+    const data = await this.client.request<any>(queryText, variables);
+    const agent = data?.kbAgents?.agents?.[0];
+    const connection = agent?.assertionsValidation8004;
+    const items: any[] = Array.isArray(connection?.items) ? connection.items : [];
+
+    const parseJson = (value: unknown): any | null => {
+      if (typeof value !== 'string' || !value.trim()) return null;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
     };
+
+    const toNumberOrUndefined = (value: unknown): number | undefined => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string' && value.trim()) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return n;
+      }
+      return undefined;
+    };
+
+    const mapped: ValidationRequestData[] = items
+      .filter(Boolean)
+      .map((item: any) => {
+        const iri = typeof item?.iri === 'string' ? item.iri : undefined;
+        const record = item?.record ?? null;
+
+        const recordTxHash = typeof record?.txHash === 'string' ? record.txHash : undefined;
+        const recordBlockNumber = toNumberOrUndefined(record?.blockNumber);
+        const recordTimestamp =
+          typeof record?.timestamp === 'number' || typeof record?.timestamp === 'string'
+            ? record.timestamp
+            : undefined;
+
+        const parsedTop = parseJson(item?.json);
+        const parsedRecord = parseJson(record?.rawJson);
+        const recordResponseJsonText = typeof parsedRecord?.responseJson === 'string' ? parsedRecord.responseJson : null;
+        const parsedResponseJson = parseJson(recordResponseJsonText);
+
+        const parsed = parsedTop ?? parsedResponseJson;
+
+        const requestHash = typeof parsed?.requestHash === 'string' ? parsed.requestHash : undefined;
+        const validatorAddress = typeof parsed?.validatorAddress === 'string' ? parsed.validatorAddress : undefined;
+        const createdAt = typeof parsed?.createdAt === 'string' ? parsed.createdAt : undefined;
+
+        const rawId =
+          typeof parsedRecord?.id === 'string'
+            ? parsedRecord.id
+            : typeof parsed?.id === 'string'
+              ? parsed.id
+              : undefined;
+
+        return {
+          iri,
+          id: rawId ?? iri,
+          agentId: agentIdString,
+          agentId8004: Math.floor(agentId8004),
+          validatorAddress,
+          requestUri: iri,
+          responseUri: iri,
+          requestJson:
+            typeof item?.json === 'string'
+              ? item.json
+              : typeof recordResponseJsonText === 'string'
+                ? recordResponseJsonText
+                : undefined,
+          responseJson: recordResponseJsonText ?? undefined,
+          requestHash,
+          txHash: recordTxHash ?? (typeof parsedRecord?.txHash === 'string' ? parsedRecord.txHash : undefined),
+          blockNumber:
+            recordBlockNumber ??
+            toNumberOrUndefined(parsedRecord?.blockNumber) ??
+            toNumberOrUndefined(parsed?.blockNumber),
+          timestamp:
+            recordTimestamp ??
+            (typeof parsedRecord?.timestamp === 'string' || typeof parsedRecord?.timestamp === 'number'
+              ? parsedRecord.timestamp
+              : undefined),
+          createdAt,
+        } as ValidationRequestData;
+      });
+
+    return { validationRequests: mapped };
   }
 
   /**
@@ -2753,61 +3071,127 @@ export class AIAgentDiscoveryClient {
   async searchFeedbackAdvanced(
     options: SearchFeedbackAdvancedOptions,
   ): Promise<{ feedbacks: FeedbackData[] } | null> {
-    const { chainId, agentId, limit = 10, offset = 0, orderBy = 'timestamp', orderDirection = 'DESC' } = options;
+    const { chainId, agentId, limit = 10, offset = 0 } = options;
 
-    const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+    const agentIdString = typeof agentId === 'number' ? agentId.toString() : String(agentId);
+    const agentId8004 = Number(agentIdString);
+    if (!Number.isFinite(agentId8004) || agentId8004 <= 0) {
+      throw new Error(`Invalid agentId for searchFeedbackAdvanced (expected numeric agentId8004): ${agentIdString}`);
+    }
 
+    // KB v2 shape (graphql-kb):
+    // kbAgents(where:{chainId, agentId8004}) { agents { assertionsFeedback8004(first:, skip:) { total items { iri agentDid8004 json record{...} } } } }
     const queryText = `
-      query FeedbackForAgent(
+      query KbFeedbackForAgent(
         $chainId: Int!
-        $agentId: String!
-        $limit: Int
-        $offset: Int
-        $orderBy: String
-        $orderDirection: String
+        $agentId8004: Int!
+        $first: Int
+        $skip: Int
       ) {
-        feedbacks(
-          chainId: $chainId
-          agentId: $agentId
-          limit: $limit
-          offset: $offset
-          orderBy: $orderBy
-          orderDirection: $orderDirection
-        ) {
-          id
-          agentId
-          clientAddress
-          score
-          feedbackUri
-          feedbackJson
-          comment
-          ratingPct
-          txHash
-          blockNumber
-          timestamp
-          isRevoked
-          responseCount
+        kbAgents(where: { chainId: $chainId, agentId8004: $agentId8004 }, first: 1) {
+          agents {
+            assertionsFeedback8004(first: $first, skip: $skip) {
+              total
+              items {
+                iri
+                agentDid8004
+                json
+                record {
+                  txHash
+                  blockNumber
+                  timestamp
+                  rawJson
+                }
+              }
+            }
+          }
         }
       }
     `;
 
     const variables: Record<string, unknown> = {
       chainId,
-      agentId: agentIdString,
-      limit: typeof limit === 'number' ? limit : undefined,
-      offset: typeof offset === 'number' ? offset : undefined,
-      orderBy: typeof orderBy === 'string' ? orderBy : undefined,
-      orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+      agentId8004: Math.floor(agentId8004),
+      first: typeof limit === 'number' ? limit : undefined,
+      skip: typeof offset === 'number' ? offset : undefined,
     };
 
-    const data = await this.client.request<{ feedbacks: FeedbackData[] }>(queryText, variables);
-    const feedbacks = data?.feedbacks;
-    if (!Array.isArray(feedbacks)) {
-      throw new Error('Discovery KB schema mismatch: expected Query.feedbacks to return a list');
-    }
-    return {
-      feedbacks: feedbacks.filter(Boolean) as FeedbackData[],
+    const data = await this.client.request<any>(queryText, variables);
+    const agent = data?.kbAgents?.agents?.[0];
+    const connection = agent?.assertionsFeedback8004;
+    const items: any[] = Array.isArray(connection?.items) ? connection.items : [];
+
+    const parseJson = (value: unknown): any | null => {
+      if (typeof value !== 'string' || !value.trim()) return null;
+      try {
+        return JSON.parse(value);
+      } catch {
+        return null;
+      }
     };
+
+    const mapped: FeedbackData[] = items
+      .filter(Boolean)
+      .map((item: any) => {
+        const iri = typeof item?.iri === 'string' ? item.iri : undefined;
+        const record = item?.record ?? null;
+        const recordTxHash = typeof record?.txHash === 'string' ? record.txHash : undefined;
+        const recordBlockNumber = typeof record?.blockNumber === 'number' ? record.blockNumber : undefined;
+        const recordTimestamp = typeof record?.timestamp === 'number' ? record.timestamp : undefined;
+
+        const parsedTop = parseJson(item?.json);
+        const parsedRecord = parseJson(record?.rawJson);
+        const parsedFeedbackJson = parseJson(parsedRecord?.feedbackJson);
+
+        const clientAddress =
+          typeof parsedRecord?.clientAddress === 'string'
+            ? parsedRecord.clientAddress
+            : typeof parsedFeedbackJson?.proofOfPayment?.fromAddress === 'string'
+              ? parsedFeedbackJson.proofOfPayment.fromAddress
+              : undefined;
+
+        const scoreRaw =
+          parsedTop?.score ??
+          parsedTop?.rating ??
+          parsedFeedbackJson?.score ??
+          parsedFeedbackJson?.rating ??
+          undefined;
+
+        const score =
+          typeof scoreRaw === 'number'
+            ? scoreRaw
+            : typeof scoreRaw === 'string' && scoreRaw.trim()
+              ? Number(scoreRaw)
+              : undefined;
+
+        const comment =
+          typeof parsedTop?.comment === 'string'
+            ? parsedTop.comment
+            : typeof parsedTop?.text === 'string'
+              ? parsedTop.text
+              : typeof parsedFeedbackJson?.comment === 'string'
+                ? parsedFeedbackJson.comment
+                : typeof parsedFeedbackJson?.text === 'string'
+                  ? parsedFeedbackJson.text
+                  : undefined;
+
+        return {
+          iri,
+          id: iri, // UI key fallback
+          agentId: agentIdString,
+          agentId8004: Math.floor(agentId8004),
+          clientAddress,
+          score: Number.isFinite(score as number) ? (score as number) : undefined,
+          comment,
+          feedbackJson: typeof item?.json === 'string' ? item.json : (typeof parsedRecord?.feedbackJson === 'string' ? parsedRecord.feedbackJson : undefined),
+          txHash: recordTxHash ?? (typeof parsedRecord?.txHash === 'string' ? parsedRecord.txHash : undefined),
+          blockNumber: recordBlockNumber ?? (typeof parsedRecord?.blockNumber === 'number' ? parsedRecord.blockNumber : undefined),
+          timestamp: recordTimestamp ?? (typeof parsedRecord?.timestamp === 'number' ? parsedRecord.timestamp : undefined),
+          isRevoked: typeof parsedRecord?.isRevoked === 'boolean' ? parsedRecord.isRevoked : undefined,
+        } as FeedbackData;
+      });
+
+    return { feedbacks: mapped };
   }
 
   /**
@@ -2880,6 +3264,7 @@ export class AIAgentDiscoveryClient {
     const orderByKb: 'agentId8004' | 'agentName' | 'uaid' =
       orderBy === 'agentName' ? 'agentName' : 'agentId8004';
 
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query KbOwnedAgentsAllChains(
         $ownerAddress: String!
@@ -2895,7 +3280,7 @@ export class AIAgentDiscoveryClient {
           orderBy: $orderBy
           orderDirection: $orderDirection
         ) {
-          agents { ${this.buildKbAgentSelection()} }
+          agents { ${selection} }
           total
           hasMore
         }

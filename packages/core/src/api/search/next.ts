@@ -37,7 +37,203 @@ function handleError(error: unknown) {
   );
 }
 
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 18;
+
+function normalizeDiscoveryUrl(value: string | undefined | null): string | null {
+  const raw = (value || '').toString().trim().replace(/\/+$/, '');
+  if (!raw) return null;
+  if (/\/graphql-kb$/i.test(raw)) return raw;
+  if (/\/graphql$/i.test(raw)) return raw.replace(/\/graphql$/i, '/graphql-kb');
+  return `${raw}/graphql-kb`;
+}
+
+function parseDid8004(did8004: string): { chainId: number; agentId8004: number } | null {
+  const m = /^did:8004:(\d+):(\d+)$/.exec(did8004.trim());
+  if (!m) return null;
+  const chainId = Number(m[1]);
+  const agentId8004 = Number(m[2]);
+  if (!Number.isFinite(chainId) || !Number.isFinite(agentId8004)) return null;
+  return { chainId, agentId8004 };
+}
+
+type KbAgentsResponse = {
+  kbAgents?: {
+    total?: number | null;
+    hasMore?: boolean | null;
+    agents?: Array<{
+      uaid?: string | null;
+      did8004?: string | null;
+      agentId8004?: number | null;
+      agentName?: string | null;
+      createdAtTime?: number | null;
+      createdAtBlock?: number | null;
+      updatedAtTime?: number | null;
+      assertionsFeedback8004?: { total?: number | null } | null;
+      assertionsValidation8004?: { total?: number | null } | null;
+    }> | null;
+  } | null;
+};
+
+async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
+  const endpoint = normalizeDiscoveryUrl(process.env.AGENTIC_TRUST_DISCOVERY_URL);
+  if (!endpoint) {
+    throw new Error('Missing required configuration: AGENTIC_TRUST_DISCOVERY_URL (expected KB endpoint)');
+  }
+
+  const apiKey =
+    (process.env.GRAPHQL_ACCESS_CODE || process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || '').trim();
+
+  const page = typeof options.page === 'number' && Number.isFinite(options.page) ? options.page : 1;
+  const pageSize =
+    typeof options.pageSize === 'number' && Number.isFinite(options.pageSize) && options.pageSize > 0
+      ? options.pageSize
+      : DEFAULT_PAGE_SIZE;
+  const skip = Math.max(0, (Math.max(page, 1) - 1) * pageSize);
+
+  const params = (options.params ?? {}) as Record<string, unknown>;
+  const where: Record<string, unknown> = {};
+
+  // chains => chainId (only support a single chain filter; otherwise search across all chains)
+  if (Array.isArray((params as any).chains) && (params as any).chains.length === 1) {
+    const v = Number((params as any).chains[0]);
+    if (Number.isFinite(v)) where.chainId = Math.floor(v);
+  }
+
+  // agentId => agentId8004 (requires chainId for unambiguous mapping)
+  const agentIdRaw = typeof (params as any).agentId === 'string' ? (params as any).agentId.trim() : '';
+  if (agentIdRaw && typeof where.chainId === 'number') {
+    const n = Number(agentIdRaw);
+    if (Number.isFinite(n)) where.agentId8004 = Math.floor(n);
+  }
+
+  // agentName => agentName_contains
+  const agentNameRaw = typeof (params as any).agentName === 'string' ? (params as any).agentName.trim() : '';
+  if (agentNameRaw) where.agentName_contains = agentNameRaw;
+
+  // Numeric assertion minimums (KB v2)
+  const minFeedbackCount = (params as any).minFeedbackCount;
+  if (typeof minFeedbackCount === 'number' && Number.isFinite(minFeedbackCount) && minFeedbackCount > 0) {
+    where.minFeedbackAssertionCount8004 = Math.floor(minFeedbackCount);
+    where.hasFeedback8004 = true;
+  }
+  const minValidationCompletedCount = (params as any).minValidationCompletedCount;
+  if (
+    typeof minValidationCompletedCount === 'number' &&
+    Number.isFinite(minValidationCompletedCount) &&
+    minValidationCompletedCount > 0
+  ) {
+    where.minValidationAssertionCount8004 = Math.floor(minValidationCompletedCount);
+    where.hasValidation8004 = true;
+  }
+
+  // KB ordering (stable)
+  const orderBy = 'agentId8004';
+  const orderDirection = 'DESC';
+
+  const query = `
+    query SearchKbAgents($where: KbAgentWhereInput, $first: Int, $skip: Int, $orderBy: KbAgentOrderBy, $orderDirection: OrderDirection) {
+      kbAgents(where: $where, first: $first, skip: $skip, orderBy: $orderBy, orderDirection: $orderDirection) {
+        total
+        hasMore
+        agents {
+          uaid
+          did8004
+          agentId8004
+          agentName
+          createdAtTime
+          createdAtBlock
+          updatedAtTime
+          assertionsFeedback8004 { total }
+          assertionsValidation8004 { total }
+        }
+      }
+    }
+  `;
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      query,
+      variables: {
+        where: Object.keys(where).length ? where : undefined,
+        first: pageSize,
+        skip,
+        orderBy,
+        orderDirection,
+      },
+    }),
+  });
+
+  const json = (await res.json().catch(() => null)) as any;
+  if (!res.ok) {
+    throw new Error(json?.error || json?.message || `KB search failed (${res.status})`);
+  }
+  if (json?.errors?.length) {
+    throw new Error(json.errors?.[0]?.message || 'KB search failed (GraphQL error)');
+  }
+
+  const data = (json?.data ?? {}) as KbAgentsResponse;
+  const payload = data.kbAgents;
+  const list = Array.isArray(payload?.agents) ? payload?.agents : [];
+  const total =
+    typeof payload?.total === 'number' && Number.isFinite(payload.total) ? payload.total : list.length;
+
+  const agents = list.map((a) => {
+    const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
+    const parsed = did8004 ? parseDid8004(did8004) : null;
+    const feedbackCountRaw = a?.assertionsFeedback8004?.total;
+    const validationCountRaw = a?.assertionsValidation8004?.total;
+    const feedbackCount =
+      typeof feedbackCountRaw === 'number' && Number.isFinite(feedbackCountRaw) ? Math.max(0, feedbackCountRaw) : 0;
+    const validationCompletedCount =
+      typeof validationCountRaw === 'number' && Number.isFinite(validationCountRaw)
+        ? Math.max(0, validationCountRaw)
+        : 0;
+
+    return {
+      uaid: typeof a?.uaid === 'string' ? a.uaid : null,
+      chainId: parsed?.chainId ?? null,
+      agentId: parsed ? String(parsed.agentId8004) : (a?.agentId8004 != null ? String(a.agentId8004) : null),
+      createdAtTime: typeof a?.createdAtTime === 'number' ? a.createdAtTime : null,
+      agentAccount: '',
+      agentIdentityOwnerAccount: '',
+      agentName: typeof a?.agentName === 'string' ? a.agentName : null,
+      didIdentity: did8004 || null,
+      createdAtBlock: typeof a?.createdAtBlock === 'number' ? a.createdAtBlock : 0,
+      updatedAtTime: typeof a?.updatedAtTime === 'number' ? a.updatedAtTime : null,
+      agentCardReadAt: null,
+      did: did8004 || null,
+      mcp: false,
+      active: true,
+      feedbackCount,
+      feedbackAverageScore: null,
+      validationPendingCount: 0,
+      validationCompletedCount,
+      validationRequestedCount: 0,
+      initiatedAssociationCount: null,
+      approvedAssociationCount: null,
+      atiOverallScore: null,
+      atiOverallConfidence: null,
+      atiComputedAt: null,
+      trustLedgerScore: null,
+      trustLedgerBadgeCount: null,
+      trustLedgerOverallRank: null,
+      trustLedgerCapabilityRank: null,
+    };
+  });
+
+  return {
+    agents,
+    total,
+    page,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(Math.max(0, total) / Math.max(1, pageSize))),
+  } as any;
+}
 
 function toNumber(value: string | null): number | undefined {
   if (!value) return undefined;
@@ -77,7 +273,35 @@ function parseParamsParam(raw: string | null): DiscoverRequest['params'] | undef
 
 async function executeSearch(options: DiscoverRequest): Promise<SearchResultPayload> {
   console.log('[AgenticTrust][Search] Executing search with options:', JSON.stringify(options, null, 2));
-  const result = await discoverAgents(options, getAgenticTrustClient);
+  // Root cause fix:
+  // The UI's "Min reviews / Min validations" are KB-native (kbAgents) filters.
+  // The legacy discoverAgents() path is D1-backed and returns different totals/counts.
+  const params = (options.params ?? {}) as Record<string, unknown>;
+  const hasTextQuery = typeof options.query === 'string' && options.query.trim().length > 0;
+  const requestsUnsupported =
+    hasTextQuery ||
+    typeof (params as any).agentAccount === 'string' ||
+    typeof (params as any).minAssociations === 'number' ||
+    typeof (params as any).minFeedbackAverageScore === 'number' ||
+    typeof (params as any).minAtiOverallScore === 'number' ||
+    typeof (params as any).createdWithinDays === 'number' ||
+    typeof (params as any).a2a === 'boolean' ||
+    typeof (params as any).mcp === 'boolean';
+
+  const result =
+    !requestsUnsupported
+      ? await executeKbSearch(options)
+      : await discoverAgents(options, getAgenticTrustClient);
+
+  console.log('[AgenticTrust][Search] Result summary:', {
+    agentsLength: Array.isArray(result.agents) ? result.agents.length : 0,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    agentUaidSample: Array.isArray(result.agents)
+      ? result.agents.slice(0, 25).map((a: any) => a?.uaid).filter(Boolean)
+      : [],
+  });
   
   // Log sample validation counts if agents found
   if (result.agents && result.agents.length > 0) {
@@ -137,7 +361,30 @@ export function searchAgentsGetRouteHandler() {
       });
 
       if (!needsAssocFilter) {
-        return jsonResponse(mapAgentsResponse(response));
+        const payload = mapAgentsResponse(response);
+        if (process.env.NODE_ENV === 'development') {
+          return jsonResponse({
+            ...payload,
+            debug: {
+              request: {
+                page: requestedPage,
+                pageSize: requestedPageSize,
+                query: query && query.length > 0 ? query : undefined,
+                params: params ?? undefined,
+                orderBy,
+                orderDirection,
+              },
+              response: {
+                agentsLength: Array.isArray(payload.agents) ? payload.agents.length : 0,
+                total: payload.total,
+                page: payload.page,
+                pageSize: payload.pageSize,
+                totalPages: payload.totalPages,
+              },
+            },
+          });
+        }
+        return jsonResponse(payload);
       }
 
       const agents = Array.isArray(response.agents) ? response.agents : [];
@@ -218,7 +465,30 @@ export function searchAgentsPostRouteHandler() {
       });
 
       if (!needsAssocFilter) {
-        return jsonResponse(mapAgentsResponse(response));
+        const payload = mapAgentsResponse(response);
+        if (process.env.NODE_ENV === 'development') {
+          return jsonResponse({
+            ...payload,
+            debug: {
+              request: {
+                page: requestedPage,
+                pageSize: requestedPageSize,
+                query,
+                params: params ?? undefined,
+                orderBy,
+                orderDirection,
+              },
+              response: {
+                agentsLength: Array.isArray(payload.agents) ? payload.agents.length : 0,
+                total: payload.total,
+                page: payload.page,
+                pageSize: payload.pageSize,
+                totalPages: payload.totalPages,
+              },
+            },
+          });
+        }
+        return jsonResponse(payload);
       }
 
       const agents = Array.isArray(response.agents) ? response.agents : [];

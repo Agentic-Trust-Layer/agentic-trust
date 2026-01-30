@@ -88,6 +88,19 @@ export async function discoverAgents(
 
       const chainId = numeric(raw?.chainId, DEFAULT_CHAIN_ID) ?? DEFAULT_CHAIN_ID;
 
+      const feedbackCountRaw =
+        (raw as any)?.feedbackCount ??
+        (raw as any)?.assertions?.feedback8004?.total ??
+        (raw as any)?.assertionsFeedback8004?.total ??
+        undefined;
+
+      const validationTotalRaw =
+        (raw as any)?.validationCompletedCount ??
+        (raw as any)?.validationRequestedCount ??
+        (raw as any)?.assertions?.validation8004?.total ??
+        (raw as any)?.assertionsValidation8004?.total ??
+        undefined;
+
       // Extract MCP endpoint from registration data
       let mcpEndpoint: string | null | undefined = undefined;
       try {
@@ -186,11 +199,14 @@ export async function discoverAgents(
         active: booleanish(raw?.active) ?? undefined,
 
         // Aggregated metrics
-        feedbackCount: numeric(raw?.feedbackCount, 0),
+        feedbackCount: numeric(feedbackCountRaw, 0),
         feedbackAverageScore: numeric(raw?.feedbackAverageScore, null),
-        validationPendingCount: numeric(raw?.validationPendingCount, 0),
-        validationCompletedCount: numeric(raw?.validationCompletedCount, 0),
-        validationRequestedCount: numeric(raw?.validationRequestedCount, 0),
+        validationPendingCount: numeric(
+          (raw as any)?.validationPendingCount,
+          validationTotalRaw !== undefined ? 0 : 0,
+        ),
+        validationCompletedCount: numeric((raw as any)?.validationCompletedCount, numeric(validationTotalRaw, 0)),
+        validationRequestedCount: numeric((raw as any)?.validationRequestedCount, numeric(validationTotalRaw, 0)),
         // Association counts come from the discovery indexer. Keep missing values as null
         // (do not default to 0) so callers can distinguish "unknown" from "zero".
         initiatedAssociationCount: numeric(raw?.initiatedAssociationCount, null),

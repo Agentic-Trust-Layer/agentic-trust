@@ -44,7 +44,14 @@ const INTROSPECTION_QUERY = `
 const TYPE_FIELDS_QUERY = `
   query TypeFields($name: String!) {
     __type(name: $name) {
+      kind
       fields {
+        name
+        type {
+          ...TypeRef
+        }
+      }
+      inputFields {
         name
         type {
           ...TypeRef
@@ -1389,7 +1396,10 @@ export class AIAgentDiscoveryClient {
         }
         try {
             const data = await this.client.request(TYPE_FIELDS_QUERY, { name: typeName });
-            const fields = data.__type?.fields ?? null;
+            const kind = data.__type?.kind ?? null;
+            const fields = kind === 'INPUT_OBJECT'
+                ? (data.__type?.inputFields ?? null)
+                : (data.__type?.fields ?? null);
             this.typeFieldsCache.set(typeName, fields ?? null);
             return fields ?? null;
         }
@@ -1888,66 +1898,135 @@ ${metadataSelection}
      * Search validation requests for an agent using GraphQL
      */
     async searchValidationRequestsAdvanced(options) {
-        const { chainId, agentId, limit = 10, offset = 0, orderBy = 'blockNumber', orderDirection = 'DESC' } = options;
-        const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
+        const { chainId, agentId, limit = 10, offset = 0 } = options;
+        const agentIdString = typeof agentId === 'number' ? agentId.toString() : String(agentId);
+        const agentId8004 = Number(agentIdString);
+        if (!Number.isFinite(agentId8004) || agentId8004 <= 0) {
+            throw new Error(`Invalid agentId for searchValidationRequestsAdvanced (expected numeric agentId8004): ${agentIdString}`);
+        }
         const queryText = `
-      query ValidationRequestsForAgent(
-        $agentId: String!
-        $limit: Int
-        $offset: Int
-        $orderBy: String
-        $orderDirection: String
+      query KbValidationRequestsForAgent(
+        $chainId: Int!
+        $agentId8004: Int!
+        $first: Int
+        $skip: Int
       ) {
-        validationRequests(
-          agentId: $agentId
-          limit: $limit
-          offset: $offset
-          orderBy: $orderBy
-          orderDirection: $orderDirection
-        ) {
-          id
-          agentId
-          validatorAddress
-          requestUri
-          requestJson
-          requestHash
-          txHash
-          blockNumber
-          timestamp
-          createdAt
-          updatedAt
+        kbAgents(where: { chainId: $chainId, agentId8004: $agentId8004 }, first: 1) {
+          agents {
+            assertionsValidation8004(first: $first, skip: $skip) {
+              total
+              items {
+                iri
+                agentDid8004
+                json
+                record {
+                  txHash
+                  blockNumber
+                  timestamp
+                  rawJson
+                }
+              }
+            }
+          }
         }
       }
     `;
         const variables = {
-            agentId: agentIdString,
-            limit: typeof limit === 'number' ? limit : undefined,
-            offset: typeof offset === 'number' ? offset : undefined,
-            orderBy: typeof orderBy === 'string' ? orderBy : undefined,
-            orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+            chainId,
+            agentId8004: Math.floor(agentId8004),
+            first: typeof limit === 'number' ? limit : undefined,
+            skip: typeof offset === 'number' ? offset : undefined,
         };
-        try {
-            const data = await this.client.request(queryText, variables);
-            const requests = data?.validationRequests;
-            if (!Array.isArray(requests)) {
+        const data = await this.client.request(queryText, variables);
+        const agent = data?.kbAgents?.agents?.[0];
+        const connection = agent?.assertionsValidation8004;
+        const items = Array.isArray(connection?.items) ? connection.items : [];
+        const parseJson = (value) => {
+            if (typeof value !== 'string' || !value.trim())
+                return null;
+            try {
+                return JSON.parse(value);
+            }
+            catch {
                 return null;
             }
+        };
+        const toNumberOrUndefined = (value) => {
+            if (typeof value === 'number' && Number.isFinite(value))
+                return value;
+            if (typeof value === 'string' && value.trim()) {
+                const n = Number(value);
+                if (Number.isFinite(n))
+                    return n;
+            }
+            return undefined;
+        };
+        const mapped = items
+            .filter(Boolean)
+            .map((item) => {
+            const iri = typeof item?.iri === 'string' ? item.iri : undefined;
+            const record = item?.record ?? null;
+            const recordTxHash = typeof record?.txHash === 'string' ? record.txHash : undefined;
+            const recordBlockNumber = toNumberOrUndefined(record?.blockNumber);
+            const recordTimestamp = typeof record?.timestamp === 'number' || typeof record?.timestamp === 'string'
+                ? record.timestamp
+                : undefined;
+            const parsedTop = parseJson(item?.json);
+            const parsedRecord = parseJson(record?.rawJson);
+            const recordResponseJsonText = typeof parsedRecord?.responseJson === 'string' ? parsedRecord.responseJson : null;
+            const parsedResponseJson = parseJson(recordResponseJsonText);
+            const parsed = parsedTop ?? parsedResponseJson;
+            const requestHash = typeof parsed?.requestHash === 'string' ? parsed.requestHash : undefined;
+            const validatorAddress = typeof parsed?.validatorAddress === 'string' ? parsed.validatorAddress : undefined;
+            const createdAt = typeof parsed?.createdAt === 'string' ? parsed.createdAt : undefined;
+            const rawId = typeof parsedRecord?.id === 'string'
+                ? parsedRecord.id
+                : typeof parsed?.id === 'string'
+                    ? parsed.id
+                    : undefined;
             return {
-                validationRequests: requests.filter(Boolean),
+                iri,
+                id: rawId ?? iri,
+                agentId: agentIdString,
+                agentId8004: Math.floor(agentId8004),
+                validatorAddress,
+                requestUri: iri,
+                responseUri: iri,
+                requestJson: typeof item?.json === 'string'
+                    ? item.json
+                    : typeof recordResponseJsonText === 'string'
+                        ? recordResponseJsonText
+                        : undefined,
+                responseJson: recordResponseJsonText ?? undefined,
+                requestHash,
+                txHash: recordTxHash ?? (typeof parsedRecord?.txHash === 'string' ? parsedRecord.txHash : undefined),
+                blockNumber: recordBlockNumber ??
+                    toNumberOrUndefined(parsedRecord?.blockNumber) ??
+                    toNumberOrUndefined(parsed?.blockNumber),
+                timestamp: recordTimestamp ??
+                    (typeof parsedRecord?.timestamp === 'string' || typeof parsedRecord?.timestamp === 'number'
+                        ? parsedRecord.timestamp
+                        : undefined),
+                createdAt,
             };
-        }
-        catch (error) {
-            console.warn('[AIAgentDiscoveryClient] searchValidationRequestsAdvanced failed:', error);
-            return null;
-        }
+        });
+        return { validationRequests: mapped };
     }
     /**
      * Search feedback for an agent using GraphQL
      */
     async searchFeedbackAdvanced(options) {
         const { chainId, agentId, limit = 10, offset = 0, orderBy = 'timestamp', orderDirection = 'DESC' } = options;
-        const agentIdString = typeof agentId === 'number' ? agentId.toString() : agentId;
-        const queryText = `
+        const agentIdString = typeof agentId === 'number' ? agentId.toString() : String(agentId);
+        const variables = {
+            chainId,
+            agentId: agentIdString,
+            limit: typeof limit === 'number' ? limit : undefined,
+            offset: typeof offset === 'number' ? offset : undefined,
+            orderBy: typeof orderBy === 'string' ? orderBy : undefined,
+            orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
+        };
+        const legacyQuery = `
       query FeedbackForAgent(
         $chainId: Int!
         $agentId: String!
@@ -1964,7 +2043,7 @@ ${metadataSelection}
           orderBy: $orderBy
           orderDirection: $orderDirection
         ) {
-          id
+          iri
           agentId
           clientAddress
           score
@@ -1980,23 +2059,64 @@ ${metadataSelection}
         }
       }
     `;
-        const variables = {
-            chainId,
-            agentId: agentIdString,
-            limit: typeof limit === 'number' ? limit : undefined,
-            offset: typeof offset === 'number' ? offset : undefined,
-            orderBy: typeof orderBy === 'string' ? orderBy : undefined,
-            orderDirection: typeof orderDirection === 'string' ? orderDirection : undefined,
-        };
         try {
-            const data = await this.client.request(queryText, variables);
+            const data = await this.client.request(legacyQuery, variables);
             const feedbacks = data?.feedbacks;
-            if (!Array.isArray(feedbacks)) {
+            if (Array.isArray(feedbacks)) {
+                return { feedbacks: feedbacks.filter(Boolean) };
+            }
+        }
+        catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            if (!message.includes('kbFeedbacks')) {
+                console.warn('[AIAgentDiscoveryClient] searchFeedbackAdvanced failed:', error);
                 return null;
             }
-            return {
-                feedbacks: feedbacks.filter(Boolean),
-            };
+        }
+        // KB v2 fallback: best-effort query shape.
+        const kbQuery = `
+      query KbFeedbackForAgent(
+        $chainId: Int!
+        $agentId: String!
+        $limit: Int
+        $offset: Int
+        $orderBy: String
+        $orderDirection: String
+      ) {
+        kbFeedbacks(
+          chainId: $chainId
+          agentId: $agentId
+          first: $limit
+          skip: $offset
+          orderBy: $orderBy
+          orderDirection: $orderDirection
+        ) {
+          feedbacks {
+            iri
+            agentId
+            clientAddress
+            score
+            feedbackUri
+            feedbackJson
+            comment
+            ratingPct
+            txHash
+            blockNumber
+            timestamp
+            isRevoked
+            responseCount
+          }
+        }
+      }
+    `;
+        try {
+            const data = await this.client.request(kbQuery, variables);
+            const root = data?.kbFeedbacks;
+            const list = root?.feedbacks;
+            if (Array.isArray(list)) {
+                return { feedbacks: list.filter(Boolean) };
+            }
+            return null;
         }
         catch (error) {
             console.warn('[AIAgentDiscoveryClient] searchFeedbackAdvanced failed:', error);
