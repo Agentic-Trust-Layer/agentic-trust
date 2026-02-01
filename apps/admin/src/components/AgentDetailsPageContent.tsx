@@ -98,6 +98,18 @@ function jsonSafe(value: any): any {
   return value;
 }
 
+const formatRelativeTime = (timestamp?: number | null) => {
+  if (!timestamp) return 'Unknown';
+  const secondsAgo = Math.max(0, Math.floor(Date.now() / 1000) - Math.floor(timestamp));
+  const days = Math.floor(secondsAgo / 86400);
+  if (days > 0) return `${days} day${days === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(secondsAgo / 3600);
+  if (hours > 0) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const minutes = Math.floor(secondsAgo / 60);
+  if (minutes > 0) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  return `${secondsAgo} second${secondsAgo === 1 ? '' : 's'} ago`;
+};
+
 async function signErc8092Digest(params: {
   provider: any;
   signerAddress: `0x${string}`;
@@ -398,8 +410,7 @@ export default function AgentDetailsPageContent({
   }, [agent]);
   const [agentCard, setAgentCard] = useState<any>(null);
   const [trustGraphModalOpen, setTrustGraphModalOpen] = useState(false);
-  const [reviewsModalOpen, setReviewsModalOpen] = useState(false);
-  const [validationsModalOpen, setValidationsModalOpen] = useState(false);
+  const [insightsDialogTab, setInsightsDialogTab] = useState<'feedback' | 'validation' | 'associations' | null>(null);
   // Load validations for trust graph modal
   const [trustGraphValidations, setTrustGraphValidations] = useState<AgentDetailsValidationsSummary | null>(null);
   const [trustGraphValidationsLoading, setTrustGraphValidationsLoading] = useState(false);
@@ -1022,15 +1033,16 @@ export default function AgentDetailsPageContent({
             >
               {agent.agentName || `Agent #${agent.agentId}`}
             </h1>
+
             <p
               style={{
-                margin: '0.5rem 0 0',
-                fontSize: '1rem',
+                margin: '0.35rem 0 0',
+                fontSize: '0.95rem',
                 color: palette.textSecondary,
                 fontWeight: 500,
               }}
             >
-              Agent: #{agent.agentId}
+              Created: {formatRelativeTime(agent.createdAtTime)}
             </p>
 
             {/* Accounts (KB v2) */}
@@ -1097,7 +1109,7 @@ export default function AgentDetailsPageContent({
                 </Button>
               )}
 
-              {/* Always show Give Feedback (no gating). */}
+              {/* Always show Give Review (no gating). */}
               <Button
                 variant="contained"
                 color="primary"
@@ -1116,7 +1128,7 @@ export default function AgentDetailsPageContent({
                   fontWeight: 700,
                 }}
               >
-                Give Feedback
+                Give Review
               </Button>
             </Stack>
           </Box>
@@ -1177,34 +1189,38 @@ export default function AgentDetailsPageContent({
             justifyContent="space-between"
           >
             <Stack direction="row" spacing={2} flexWrap="wrap">
-              {!isMobile && (
-                <StatPill
-                  icon={<AutoGraphIcon fontSize="small" />}
-                  label="Validations"
-                  value={`${completedValidationCount} completed · ${pendingValidationCount} pending`}
-                />
-              )}
-              {!isMobile && (
+            {!isMobile && (
                 <StatPill
                   icon={<VerifiedIcon fontSize="small" />}
-                  label="Reputation"
+                  label="Reviews"
                   value={
                     feedbackAverage !== null
                       ? `${feedbackCount} reviews · ${feedbackAverage}`
                       : `${feedbackCount} reviews`
                   }
+                  onClick={() => setInsightsDialogTab('feedback')}
                 />
               )}
               {!isMobile && (
                 <StatPill
                   icon={<AutoGraphIcon fontSize="small" />}
-                  label="Associations"
-                  value={`${(indexerInitiatedAssociationsCount ?? '—').toString()} initiated · ${(indexerApprovedAssociationsCount ?? '—').toString()} approved`}
+                  label="Validations"
+                  value={`${completedValidationCount} completed · ${pendingValidationCount} pending`}
+                  onClick={() => setInsightsDialogTab('validation')}
+                />
+              )}
+              
+              {!isMobile && (
+                <StatPill
+                  icon={<AutoGraphIcon fontSize="small" />}
+                  label="Relationships"
+                  value={`${(indexerApprovedAssociationsCount ?? '—').toString()} approved   ·   ${(indexerInitiatedAssociationsCount ?? '—').toString()} initiated`}
                   title={
                     indexerInitiatedAssociationsCount !== null || indexerApprovedAssociationsCount !== null
                       ? `Indexer fields: ${indexerInitiatedAssociationsCount ?? 0}/${indexerApprovedAssociationsCount ?? 0}`
                       : undefined
                   }
+                  onClick={() => setInsightsDialogTab('associations')}
                 />
               )}
             </Stack>
@@ -1244,6 +1260,91 @@ export default function AgentDetailsPageContent({
       </Container>
 
       {/* Dialogs */}
+      <Dialog
+        open={insightsDialogTab !== null}
+        onClose={() => setInsightsDialogTab(null)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle sx={{ pb: 0 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+            <Typography sx={{ fontWeight: 700 }}>
+              {insightsDialogTab === 'feedback'
+                ? 'Reviews'
+                : insightsDialogTab === 'validation'
+                  ? 'Validations'
+                  : 'Relationships'}
+            </Typography>
+            <IconButton aria-label="Close" onClick={() => setInsightsDialogTab(null)}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+          <Box
+            sx={{
+              display: 'flex',
+              borderBottom: `2px solid ${palette.border}`,
+              backgroundColor: palette.surfaceMuted,
+              overflowX: 'auto',
+              mt: 1,
+            }}
+          >
+            {[
+              { id: 'feedback', label: 'Reviews' },
+              { id: 'validation', label: 'Validations' },
+              { id: 'associations', label: 'Relationships' },
+            ].map((tab) => {
+              const isActive = insightsDialogTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setInsightsDialogTab(tab.id as 'feedback' | 'validation' | 'associations')}
+                  style={{
+                    padding: '0.85rem 1.25rem',
+                    border: 'none',
+                    borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
+                    backgroundColor: 'transparent',
+                    color: isActive ? palette.accent : palette.textSecondary,
+                    fontWeight: isActive ? 700 : 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    fontSize: '0.95rem',
+                    whiteSpace: 'nowrap',
+                    position: 'relative',
+                    minWidth: '120px',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.color = palette.textPrimary;
+                      e.currentTarget.style.backgroundColor = palette.surface;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.color = palette.textSecondary;
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {insightsDialogTab && (
+            <AgentDetailsTabs
+              uaid={uaid}
+              agent={agent}
+              onChainMetadata={onChainMetadata}
+              embedded
+              renderOnlyTab={insightsDialogTab}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={shareOpen} onClose={() => setShareOpen(false)}>
         <DialogTitle>
           Share Agent
@@ -1300,7 +1401,7 @@ export default function AgentDetailsPageContent({
         </DialogContent>
       </Dialog>
 
-      {/* Give Feedback Dialog */}
+      {/* Give Review Dialog */}
       <Dialog
         open={dialogState.type === 'give-feedback'}
         onClose={closeDialog}
@@ -1308,7 +1409,7 @@ export default function AgentDetailsPageContent({
         fullWidth
       >
         <DialogTitle>
-          Give Feedback
+          Give Review
           <IconButton
             onClick={closeDialog}
             sx={{ position: 'absolute', right: 8, top: 8 }}
@@ -1324,7 +1425,7 @@ export default function AgentDetailsPageContent({
             </Typography>
           )}
 
-          {/* Best-effort: show delegation/association notify status (does not block feedback). */}
+          {/* Best-effort: show delegation/association notify status (does not block review). */}
           {(delegationNotifyLoading || delegationNotifyError || delegationAssociationId) && (
             <Box sx={{ mb: 2 }}>
               {delegationNotifyLoading && (
@@ -1393,7 +1494,7 @@ export default function AgentDetailsPageContent({
                 SelectProps={{
                   native: true,
                 }}
-                helperText="Select the skill you’re giving feedback on."
+                helperText="Select the skill you’re giving a review on."
               >
                 <option value="">Select a skill…</option>
                 {agentCard.skills.map((skill: any) => (
@@ -1465,7 +1566,7 @@ export default function AgentDetailsPageContent({
 
           {feedbackSuccess && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              Feedback submitted successfully!
+              Review submitted successfully!
             </Alert>
           )}
 
@@ -1512,7 +1613,7 @@ export default function AgentDetailsPageContent({
                 // Submit feedback to the API (no feedbackAuth required)
                 const score = feedbackRating * 20; // Convert 1-5 to 0-100
 
-                console.info('[GiveFeedback] Submitting feedback via /api/feedback', {
+                console.info('[GiveReview] Submitting review via /api/feedback', {
                   chainId,
                   agentId,
                   clientAddress,
@@ -1551,7 +1652,7 @@ export default function AgentDetailsPageContent({
 
                 if (!feedbackResponse.ok) {
                   const errorData = await feedbackResponse.json().catch(() => ({}));
-                  throw new Error(errorData.message || errorData.error || 'Failed to submit feedback');
+                  throw new Error(errorData.message || errorData.error || 'Failed to submit review');
                 }
 
                 const feedbackResult = await feedbackResponse.json().catch(() => ({}));
@@ -1581,7 +1682,7 @@ export default function AgentDetailsPageContent({
                     ethereumProvider: eip1193Provider,
                   });
                 } else if (feedbackResult?.mode === 'server') {
-                  console.info('[GiveFeedback] Feedback submitted server-side', {
+                  console.info('[GiveReview] Review submitted server-side', {
                     txHash: feedbackResult?.txHash,
                   });
                 }
@@ -1602,8 +1703,8 @@ export default function AgentDetailsPageContent({
                   closeDialog();
                 }, 1500);
               } catch (err) {
-                console.error('Failed to submit feedback:', err);
-                setFeedbackError(err instanceof Error ? err.message : 'Failed to submit feedback');
+                console.error('Failed to submit review:', err);
+                setFeedbackError(err instanceof Error ? err.message : 'Failed to submit review');
               } finally {
                 setSubmittingFeedback(false);
               }
@@ -1616,7 +1717,7 @@ export default function AgentDetailsPageContent({
         </DialogActions>
       </Dialog>
 
-      {/* Feedback Request Dialog */}
+      {/* Review Request Dialog */}
       <Dialog
         open={dialogState.type === 'feedback-request'}
         onClose={() => {
@@ -1629,7 +1730,7 @@ export default function AgentDetailsPageContent({
         fullWidth
       >
         <DialogTitle>
-          Request Feedback Authorization
+          Request Review Authorization
           <IconButton
             onClick={() => {
               setDialogState({ type: null });
@@ -1726,7 +1827,7 @@ export default function AgentDetailsPageContent({
           </FormControl>
 
           <Typography variant="body2" sx={{ mb: 2 }}>
-            Why do you want to give feedback to this agent?
+            Why do you want to give a review to this agent?
           </Typography>
 
           <TextField
@@ -1742,7 +1843,7 @@ export default function AgentDetailsPageContent({
 
           {feedbackRequestSuccess && (
             <Alert severity="success" sx={{ mb: 2 }}>
-              Feedback request sent successfully! The agent will review your request.
+              Review request sent successfully! The agent will review your request.
             </Alert>
           )}
 
@@ -1793,13 +1894,11 @@ export default function AgentDetailsPageContent({
         validations={trustGraphValidations}
         onOpenReviews={() => {
           setTrustGraphModalOpen(false);
-          // Could scroll to feedback tab or show feedback dialog
-          // For now, just close the modal - user can navigate to Feedback tab
+          setInsightsDialogTab('feedback');
         }}
         onOpenValidations={() => {
           setTrustGraphModalOpen(false);
-          // Could scroll to validation tab or show validation dialog
-          // For now, just close the modal - user can navigate to Validation tab
+          setInsightsDialogTab('validation');
         }}
         resolveEnsName={resolveEnsName}
       />
@@ -1812,12 +1911,14 @@ type StatPillProps = {
   label: string;
   value: string;
   title?: string;
+  onClick?: () => void;
 };
 
-function StatPill({ icon, label, value, title }: StatPillProps) {
+function StatPill({ icon, label, value, title, onClick }: StatPillProps) {
   return (
     <Box
       title={title}
+      onClick={onClick}
       sx={{
         display: 'flex',
         alignItems: 'center',
@@ -1828,6 +1929,13 @@ function StatPill({ icon, label, value, title }: StatPillProps) {
         border: `1px solid ${palette.border}`,
         backgroundColor: palette.surface,
         boxShadow: '0 2px 6px rgba(15,23,42,0.06)',
+        cursor: onClick ? 'pointer' : 'default',
+        userSelect: onClick ? 'none' : 'auto',
+        '&:hover': onClick
+          ? {
+              backgroundColor: palette.surfaceMuted,
+            }
+          : undefined,
       }}
     >
       <Box sx={{ color: palette.accent, display: 'flex', alignItems: 'center' }}>{icon}</Box>

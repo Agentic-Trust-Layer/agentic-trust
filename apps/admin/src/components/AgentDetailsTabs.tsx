@@ -1,6 +1,8 @@
 'use client';
 
 import { useMemo, useState, useEffect, useCallback } from 'react';
+import { Dialog, DialogContent, DialogTitle, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 import type { AgentsPageAgent } from './AgentsPage';
 import { grayscalePalette as palette } from '@/styles/palette';
 import { ASSOC_TYPE_OPTIONS } from '@/lib/association-types';
@@ -45,18 +47,36 @@ type AgentDetailsTabsProps = {
   feedbackSummary?: AgentDetailsFeedbackSummary;
   validations?: AgentDetailsValidationsSummary | null;
   onChainMetadata?: Record<string, string>;
+  /**
+   * When set, renders only this panel (no tab bar).
+   * Useful for embedding inside dialogs.
+   */
+  renderOnlyTab?: 'feedback' | 'validation' | 'associations';
+  /** Render without the outer framed container (for dialogs). */
+  embedded?: boolean;
 };
 
 // Tab definitions - labels will be computed with counts from agent prop
-const TAB_DEFS = [
+const ALL_TAB_DEFS = [
   { id: 'overview', label: 'Overview' },
   { id: 'registration', label: 'Registration' },
-  { id: 'feedback', label: 'Feedback' },
-  { id: 'validation', label: 'Validation' },
-  { id: 'associations', label: 'Associations' },
+  // Opened via dialogs (not shown in the main tab bar)
+  { id: 'feedback', label: 'Reviews' },
+  { id: 'validation', label: 'Validations' },
+  { id: 'associations', label: 'Relationships' },
 ] as const;
 
-type TabId = (typeof TAB_DEFS)[number]['id'];
+const MAIN_TAB_DEFS = ALL_TAB_DEFS.filter((t) => t.id === 'overview' || t.id === 'registration');
+const MODAL_TAB_DEFS = ALL_TAB_DEFS.filter(
+  (t) => t.id === 'feedback' || t.id === 'validation' || t.id === 'associations',
+);
+
+type TabId = (typeof ALL_TAB_DEFS)[number]['id'];
+type ModalTabId = 'feedback' | 'validation' | 'associations';
+
+const MODAL_TAB_IDS: ModalTabId[] = ['feedback', 'validation', 'associations'];
+const isModalTab = (tabId: TabId): tabId is ModalTabId =>
+  (MODAL_TAB_IDS as unknown as string[]).includes(tabId);
 
 const shorten = (value?: string | null) => {
   if (!value) return '—';
@@ -103,8 +123,11 @@ const AgentDetailsTabs = ({
   feedbackSummary: initialFeedbackSummary,
   validations: initialValidations,
   onChainMetadata: initialOnChainMetadata = {},
+  renderOnlyTab,
+  embedded = false,
 }: AgentDetailsTabsProps) => {
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>(renderOnlyTab ?? 'overview');
+  const [modalTab, setModalTab] = useState<ModalTabId | null>(null);
   const [registrationData, setRegistrationData] = useState<string | null>(null);
   const [registrationLoading, setRegistrationLoading] = useState(false);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
@@ -226,13 +249,13 @@ const AgentDetailsTabs = ({
   const getTabLabel = useCallback((tabId: TabId): string => {
     switch (tabId) {
       case 'feedback':
-        return feedbackCount !== null ? `Feedback (${feedbackCount})` : 'Feedback';
+        return feedbackCount !== null ? `Reviews (${feedbackCount})` : 'Reviews';
       case 'validation':
-        return totalValidationCount > 0 ? `Validation (${totalValidationCount})` : 'Validation';
+        return totalValidationCount > 0 ? `Validations (${totalValidationCount})` : 'Validations';
       case 'associations':
-        return totalAssociationCount > 0 ? `Associations (${totalAssociationCount})` : 'Associations';
+        return totalAssociationCount > 0 ? `Relationships (${totalAssociationCount})` : 'Relationships';
       default:
-        return TAB_DEFS.find(t => t.id === tabId)?.label ?? tabId;
+        return ALL_TAB_DEFS.find((t) => t.id === tabId)?.label ?? tabId;
     }
   }, [feedbackCount, totalValidationCount, totalAssociationCount]);
 
@@ -289,14 +312,19 @@ const AgentDetailsTabs = ({
   }, [agent.agentAccount, agent.chainId]);
 
   useEffect(() => {
-    if (activeTab === 'associations' && agent.agentAccount && !associationsData && !associationsLoading) {
+    if (
+      (activeTab === 'associations' || modalTab === 'associations') &&
+      agent.agentAccount &&
+      !associationsData &&
+      !associationsLoading
+    ) {
       void refreshAssociations();
     }
-  }, [activeTab, agent.agentAccount, associationsData, associationsLoading, refreshAssociations]);
+  }, [activeTab, modalTab, agent.agentAccount, associationsData, associationsLoading, refreshAssociations]);
 
   // Lazy load feedback data when feedback tab is selected
   useEffect(() => {
-    if (activeTab !== 'feedback') return;
+    if (activeTab !== 'feedback' && modalTab !== 'feedback') return;
     if (feedbackLoaded || feedbackLoading) return;
 
     let cancelled = false;
@@ -363,11 +391,11 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalUaid]);
+  }, [activeTab, modalTab, canonicalUaid]);
 
   // Lazy load validations data when validation tab is selected
   useEffect(() => {
-    if (activeTab !== 'validation') return;
+    if (activeTab !== 'validation' && modalTab !== 'validation') return;
     if (validationsLoaded || validationsLoading) return;
 
     let cancelled = false;
@@ -391,7 +419,11 @@ const AgentDetailsTabs = ({
           validationResponsesRes?.ok ? await validationResponsesRes.json().catch(() => null) : null;
         if (cancelled) return;
         if (!validationsRes.ok) {
-          setValidationsError((json as any)?.message || (json as any)?.error || `Failed to load validations (${res.status})`);
+          setValidationsError(
+            (json as any)?.message ||
+              (json as any)?.error ||
+              `Failed to load validations (${validationsRes.status})`,
+          );
           setValidationsLoaded(true);
           return;
         }
@@ -471,7 +503,7 @@ const AgentDetailsTabs = ({
       clearTimeout(timeout);
       controller.abort();
     };
-  }, [activeTab, canonicalUaid]);
+  }, [activeTab, modalTab, canonicalUaid]);
 
   // Lazy load on-chain metadata when Overview tab is selected (shown in Metadata pane)
   useEffect(() => {
@@ -712,68 +744,83 @@ const AgentDetailsTabs = ({
     }
   }, [activeTab, agent.agentUri, registrationData, registrationLoading, registrationError, normalizeResourceUrl]);
 
-  return (
-    <section
-      style={{
+  // Keep activeTab in sync when used as an embedded single-panel renderer
+  useEffect(() => {
+    if (!renderOnlyTab) return;
+    if (activeTab !== renderOnlyTab) {
+      setActiveTab(renderOnlyTab);
+    }
+  }, [renderOnlyTab, activeTab]);
+
+  const ContainerTag: any = embedded ? 'div' : 'section';
+  const containerStyle: React.CSSProperties = embedded
+    ? {}
+    : {
         backgroundColor: palette.surface,
         borderRadius: '16px',
         border: `1px solid ${palette.border}`,
         boxShadow: '0 8px 24px rgba(15,23,42,0.08)',
         overflow: 'hidden',
-      }}
-    >
-      {/* Tab Navigation */}
-      <div
-        style={{
-          display: 'flex',
-          borderBottom: `2px solid ${palette.border}`,
-          backgroundColor: palette.surfaceMuted,
-          overflowX: 'auto',
-        }}
-      >
-        {TAB_DEFS.map((tab) => {
-          const isActive = activeTab === tab.id;
-          const label = getTabLabel(tab.id);
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                padding: '1rem 1.5rem',
-                border: 'none',
-                borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
-                backgroundColor: 'transparent',
-                color: isActive ? palette.accent : palette.textSecondary,
-                fontWeight: isActive ? 600 : 500,
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                fontSize: '0.95rem',
-                whiteSpace: 'nowrap',
-                position: 'relative',
-                minWidth: '120px',
+      };
+
+  return (
+    <ContainerTag style={containerStyle}>
+      {/* Tab Navigation (hidden when renderOnlyTab is set) */}
+      {!renderOnlyTab && !embedded && (
+        <div
+          style={{
+            display: 'flex',
+            borderBottom: `2px solid ${palette.border}`,
+            backgroundColor: palette.surfaceMuted,
+            overflowX: 'auto',
+          }}
+        >
+          {MAIN_TAB_DEFS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            const label = getTabLabel(tab.id);
+            return (
+              <button
+                key={tab.id}
+                type="button"
+              onClick={() => {
+                setActiveTab(tab.id);
               }}
-              onMouseEnter={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.color = palette.textPrimary;
-                  e.currentTarget.style.backgroundColor = palette.surface;
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isActive) {
-                  e.currentTarget.style.color = palette.textSecondary;
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }
-              }}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
+                style={{
+                  padding: '1rem 1.5rem',
+                  border: 'none',
+                  borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
+                  backgroundColor: 'transparent',
+                  color: isActive ? palette.accent : palette.textSecondary,
+                  fontWeight: isActive ? 600 : 500,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  fontSize: '0.95rem',
+                  whiteSpace: 'nowrap',
+                  position: 'relative',
+                  minWidth: '120px',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.color = palette.textPrimary;
+                    e.currentTarget.style.backgroundColor = palette.surface;
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.color = palette.textSecondary;
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Tab Content */}
-      <div style={{ padding: '1.5rem' }}>
+      <div style={{ padding: embedded ? 0 : '1.5rem' }}>
         {activeTab === 'overview' && (
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.5rem' }}>
             {/* Left Column: Identity Info and Endpoints stacked */}
@@ -787,32 +834,39 @@ const AgentDetailsTabs = ({
                   backgroundColor: palette.surfaceMuted,
                 }}
               >
-              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Identity Info</h3>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                  gap: '1rem',
-                  fontSize: '0.9rem',
-                }}
-              >
-                <div>
-                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
-                  <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
-                </div>
-                <div>
-                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
-                  <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
-                </div>
-                <div>
-                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Owner</strong>
-                  <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
-                    {shorten(agent.agentAccount)}
+              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>8004 Identity Registry</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.9rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
+                  </div>
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                    <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
                   </div>
                 </div>
+
                 <div>
-                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Created</strong>
-                  <div style={{ color: palette.textPrimary }}>{formatRelativeTime(agent.createdAtTime)}</div>
+                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OwnerAccount</strong>
+                  <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                    {(agent as any).identityOwnerAccount || '—'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OperatorAccount</strong>
+                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                      {(agent as any).identityOperatorAccount || '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>WalletAccount</strong>
+                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                      {(agent as any).identityWalletAccount || '—'}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -826,7 +880,7 @@ const AgentDetailsTabs = ({
                   backgroundColor: palette.surfaceMuted,
                 }}
               >
-                <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Endpoints</h3>
+                <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Application Endpoints</h3>
                 <div
                   style={{
                     display: 'flex',
@@ -955,7 +1009,7 @@ const AgentDetailsTabs = ({
                 )}
                 {agent.agentUri && (
                   <div>
-                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Token URI</strong>
+                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent URI</strong>
                     <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: palette.textPrimary, fontSize: '0.85rem' }}>
                       {agent.agentUri}
                     </div>
@@ -1071,14 +1125,14 @@ const AgentDetailsTabs = ({
           </div>
         )}
 
-        {activeTab === 'feedback' && (
+        {activeTab === 'feedback' && !modalTab && (
           <div>
             <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
-              Feedback entries and aggregated reputation summary for this agent.
+              Review entries and aggregated reputation summary for this agent.
             </p>
             {feedbackLoading && (
               <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
-                Loading feedback...
+                Loading reviews...
               </p>
             )}
             {feedbackError && (
@@ -1100,7 +1154,7 @@ const AgentDetailsTabs = ({
                 }}
               >
                 <span>
-                  <strong>Feedback count:</strong>{' '}
+                  <strong>Review count:</strong>{' '}
                   {/* Prefer discovery count, fallback to loaded detail count */}
                   {feedbackCount !== null ? feedbackCount : (feedbackSummary?.count ?? '0')}
                 </span>
@@ -1126,7 +1180,7 @@ const AgentDetailsTabs = ({
             >
               {feedbackList.length === 0 ? (
                 <p style={{ color: palette.textSecondary, margin: 0 }}>
-                  No feedback entries found for this agent.
+                  No reviews found for this agent.
                 </p>
               ) : (
                 <ul
@@ -1216,7 +1270,7 @@ const AgentDetailsTabs = ({
                         )}
                         {record.feedbackUri && (
                             <div>
-                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback URI:</strong>{' '}
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Review URI:</strong>{' '}
                           <a
                             href={record.feedbackUri}
                             target="_blank"
@@ -1234,7 +1288,7 @@ const AgentDetailsTabs = ({
                           )}
                           {record.feedbackJson && (
                             <div>
-                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Feedback JSON:</strong>
+                              <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Review JSON:</strong>
                               <pre
                                 style={{
                                   margin: '0.5rem 0 0',
@@ -1267,7 +1321,7 @@ const AgentDetailsTabs = ({
           </div>
         )}
 
-        {activeTab === 'validation' && (
+        {activeTab === 'validation' && !modalTab && (
           <div>
             <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
               Pending and completed validations for this agent from the on-chain
@@ -1624,7 +1678,7 @@ const AgentDetailsTabs = ({
           </div>
         )}
 
-        {activeTab === 'associations' && (
+        {activeTab === 'associations' && !modalTab && (
           <div>
             <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
               Associated accounts for this agent's smart account ({agent.agentAccount ? shorten(agent.agentAccount) : '—'})
@@ -2086,7 +2140,506 @@ const AgentDetailsTabs = ({
           </div>
         )}
       </div>
-    </section>
+
+      {/* Modal dialogs for Reviews / Validations / Relationships */}
+      {!embedded && !renderOnlyTab && (
+        <Dialog
+          open={modalTab !== null}
+          onClose={() => setModalTab(null)}
+          maxWidth="lg"
+          fullWidth
+        >
+          <DialogTitle sx={{ pb: 0 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: '1rem',
+              }}
+            >
+              <div style={{ fontWeight: 700 }}>
+                {modalTab === 'feedback'
+                  ? 'Reviews'
+                  : modalTab === 'validation'
+                    ? 'Validations'
+                    : 'Relationships'}
+              </div>
+              <IconButton aria-label="Close" onClick={() => setModalTab(null)}>
+                <CloseIcon />
+              </IconButton>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                borderBottom: `2px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
+                overflowX: 'auto',
+                marginTop: '0.75rem',
+              }}
+            >
+              {MODAL_TAB_DEFS.map((tab) => {
+                const isActive = modalTab === tab.id;
+                const label = getTabLabel(tab.id);
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setModalTab(tab.id as ModalTabId)}
+                    style={{
+                      padding: '0.85rem 1.25rem',
+                      border: 'none',
+                      borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
+                      backgroundColor: 'transparent',
+                      color: isActive ? palette.accent : palette.textSecondary,
+                      fontWeight: isActive ? 700 : 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      fontSize: '0.95rem',
+                      whiteSpace: 'nowrap',
+                      position: 'relative',
+                      minWidth: '120px',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = palette.textPrimary;
+                        e.currentTarget.style.backgroundColor = palette.surface;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.color = palette.textSecondary;
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                      }
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 2 }}>
+            {modalTab === 'feedback' && (
+              <div>
+                <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                  Review entries and aggregated reputation summary for this agent.
+                </p>
+                {feedbackLoading && (
+                  <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                    Loading reviews...
+                  </p>
+                )}
+                {feedbackError && (
+                  <p style={{ color: palette.dangerText, marginTop: 0, marginBottom: '1rem' }}>
+                    {feedbackError}
+                  </p>
+                )}
+                {(feedbackSummary || feedbackCount !== null || agent.feedbackAverageScore !== null) && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '1rem',
+                      flexWrap: 'wrap',
+                      fontSize: '0.9rem',
+                      marginBottom: '1rem',
+                      padding: '0.75rem',
+                      backgroundColor: palette.surfaceMuted,
+                      borderRadius: '8px',
+                    }}
+                  >
+                    <span>
+                      <strong>Review count:</strong>{' '}
+                      {feedbackCount !== null ? feedbackCount : (feedbackSummary?.count ?? '0')}
+                    </span>
+                    <span>
+                      <strong>Average score:</strong>{' '}
+                      {typeof agent.feedbackAverageScore === 'number'
+                        ? agent.feedbackAverageScore.toFixed(2)
+                        : typeof feedbackSummary?.averageScore === 'number'
+                          ? feedbackSummary.averageScore.toFixed(2)
+                          : 'N/A'}
+                    </span>
+                  </div>
+                )}
+                <div
+                  style={{
+                    border: `1px solid ${palette.border}`,
+                    borderRadius: '12px',
+                    padding: '1rem',
+                    maxHeight: 500,
+                    overflow: 'auto',
+                    backgroundColor: palette.surfaceMuted,
+                  }}
+                >
+                  {feedbackList.length === 0 ? (
+                    <p style={{ color: palette.textSecondary, margin: 0 }}>
+                      No reviews found for this agent.
+                    </p>
+                  ) : (
+                    <ul
+                      style={{
+                        listStyle: 'none',
+                        padding: 0,
+                        margin: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.75rem',
+                      }}
+                    >
+                      {feedbackList.map((item, idx) => {
+                        const record = item as any;
+                        return (
+                          <li
+                            key={record.id ?? record.index ?? idx}
+                            style={{
+                              border: `1px solid ${palette.border}`,
+                              borderRadius: '10px',
+                              padding: '0.75rem',
+                              backgroundColor: palette.surface,
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '0.5rem',
+                              }}
+                            >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                                <span style={{ color: palette.textPrimary, fontWeight: 600 }}>
+                                  Score: {record.score ?? record.rating ?? '—'}
+                                </span>
+                                <span style={{ color: palette.textSecondary, fontSize: '0.85rem' }}>
+                                  {formatRelativeTime(record.timestamp ?? null)}
+                                </span>
+                              </div>
+                              {typeof record.comment === 'string' && record.comment.trim() && (
+                                <div style={{ color: palette.textPrimary }}>{record.comment}</div>
+                              )}
+                              {record.feedbackUri && (
+                                <div style={{ fontFamily: 'monospace', fontSize: '0.85rem', color: palette.textSecondary }}>
+                                  <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Review URI:</strong>{' '}
+                                  {String(record.feedbackUri)}
+                                </div>
+                              )}
+                              {record.feedbackJson && (
+                                <details>
+                                  <summary style={{ cursor: 'pointer', color: palette.textSecondary }}>
+                                    <strong style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Review JSON:</strong>
+                                  </summary>
+                                  <pre
+                                    style={{
+                                      margin: '0.5rem 0 0',
+                                      padding: '0.75rem',
+                                      borderRadius: '8px',
+                                      border: `1px solid ${palette.border}`,
+                                      backgroundColor: palette.surfaceMuted,
+                                      whiteSpace: 'pre-wrap',
+                                      wordBreak: 'break-word',
+                                      fontFamily: 'ui-monospace, monospace',
+                                      fontSize: '0.8rem',
+                                      color: palette.textPrimary,
+                                    }}
+                                  >
+                                    {formatJsonIfPossible(String(record.feedbackJson)) ?? String(record.feedbackJson)}
+                                  </pre>
+                                </details>
+                              )}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {modalTab === 'validation' && (
+              <div>
+                <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                  Pending and completed validations for this agent from the on-chain validation registry.
+                </p>
+                {validationsLoading && (
+                  <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                    Loading validations...
+                  </p>
+                )}
+                {validationsError && (
+                  <p style={{ color: palette.dangerText, marginTop: 0, marginBottom: '1rem' }}>
+                    {validationsError}
+                  </p>
+                )}
+                {!validations ? (
+                  <p style={{ color: palette.textSecondary, margin: 0 }}>
+                    Unable to load validation data.
+                  </p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: '1rem',
+                        flexWrap: 'wrap',
+                        fontSize: '0.9rem',
+                        padding: '0.75rem',
+                        backgroundColor: palette.surfaceMuted,
+                        borderRadius: '8px',
+                      }}
+                    >
+                      <span>
+                        <strong>Completed:</strong>{' '}
+                        {validationCompletedCount !== null ? validationCompletedCount : completedValidations.length}
+                      </span>
+                      <span>
+                        <strong>Pending:</strong>{' '}
+                        {validationPendingCount !== null ? validationPendingCount : pendingValidations.length}
+                      </span>
+                    </div>
+
+                    <div>
+                      <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>
+                        Completed validations
+                      </h4>
+                      {completedValidations.length === 0 ? (
+                        <p style={{ color: palette.textSecondary, margin: 0 }}>No completed validations.</p>
+                      ) : (
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          {completedValidations.slice(0, 50).map((item: any, idx: number) => (
+                            <li
+                              key={item.requestHash ?? item.id ?? idx}
+                              style={{
+                                border: `1px solid ${palette.border}`,
+                                borderRadius: '10px',
+                                padding: '0.75rem',
+                                backgroundColor: palette.surface,
+                              }}
+                            >
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {item.requestHash && (
+                                  <div>
+                                    <strong>Request Hash:</strong>{' '}
+                                    <code style={{ fontFamily: 'monospace' }}>{String(item.requestHash)}</code>
+                                  </div>
+                                )}
+                                {item.validatorAddress && (
+                                  <div>
+                                    <strong>Validator:</strong>{' '}
+                                    <code style={{ fontFamily: 'monospace' }}>{String(item.validatorAddress)}</code>
+                                  </div>
+                                )}
+                                {item.response !== undefined && (
+                                  <div>
+                                    <strong>Response:</strong> {String(item.response)}
+                                  </div>
+                                )}
+                                {item.timestamp && (
+                                  <div style={{ color: palette.textSecondary, fontSize: '0.85rem' }}>
+                                    {new Date(Number(item.timestamp) * 1000).toLocaleString()}
+                                  </div>
+                                )}
+                                {(item.requestJson || item.responseJson) && (
+                                  <details>
+                                    <summary style={{ cursor: 'pointer', color: palette.textSecondary }}>
+                                      JSON
+                                    </summary>
+                                    <pre
+                                      style={{
+                                        margin: '0.5rem 0 0',
+                                        padding: '0.75rem',
+                                        borderRadius: '8px',
+                                        border: `1px solid ${palette.border}`,
+                                        backgroundColor: palette.surfaceMuted,
+                                        whiteSpace: 'pre-wrap',
+                                        wordBreak: 'break-word',
+                                        fontFamily: 'ui-monospace, monospace',
+                                        fontSize: '0.8rem',
+                                        color: palette.textPrimary,
+                                      }}
+                                    >
+                                      {formatJsonIfPossible(String(item.responseJson ?? item.requestJson)) ??
+                                        String(item.responseJson ?? item.requestJson)}
+                                    </pre>
+                                  </details>
+                                )}
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div>
+                      <h4 style={{ margin: '0 0 0.5rem', fontSize: '0.95rem' }}>
+                        Pending validations
+                      </h4>
+                      {pendingValidations.length === 0 ? (
+                        <p style={{ color: palette.textSecondary, margin: 0 }}>No pending validations.</p>
+                      ) : (
+                        <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                          {pendingValidations.slice(0, 50).map((item: any, idx: number) => (
+                            <li
+                              key={item.requestHash ?? item.id ?? idx}
+                              style={{
+                                border: `1px solid ${palette.border}`,
+                                borderRadius: '10px',
+                                padding: '0.75rem',
+                                backgroundColor: palette.surface,
+                              }}
+                            >
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {item.requestHash && (
+                                  <div>
+                                    <strong>Request Hash:</strong>{' '}
+                                    <code style={{ fontFamily: 'monospace' }}>{String(item.requestHash)}</code>
+                                  </div>
+                                )}
+                                {item.validatorAddress && (
+                                  <div>
+                                    <strong>Validator:</strong>{' '}
+                                    <code style={{ fontFamily: 'monospace' }}>{String(item.validatorAddress)}</code>
+                                  </div>
+                                )}
+                                <div style={{ color: palette.textSecondary }}>
+                                  <strong>Status:</strong> Awaiting response
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {modalTab === 'associations' && (
+              <div>
+                <p style={{ color: palette.textSecondary, marginTop: 0, marginBottom: '1rem' }}>
+                  Relationships associated with this agent's smart account ({agent.agentAccount ? shorten(agent.agentAccount) : '—'})
+                </p>
+                {(initiatedAssociationCount !== null || approvedAssociationCount !== null) && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '1rem',
+                      flexWrap: 'wrap',
+                      fontSize: '0.9rem',
+                      marginBottom: '1rem',
+                      padding: '0.75rem',
+                      backgroundColor: palette.surfaceMuted,
+                      borderRadius: '8px',
+                    }}
+                  >
+                    {initiatedAssociationCount !== null && (
+                      <span>
+                        <strong>Initiated:</strong> {initiatedAssociationCount}
+                      </span>
+                    )}
+                    {approvedAssociationCount !== null && (
+                      <span>
+                        <strong>Approved:</strong> {approvedAssociationCount}
+                      </span>
+                    )}
+                    {totalAssociationCount > 0 && (
+                      <span>
+                        <strong>Total:</strong> {totalAssociationCount}
+                      </span>
+                    )}
+                  </div>
+                )}
+                {!agent.agentAccount ? (
+                  <p style={{ color: palette.textSecondary, margin: 0 }}>No agent account address available.</p>
+                ) : associationsLoading ? (
+                  <p style={{ color: palette.textSecondary, margin: 0 }}>Loading relationships...</p>
+                ) : associationsData?.ok === false ? (
+                  <div
+                    style={{
+                      borderRadius: '8px',
+                      border: `1px solid ${palette.dangerText}`,
+                      backgroundColor: `${palette.dangerText}20`,
+                      padding: '0.75rem',
+                      color: palette.dangerText,
+                      fontSize: '0.9rem',
+                    }}
+                  >
+                    {associationsData.error}
+                  </div>
+                ) : associationsData?.ok === true && associationsData.associations.length === 0 ? (
+                  <p style={{ color: palette.textSecondary, margin: 0 }}>No relationships found for this account.</p>
+                ) : associationsData?.ok === true ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                    {associationsData.associations.slice(0, 100).map((assoc, index) => {
+                      const active = assoc.revokedAt === 0;
+                      const decoded =
+                        assoc.record?.data && assoc.record.data.startsWith('0x')
+                          ? decodeAssociationData(assoc.record.data as `0x${string}`)
+                          : null;
+                      const assocTypeLabel =
+                        decoded
+                          ? ASSOC_TYPE_OPTIONS.find((o) => o.value === decoded.assocType)?.label ??
+                            `Type ${decoded.assocType}`
+                          : null;
+
+                      return (
+                        <div
+                          key={`${assoc.associationId}-${index}`}
+                          style={{
+                            border: `1px solid ${palette.border}`,
+                            borderRadius: '10px',
+                            padding: '0.75rem',
+                            backgroundColor: palette.surface,
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', marginBottom: '0.5rem' }}>
+                            <div style={{ color: palette.textSecondary, fontWeight: 700 }}>#{index + 1}</div>
+                            <div
+                              style={{
+                                borderRadius: '6px',
+                                padding: '0.25rem 0.75rem',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                backgroundColor: active ? `${palette.accent}20` : `${palette.dangerText}20`,
+                                color: active ? palette.accent : palette.dangerText,
+                              }}
+                            >
+                              {active ? 'Active' : 'Revoked'}
+                            </div>
+                          </div>
+                          {assocTypeLabel && (
+                            <div style={{ marginBottom: '0.5rem', color: palette.textPrimary }}>
+                              <strong>Type:</strong> {assocTypeLabel}
+                            </div>
+                          )}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.5rem', fontSize: '0.85rem' }}>
+                            <div>
+                              <strong>Initiator:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace' }}>{String(assoc.initiator ?? assoc.initiatorAddress ?? '—')}</code>
+                            </div>
+                            <div>
+                              <strong>Approver:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace' }}>{String(assoc.approver ?? assoc.approverAddress ?? '—')}</code>
+                            </div>
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <strong>Counterparty:</strong>{' '}
+                              <code style={{ fontFamily: 'monospace' }}>{String(assoc.counterparty ?? assoc.counterpartyAddress ?? '—')}</code>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p style={{ color: palette.textSecondary, margin: 0 }}>Unable to load relationships.</p>
+                )}
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </ContainerTag>
   );
 };
 

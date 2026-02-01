@@ -180,8 +180,8 @@ export async function discoverAgents(
         createdAtBlock: numeric(raw?.createdAtBlock, 0) ?? 0,
         updatedAtTime: numeric(raw?.updatedAtTime, null),
         type: stringOrNull(raw?.type) ?? undefined,
-        description: stringOrNull(raw?.description) ?? undefined,
-        image: stringOrNull(raw?.image) ?? undefined,
+        description: stringOrNull((raw as any)?.agentDescription) ?? undefined,
+        image: stringOrNull((raw as any)?.agentImage) ?? undefined,
         a2aEndpoint: stringOrNull(raw?.a2aEndpoint) ?? undefined,
         mcpEndpoint: mcpEndpoint, // Add extracted MCP endpoint
         supportedTrust: stringOrNull(raw?.supportedTrust) ?? undefined,

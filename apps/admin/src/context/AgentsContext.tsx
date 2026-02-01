@@ -24,7 +24,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   chainId: 'all',
   address: '',
   name: '',
-  agentId: '',
+  agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
   protocol: 'all',

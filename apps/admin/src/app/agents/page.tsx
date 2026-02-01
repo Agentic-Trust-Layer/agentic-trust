@@ -25,7 +25,7 @@ type DiscoverParams = {
   chains?: number[];
   agentAccount?: Address;
   agentName?: string;
-  agentId?: string;
+  agentIdentifierMatch?: string;
   a2a?: boolean;
   mcp?: boolean;
   minFeedbackCount?: number;
@@ -43,7 +43,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   chainId: 'all',
   address: '',
   name: '',
-  agentId: '',
+  agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
   protocol: 'all',
@@ -144,8 +144,8 @@ export default function AgentsRoute() {
     if ((source?.name || '').trim()) {
       params.agentName = (source.name || '').trim();
     }
-    if ((source?.agentId || '').trim()) {
-      params.agentId = (source.agentId || '').trim();
+    if ((source?.agentIdentifierMatch || '').trim()) {
+      params.agentIdentifierMatch = (source.agentIdentifierMatch || '').trim();
     }
     if (source?.protocol === 'a2a') {
       params.a2a = true;
@@ -305,7 +305,7 @@ export default function AgentsRoute() {
       chainId: 'all',
       address: '',
       name: '',
-      agentId: '',
+      agentIdentifierMatch: '',
       mineOnly: false,
       only8004Agents: false,
       protocol: 'all',

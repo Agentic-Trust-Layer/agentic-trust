@@ -65,6 +65,8 @@ type KbAgentsResponse = {
       did8004?: string | null;
       agentId8004?: number | null;
       agentName?: string | null;
+      agentDescription?: string | null;
+      agentImage?: string | null;
       createdAtTime?: number | null;
       createdAtBlock?: number | null;
       updatedAtTime?: number | null;
@@ -102,11 +104,11 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
     if (Number.isFinite(v)) where.chainId = Math.floor(v);
   }
 
-  // agentId => agentId8004 (requires chainId for unambiguous mapping)
-  const agentIdRaw = typeof (params as any).agentId === 'string' ? (params as any).agentId.trim() : '';
-  if (agentIdRaw && typeof where.chainId === 'number') {
-    const n = Number(agentIdRaw);
-    if (Number.isFinite(n)) where.agentId8004 = Math.floor(n);
+  // agentIdentifierMatch => KB-native matching (preferred over agentId8004)
+  const agentIdentifierMatchRaw =
+    typeof (params as any).agentIdentifierMatch === 'string' ? (params as any).agentIdentifierMatch.trim() : '';
+  if (agentIdentifierMatchRaw) {
+    where.agentIdentifierMatch = agentIdentifierMatchRaw;
   }
 
   // agentName => agentName_contains
@@ -133,6 +135,10 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   const orderBy = 'agentId8004';
   const orderDirection = 'DESC';
 
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[AgenticTrust][Search][KB] where:', JSON.stringify(where, null, 2));
+  }
+
   const query = `
     query SearchKbAgents($where: KbAgentWhereInput, $first: Int, $skip: Int, $orderBy: KbAgentOrderBy, $orderDirection: OrderDirection) {
       kbAgents(where: $where, first: $first, skip: $skip, orderBy: $orderBy, orderDirection: $orderDirection) {
@@ -143,6 +149,8 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
           did8004
           agentId8004
           agentName
+          agentDescription
+          agentImage
           createdAtTime
           createdAtBlock
           updatedAtTime
@@ -151,6 +159,17 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
       }
     }
   `;
+
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[AgenticTrust][Search][KB] endpoint:', endpoint);
+    console.log('[AgenticTrust][Search][KB] variables:', JSON.stringify({
+      where: Object.keys(where).length ? where : undefined,
+      first: pageSize,
+      skip,
+      orderBy,
+      orderDirection,
+    }, null, 2));
+  }
 
   const res = await fetch(endpoint, {
     method: 'POST',
@@ -204,6 +223,8 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
       agentAccount: '',
       agentIdentityOwnerAccount: '',
       agentName: typeof a?.agentName === 'string' ? a.agentName : null,
+      description: typeof a?.agentDescription === 'string' ? a.agentDescription : null,
+      image: typeof a?.agentImage === 'string' ? a.agentImage : null,
       didIdentity: did8004 || null,
       createdAtBlock: typeof a?.createdAtBlock === 'number' ? a.createdAtBlock : 0,
       updatedAtTime: typeof a?.updatedAtTime === 'number' ? a.updatedAtTime : null,

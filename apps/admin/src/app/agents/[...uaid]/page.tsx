@@ -34,9 +34,8 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
 
   const chainId = typeof detail?.chainId === 'number' ? detail.chainId : 0;
 
-  // Access image from agent data - try multiple paths
-  const agentImage = (detail as any).image ?? ((detail as any).data?.image) ?? null;
-  const agentUriFromAgent = (detail as any).agentUri ?? ((detail as any).data?.agentUri) ?? null;
+  const agentImage = typeof (detail as any)?.image === 'string' ? (detail as any).image : null;
+  const agentUriFromAgent = typeof (detail as any)?.agentUri === 'string' ? (detail as any).agentUri : null;
 
   const safeParseJson = (raw: unknown): any | null => {
     if (typeof raw !== 'string' || !raw.trim()) return null;
@@ -78,30 +77,23 @@ export default async function AgentDetailsPage({ params }: DetailsPageParams) {
     chainId,
     uaid: (detail as any).uaid ?? uaid,
     agentName: detail.agentName ?? null,
-    agentAccount:
-      (detail as any).agentAccount ??
-      (detail as any).account ??
-      (detail as any).owner ??
-      (detail as any).data?.agentAccount ??
-      (detail as any).data?.account ??
-      (detail as any).data?.owner ??
-      null,
+    agentAccount: typeof (detail as any)?.agentAccount === 'string' ? (detail as any).agentAccount : null,
     agentIdentityOwnerAccount:
-      (detail as any).agentIdentityOwnerAccount ?? (detail as any)?.data?.agentIdentityOwnerAccount ?? null,
+      typeof (detail as any)?.agentIdentityOwnerAccount === 'string' ? (detail as any).agentIdentityOwnerAccount : null,
     eoaAgentIdentityOwnerAccount:
-      (detail as any).eoaAgentIdentityOwnerAccount ?? (detail as any)?.data?.eoaAgentIdentityOwnerAccount ?? null,
-    eoaAgentAccount: (detail as any).eoaAgentAccount ?? (detail as any)?.data?.eoaAgentAccount ?? null,
-    identityOwnerAccount: (detail as any).identityOwnerAccount ?? (detail as any)?.data?.identityOwnerAccount ?? null,
-    identityWalletAccount: (detail as any).identityWalletAccount ?? (detail as any)?.data?.identityWalletAccount ?? null,
+      (detail as any).eoaAgentIdentityOwnerAccount ?? null,
+    eoaAgentAccount: (detail as any).eoaAgentAccount ?? null,
+    identityOwnerAccount: (detail as any).identityOwnerAccount ?? null,
+    identityWalletAccount: (detail as any).identityWalletAccount ?? null,
     identityOperatorAccount:
-      (detail as any).identityOperatorAccount ?? (detail as any)?.data?.identityOperatorAccount ?? null,
-    agentOwnerAccount: (detail as any).agentOwnerAccount ?? (detail as any)?.data?.agentOwnerAccount ?? null,
-    agentWalletAccount: (detail as any).agentWalletAccount ?? (detail as any)?.data?.agentWalletAccount ?? null,
-    agentOperatorAccount: (detail as any).agentOperatorAccount ?? (detail as any)?.data?.agentOperatorAccount ?? null,
-    agentOwnerEOAAccount: (detail as any).agentOwnerEOAAccount ?? (detail as any)?.data?.agentOwnerEOAAccount ?? null,
-    smartAgentAccount: (detail as any).smartAgentAccount ?? (detail as any)?.data?.smartAgentAccount ?? null,
+      (detail as any).identityOperatorAccount ?? null,
+    agentOwnerAccount: (detail as any).agentOwnerAccount ?? null,
+    agentWalletAccount: (detail as any).agentWalletAccount ?? null,
+    agentOperatorAccount: (detail as any).agentOperatorAccount ?? null,
+    agentOwnerEOAAccount: (detail as any).agentOwnerEOAAccount ?? null,
+    smartAgentAccount: (detail as any).smartAgentAccount ?? null,
     agentUri: agentUriFromAgent ?? null,
-    description: (detail as any).description ?? null,
+    description: typeof (detail as any)?.description === 'string' ? (detail as any).description : null,
     image: agentImage ?? null,
     contractAddress: (detail as any).contractAddress ?? null,
     a2aEndpoint: (detail as any).a2aEndpoint ?? null,

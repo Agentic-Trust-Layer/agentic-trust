@@ -82,6 +82,9 @@ export type KbProtocolDescriptor = {
   iri: string;
   protocol: string;
   serviceUrl: string;
+  name?: string | null;
+  description?: string | null;
+  image?: string | null;
   protocolVersion?: string | null;
   json?: string | null;
   skills: string[];
@@ -91,6 +94,9 @@ export type KbProtocolDescriptor = {
 export type KbIdentityDescriptor = {
   iri: string;
   kind: string;
+  name?: string | null;
+  description?: string | null;
+  image?: string | null;
   json?: string | null;
   onchainMetadataJson?: string | null;
   registeredBy?: string | null;
@@ -121,10 +127,20 @@ export type KbAssertionsSummary = {
   total?: number | null;
 };
 
+export type KbAgentDescriptor = {
+  iri: string;
+  name?: string | null;
+  description?: string | null;
+  image?: string | null;
+};
+
 export type KbAgent = {
   iri: string;
   uaid?: string | null;
   agentName?: string | null;
+  agentDescription?: string | null;
+  agentImage?: string | null;
+  agentDescriptor?: KbAgentDescriptor | null;
   agentTypes: string[];
   did8004?: string | null;
   agentId8004?: number | null;
@@ -871,6 +887,18 @@ export class AIAgentDiscoveryClient {
           ? a.uaid.trim()
           : null,
       agentName: typeof a.agentName === 'string' ? a.agentName : undefined,
+      description:
+        typeof a.agentDescription === 'string'
+          ? a.agentDescription
+          : typeof a.agentDescriptor?.description === 'string'
+            ? a.agentDescriptor.description
+            : undefined,
+      image:
+        typeof a.agentImage === 'string'
+          ? a.agentImage
+          : typeof a.agentDescriptor?.image === 'string'
+            ? a.agentDescriptor.image
+            : undefined,
       chainId: chainId ?? undefined,
       createdAtBlock: typeof a.createdAtBlock === 'number' ? a.createdAtBlock : undefined,
       createdAtTime:
@@ -935,6 +963,9 @@ export class AIAgentDiscoveryClient {
       iri
       uaid
       agentName
+      agentDescription
+      agentImage
+      agentDescriptor { iri name description image }
       agentTypes
       did8004
       agentId8004
@@ -962,6 +993,9 @@ export class AIAgentDiscoveryClient {
             iri
             protocol
             serviceUrl
+            name
+            description
+            image
             protocolVersion
             json
             skills
@@ -986,6 +1020,9 @@ export class AIAgentDiscoveryClient {
             iri
             protocol
             serviceUrl
+            name
+            description
+            image
             protocolVersion
             json
             skills
@@ -2253,7 +2290,10 @@ export class AIAgentDiscoveryClient {
           : undefined;
     if (typeof agentIdCandidate === 'string' || typeof agentIdCandidate === 'number') {
       const n = Number(agentIdCandidate);
-      if (Number.isFinite(n)) kbWhere.agentId8004 = Math.floor(n);
+      if (Number.isFinite(n)) {
+        // KB v2 prefers a string matcher instead of numeric agentId8004.
+        kbWhere.agentIdentifierMatch = String(Math.floor(n));
+      }
     }
 
     // did: v1 can provide did/didIdentity or did_contains_nocase.

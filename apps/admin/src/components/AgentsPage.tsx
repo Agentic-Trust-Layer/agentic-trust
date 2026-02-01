@@ -93,7 +93,7 @@ export type AgentsPageFilters = {
   chainId: string;
   address: string;
   name: string;
-  agentId: string;
+  agentIdentifierMatch: string;
   mineOnly: boolean;
   only8004Agents: boolean;
   protocol: 'all' | 'a2a' | 'mcp';
@@ -168,7 +168,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   chainId: 'all',
   address: '',
   name: '',
-  agentId: '',
+  agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
   protocol: 'all',
@@ -368,6 +368,19 @@ export function AgentsPage({
   const [isMobile, setIsMobile] = useState(false);
   const [singleQuery, setSingleQuery] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+
+  const buildSingleQueryFilters = useCallback(() => {
+    const q = String(singleQuery || '').trim();
+    if (!q) {
+      return { ...filters, name: '', agentIdentifierMatch: '' };
+    }
+    const agentIdMatch =
+      /^#?\s*(\d+)\s*$/.exec(q) || /^agent\s*#?\s*(\d+)\s*$/i.exec(q);
+    if (agentIdMatch) {
+      return { ...filters, agentIdentifierMatch: agentIdMatch[1], name: '' };
+    }
+    return { ...filters, name: q, agentIdentifierMatch: '' };
+  }, [singleQuery, filters]);
 
   useEffect(() => {
     const updateColumns = () => {
@@ -2899,7 +2912,7 @@ export function AgentsPage({
                 onKeyDown={event => {
                   if (event.key === 'Enter') {
                     event.preventDefault();
-                    onSearch({ ...filters, name: singleQuery });
+                    onSearch(buildSingleQueryFilters());
                   }
                 }}
                 placeholder={isMobile ? 'Search by name' : 'Search by name or ID'}
@@ -2917,7 +2930,7 @@ export function AgentsPage({
             </div>
             <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button
-                onClick={() => onSearch({ ...filters, name: singleQuery })}
+                onClick={() => onSearch(buildSingleQueryFilters())}
                 disabled={loading}
                 style={{
                   padding: '0.75rem 1.5rem',
@@ -3024,8 +3037,8 @@ export function AgentsPage({
               />
 
               <input
-                value={filters.agentId}
-                onChange={event => onFilterChange('agentId', event.target.value)}
+                value={filters.agentIdentifierMatch}
+                onChange={event => onFilterChange('agentIdentifierMatch', event.target.value)}
                 onKeyDown={event => {
                   if (event.key === 'Enter') {
                     event.preventDefault();
