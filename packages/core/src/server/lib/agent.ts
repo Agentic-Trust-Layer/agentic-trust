@@ -957,8 +957,7 @@ function firstNonEmptyString(...values: Array<unknown>): string | undefined {
 
 export async function loadAgentDetail(
   client: AgenticTrustClient,
-  agentIdentifier: AgentIdentifier,
-  chainId: number = DEFAULT_CHAIN_ID,
+  uaid: string,
   options?: {
     /**
      * If true, allow fetching the registration JSON from IPFS/tokenUri.
@@ -967,56 +966,44 @@ export async function loadAgentDetail(
     includeRegistration?: boolean;
   },
 ): Promise<AgentDetail> {
-  const isDid =
-    typeof agentIdentifier === 'string' && agentIdentifier.trim().startsWith('did:8004:');
+  const trimmedUaid = String(uaid ?? '').trim();
+  if (!trimmedUaid || !trimmedUaid.startsWith('uaid:')) {
+    throw new Error(`loadAgentDetail requires a valid UAID (got: ${trimmedUaid})`);
+  }
 
-  let resolvedChainId = chainId;
+  // Parse UAID to extract chainId/agentId/did8004 for on-chain operations.
+  const { parseHcs14UaidDidTarget } = await import('../lib/uaid');
+  const parsed = parseHcs14UaidDidTarget(trimmedUaid);
+  const targetDid = parsed.targetDid;
+
+  let resolvedChainId: number;
   let agentId: string;
   let agentIdBigInt: bigint;
   let did8004: string | undefined;
 
-  if (isDid) {
-    did8004 = decodeURIComponent((agentIdentifier as string).trim());
-    const parsed = parseDid8004(did8004);
-    resolvedChainId = parsed.chainId;
-    agentId = parsed.agentId;
+  if (targetDid.startsWith('did:8004:')) {
+    did8004 = targetDid;
+    const parsedDid = parseDid8004(did8004);
+    resolvedChainId = parsedDid.chainId;
+    agentId = parsedDid.agentId;
     try {
       agentIdBigInt = BigInt(agentId);
     } catch {
-      throw new Error(`Invalid agentId in did:8004 identifier: ${did8004}`);
+      throw new Error(`Invalid agentId in did:8004 from UAID: ${did8004}`);
     }
   } else {
-    const agentIdInput = agentIdentifier;
-    agentIdBigInt =
-      typeof agentIdInput === 'bigint'
-        ? agentIdInput
-        : (() => {
-            try {
-              return BigInt(agentIdInput);
-            } catch {
-              throw new Error(`Invalid agentId: ${agentIdInput}`);
-            }
-          })();
-    agentId = agentIdBigInt.toString();
+    // Non-did:8004 UAID (e.g. did:ethr, did:web): no on-chain operations.
+    // Use discovery-only; chainId/agentId might not be available.
+    // For now throw - the user wants UAID-only, so we need a valid did:8004 target for on-chain.
+    throw new Error(`loadAgentDetail requires UAID with did:8004 target for on-chain operations (got: ${targetDid})`);
   }
 
   const identityClient = await getIdentityRegistryClient(resolvedChainId);
-
-  // Load discovery row (KB) first; useful regardless of on-chain availability.
   let discovery: Record<string, unknown> | null = null;
   try {
     const agentsApi = client.agents as any;
-    if (did8004 && typeof agentsApi.getAgentFromDiscoveryByDid === 'function') {
-      discovery = (await agentsApi.getAgentFromDiscoveryByDid(
-        did8004,
-      )) as unknown as Record<string, unknown> | null;
-    } else if (typeof agentsApi.getAgentFromDiscovery === 'function') {
-      discovery = (await agentsApi.getAgentFromDiscovery(
-        resolvedChainId,
-        agentId,
-      )) as unknown as Record<string, unknown> | null;
-    } else {
-      discovery = null;
+    if (typeof agentsApi.getAgentFromDiscoveryByUaid === 'function') {
+      discovery = (await agentsApi.getAgentFromDiscoveryByUaid(uaid)) as unknown as Record<string, unknown> | null;
     }
   } catch (error) {
     // Check if this is an access code error and provide a clearer message
@@ -1052,45 +1039,12 @@ export async function loadAgentDetail(
     }
   })();
 
-  // Fetch metadata from GraphQL indexer using agentMetadata_collection query
-  // This query is specifically designed to fetch ALL metadata entries with pagination
-  // The metadata field on Agent type may be limited, so we use agentMetadata_collection
+  // Metadata: use discovery row (UAID-only) when present; else on-chain.
   let metadata: Record<string, string> = {};
-  try {
-    const discoveryClient = await getDiscoveryClient();
-    
-    // Always use getAllAgentMetadata first - it uses agentMetadata_collection which fetches ALL metadata
-    // with proper pagination support
-    const graphQLMetadata = await discoveryClient.getAllAgentMetadata(resolvedChainId, agentId);
-    if (graphQLMetadata && Object.keys(graphQLMetadata).length > 0) {
-      metadata = graphQLMetadata;
-      console.log('[loadAgentDetail] Got metadata from getAllAgentMetadata (agentMetadata_collection):', Object.keys(metadata).length, 'keys');
-    } else {
-      // Fallback: try getAgent which includes metadata field (may be limited)
-      console.log('[loadAgentDetail] getAllAgentMetadata returned no data, trying getAgent with metadata field');
-      const agentWithMetadata = await discoveryClient.getAgent(resolvedChainId, agentId);
-      if (agentWithMetadata) {
-        const metadataProp = (agentWithMetadata as any).metadata;
-        if (metadataProp && typeof metadataProp === 'object' && Object.keys(metadataProp).length > 0) {
-          metadata = metadataProp as Record<string, string>;
-          console.log('[loadAgentDetail] Got metadata from getAgent (searchAgentsGraph):', Object.keys(metadata).length, 'keys');
-        }
-      }
-      
-      if (Object.keys(metadata).length === 0) {
-        // Fallback: on-chain getAllMetadata
-        try {
-          const onChainMetadata = await (identityClient as any).getAllMetadata?.(agentIdBigInt);
-          if (onChainMetadata && typeof onChainMetadata === 'object' && Object.keys(onChainMetadata).length > 0) {
-            metadata = onChainMetadata as Record<string, string>;
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-  } catch (error) {
-    // Fallback to on-chain getAllMetadata when GraphQL fails
+  if (discovery && typeof (discovery as any).metadata === 'object' && Object.keys((discovery as any).metadata).length > 0) {
+    metadata = (discovery as any).metadata as Record<string, string>;
+  }
+  if (Object.keys(metadata).length === 0) {
     try {
       const onChainMetadata = await (identityClient as any).getAllMetadata?.(agentIdBigInt);
       if (onChainMetadata && typeof onChainMetadata === 'object' && Object.keys(onChainMetadata).length > 0) {

@@ -210,7 +210,7 @@ export declare class Agent {
      */
     getNFTOperator(chainId?: number): Promise<`0x${string}` | null>;
 }
-export declare function loadAgentDetail(client: AgenticTrustClient, agentIdentifier: AgentIdentifier, chainId?: number, options?: {
+export declare function loadAgentDetail(client: AgenticTrustClient, uaid: string, options?: {
     /**
      * If true, allow fetching the registration JSON from IPFS/tokenUri.
      * Defaults to false to avoid UI hangs and unintended gateway dependency.

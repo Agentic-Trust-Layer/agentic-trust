@@ -112,11 +112,11 @@ export declare class AgentsAPI {
      * to the top-level AgenticTrustClient.getAgentDetails helper.
      */
     getAgentDetails(agentId: string, chainId?: number): Promise<AgentDetail>;
-    /**
-     * Get raw agent data from discovery (for internal use)
-     * Returns the raw AgentData from the discovery indexer
-     */
+    /** Discovery is UAID-only. Get raw agent data from discovery by UAID. */
+    getAgentFromDiscoveryByUaid(uaid: string): Promise<AgentData | null>;
+    /** Builds UAID from chainId+agentId and calls getAgentFromDiscoveryByUaid. */
     getAgentFromDiscovery(chainId: number, agentId: string): Promise<AgentData | null>;
+    /** Builds UAID from did8004 and calls getAgentFromDiscoveryByUaid. */
     getAgentFromDiscoveryByDid(did8004: string): Promise<AgentData | null>;
     /**
      * Refresh/Index an agent in the GraphQL indexer

@@ -166,13 +166,13 @@ export interface SearchValidationRequestsAdvancedOptions {
     orderBy?: string;
     orderDirection?: 'ASC' | 'DESC';
 }
-export interface FeedbackData {
+export interface ReviewData {
     id?: string;
     agentId?: string | number;
     clientAddress?: string;
     score?: number;
     feedbackUri?: string;
-    feedbackJson?: string;
+    reviewJson?: string;
     comment?: string;
     ratingPct?: number;
     txHash?: string;
@@ -182,9 +182,18 @@ export interface FeedbackData {
     responseCount?: number;
     [key: string]: unknown;
 }
+export type FeedbackData = ReviewData;
+export interface SearchReviewsAdvancedOptions {
+    uaid: string;
+    limit?: number;
+    offset?: number;
+    orderBy?: string;
+    orderDirection?: 'ASC' | 'DESC';
+}
 export interface SearchFeedbackAdvancedOptions {
-    chainId: number;
-    agentId: string | number;
+    uaid?: string;
+    chainId?: number;
+    agentId?: string | number;
     limit?: number;
     offset?: number;
     orderBy?: string;
@@ -361,13 +370,19 @@ export declare class AIAgentDiscoveryClient {
      */
     refreshAgent(agentId: string | number, chainId?: number, apiKey?: string): Promise<RefreshAgentResponse['indexAgent']>;
     /**
-     * Search validation requests for an agent using GraphQL
+     * Search validation requests for an agent by UAID (GraphQL kbAgentByUaid + validationAssertions)
      */
     searchValidationRequestsAdvanced(options: SearchValidationRequestsAdvancedOptions): Promise<{
         validationRequests: ValidationRequestData[];
     } | null>;
     /**
-     * Search feedback for an agent using GraphQL
+     * Search reviews for an agent by UAID (GraphQL kbAgentByUaid + reviewAssertions)
+     */
+    searchReviewsAdvanced(options: SearchReviewsAdvancedOptions): Promise<{
+        reviews: ReviewData[];
+    } | null>;
+    /**
+     * Search feedback/reviews (UAID or legacy chainId+agentId). Prefer searchReviewsAdvanced(uaid).
      */
     searchFeedbackAdvanced(options: SearchFeedbackAdvancedOptions): Promise<{
         feedbacks: FeedbackData[];

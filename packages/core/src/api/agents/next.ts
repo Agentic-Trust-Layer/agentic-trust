@@ -406,17 +406,6 @@ export function getFeedbackRouteHandler(
   ) => {
     try {
       const agentIdentifier = extractAgentIdentifierParam(context.params || {});
-      const did8004 =
-        agentIdentifier.startsWith('uaid:')
-          ? await resolveUaidToDid8004(agentIdentifier)
-          : agentIdentifier;
-      if (!did8004 || !did8004.startsWith('did:8004:')) {
-        throw new AgentApiError(
-          'UAID does not resolve to did:8004; on-chain operation unavailable for this agent',
-          400,
-        );
-      }
-
       const url = new URL(req.url);
       const searchParams = url.searchParams;
 
@@ -429,7 +418,8 @@ export function getFeedbackRouteHandler(
 
       const ctx = createContext(req);
       const result = await getFeedbackCore(ctx, {
-        did8004,
+        uaid: agentIdentifier.startsWith('uaid:') ? agentIdentifier : undefined,
+        did8004: !agentIdentifier.startsWith('uaid:') ? agentIdentifier : undefined,
         includeRevoked,
         limit,
         offset,

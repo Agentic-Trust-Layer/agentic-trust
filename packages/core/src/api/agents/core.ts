@@ -835,7 +835,9 @@ function jsonSafeDeep(value: unknown): unknown {
 }
 
 export interface GetFeedbackInput {
-  did8004: string;
+  /** UAID (e.g. uaid:... or did:8004:chainId:agentId) or did8004 for backward compat */
+  uaid?: string;
+  did8004?: string;
   includeRevoked?: boolean;
   limit?: number;
   offset?: number;
@@ -850,22 +852,35 @@ export async function getFeedbackCore(
   ctx: AgentApiContext | undefined,
   input: GetFeedbackInput,
 ): Promise<GetFeedbackResult> {
-  if (!input.did8004?.trim()) {
-    throw new AgentApiError('did8004 parameter is required', 400);
+  const uaidInput = input.uaid?.trim();
+  const did8004Input = input.did8004?.trim();
+  if (!uaidInput && !did8004Input) {
+    throw new AgentApiError('uaid or did8004 is required', 400);
   }
 
-  const parsed = (() => {
+  let uaidResolved: string;
+  let parsed: { chainId: number; agentId: string } = { chainId: 0, agentId: '' };
+  if (uaidInput) {
+    uaidResolved = uaidInput.startsWith('uaid:') || uaidInput.startsWith('did:') ? uaidInput : `uaid:${uaidInput}`;
+    const didPart = uaidResolved.startsWith('did:8004:') ? uaidResolved : uaidResolved.replace(/^uaid:/, '');
+    if (didPart.startsWith('did:8004:')) {
+      try {
+        parsed = parseDid8004(didPart);
+      } catch {
+        // non-did:8004 uaid: no summary
+      }
+    }
+  } else {
     try {
-      return parseDid8004(input.did8004);
+      parsed = parseDid8004(did8004Input!);
     } catch (error) {
       throw new AgentApiError(
-        `Invalid did:8004 identifier: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        `Invalid did:8004: ${error instanceof Error ? error.message : 'Unknown error'}`,
         400,
       );
     }
-  })();
+    uaidResolved = `did:8004:${parsed.chainId}:${parsed.agentId}`;
+  }
 
   const includeRevoked = !!input.includeRevoked;
   const limit =
@@ -881,26 +896,23 @@ export async function getFeedbackCore(
 
   const [feedback, summary] = await Promise.all([
     client.getAgentFeedback({
-      agentId: parsed.agentId,
-      chainId: parsed.chainId,
+      uaid: uaidResolved,
       includeRevoked,
       limit,
       offset,
     }),
-    client
-      .getReputationSummary({
-        agentId: parsed.agentId,
-        chainId: parsed.chainId,
-      })
-      .catch((error: unknown) => {
-        // Preserve previous behavior: log and return null on summary failure
-        // eslint-disable-next-line no-console
-        console.warn(
-          '[AgenticTrust][Core] getReputationSummary failed:',
-          error,
-        );
-        return null;
-      }),
+    parsed.agentId
+      ? client
+          .getReputationSummary({
+            agentId: parsed.agentId,
+            chainId: parsed.chainId,
+          })
+          .catch((error: unknown) => {
+            // eslint-disable-next-line no-console
+            console.warn('[AgenticTrust][Core] getReputationSummary failed:', error);
+            return null;
+          })
+      : Promise.resolve(null),
   ]);
 
   return {

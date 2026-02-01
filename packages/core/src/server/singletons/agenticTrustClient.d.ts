@@ -360,11 +360,12 @@ export declare class AgenticTrustClient {
     getENSClient(): Promise<any>;
     getDiscoveryClient(): Promise<any>;
     /**
-     * Search validation requests for an agent using GraphQL
+     * Search validation requests for an agent by UAID (or chainId+agentId)
      */
     searchValidationRequestsAdvanced(params: {
-        chainId: number;
-        agentId: string | number;
+        uaid?: string;
+        chainId?: number;
+        agentId?: string | number;
         limit?: number;
         offset?: number;
         orderBy?: string;
@@ -373,11 +374,12 @@ export declare class AgenticTrustClient {
         validationRequests: Array<Record<string, unknown>>;
     } | null>;
     /**
-     * Search feedback for an agent using GraphQL
+     * Search feedback/reviews for an agent by UAID (or chainId+agentId)
      */
     searchFeedbackAdvanced(params: {
-        chainId: number;
-        agentId: string | number;
+        uaid?: string;
+        chainId?: number;
+        agentId?: string | number;
         limit?: number;
         offset?: number;
         orderBy?: string;

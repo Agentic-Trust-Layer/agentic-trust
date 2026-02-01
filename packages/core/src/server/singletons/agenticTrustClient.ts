@@ -334,7 +334,8 @@ export class AgenticTrustClient {
    * underlying indexer/contract schema.
    */
   async getAgentFeedback(params: {
-    agentId: string;
+    uaid?: string;
+    agentId?: string;
     chainId?: number;
     clientAddresses?: string[];
     tag1?: string;
@@ -344,6 +345,7 @@ export class AgenticTrustClient {
     offset?: number;
   }): Promise<unknown[]> {
     const {
+      uaid,
       agentId,
       chainId,
       clientAddresses,
@@ -354,238 +356,118 @@ export class AgenticTrustClient {
       offset,
     } = params;
 
-    const trimmed = (agentId ?? '').toString().trim();
-    if (!trimmed) {
-      throw new Error('agentId is required for getAgentFeedback');
+    let uaidResolved: string;
+    if (typeof uaid === 'string' && uaid.trim()) {
+      uaidResolved = uaid.trim();
+    } else if (
+      typeof chainId === 'number' &&
+      Number.isFinite(chainId) &&
+      (agentId ?? '').toString().trim()
+    ) {
+      const trimmed = (agentId ?? '').toString().trim();
+      try {
+        BigInt(trimmed);
+      } catch {
+        throw new Error(`Invalid agentId for getAgentFeedback: ${agentId}`);
+      }
+      const resolvedChainId = chainId > 0 ? chainId : DEFAULT_CHAIN_ID;
+      uaidResolved = `did:8004:${resolvedChainId}:${trimmed}`;
+    } else {
+      throw new Error('getAgentFeedback requires uaid or (chainId and agentId)');
     }
 
-    const resolvedChainId =
-      Number.isFinite(chainId ?? NaN) && (chainId ?? 0) > 0
-        ? (chainId as number)
-        : DEFAULT_CHAIN_ID;
-
-    let agentIdBigInt: bigint;
-    try {
-      agentIdBigInt = BigInt(trimmed);
-    } catch {
-      throw new Error(`Invalid agentId for getAgentFeedback: ${agentId}`);
-    }
-
-    // 1. Try discovery indexer feedback search first.
     const discoveryClient = await getDiscoveryClient();
     if (typeof (discoveryClient as any).searchFeedbackAdvanced !== 'function') {
       throw new Error('Discovery client does not expose searchFeedbackAdvanced()');
     }
 
     const res = await (discoveryClient as any).searchFeedbackAdvanced({
-      chainId: resolvedChainId,
-      agentId: trimmed,
+      uaid: uaidResolved,
       limit: typeof limit === 'number' ? limit : 100,
       offset: typeof offset === 'number' ? offset : 0,
       orderBy: 'timestamp',
       orderDirection: 'DESC',
     });
     const list = Array.isArray(res?.feedbacks) ? (res.feedbacks as unknown[]) : [];
-    if (list.length > 0) {
-      const normalize = (entry: any): any => {
-        const out: Record<string, any> =
-          entry && typeof entry === 'object' ? { ...(entry as any) } : { value: entry };
 
-        // Prefer a stable identifier for UI keys.
-        if (out.id == null && typeof out.iri === 'string') {
-          out.id = out.iri;
-        }
+    const normalize = (entry: any): any => {
+      const out: Record<string, any> =
+        entry && typeof entry === 'object' ? { ...(entry as any) } : { value: entry };
 
-        // Normalize score.
-        const scoreRaw = out.score;
-        const scoreNum =
-          typeof scoreRaw === 'number'
-            ? scoreRaw
-            : typeof scoreRaw === 'string' && scoreRaw.trim()
-              ? Number(scoreRaw)
+      // Prefer a stable identifier for UI keys.
+      if (out.id == null && typeof out.iri === 'string') {
+        out.id = out.iri;
+      }
+
+      // Normalize score.
+      const scoreRaw = out.score;
+      const scoreNum =
+        typeof scoreRaw === 'number'
+          ? scoreRaw
+          : typeof scoreRaw === 'string' && scoreRaw.trim()
+            ? Number(scoreRaw)
+            : NaN;
+
+      if (!Number.isFinite(scoreNum)) {
+        // Try ratingPct -> score (assume 0-100 maps to 0-5 stars).
+        const ratingPctRaw = out.ratingPct ?? out.rating_pct ?? out.ratingPercent ?? out.rating_percent;
+        const ratingPct =
+          typeof ratingPctRaw === 'number'
+            ? ratingPctRaw
+            : typeof ratingPctRaw === 'string' && ratingPctRaw.trim()
+              ? Number(ratingPctRaw)
               : NaN;
 
-        if (!Number.isFinite(scoreNum)) {
-          // Try ratingPct -> score (assume 0-100 maps to 0-5 stars).
-          const ratingPctRaw = out.ratingPct ?? out.rating_pct ?? out.ratingPercent ?? out.rating_percent;
-          const ratingPct =
-            typeof ratingPctRaw === 'number'
-              ? ratingPctRaw
-              : typeof ratingPctRaw === 'string' && ratingPctRaw.trim()
-                ? Number(ratingPctRaw)
-                : NaN;
-
-          if (Number.isFinite(ratingPct)) {
-            out.ratingPct = ratingPct;
-            out.score = ratingPct / 20;
-          } else {
-            // Try parse from feedbackJson (stringified JSON payload).
-            const feedbackJsonRaw = out.feedbackJson ?? out.feedback_json;
-            if (typeof feedbackJsonRaw === 'string' && feedbackJsonRaw.trim()) {
-              try {
-                const parsed = JSON.parse(feedbackJsonRaw) as any;
-                const nestedScore = parsed?.score ?? parsed?.rating ?? parsed?.value ?? parsed?.feedback?.score;
-                const nestedRatingPct = parsed?.ratingPct ?? parsed?.rating_pct ?? parsed?.ratingPercent;
-                const s =
-                  typeof nestedScore === 'number'
-                    ? nestedScore
-                    : typeof nestedScore === 'string' && nestedScore.trim()
-                      ? Number(nestedScore)
-                      : NaN;
-                const rp =
-                  typeof nestedRatingPct === 'number'
-                    ? nestedRatingPct
-                    : typeof nestedRatingPct === 'string' && nestedRatingPct.trim()
-                      ? Number(nestedRatingPct)
-                      : NaN;
-                if (Number.isFinite(rp)) {
-                  out.ratingPct = rp;
-                }
-                if (Number.isFinite(s)) {
-                  out.score = s;
-                } else if (Number.isFinite(rp)) {
-                  out.score = rp / 20;
-                }
-              } catch {
-                // ignore parse errors
+        if (Number.isFinite(ratingPct)) {
+          out.ratingPct = ratingPct;
+          out.score = ratingPct / 20;
+        } else {
+          // Try parse from feedbackJson (stringified JSON payload).
+          const feedbackJsonRaw = out.feedbackJson ?? out.feedback_json;
+          if (typeof feedbackJsonRaw === 'string' && feedbackJsonRaw.trim()) {
+            try {
+              const parsed = JSON.parse(feedbackJsonRaw) as any;
+              const nestedScore = parsed?.score ?? parsed?.rating ?? parsed?.value ?? parsed?.feedback?.score;
+              const nestedRatingPct = parsed?.ratingPct ?? parsed?.rating_pct ?? parsed?.ratingPercent;
+              const s =
+                typeof nestedScore === 'number'
+                  ? nestedScore
+                  : typeof nestedScore === 'string' && nestedScore.trim()
+                    ? Number(nestedScore)
+                    : NaN;
+              const rp =
+                typeof nestedRatingPct === 'number'
+                  ? nestedRatingPct
+                  : typeof nestedRatingPct === 'string' && nestedRatingPct.trim()
+                    ? Number(nestedRatingPct)
+                    : NaN;
+              if (Number.isFinite(rp)) {
+                out.ratingPct = rp;
               }
+              if (Number.isFinite(s)) {
+                out.score = s;
+              } else if (Number.isFinite(rp)) {
+                out.score = rp / 20;
+              }
+            } catch {
+              // ignore parse errors
             }
           }
-        } else {
-          out.score = scoreNum;
         }
-
-        // Normalize timestamp-ish values (best-effort).
-        const tRaw = out.timestamp;
-        if (typeof tRaw === 'string' && tRaw.trim() && Number.isFinite(Number(tRaw))) {
-          out.timestamp = Number(tRaw);
-        }
-
-        return out;
-      };
-
-      return list.map(normalize);
-    }
-
-    const reputationClient = await getReputationRegistryClient(resolvedChainId);
-
-    // 2. Fallback: on-chain ReputationRegistry readAllFeedback
-    try {
-      const raw = await (reputationClient as any).readAllFeedback(
-        agentIdBigInt,
-        clientAddresses,
-        tag1,
-        tag2,
-        includeRevoked,
-      );
-
-      const clients: string[] = raw?.clientAddresses ?? [];
-      const scores: number[] = raw?.scores ?? [];
-      const tag1s: string[] = raw?.tag1s ?? [];
-      const tag2s: string[] = raw?.tag2s ?? [];
-      const revokedStatuses: boolean[] = raw?.revokedStatuses ?? [];
-
-      const maxLen = Math.max(
-        clients.length,
-        scores.length,
-        tag1s.length,
-        tag2s.length,
-        revokedStatuses.length,
-      );
-
-      const records: unknown[] = [];
-      for (let i = 0; i < maxLen; i++) {
-        records.push({
-          agentId: trimmed,
-          chainId: resolvedChainId,
-          clientAddress: clients[i],
-          score: scores[i],
-          tag1: tag1s[i],
-          tag2: tag2s[i],
-          isRevoked: revokedStatuses[i],
-          index: i,
-        });
+      } else {
+        out.score = scoreNum;
       }
 
-      return records;
-    } catch (error) {
-      console.warn(
-        '[AgenticTrustClient.getAgentFeedback] on-chain readAllFeedback failed; falling back to per-client readFeedback:',
-        error,
-      );
-    }
-
-    // 3. Fallback: per-client readFeedback (slower, but avoids ABI mismatches in readAllFeedback)
-    const resolvedLimit = typeof limit === 'number' ? limit : 100;
-    const resolvedOffset = typeof offset === 'number' ? offset : 0;
-    const targetCount = Math.max(0, resolvedOffset + resolvedLimit);
-
-    const clientsList: string[] =
-      Array.isArray(clientAddresses) && clientAddresses.length > 0
-        ? clientAddresses
-        : await (reputationClient as any).getClients(agentIdBigInt).catch(() => []);
-
-    const out: unknown[] = [];
-    for (const clientAddress of clientsList) {
-      let lastIndex: bigint = 0n;
-      try {
-        lastIndex = await (reputationClient as any).getLastIndex(agentIdBigInt, clientAddress);
-      } catch {
-        continue;
+      // Normalize timestamp-ish values (best-effort).
+      const tRaw = out.timestamp;
+      if (typeof tRaw === 'string' && tRaw.trim() && Number.isFinite(Number(tRaw))) {
+        out.timestamp = Number(tRaw);
       }
 
-      // getLastIndex() returns the last used index (0 if none). Iterate backwards for "most recent" first per client.
-      for (let idx = lastIndex; idx >= 0n; idx--) {
-        let entry: any;
-        try {
-          entry = await (reputationClient as any).readFeedback(agentIdBigInt, clientAddress, idx);
-        } catch {
-          // Some registries may have sparse indexes; ignore missing entries.
-          if (idx === 0n) break;
-          continue;
-        }
+      return out;
+    };
 
-        const isRevoked = !!entry?.isRevoked;
-        if (!includeRevoked && isRevoked) {
-          if (idx === 0n) break;
-          continue;
-        }
-
-        const entryTag1 = String(entry?.tag1 ?? '');
-        const entryTag2 = String(entry?.tag2 ?? '');
-        if (tag1 && entryTag1 !== tag1) {
-          if (idx === 0n) break;
-          continue;
-        }
-        if (tag2 && entryTag2 !== tag2) {
-          if (idx === 0n) break;
-          continue;
-        }
-
-        out.push({
-          agentId: trimmed,
-          chainId: resolvedChainId,
-          clientAddress,
-          score: Number(entry?.score ?? 0),
-          tag1: entryTag1,
-          tag2: entryTag2,
-          isRevoked,
-          feedbackIndex: idx.toString(),
-        });
-
-        if (targetCount > 0 && out.length >= targetCount) {
-          break;
-        }
-
-        if (idx === 0n) break;
-      }
-
-      if (targetCount > 0 && out.length >= targetCount) {
-        break;
-      }
-    }
-
-    return out.slice(resolvedOffset, resolvedOffset + resolvedLimit);
+    return list.map(normalize);
   }
 
   /**
@@ -918,7 +800,8 @@ export class AgenticTrustClient {
     try {
       // Default to skipping registration/tokenURI/IPFS reads unless explicitly requested.
       // This keeps hot paths (like feedback auth) resilient to IPFS and reduces RPC load.
-      const agentDetail = await loadAgentDetail(this, agentId, chainId, {
+      const uaid = `uaid:did:8004:${chainId}:${agentId}`;
+      const agentDetail = await loadAgentDetail(this, uaid, {
         includeRegistration: options?.includeRegistration ?? false,
       });
       
@@ -1215,7 +1098,8 @@ export class AgenticTrustClient {
     } catch {
       throw new Error(`Invalid agentId for getAgentDetails: ${agentId}`);
     }
-    return loadAgentDetail(this, agentIdBigInt, resolvedChainId);
+    const uaid = `uaid:did:8004:${resolvedChainId}:${agentIdBigInt}`;
+    return loadAgentDetail(this, uaid);
   }
 
   /**
@@ -1225,8 +1109,8 @@ export class AgenticTrustClient {
     did8004: string,
     options?: { includeRegistration?: boolean },
   ): Promise<AgentDetail> {
-    // loadAgentDetail will parse did:8004 and derive chainId/agentId internally.
-    return loadAgentDetail(this, did8004, DEFAULT_CHAIN_ID, options);
+    const uaid = did8004.startsWith('uaid:') ? did8004 : `uaid:${did8004}`;
+    return loadAgentDetail(this, uaid, options);
   }
 
   /**
@@ -1244,10 +1128,8 @@ export class AgenticTrustClient {
   /**
    * UAID universal resolver: UAID -> target DID -> DID-method resolver.
    *
-   * IMPORTANT: UAIDs are not guaranteed to be did:8004. They may target did:ethr, did:web, etc.
-   *
    * Policy:
-   * - did:8004 -> use existing on-chain aware loader
+   * - did:8004 -> use existing on-chain aware loader (loadAgentDetail)
    * - otherwise -> KB-first details (no on-chain), return empty on-chain sections
    */
   async getAgentDetailsByUaidUniversal(
@@ -1260,7 +1142,7 @@ export class AgenticTrustClient {
 
     // If UAID targets did:8004, use the full on-chain aware loader.
     if (targetDid.startsWith('did:8004:')) {
-      return this.getAgentDetailsByDid(targetDid, options);
+      return loadAgentDetail(this, uaid, options);
     }
 
     // Otherwise: fetch via KB by UAID and return a best-effort "details" view (no on-chain).
@@ -1273,7 +1155,8 @@ export class AgenticTrustClient {
     // If KB supplies a did:8004 identity, upgrade to full loader.
     const did8004 = typeof agent.didIdentity === 'string' ? agent.didIdentity : null;
     if (did8004 && did8004.startsWith('did:8004:')) {
-      return this.getAgentDetailsByDid(did8004, options);
+      const uaidForDid = `uaid:${did8004}`;
+      return loadAgentDetail(this, uaidForDid, options);
     }
 
     // Build a minimal AgentDetail payload.
@@ -1539,11 +1422,12 @@ export class AgenticTrustClient {
   }
 
   /**
-   * Search validation requests for an agent using GraphQL
+   * Search validation requests for an agent by UAID (or legacy chainId+agentId)
    */
   async searchValidationRequestsAdvanced(params: {
-    chainId: number;
-    agentId: string | number;
+    uaid?: string;
+    chainId?: number;
+    agentId?: string | number;
     limit?: number;
     offset?: number;
     orderBy?: string;
@@ -1554,15 +1438,32 @@ export class AgenticTrustClient {
     if (!discoveryClient || typeof discoveryClient.searchValidationRequestsAdvanced !== 'function') {
       return null;
     }
-    return await discoveryClient.searchValidationRequestsAdvanced(params);
+    const uaid =
+      typeof params.uaid === 'string' && params.uaid.trim()
+        ? params.uaid.trim()
+        : typeof params.chainId === 'number' &&
+            (params.agentId !== undefined && params.agentId !== null)
+          ? `did:8004:${params.chainId}:${params.agentId}`
+          : undefined;
+    if (!uaid) {
+      throw new Error('searchValidationRequestsAdvanced requires uaid or (chainId and agentId)');
+    }
+    return await discoveryClient.searchValidationRequestsAdvanced({
+      uaid,
+      limit: params.limit,
+      offset: params.offset,
+      orderBy: params.orderBy,
+      orderDirection: params.orderDirection,
+    });
   }
 
   /**
-   * Search feedback for an agent using GraphQL
+   * Search feedback/reviews for an agent by UAID (or legacy chainId+agentId)
    */
   async searchFeedbackAdvanced(params: {
-    chainId: number;
-    agentId: string | number;
+    uaid?: string;
+    chainId?: number;
+    agentId?: string | number;
     limit?: number;
     offset?: number;
     orderBy?: string;
@@ -1573,7 +1474,23 @@ export class AgenticTrustClient {
     if (!discoveryClient || typeof discoveryClient.searchFeedbackAdvanced !== 'function') {
       return null;
     }
-    return await discoveryClient.searchFeedbackAdvanced(params);
+    const uaid =
+      typeof params.uaid === 'string' && params.uaid.trim()
+        ? params.uaid.trim()
+        : typeof params.chainId === 'number' &&
+            (params.agentId !== undefined && params.agentId !== null)
+          ? `did:8004:${params.chainId}:${params.agentId}`
+          : undefined;
+    if (!uaid) {
+      throw new Error('searchFeedbackAdvanced requires uaid or (chainId and agentId)');
+    }
+    return await discoveryClient.searchFeedbackAdvanced({
+      uaid,
+      limit: params.limit,
+      offset: params.offset,
+      orderBy: params.orderBy,
+      orderDirection: params.orderDirection,
+    });
   }
 
   /**

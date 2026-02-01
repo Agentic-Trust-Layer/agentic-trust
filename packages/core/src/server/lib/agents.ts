@@ -267,22 +267,31 @@ export class AgentsAPI {
   }
 
   /**
-   * Get raw agent data from discovery (for internal use)
-   * Returns the raw AgentData from the discovery indexer
+   * Get raw agent data from discovery by UAID (discovery is UAID-only; no chainId/agentId).
    */
-  async getAgentFromDiscovery(chainId: number, agentId: string): Promise<AgentData | null> {
+  async getAgentFromDiscoveryByUaid(uaid: string): Promise<AgentData | null> {
     const discoveryClient = await getDiscoveryClient();
     try {
-      return await discoveryClient.getAgent(chainId, agentId);
+      return await discoveryClient.getAgentByUaid(uaid);
     } catch (error) {
-      // Check if this is an access code/auth error and provide a clearer message
-      rethrowDiscoveryError(error, 'agents.getAgentFromDiscovery');
+      rethrowDiscoveryError(error, 'agents.getAgentFromDiscoveryByUaid');
     }
   }
 
+  /**
+   * Get raw agent data from discovery (builds UAID from chainId+agentId; discovery is UAID-only).
+   */
+  async getAgentFromDiscovery(chainId: number, agentId: string): Promise<AgentData | null> {
+    const uaid = `uaid:did:8004:${chainId}:${agentId}`;
+    return this.getAgentFromDiscoveryByUaid(uaid);
+  }
+
+  /**
+   * Get raw agent data from discovery (builds UAID from did8004; discovery is UAID-only).
+   */
   async getAgentFromDiscoveryByDid(did8004: string): Promise<AgentData | null> {
-    const { agentId, chainId } = parseDid8004(did8004);
-    return this.getAgentFromDiscovery(chainId, agentId);
+    const uaid = did8004.startsWith('uaid:') ? did8004 : `uaid:${did8004}`;
+    return this.getAgentFromDiscoveryByUaid(uaid);
   }
 
   /**
