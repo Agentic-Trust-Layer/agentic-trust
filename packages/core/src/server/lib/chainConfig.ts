@@ -5,15 +5,21 @@
  * used throughout the AgenticTrust system.
  */
 
-import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { mainnet, sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
 
 // Re-export chains for convenience
-export { sepolia, baseSepolia, optimismSepolia };
+export { mainnet, sepolia, baseSepolia, optimismSepolia };
 
 /**
  * Chain configuration mapping
  */
 export const CHAIN_CONFIG = {
+  1: { // Ethereum Mainnet
+    suffix: 'MAINNET',
+    name: 'mainnet',
+    displayName: 'Ethereum Mainnet',
+    layer: 'L1' as const,
+  },
   11155111: { // Ethereum Sepolia
     suffix: 'SEPOLIA',
     name: 'sepolia',
@@ -57,24 +63,28 @@ export function isL2(chainId: number): boolean {
 export const DEFAULT_CHAIN_ID: SupportedChainId = 11155111; // Ethereum Sepolia
 
 const SERVER_CHAIN_RPC_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.AGENTIC_TRUST_RPC_URL_MAINNET,
   11155111: process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA,
 } as const;
 
 const CLIENT_CHAIN_RPC_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_MAINNET,
   11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA,
   84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA,
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA,
 } as const;
 
 const SERVER_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.AGENTIC_TRUST_BUNDLER_URL_MAINNET,
   11155111: process.env.AGENTIC_TRUST_BUNDLER_URL_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
 } as const;
 
 const CLIENT_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_MAINNET,
   11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA,
   84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA,
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
@@ -82,18 +92,21 @@ const CLIENT_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefi
 
 // ENS chain-specific variables
 const SERVER_CHAIN_ENS_PRIVKEY_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_MAINNET,
   11155111: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_OPTIMISM_SEPOLIA,
 } as const;
 
 const SERVER_CHAIN_ENS_ORG_ADDRESS_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_MAINNET,
   11155111: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_OPTIMISM_SEPOLIA,
 } as const;
 
 const CLIENT_CHAIN_ENS_ORG_NAME_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
+  1: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_MAINNET,
   11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_SEPOLIA,
   84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_BASE_SEPOLIA,
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_OPTIMISM_SEPOLIA,
@@ -206,6 +219,8 @@ export function getChainById(chainId: number): any {
 
   const chainName = chainConfig.name;
   switch (chainName) {
+    case 'mainnet':
+      return mainnet;
     case 'sepolia':
       return sepolia;
     case 'baseSepolia':
@@ -265,7 +280,10 @@ export function getChainRpcUrl(chainId: number): string {
     let serverValue: string | undefined;
     let clientValue: string | undefined;
     
-    if (chainId === 11155111) {
+    if (chainId === 1) {
+      serverValue = process.env.AGENTIC_TRUST_RPC_URL_MAINNET;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_MAINNET;
+    } else if (chainId === 11155111) {
       serverValue = process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA;
       clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA;
     } else if (chainId === 84532) {
@@ -355,6 +373,48 @@ export function getChainDisplayMetadata(chainId: number): ChainDisplayMetadata {
   };
 }
 
+/**
+ * UI-safe chain display metadata.
+ *
+ * Unlike `getChainDisplayMetadata`, this does NOT require RPC env vars to be set.
+ * It uses the viem chain's default RPC URLs so the UI can render labels for any
+ * supported chain without crashing.
+ */
+export function getChainDisplayMetadataSafe(chainId: number): ChainDisplayMetadata {
+  const chainConfig = CHAIN_CONFIG[chainId as SupportedChainId];
+  if (!chainConfig) {
+    throw new Error(`Unsupported chain ID: ${chainId}`);
+  }
+
+  const chain = getChainById(chainId);
+  const chainIdHex = getChainIdHex(chainId);
+  const nativeCurrency = chain.nativeCurrency ?? {
+    name: 'Ether',
+    symbol: 'ETH',
+    decimals: 18,
+  };
+
+  const blockExplorerUrls: string[] = [];
+  const defaultExplorerUrl = chain.blockExplorers?.default?.url;
+  if (defaultExplorerUrl) {
+    blockExplorerUrls.push(defaultExplorerUrl);
+  }
+
+  const rpcUrls: string[] = Array.isArray(chain.rpcUrls?.default?.http)
+    ? chain.rpcUrls.default.http.filter((v: unknown): v is string => typeof v === 'string' && v.length > 0)
+    : [];
+
+  return {
+    chainId,
+    chainIdHex,
+    chainName: chain.name,
+    displayName: chainConfig.displayName || chain.name,
+    nativeCurrency,
+    rpcUrls,
+    blockExplorerUrls,
+  };
+}
+
 export interface Web3AuthChainSettings {
   chainNamespace: 'eip155';
   chainId: `0x${string}`;
@@ -413,7 +473,10 @@ export function getChainBundlerUrl(chainId: number): string {
     let serverValue: string | undefined;
     let clientValue: string | undefined;
     
-    if (chainId === 11155111) {
+    if (chainId === 1) {
+      serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_MAINNET;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_MAINNET;
+    } else if (chainId === 11155111) {
       serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
       clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA;
       // Debug logging
@@ -509,8 +572,12 @@ export function getWeb3AuthClientId(): string {
 
 /**
  * Get Web3Auth network (accessible from both server and client)
+ * In production, defaults to mainnet to avoid Web3Auth warning.
  * @returns Web3Auth network
  */
 export function getWeb3AuthNetwork(): string {
-  return process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK || 'sapphire_devnet';
+  const envVal = process.env.NEXT_PUBLIC_WEB3AUTH_NETWORK;
+  if (envVal?.trim()) return envVal.trim();
+  if (process.env.NODE_ENV === 'production') return 'mainnet';
+  return 'sapphire_devnet';
 }

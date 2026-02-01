@@ -689,7 +689,7 @@ export class AIAgentDiscoveryClient {
       const trimmed = did.trim();
       // did:8004:<chainId>:<agentId>
       const parts = trimmed.split(':');
-      if (parts.length >= 5 && parts[0] === 'did' && parts[1] === '8004') {
+      if (parts.length >= 4 && parts[0] === 'did' && parts[1] === '8004') {
         const chainId = Number(parts[2]);
         const agentId = Number(parts[3]);
         return {
@@ -2789,6 +2789,35 @@ export class AIAgentDiscoveryClient {
     const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
       query KbAgentByUaid($where: KbAgentWhereInput, $first: Int) {
+        kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
+          agents { ${selection} }
+          total
+          hasMore
+        }
+      }
+    `;
+
+    const data = await this.gqlRequest<{ kbAgents: KbAgentSearchResult }>(query, {
+      where: { uaid: trimmed },
+      first: 1,
+    });
+
+    const agent = data?.kbAgents?.agents?.[0];
+    return agent ? this.mapKbAgentToAgentData(agent) : null;
+  }
+
+  /**
+   * Resolve a single agent by UAID including identity/accounts selection (KB v2).
+   * Use this for UI detail popups that need `rawJson` + `onchainMetadataJson`
+   * without making list queries heavier.
+   */
+  async getAgentByUaidFull(uaid: string): Promise<AgentData | null> {
+    const trimmed = String(uaid ?? '').trim();
+    if (!trimmed) return null;
+
+    const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: true });
+    const query = `
+      query KbAgentByUaidFull($where: KbAgentWhereInput, $first: Int) {
         kbAgents(where: $where, first: $first, orderBy: agentId8004, orderDirection: DESC) {
           agents { ${selection} }
           total

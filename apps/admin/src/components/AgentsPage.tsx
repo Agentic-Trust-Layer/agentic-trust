@@ -10,6 +10,7 @@ import {
   buildDid8004,
   DEFAULT_CHAIN_ID,
   getChainDisplayMetadata,
+  getChainDisplayMetadataSafe,
   type AgentSkill,
 } from '@agentic-trust/core';
 import {
@@ -74,9 +75,18 @@ export type AgentsPageAgent = {
 
 type Agent = AgentsPageAgent;
 
+// Temporary kill-switch for the Agent Index (right-side leaderboard).
+// Keeps the code paths, but prevents large KB queries from running in dev.
+const ENABLE_AGENT_INDEX = false;
+
 type ChainOption = {
   id: number;
   label: string;
+};
+
+type AgentDescriptorPayload = {
+  rawJson: string | null;
+  onchainMetadataJson: string | null;
 };
 
 export type AgentsPageFilters = {
@@ -215,6 +225,10 @@ export function AgentsPage({
     error: null,
     text: null,
   });
+
+  const [descriptorByKey, setDescriptorByKey] = useState<
+    Map<string, AgentDescriptorPayload & { loading?: boolean; error?: string | null }>
+  >(new Map());
   const [registrationEditError, setRegistrationEditError] = useState<string | null>(null);
   const [registrationEditSaving, setRegistrationEditSaving] = useState(false);
   const registrationEditRef = useRef<HTMLTextAreaElement | null>(null);
@@ -411,6 +425,13 @@ export function AgentsPage({
 
   // Leaderboard (single discovery query, sorted client-side)
   useEffect(() => {
+    if (!ENABLE_AGENT_INDEX || hideLeaderboard) {
+      setAtiLeaderboard([]);
+      setAtiLeaderboardError(null);
+      setAtiLeaderboardLoading(false);
+      return;
+    }
+
     let cancelled = false;
 
     (async () => {
@@ -608,16 +629,6 @@ export function AgentsPage({
     } else {
       // For regular registration view, use KB-provided registration JSON (identity8004.descriptor.json),
       // surfaced as `agent.rawJson` in discovery results.
-      const rawJson = (agent as any).rawJson;
-      if (typeof rawJson !== 'string' || !rawJson.trim()) {
-        setRegistrationPreview({
-          key,
-          loading: false,
-          error: 'No registration JSON available for this agent (missing identity descriptor json).',
-          text: null,
-        });
-        return;
-      }
       let cancelled = false;
       setRegistrationPreview({
         key,
@@ -627,6 +638,47 @@ export function AgentsPage({
       });
       (async () => {
         try {
+          const uaid = String((agent as any).uaid ?? '').trim();
+          const rawJsonLocal = (agent as any).rawJson;
+          const rawJson =
+            typeof rawJsonLocal === 'string' && rawJsonLocal.trim()
+              ? rawJsonLocal
+              : uaid
+                ? await (async () => {
+                    setDescriptorByKey((prev) => {
+                      const next = new Map(prev);
+                      next.set(key, { rawJson: null, onchainMetadataJson: null, loading: true, error: null });
+                      return next;
+                    });
+                    const res = await fetch(`/api/agents/${encodeURIComponent(uaid)}/descriptor`, {
+                      cache: 'no-store',
+                    });
+                    const json = await res.json().catch(() => null);
+                    if (!res.ok) {
+                      const msg = (json as any)?.message || (json as any)?.error || `Failed (${res.status})`;
+                      setDescriptorByKey((prev) => {
+                        const next = new Map(prev);
+                        next.set(key, { rawJson: null, onchainMetadataJson: null, loading: false, error: msg });
+                        return next;
+                      });
+                      return null;
+                    }
+                    const payload = json as any;
+                    const fetchedRaw = typeof payload?.rawJson === 'string' ? payload.rawJson : null;
+                    const fetchedInfo =
+                      typeof payload?.onchainMetadataJson === 'string' ? payload.onchainMetadataJson : null;
+                    setDescriptorByKey((prev) => {
+                      const next = new Map(prev);
+                      next.set(key, { rawJson: fetchedRaw, onchainMetadataJson: fetchedInfo, loading: false, error: null });
+                      return next;
+                    });
+                    return fetchedRaw;
+                  })()
+                : null;
+
+          if (!rawJson || typeof rawJson !== 'string' || !rawJson.trim()) {
+            throw new Error('No registration JSON available for this agent (missing identity descriptor json).');
+          }
           const text = await loadRegistrationContent(rawJson);
           if (cancelled) return;
           setRegistrationPreview({
@@ -1022,6 +1074,74 @@ export function AgentsPage({
     return () => clearInterval(interval);
   }, [sessionProgress]);
 
+  // Lazy-load discovery descriptor JSON for Info dialog (single agent).
+  useEffect(() => {
+    if (!activeDialog || activeDialog.action !== 'info') return;
+    const agent = activeDialog.agent;
+    const key = getAgentKey(agent);
+    const uaid = String((agent as any).uaid ?? '').trim();
+    if (!key || !uaid.startsWith('uaid:')) return;
+
+    // If already present on the agent or cached, do nothing.
+    const hasInfoInline =
+      typeof (agent as any).onchainMetadataJson === 'string' && (agent as any).onchainMetadataJson.trim().length > 0;
+    const cached = descriptorByKey.get(key);
+    const hasInfoCached =
+      typeof cached?.onchainMetadataJson === 'string' && cached.onchainMetadataJson.trim().length > 0;
+    if (hasInfoInline || hasInfoCached || cached?.loading) return;
+
+    let cancelled = false;
+    setDescriptorByKey((prev) => {
+      const next = new Map(prev);
+      next.set(key, { rawJson: null, onchainMetadataJson: null, loading: true, error: null });
+      return next;
+    });
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/agents/${encodeURIComponent(uaid)}/descriptor`, { cache: 'no-store' });
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (!res.ok) {
+          const msg = (json as any)?.message || (json as any)?.error || `Failed (${res.status})`;
+          setDescriptorByKey((prev) => {
+            const next = new Map(prev);
+            next.set(key, { rawJson: null, onchainMetadataJson: null, loading: false, error: msg });
+            return next;
+          });
+          return;
+        }
+        const payload = json as any;
+        setDescriptorByKey((prev) => {
+          const next = new Map(prev);
+          next.set(key, {
+            rawJson: typeof payload?.rawJson === 'string' ? payload.rawJson : null,
+            onchainMetadataJson: typeof payload?.onchainMetadataJson === 'string' ? payload.onchainMetadataJson : null,
+            loading: false,
+            error: null,
+          });
+          return next;
+        });
+      } catch (e: any) {
+        if (cancelled) return;
+        setDescriptorByKey((prev) => {
+          const next = new Map(prev);
+          next.set(key, {
+            rawJson: null,
+            onchainMetadataJson: null,
+            loading: false,
+            error: e?.message ?? 'Failed to load descriptor',
+          });
+          return next;
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeDialog, descriptorByKey]);
+
   const dialogContent = useMemo(() => {
     if (!activeDialog) {
       return null;
@@ -1070,21 +1190,43 @@ export function AgentsPage({
                   wordBreak: 'break-word',
                 }}
               >
-                {typeof (agent as any).onchainMetadataJson === 'string' &&
-                (agent as any).onchainMetadataJson.trim() ? (
-                  (() => {
-                    try {
-                      const parsed = JSON.parse((agent as any).onchainMetadataJson);
-                      return JSON.stringify(parsed, null, 2);
-                    } catch {
-                      return String((agent as any).onchainMetadataJson);
-                    }
-                  })()
-                ) : (
-                  <span style={{ color: palette.textSecondary }}>
-                    No onchainMetadataJson provided by discovery for this agent.
-                  </span>
-                )}
+                {(() => {
+                  const key = getAgentKey(agent);
+                  const cached = key ? descriptorByKey.get(key) : null;
+                  const infoJson =
+                    (typeof (agent as any).onchainMetadataJson === 'string' && (agent as any).onchainMetadataJson.trim()
+                      ? (agent as any).onchainMetadataJson
+                      : typeof cached?.onchainMetadataJson === 'string' && cached.onchainMetadataJson.trim()
+                        ? cached.onchainMetadataJson
+                        : null);
+
+                  if (infoJson) {
+                    return (
+                      (() => {
+                        try {
+                          const parsed = JSON.parse(infoJson);
+                          return JSON.stringify(parsed, null, 2);
+                        } catch {
+                          return String(infoJson);
+                        }
+                      })()
+                    );
+                  }
+
+                  if (cached?.loading) {
+                    return <span style={{ color: palette.textSecondary }}>Loading onchainMetadataJson…</span>;
+                  }
+
+                  if (cached?.error) {
+                    return <span style={{ color: palette.dangerText }}>{cached.error}</span>;
+                  }
+
+                  return (
+                    <span style={{ color: palette.textSecondary }}>
+                      No onchainMetadataJson provided by discovery for this agent.
+                    </span>
+                  );
+                })()}
               </div>
             </div>
             {(agent.a2aEndpoint || agent.mcpEndpoint) && (
@@ -3530,7 +3672,33 @@ export function AgentsPage({
                 ? `${explorerBase}/address/${agent.agentAccount}#nfttransfers`
                 : null;
 
-            const chainMeta = getChainDisplayMetadata(agent.chainId);
+            const chainMeta = (() => {
+              try {
+                return getChainDisplayMetadataSafe(agent.chainId);
+              } catch {
+                try {
+                  return getChainDisplayMetadata(agent.chainId);
+                } catch {
+                  // Fallback when chain not in config (e.g. chainId 1 before deploy)
+                  const known: Record<number, string> = {
+                    1: 'Ethereum Mainnet',
+                    11155111: 'Ethereum Sepolia',
+                    84532: 'Base Sepolia',
+                    11155420: 'Optimism Sepolia',
+                  };
+                  const displayName = known[agent.chainId] ?? `Chain ${agent.chainId}`;
+                  return {
+                    chainId: agent.chainId,
+                    chainIdHex: `0x${agent.chainId.toString(16)}` as `0x${string}`,
+                    chainName: displayName.toLowerCase().replace(/\s+/g, '-'),
+                    displayName,
+                    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                    rpcUrls: [],
+                    blockExplorerUrls: agent.chainId === 1 ? ['https://etherscan.io'] : [],
+                  };
+                }
+              }
+            })();
             const chainLabel =
               chainMeta?.displayName ||
               chainMeta?.chainName ||
@@ -4176,7 +4344,7 @@ export function AgentsPage({
 
           </div>
 
-          {!isMobile && !hideLeaderboard && (
+          {!isMobile && !hideLeaderboard && ENABLE_AGENT_INDEX && (
             <aside
               style={{
                 width: 340,
