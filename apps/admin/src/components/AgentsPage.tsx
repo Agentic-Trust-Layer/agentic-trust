@@ -337,6 +337,10 @@ export function AgentsPage({
 
   const getAgentKey = (agent?: Agent | null) => {
     if (!agent) return null;
+    const uaid = typeof (agent as any).uaid === 'string' ? String((agent as any).uaid).trim() : '';
+    if (uaid.startsWith('uaid:')) {
+      return uaid;
+    }
     const chainId =
       typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
         ? agent.chainId
@@ -562,7 +566,11 @@ export function AgentsPage({
         try {
           const uaid = String((agent as any).uaid ?? '').trim();
           if (!uaid) {
-            throw new Error('Missing uaid for agent');
+            if (cancelled) return;
+            setLatestTokenUri(null);
+            setTokenUriLoading(false);
+            setRegistrationEditError('UAID is missing for this agent. Cannot load registration.');
+            return;
           }
           const response = await fetch(`/api/agents/${encodeURIComponent(uaid)}`);
           if (!response.ok) {
@@ -765,7 +773,15 @@ export function AgentsPage({
       try {
         const uaid = String((agent as any).uaid ?? '').trim();
         if (!uaid) {
-          throw new Error('Missing uaid for agent');
+          if (cancelled) return;
+          setFeedbackPreview({
+            key,
+            loading: false,
+            error: 'UAID is missing for this agent. Cannot load feedback.',
+            items: null,
+            summary: null,
+          });
+          return;
         }
 
         const feedbackResponse = await fetch(
@@ -928,7 +944,15 @@ export function AgentsPage({
       try {
         const uaid = String((agent as any).uaid ?? '').trim();
         if (!uaid) {
-          throw new Error('Missing uaid for agent');
+          if (cancelled) return;
+          setValidationsPreview({
+            key,
+            loading: false,
+            error: 'UAID is missing for this agent. Cannot load validations.',
+            pending: null,
+            completed: null,
+          });
+          return;
         }
         
         // Fetch both on-chain validations and GraphQL validation responses
@@ -2479,16 +2503,6 @@ export function AgentsPage({
                     if (!uaid.startsWith('uaid:')) {
                       throw new Error('Agent UAID is missing; cannot request feedback authorization');
                     }
-                    const parsedChainId =
-                      typeof agent.chainId === 'number' &&
-                      Number.isFinite(agent.chainId)
-                        ? agent.chainId
-                        : DEFAULT_CHAIN_ID;
-                    const parsedAgentId =
-                      typeof agent.agentId === 'string'
-                        ? Number.parseInt(agent.agentId, 10)
-                        : Number(agent.agentId ?? 0);
-                    const did8004 = buildDid8004(parsedChainId, parsedAgentId);
 
                     // Ensure we have a connected wallet (Web3Auth / MetaMask)
                     if (!walletAddress) {
@@ -2502,8 +2516,6 @@ export function AgentsPage({
                     // Request feedback auth
                     const feedbackAuthParams = new URLSearchParams({
                       clientAddress,
-                      agentId: parsedAgentId.toString(),
-                      chainId: parsedChainId.toString(),
                       ...(agent.agentName ? { agentName: agent.agentName } : {}),
                     });
 
@@ -2525,13 +2537,14 @@ export function AgentsPage({
 
                     const feedbackAuthData = await feedbackAuthResponse.json();
                     const feedbackAuthId = feedbackAuthData.feedbackAuthId;
-                    const resolvedAgentId =
-                      feedbackAuthData.agentId || parsedAgentId;
-                    const resolvedChainId =
-                      feedbackAuthData.chainId || parsedChainId;
+                    const resolvedAgentId = feedbackAuthData.agentId;
+                    const resolvedChainId = feedbackAuthData.chainId;
 
                     if (!feedbackAuthId) {
                       throw new Error('No feedbackAuth returned by provider');
+                    }
+                    if (!resolvedAgentId || !resolvedChainId) {
+                      throw new Error('feedback-auth response missing agentId/chainId');
                     }
 
                     // Build SmartAccount client for this agent using the connected wallet
@@ -2545,6 +2558,7 @@ export function AgentsPage({
 
                     // Submit feedback via client-side EOA transaction (user pays gas)
                     setFeedbackSubmitStatus('Submitting feedback transaction…');
+                    const did8004 = buildDid8004(resolvedChainId, resolvedAgentId);
                     const feedbackResult = await giveFeedbackWithWallet({
                       did8004,
                       chain,

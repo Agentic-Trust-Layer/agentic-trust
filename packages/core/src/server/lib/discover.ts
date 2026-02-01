@@ -89,16 +89,12 @@ export async function discoverAgents(
       const chainId = numeric(raw?.chainId, DEFAULT_CHAIN_ID) ?? DEFAULT_CHAIN_ID;
 
       const feedbackCountRaw =
-        (raw as any)?.feedbackCount ??
-        (raw as any)?.assertions?.feedback8004?.total ??
-        (raw as any)?.assertionsFeedback8004?.total ??
-        undefined;
+        (raw as any)?.feedbackCount ?? (raw as any)?.assertions?.reviewResponses?.total ?? undefined;
 
       const validationTotalRaw =
         (raw as any)?.validationCompletedCount ??
         (raw as any)?.validationRequestedCount ??
-        (raw as any)?.assertions?.validation8004?.total ??
-        (raw as any)?.assertionsValidation8004?.total ??
+        (raw as any)?.assertions?.validationResponses?.total ??
         undefined;
 
       // Extract MCP endpoint from registration data

@@ -103,8 +103,7 @@ export declare class AgenticTrustClient {
      * underlying indexer/contract schema.
      */
     getAgentFeedback(params: {
-        agentId: string;
-        chainId?: number;
+        uaid: string;
         clientAddresses?: string[];
         tag1?: string;
         tag2?: string;

@@ -103,8 +103,7 @@ async function executeKbSearch(options) {
           createdAtTime
           createdAtBlock
           updatedAtTime
-          assertionsFeedback8004 { total }
-          assertionsValidation8004 { total }
+          assertions { reviewResponses { total } validationResponses { total } total }
         }
       }
     }
@@ -140,8 +139,10 @@ async function executeKbSearch(options) {
     const agents = list.map((a) => {
         const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
         const parsed = did8004 ? parseDid8004(did8004) : null;
-        const feedbackCountRaw = a?.assertionsFeedback8004?.total;
-        const validationCountRaw = a?.assertionsValidation8004?.total;
+        const feedbackCountRaw =
+            a?.assertions?.reviewResponses?.total ?? a?.assertionsFeedback8004?.total;
+        const validationCountRaw =
+            a?.assertions?.validationResponses?.total ?? a?.assertionsValidation8004?.total;
         const feedbackCount = typeof feedbackCountRaw === 'number' && Number.isFinite(feedbackCountRaw)
             ? Math.max(0, feedbackCountRaw)
             : 0;

@@ -894,9 +894,12 @@ export async function getFeedbackCore(
 
   const client = await resolveClient(ctx);
 
+  const uaidForDiscovery =
+    uaidResolved.startsWith('uaid:') ? uaidResolved : `uaid:${uaidResolved}`;
+
   const [feedback, summary] = await Promise.all([
     client.getAgentFeedback({
-      uaid: uaidResolved,
+      uaid: uaidForDiscovery,
       includeRevoked,
       limit,
       offset,

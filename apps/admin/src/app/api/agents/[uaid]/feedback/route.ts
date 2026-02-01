@@ -51,8 +51,9 @@ export async function GET(request: Request, { params }: { params: { uaid: string
   }
 
   try {
-    const did8004 = await resolveErc8004DidForUaid(uaid);
-    return getHandler(request, { params: { did8004 } });
+    // UAID-first: pass UAID through to core. Core will resolve to did8004 only when needed
+    // (e.g. on-chain 8004 SDK / reputation summary), and will use UAID for KB reads.
+    return getHandler(request, { params: { uaid } as any });
   } catch (error) {
     return NextResponse.json(
       {
@@ -75,6 +76,7 @@ export async function POST(request: Request, { params }: { params: { uaid: strin
   }
 
   try {
+    // POST prepares an ERC-8004 transaction (8004 SDK boundary), so we resolve UAID -> did:8004 here.
     const did8004 = await resolveErc8004DidForUaid(uaid);
     return postHandler(request, { params: { did8004 } });
   } catch (error) {

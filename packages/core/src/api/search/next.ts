@@ -68,8 +68,11 @@ type KbAgentsResponse = {
       createdAtTime?: number | null;
       createdAtBlock?: number | null;
       updatedAtTime?: number | null;
-      assertionsFeedback8004?: { total?: number | null } | null;
-      assertionsValidation8004?: { total?: number | null } | null;
+      assertions?: {
+        reviewResponses?: { total?: number | null } | null;
+        validationResponses?: { total?: number | null } | null;
+        total?: number | null;
+      } | null;
     }> | null;
   } | null;
 };
@@ -110,11 +113,11 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   const agentNameRaw = typeof (params as any).agentName === 'string' ? (params as any).agentName.trim() : '';
   if (agentNameRaw) where.agentName_contains = agentNameRaw;
 
-  // Numeric assertion minimums (KB v2)
+  // Numeric assertion minimums (KB v2: review/validation, no 8004 suffix)
   const minFeedbackCount = (params as any).minFeedbackCount;
   if (typeof minFeedbackCount === 'number' && Number.isFinite(minFeedbackCount) && minFeedbackCount > 0) {
-    where.minFeedbackAssertionCount8004 = Math.floor(minFeedbackCount);
-    where.hasFeedback8004 = true;
+    where.minReviewAssertionCount = Math.floor(minFeedbackCount);
+    where.hasReviews = true;
   }
   const minValidationCompletedCount = (params as any).minValidationCompletedCount;
   if (
@@ -122,8 +125,8 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
     Number.isFinite(minValidationCompletedCount) &&
     minValidationCompletedCount > 0
   ) {
-    where.minValidationAssertionCount8004 = Math.floor(minValidationCompletedCount);
-    where.hasValidation8004 = true;
+    where.minValidationAssertionCount = Math.floor(minValidationCompletedCount);
+    where.hasValidations = true;
   }
 
   // KB ordering (stable)
@@ -143,8 +146,7 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
           createdAtTime
           createdAtBlock
           updatedAtTime
-          assertionsFeedback8004 { total }
-          assertionsValidation8004 { total }
+          assertions { reviewResponses { total } validationResponses { total } total }
         }
       }
     }
@@ -185,8 +187,8 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   const agents = list.map((a) => {
     const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
     const parsed = did8004 ? parseDid8004(did8004) : null;
-    const feedbackCountRaw = a?.assertionsFeedback8004?.total;
-    const validationCountRaw = a?.assertionsValidation8004?.total;
+    const feedbackCountRaw = a?.assertions?.reviewResponses?.total;
+    const validationCountRaw = a?.assertions?.validationResponses?.total;
     const feedbackCount =
       typeof feedbackCountRaw === 'number' && Number.isFinite(feedbackCountRaw) ? Math.max(0, feedbackCountRaw) : 0;
     const validationCompletedCount =

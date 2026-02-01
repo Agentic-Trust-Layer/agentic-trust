@@ -334,9 +334,7 @@ export class AgenticTrustClient {
    * underlying indexer/contract schema.
    */
   async getAgentFeedback(params: {
-    uaid?: string;
-    agentId?: string;
-    chainId?: number;
+    uaid: string;
     clientAddresses?: string[];
     tag1?: string;
     tag2?: string;
@@ -346,8 +344,6 @@ export class AgenticTrustClient {
   }): Promise<unknown[]> {
     const {
       uaid,
-      agentId,
-      chainId,
       clientAddresses,
       tag1,
       tag2,
@@ -356,24 +352,9 @@ export class AgenticTrustClient {
       offset,
     } = params;
 
-    let uaidResolved: string;
-    if (typeof uaid === 'string' && uaid.trim()) {
-      uaidResolved = uaid.trim();
-    } else if (
-      typeof chainId === 'number' &&
-      Number.isFinite(chainId) &&
-      (agentId ?? '').toString().trim()
-    ) {
-      const trimmed = (agentId ?? '').toString().trim();
-      try {
-        BigInt(trimmed);
-      } catch {
-        throw new Error(`Invalid agentId for getAgentFeedback: ${agentId}`);
-      }
-      const resolvedChainId = chainId > 0 ? chainId : DEFAULT_CHAIN_ID;
-      uaidResolved = `did:8004:${resolvedChainId}:${trimmed}`;
-    } else {
-      throw new Error('getAgentFeedback requires uaid or (chainId and agentId)');
+    const uaidResolved = typeof uaid === 'string' ? uaid.trim() : '';
+    if (!uaidResolved.startsWith('uaid:')) {
+      throw new Error('getAgentFeedback requires uaid:* (no chainId/agentId fallback)');
     }
 
     const discoveryClient = await getDiscoveryClient();

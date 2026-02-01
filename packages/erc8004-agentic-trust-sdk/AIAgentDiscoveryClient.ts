@@ -118,10 +118,6 @@ export type KbAccount = {
 export type KbAssertionsSummary = {
   reviewResponses?: { total: number } | null;
   validationResponses?: { total: number } | null;
-  /** @deprecated use reviewResponses */
-  feedback8004?: { total: number } | null;
-  /** @deprecated use validationResponses */
-  validation8004?: { total: number } | null;
   total?: number | null;
 };
 
@@ -865,17 +861,8 @@ export class AIAgentDiscoveryClient {
       protocolDescriptors.some((p) => String(p?.protocol || '').toLowerCase() === 'mcp') || false;
 
     // Assertions totals: prefer reviewResponses/validationResponses; fallback to legacy names
-    const feedbackCount =
-      toFiniteNumberOrUndefined(a.assertions?.reviewResponses?.total) ??
-      toFiniteNumberOrUndefined(a.assertions?.feedback8004?.total) ??
-      toFiniteNumberOrUndefined((a as any).assertionsFeedback8004?.total) ??
-      toFiniteNumberOrUndefined((a as any).assertions_feedback8004?.total);
-
-    const validationTotal =
-      toFiniteNumberOrUndefined(a.assertions?.validationResponses?.total) ??
-      toFiniteNumberOrUndefined(a.assertions?.validation8004?.total) ??
-      toFiniteNumberOrUndefined((a as any).assertionsValidation8004?.total) ??
-      toFiniteNumberOrUndefined((a as any).assertions_validation8004?.total);
+    const feedbackCount = toFiniteNumberOrUndefined(a.assertions?.reviewResponses?.total);
+    const validationTotal = toFiniteNumberOrUndefined(a.assertions?.validationResponses?.total);
 
     const normalized: AgentData = {
       agentId: agentId8004 ?? agentIdFromParsed ?? undefined,
@@ -1025,28 +1012,15 @@ export class AIAgentDiscoveryClient {
 
         const assertionsParts: string[] = [];
         if (names.has('assertions')) {
-          const rev = names.has('reviewResponses') ? 'reviewResponses' : 'feedback8004';
-          const val = names.has('validationResponses') ? 'validationResponses' : 'validation8004';
           assertionsParts.push(`
             assertions {
-              ${rev} { total }
-              ${val} { total }
+              reviewResponses { total }
+              validationResponses { total }
               total
             }
           `);
         }
-        if (names.has('reviewAssertions')) {
-          assertionsParts.push(`reviewAssertions { total }`);
-        } else if (names.has('assertionsFeedback8004')) {
-          assertionsParts.push(`assertionsFeedback8004 { total }`);
-        }
-        if (names.has('validationAssertions')) {
-          assertionsParts.push(`validationAssertions { total }`);
-        } else if (names.has('assertionsValidation8004')) {
-          assertionsParts.push(`assertionsValidation8004 { total }`);
-        }
 
-        // Fallback: prefer new names, then legacy
         const assertionsBlock =
           assertionsParts.length > 0
             ? assertionsParts.join('\n')
@@ -2767,6 +2741,7 @@ export class AIAgentDiscoveryClient {
   async getAgentByUaid(uaid: string): Promise<AgentData | null> {
     const trimmed = String(uaid ?? '').trim();
     if (!trimmed) return null;
+    const uaidForKb = this.normalizeUaidForKb(trimmed);
 
     const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `
@@ -2777,7 +2752,7 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
-      const data = await this.gqlRequest<{ kbAgentByUaid?: KbAgent | null }>(query, { uaid: trimmed });
+      const data = await this.gqlRequest<{ kbAgentByUaid?: KbAgent | null }>(query, { uaid: uaidForKb });
       const agent = data?.kbAgentByUaid ?? null;
       return agent ? this.mapKbAgentToAgentData(agent) : null;
     } catch (error) {
@@ -2792,6 +2767,7 @@ export class AIAgentDiscoveryClient {
   async getAgentByUaidFull(uaid: string): Promise<AgentData | null> {
     const trimmed = String(uaid ?? '').trim();
     if (!trimmed) return null;
+    const uaidForKb = this.normalizeUaidForKb(trimmed);
 
     const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: true });
     const query = `
@@ -2802,7 +2778,7 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
-      const data = await this.gqlRequest<{ kbAgentByUaid?: KbAgent | null }>(query, { uaid: trimmed });
+      const data = await this.gqlRequest<{ kbAgentByUaid?: KbAgent | null }>(query, { uaid: uaidForKb });
       const agent = data?.kbAgentByUaid ?? null;
       return agent ? this.mapKbAgentToAgentData(agent) : null;
     } catch (error) {
@@ -2931,6 +2907,14 @@ export class AIAgentDiscoveryClient {
   }
 
   /**
+   * Normalize identifier to UAID form required by KB GraphQL (uaid:did:8004:... or uaid:did:ethr:...).
+   */
+  private normalizeUaidForKb(uaid: string): string {
+    const t = uaid.trim();
+    return t.startsWith('uaid:') ? t : `uaid:${t}`;
+  }
+
+  /**
    * Search validation requests for an agent by UAID (GraphQL kbAgentByUaid + validationAssertions)
    */
   async searchValidationRequestsAdvanced(
@@ -2941,6 +2925,7 @@ export class AIAgentDiscoveryClient {
     if (!uaidTrimmed) {
       throw new Error('uaid is required for searchValidationRequestsAdvanced');
     }
+    const uaidForKb = this.normalizeUaidForKb(uaidTrimmed);
 
     const queryText = `
       query KbValidationAssertionsByUaid($uaid: String!, $first: Int, $skip: Int) {
@@ -2958,7 +2943,7 @@ export class AIAgentDiscoveryClient {
       }
     `;
     const variables: Record<string, unknown> = {
-      uaid: uaidTrimmed,
+      uaid: uaidForKb,
       first: typeof limit === 'number' ? limit : undefined,
       skip: typeof offset === 'number' ? offset : undefined,
     };
@@ -3062,6 +3047,7 @@ export class AIAgentDiscoveryClient {
     if (!uaidTrimmed) {
       throw new Error('uaid is required for searchReviewsAdvanced');
     }
+    const uaidForKb = this.normalizeUaidForKb(uaidTrimmed);
     const queryText = `
       query KbReviewAssertionsByUaid($uaid: String!, $first: Int, $skip: Int) {
         kbAgentByUaid(uaid: $uaid) {
@@ -3078,7 +3064,7 @@ export class AIAgentDiscoveryClient {
       }
     `;
     const variables: Record<string, unknown> = {
-      uaid: uaidTrimmed,
+      uaid: uaidForKb,
       first: typeof limit === 'number' ? limit : undefined,
       skip: typeof offset === 'number' ? offset : undefined,
     };
@@ -3171,7 +3157,7 @@ export class AIAgentDiscoveryClient {
       if (!Number.isFinite(aid) || aid <= 0) {
         throw new Error(`Invalid agentId for searchFeedbackAdvanced: ${agentId}`);
       }
-      uaidResolved = `did:8004:${chainId}:${aid}`;
+      uaidResolved = this.normalizeUaidForKb(`did:8004:${chainId}:${aid}`);
     } else {
       throw new Error('searchFeedbackAdvanced requires uaid or (chainId and agentId)');
     }
@@ -3306,6 +3292,7 @@ export class AIAgentDiscoveryClient {
     const u = String(uaid ?? '').trim();
     const w = String(walletAddress ?? '').trim();
     if (!u || !w) return false;
+    const uaidForKb = this.normalizeUaidForKb(u);
 
     const query = `
       query KbIsOwner($uaid: String!, $walletAddress: String!) {
@@ -3314,7 +3301,7 @@ export class AIAgentDiscoveryClient {
     `;
 
     const data = await this.gqlRequest<{ kbIsOwner?: boolean }>(query, {
-      uaid: u,
+      uaid: uaidForKb,
       walletAddress: w,
     });
 
