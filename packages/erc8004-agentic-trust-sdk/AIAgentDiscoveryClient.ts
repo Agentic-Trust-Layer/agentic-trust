@@ -2947,11 +2947,16 @@ export class AIAgentDiscoveryClient {
   }
 
   /**
-   * Normalize identifier to UAID form required by KB GraphQL (uaid:did:8004:... or uaid:did:ethr:...).
+   * Normalize identifier to UAID form required by KB GraphQL.
+   *
+   * Important: kbAgentByUaid expects the *canonical UAID key* (prefix up to the first ';').
+   * Any routing metadata after ';' is not part of the lookup key.
    */
   private normalizeUaidForKb(uaid: string): string {
     const t = uaid.trim();
-    return t.startsWith('uaid:') ? t : `uaid:${t}`;
+    const withPrefix = t.startsWith('uaid:') ? t : `uaid:${t}`;
+    const idx = withPrefix.indexOf(';');
+    return idx === -1 ? withPrefix : withPrefix.slice(0, idx);
   }
 
   /**

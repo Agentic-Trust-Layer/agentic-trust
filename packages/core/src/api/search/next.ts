@@ -211,6 +211,27 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   const total =
     typeof payload?.total === 'number' && Number.isFinite(payload.total) ? payload.total : list.length;
 
+  if (process.env.NODE_ENV === 'development') {
+    const counts = new Map<string, number>();
+    for (const a of list) {
+      const u = typeof (a as any)?.uaid === 'string' ? String((a as any).uaid).trim() : '';
+      if (!u) continue;
+      counts.set(u, (counts.get(u) ?? 0) + 1);
+    }
+    const dupes = Array.from(counts.entries())
+      .filter(([, c]) => c > 1)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 25)
+      .map(([uaid, count]) => ({ uaid, count }));
+    if (dupes.length > 0) {
+      console.log('[AgenticTrust][Search][KB] duplicate uaid values (raw KB page):', {
+        duplicates: dupes,
+        uniqueUaidCount: counts.size,
+        returnedAgentsCount: list.length,
+      });
+    }
+  }
+
   const agents = list.map((a) => {
     const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
     const parsed = did8004 ? parseDid8004(did8004) : null;
