@@ -827,6 +827,26 @@ export class AIAgentDiscoveryClient {
       (typeof a.identityEns?.descriptor?.json === 'string' && a.identityEns.descriptor.json) ||
       null;
 
+    const extractServiceEndpointFromDescriptorJson = (
+      descriptorJson: string | null,
+      serviceName: string,
+    ): string | null => {
+      if (!descriptorJson) return null;
+      try {
+        const parsed = JSON.parse(descriptorJson) as Record<string, unknown>;
+        const services = Array.isArray((parsed as any).services) ? ((parsed as any).services as any[]) : [];
+        const target = serviceName.trim().toLowerCase();
+        for (const svc of services) {
+          const name = typeof svc?.name === 'string' ? svc.name.trim().toLowerCase() : '';
+          const endpoint = typeof svc?.endpoint === 'string' ? svc.endpoint.trim() : '';
+          if (name === target && endpoint) return endpoint;
+        }
+      } catch {
+        // ignore parse errors
+      }
+      return null;
+    };
+
     // Pull on-chain metadata JSON (for Info card) where available.
     const onchainMetadataJson =
       (typeof a.identity8004?.descriptor?.onchainMetadataJson === 'string' &&
@@ -870,11 +890,16 @@ export class AIAgentDiscoveryClient {
     ];
 
     const a2aEndpoint =
+      extractServiceEndpointFromDescriptorJson(rawJson, 'a2a') ??
       protocolDescriptors.find((p) => String(p?.protocol || '').toLowerCase() === 'a2a')?.serviceUrl ??
       null;
 
-    const hasMcp =
-      protocolDescriptors.some((p) => String(p?.protocol || '').toLowerCase() === 'mcp') || false;
+    const mcpEndpoint =
+      extractServiceEndpointFromDescriptorJson(rawJson, 'mcp') ??
+      protocolDescriptors.find((p) => String(p?.protocol || '').toLowerCase() === 'mcp')?.serviceUrl ??
+      null;
+
+    const hasMcp = Boolean(mcpEndpoint) || protocolDescriptors.some((p) => String(p?.protocol || '').toLowerCase() === 'mcp');
 
     // Assertions totals: prefer reviewResponses/validationResponses; fallback to legacy names
     const feedbackCount = toFiniteNumberOrUndefined(a.assertions?.reviewResponses?.total);
@@ -935,6 +960,7 @@ export class AIAgentDiscoveryClient {
       did: did8004,
       agentUri: agentUriFromOnchainMetadata ?? undefined,
       a2aEndpoint,
+      mcpEndpoint: mcpEndpoint ?? undefined,
       mcp: hasMcp,
       rawJson,
       onchainMetadataJson,
@@ -2792,7 +2818,12 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
+      const t0 = Date.now();
       const data = await this.gqlRequest<{ kbAgentByUaid?: KbAgent | null }>(query, { uaid: uaidForKb });
+      const t1 = Date.now();
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[AIAgentDiscoveryClient.getAgentByUaid] kbAgentByUaid ms:', t1 - t0);
+      }
       const agent = data?.kbAgentByUaid ?? null;
       return agent ? this.mapKbAgentToAgentData(agent) : null;
     } catch (error) {
@@ -2818,7 +2849,12 @@ export class AIAgentDiscoveryClient {
       }
     `;
     try {
+      const t0 = Date.now();
       const data = await this.gqlRequest<{ kbAgentByUaid?: KbAgent | null }>(query, { uaid: uaidForKb });
+      const t1 = Date.now();
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[AIAgentDiscoveryClient.getAgentByUaidFull] kbAgentByUaid ms:', t1 - t0);
+      }
       const agent = data?.kbAgentByUaid ?? null;
       return agent ? this.mapKbAgentToAgentData(agent) : null;
     } catch (error) {

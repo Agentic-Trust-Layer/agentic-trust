@@ -8,6 +8,7 @@ export async function GET(
   { params }: { params: { uaid: string } },
 ) {
   try {
+    const t0 = Date.now();
     const uaid = decodeURIComponent(params.uaid);
     if (!uaid.startsWith('uaid:')) {
       return NextResponse.json(
@@ -19,15 +20,35 @@ export async function GET(
       );
     }
 
+    const tClient0 = Date.now();
     const client = await getAgenticTrustClient();
+    const tClient1 = Date.now();
+    const tDetail0 = Date.now();
     const agentInfo = await (client as any).getAgentDetailsByUaidUniversal?.(uaid, {
       includeRegistration: false,
+      allowOnChain: false,
     });
+    const tDetail1 = Date.now();
     if (!agentInfo) {
       throw new Error('Agent not found for UAID');
     }
 
-    return NextResponse.json(agentInfo);
+    const t1 = Date.now();
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Admin][api/agents/[uaid]] timing ms:', {
+        total: t1 - t0,
+        getClient: tClient1 - tClient0,
+        getAgentDetails: tDetail1 - tDetail0,
+      });
+    }
+
+    return NextResponse.json(agentInfo, {
+      headers: {
+        'x-agent-details-total-ms': String(t1 - t0),
+        'x-agent-details-client-ms': String(tClient1 - tClient0),
+        'x-agent-details-core-ms': String(tDetail1 - tDetail0),
+      },
+    });
   } catch (error) {
     console.error('Error in get agent info route:', error);
     return NextResponse.json(

@@ -6,7 +6,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useTheme } from '@mui/material/styles';
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { Header } from '@/components/Header';
 import AgentDetailsTabs, {
   type AgentDetailsFeedbackSummary,
   type AgentDetailsValidationsSummary,
@@ -355,11 +354,9 @@ export default function AgentDetailsPageContent({
 
   const {
     isConnected,
-    privateKeyMode,
     loading,
     walletAddress,
     openLoginModal,
-    handleDisconnect,
   } = useAuth();
   const { eip1193Provider } = useWallet();
   const router = useRouter();
@@ -957,14 +954,6 @@ export default function AgentDetailsPageContent({
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
-      <Header
-        displayAddress={walletAddress ?? null}
-        privateKeyMode={privateKeyMode}
-        isConnected={isConnected}
-        onConnect={openLoginModal}
-        onDisconnect={handleDisconnect}
-        disableConnect={loading}
-      />
       <Container
         maxWidth="lg"
         sx={{

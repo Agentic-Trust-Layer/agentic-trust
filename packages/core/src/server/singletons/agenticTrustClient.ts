@@ -1115,32 +1115,76 @@ export class AgenticTrustClient {
    */
   async getAgentDetailsByUaidUniversal(
     uaid: string,
-    options?: { includeRegistration?: boolean },
+    options?: { includeRegistration?: boolean; allowOnChain?: boolean },
   ): Promise<AgentDetail> {
+    const t0 = Date.now();
     const { parseHcs14UaidDidTarget } = await import('../lib/uaid');
+    const tParse0 = Date.now();
     const parsed = parseHcs14UaidDidTarget(uaid);
+    const tParse1 = Date.now();
     const targetDid = parsed.targetDid;
+    const allowOnChain = options?.allowOnChain !== false;
 
     // If UAID targets did:8004, use the full on-chain aware loader.
-    if (targetDid.startsWith('did:8004:')) {
-      return loadAgentDetail(this, uaid, options);
+    if (allowOnChain && targetDid.startsWith('did:8004:')) {
+      const tLoad0 = Date.now();
+      const out = await loadAgentDetail(this, uaid, options);
+      const tLoad1 = Date.now();
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[core][getAgentDetailsByUaidUniversal] timing ms:', {
+          total: tLoad1 - t0,
+          parseUaid: tParse1 - tParse0,
+          loadAgentDetail: tLoad1 - tLoad0,
+          mode: 'did:8004',
+        });
+      }
+      return out;
     }
 
     // Otherwise: fetch via KB by UAID and return a best-effort "details" view (no on-chain).
+    const tDiscovery0 = Date.now();
     const discoveryClient = await getDiscoveryClient();
-    const agent = await (discoveryClient as any).getAgentByUaid?.(parsed.uaid);
+    if (typeof (discoveryClient as any).getAgentByUaidFull !== 'function') {
+      throw new Error('Discovery client missing getAgentByUaidFull (required for account fields)');
+    }
+    const agent = await (discoveryClient as any).getAgentByUaidFull(parsed.uaid);
+    const tDiscovery1 = Date.now();
     if (!agent) {
       throw new Error(`Agent not found for uaid=${parsed.uaid}`);
     }
 
     // If KB supplies a did:8004 identity, upgrade to full loader.
     const did8004 = typeof agent.didIdentity === 'string' ? agent.didIdentity : null;
-    if (did8004 && did8004.startsWith('did:8004:')) {
+    if (allowOnChain && did8004 && did8004.startsWith('did:8004:')) {
       const uaidForDid = `uaid:${did8004}`;
-      return loadAgentDetail(this, uaidForDid, options);
+      const tLoad0 = Date.now();
+      const out = await loadAgentDetail(this, uaidForDid, options);
+      const tLoad1 = Date.now();
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[core][getAgentDetailsByUaidUniversal] timing ms:', {
+          total: tLoad1 - t0,
+          parseUaid: tParse1 - tParse0,
+          discoveryGetAgentByUaid: tDiscovery1 - tDiscovery0,
+          loadAgentDetail: tLoad1 - tLoad0,
+          mode: 'upgrade-to-did:8004',
+        });
+      }
+      return out;
     }
 
     // Build a minimal AgentDetail payload.
+    if (process.env.NODE_ENV === 'development') {
+      const t1 = Date.now();
+      console.log('[core][getAgentDetailsByUaidUniversal] timing ms:', {
+        total: t1 - t0,
+        parseUaid: tParse1 - tParse0,
+        discoveryGetAgentByUaid: tDiscovery1 - tDiscovery0,
+        mode:
+          !allowOnChain && targetDid.startsWith('did:8004:')
+            ? 'did:8004-kb-only'
+            : 'kb-only',
+      });
+    }
     return {
       success: true,
       agentId: String(agent.agentId ?? parsed.uaid),
@@ -1150,6 +1194,15 @@ export class AgenticTrustClient {
       agentIdentityOwnerAccount: String(agent.agentIdentityOwnerAccount ?? ''),
       eoaAgentIdentityOwnerAccount: (agent as any).eoaAgentIdentityOwnerAccount ?? null,
       eoaAgentAccount: (agent as any).eoaAgentAccount ?? null,
+      // Flatten KB v2 account fields so admin UI can display them
+      identityOwnerAccount: (agent as any).identityOwnerAccount ?? null,
+      identityWalletAccount: (agent as any).identityWalletAccount ?? null,
+      identityOperatorAccount: (agent as any).identityOperatorAccount ?? null,
+      agentOwnerAccount: (agent as any).agentOwnerAccount ?? null,
+      agentWalletAccount: (agent as any).agentWalletAccount ?? null,
+      agentOperatorAccount: (agent as any).agentOperatorAccount ?? null,
+      agentOwnerEOAAccount: (agent as any).agentOwnerEOAAccount ?? null,
+      smartAgentAccount: (agent as any).smartAgentAccount ?? null,
       didIdentity: (agent as any).didIdentity ?? null,
       didAccount: (agent as any).didAccount ?? null,
       didName: (agent as any).didName ?? null,

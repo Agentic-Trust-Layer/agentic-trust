@@ -254,6 +254,7 @@ export function AgentsPage({
   const router = useRouter();
   const [tokenUriLoading, setTokenUriLoading] = useState(false);
   const [navigatingToAgent, setNavigatingToAgent] = useState<string | null>(null);
+  const navigatingToAgentStartedAtRef = useRef<number | null>(null);
   // Safety: if the destination route hangs (e.g. tokenUri/IPFS gateway issues), don't lock the user on a blocking overlay forever.
   useEffect(() => {
     if (!navigatingToAgent) return;
@@ -2862,24 +2863,22 @@ export function AgentsPage({
         <div
           style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            top: '1.25rem',
+            right: '1.25rem',
+            maxWidth: 'min(440px, calc(100vw - 2.5rem))',
+            backgroundColor: 'rgba(255, 255, 255, 0.92)',
+            border: `1px solid ${palette.border}`,
+            boxShadow: '0 10px 30px rgba(15,23,42,0.18)',
+            backdropFilter: 'blur(6px)',
             zIndex: 10000,
+            borderRadius: '12px',
+            padding: '1rem 1.25rem',
           }}
         >
           <div
             style={{
-              backgroundColor: '#fff',
-              padding: '2rem',
-              borderRadius: '8px',
               display: 'flex',
-              flexDirection: 'column',
+              flexDirection: 'row',
               alignItems: 'center',
               gap: '1rem',
             }}
@@ -2894,7 +2893,19 @@ export function AgentsPage({
                 animation: 'spin 1s linear infinite',
               }}
             />
-            <div style={{ fontSize: '1rem', fontWeight: 600 }}>Loading agent details...</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+              <div style={{ fontSize: '1rem', fontWeight: 700, color: palette.textPrimary }}>
+                Opening agent…
+              </div>
+              <div style={{ fontSize: '0.9rem', color: palette.textSecondary }}>
+                {(() => {
+                  const startedAt = navigatingToAgentStartedAtRef.current;
+                  if (!startedAt) return 'Loading details';
+                  const elapsedMs = Date.now() - startedAt;
+                  return `Elapsed: ${Math.max(0, Math.round(elapsedMs))}ms`;
+                })()}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -3942,6 +3953,14 @@ export function AgentsPage({
                       `Invalid agent.uaid (expected uaid:*): ${uaid || '<empty>'}`,
                     );
                   }
+                  const startedAt = Date.now();
+                  navigatingToAgentStartedAtRef.current = startedAt;
+                  try {
+                    sessionStorage.setItem('nav:agentDetails', JSON.stringify({ uaid, startedAt }));
+                  } catch {
+                    // ignore
+                  }
+                  console.log('[AgentsPage] navigate -> agent details start', { uaid, startedAt });
                   setNavigatingToAgent(uaid);
                   router.push(`/agents/${encodeURIComponent(uaid)}`);
                 }}
@@ -3979,6 +3998,14 @@ export function AgentsPage({
                                   `Invalid agent.uaid (expected uaid:*): ${uaid || '<empty>'}`,
                                 );
                               }
+                              const startedAt = Date.now();
+                              navigatingToAgentStartedAtRef.current = startedAt;
+                              try {
+                                sessionStorage.setItem('nav:adminTools', JSON.stringify({ uaid, startedAt }));
+                              } catch {
+                                // ignore
+                              }
+                              console.log('[AgentsPage] navigate -> admin tools start', { uaid, startedAt });
                               setNavigatingToAgent(uaid);
                               router.push(`/admin-tools/${encodeURIComponent(uaid)}`);
                             }}
