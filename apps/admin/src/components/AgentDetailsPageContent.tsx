@@ -1034,43 +1034,6 @@ export default function AgentDetailsPageContent({
               Created: {formatRelativeTime(agent.createdAtTime)}
             </p>
 
-            {/* Accounts (KB v2) */}
-            {(() => {
-              const entries = [
-                { label: 'Agent Account', value: agent.agentAccount },
-                { label: 'SmartAgent Account', value: (agent as any).smartAgentAccount },
-                { label: 'Agent Owner EOA', value: (agent as any).agentOwnerEOAAccount },
-                { label: 'Agent Owner', value: (agent as any).agentOwnerAccount },
-                { label: 'Agent Wallet', value: (agent as any).agentWalletAccount },
-                { label: 'Agent Operator', value: (agent as any).agentOperatorAccount },
-                { label: 'Identity Owner', value: (agent as any).identityOwnerAccount },
-                { label: 'Identity Wallet', value: (agent as any).identityWalletAccount },
-                { label: 'Identity Operator', value: (agent as any).identityOperatorAccount },
-              ].filter((e) => typeof e.value === 'string' && e.value.trim().startsWith('0x'));
-
-              if (entries.length === 0) return null;
-
-              return (
-                <Box sx={{ mt: 2 }}>
-                  <Typography variant="subtitle2" sx={{ color: palette.textSecondary, mb: 0.75 }}>
-                    Accounts
-                  </Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1 }}>
-                    {entries.map((e) => (
-                      <Box key={e.label} sx={{ display: 'flex', gap: 1, minWidth: 0 }}>
-                        <Typography variant="caption" sx={{ color: palette.textSecondary, minWidth: 140 }}>
-                          {e.label}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: palette.textPrimary }} noWrap>
-                          {String(e.value)}
-                        </Typography>
-                      </Box>
-                    ))}
-                  </Box>
-                </Box>
-              );
-            })()}
-
             {/* Action Buttons */}
             <Stack direction="row" spacing={1.5} sx={{ mt: 3.5 }}>
               {showManageButton && (
@@ -1117,7 +1080,7 @@ export default function AgentDetailsPageContent({
                   fontWeight: 700,
                 }}
               >
-                Give Review
+                Give Feedback
               </Button>
             </Stack>
           </Box>
@@ -1268,58 +1231,6 @@ export default function AgentDetailsPageContent({
               <CloseIcon />
             </IconButton>
           </Box>
-          <Box
-            sx={{
-              display: 'flex',
-              borderBottom: `2px solid ${palette.border}`,
-              backgroundColor: palette.surfaceMuted,
-              overflowX: 'auto',
-              mt: 1,
-            }}
-          >
-            {[
-              { id: 'feedback', label: 'Reviews' },
-              { id: 'validation', label: 'Validations' },
-              { id: 'associations', label: 'Relationships' },
-            ].map((tab) => {
-              const isActive = insightsDialogTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setInsightsDialogTab(tab.id as 'feedback' | 'validation' | 'associations')}
-                  style={{
-                    padding: '0.85rem 1.25rem',
-                    border: 'none',
-                    borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
-                    backgroundColor: 'transparent',
-                    color: isActive ? palette.accent : palette.textSecondary,
-                    fontWeight: isActive ? 700 : 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    fontSize: '0.95rem',
-                    whiteSpace: 'nowrap',
-                    position: 'relative',
-                    minWidth: '120px',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.color = palette.textPrimary;
-                      e.currentTarget.style.backgroundColor = palette.surface;
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isActive) {
-                      e.currentTarget.style.color = palette.textSecondary;
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                    }
-                  }}
-                >
-                  {tab.label}
-                </button>
-              );
-            })}
-          </Box>
         </DialogTitle>
         <DialogContent sx={{ pt: 2 }}>
           {insightsDialogTab && (
@@ -1390,7 +1301,7 @@ export default function AgentDetailsPageContent({
         </DialogContent>
       </Dialog>
 
-      {/* Give Review Dialog */}
+      {/* Give Feedback Dialog */}
       <Dialog
         open={dialogState.type === 'give-feedback'}
         onClose={closeDialog}
@@ -1398,7 +1309,7 @@ export default function AgentDetailsPageContent({
         fullWidth
       >
         <DialogTitle>
-          Give Review
+          Give Feedback
           <IconButton
             onClick={closeDialog}
             sx={{ position: 'absolute', right: 8, top: 8 }}

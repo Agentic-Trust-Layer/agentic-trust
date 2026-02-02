@@ -4256,47 +4256,6 @@ export function AgentsPage({
                       justifyContent: 'flex-end',
                     }}
                   >
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openActionDialog(agent, 'info');
-                      }}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        borderRadius: '8px',
-                        border: `1px solid ${palette.border}`,
-                        backgroundColor: palette.surface,
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        cursor: 'pointer',
-                        color: palette.textPrimary,
-                      }}
-                    >
-                      {ACTION_LABELS.info}
-                    </button>
-                    {/* Feedback button removed; feedback is now accessed via the reviews link in the stats row */}
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.stopPropagation();
-                        openActionDialog(agent, 'registration');
-                      }}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        borderRadius: '8px',
-                        border: `1px solid ${palette.border}`,
-                        backgroundColor: palette.surface,
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        cursor: (agent as any).rawJson ? 'pointer' : 'not-allowed',
-                        opacity: (agent as any).rawJson ? 1 : 0.5,
-                        color: palette.textPrimary,
-                      }}
-                      disabled={!(agent as any).rawJson}
-                    >
-                      {ACTION_LABELS.registration}
-                    </button>
                     {isOwned && (
                       <>
                         <button
