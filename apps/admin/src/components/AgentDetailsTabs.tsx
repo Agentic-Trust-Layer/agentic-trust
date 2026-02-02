@@ -56,17 +56,18 @@ type AgentDetailsTabsProps = {
   embedded?: boolean;
 };
 
-// Tab definitions - labels will be computed with counts from agent prop
+// Tab definitions - labels will be computed with counts from agent prop where applicable
 const ALL_TAB_DEFS = [
-  { id: 'overview', label: 'Overview' },
-  { id: 'registration', label: 'Registration' },
+  // Main identity tabs (ENS/HOL are conditionally shown)
+  { id: 'id8004', label: '8004' },
+  { id: 'ens', label: 'ENS' },
+  { id: 'hol', label: 'HOL' },
   // Opened via dialogs (not shown in the main tab bar)
   { id: 'feedback', label: 'Reviews' },
   { id: 'validation', label: 'Validations' },
   { id: 'associations', label: 'Relationships' },
 ] as const;
 
-const MAIN_TAB_DEFS = ALL_TAB_DEFS.filter((t) => t.id === 'overview' || t.id === 'registration');
 const MODAL_TAB_DEFS = ALL_TAB_DEFS.filter(
   (t) => t.id === 'feedback' || t.id === 'validation' || t.id === 'associations',
 );
@@ -122,15 +123,12 @@ const AgentDetailsTabs = ({
   feedbackItems: initialFeedbackItems,
   feedbackSummary: initialFeedbackSummary,
   validations: initialValidations,
-  onChainMetadata: initialOnChainMetadata = {},
+  onChainMetadata: _initialOnChainMetadata = {},
   renderOnlyTab,
   embedded = false,
 }: AgentDetailsTabsProps) => {
-  const [activeTab, setActiveTab] = useState<TabId>(renderOnlyTab ?? 'overview');
+  const [activeTab, setActiveTab] = useState<TabId>(renderOnlyTab ?? 'id8004');
   const [modalTab, setModalTab] = useState<ModalTabId | null>(null);
-  const [registrationData, setRegistrationData] = useState<string | null>(null);
-  const [registrationLoading, setRegistrationLoading] = useState(false);
-  const [registrationError, setRegistrationError] = useState<string | null>(null);
 
   // Feedback + validations are lazy-loaded when their respective tabs are opened
   const [feedbackItems, setFeedbackItems] = useState<unknown[]>(
@@ -152,13 +150,7 @@ const AgentDetailsTabs = ({
   );
   const [validationsError, setValidationsError] = useState<string | null>(null);
 
-  // On-chain metadata is shown in Overview pane; load on demand when Overview is opened
-  const [onChainMetadata, setOnChainMetadata] = useState<Record<string, string>>(initialOnChainMetadata ?? {});
-  const [metadataLoading, setMetadataLoading] = useState(false);
-  const [metadataLoaded, setMetadataLoaded] = useState<boolean>(
-    initialOnChainMetadata && Object.keys(initialOnChainMetadata).length > 0,
-  );
-  const [metadataError, setMetadataError] = useState<string | null>(null);
+  // NOTE: Identity tabs use KB-provided descriptor JSON and onchainMetadataJson (no on-chain fetch).
 
   // Normalize UAID to avoid double-encoding (e.g. uaid%253Adid...).
   const canonicalUaid = useMemo(() => {
@@ -505,66 +497,6 @@ const AgentDetailsTabs = ({
     };
   }, [activeTab, modalTab, canonicalUaid]);
 
-  // Lazy load on-chain metadata when Overview tab is selected (shown in Metadata pane)
-  useEffect(() => {
-    if (activeTab !== 'overview') return;
-    if (metadataLoaded || metadataLoading) return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
-
-    (async () => {
-      setMetadataLoading(true);
-      setMetadataError(null);
-      try {
-        const res = await fetch(`/api/agents/${encodeURIComponent(canonicalUaid)}`, {
-          method: 'GET',
-          signal: controller.signal,
-        });
-        const json = await res.json().catch(() => null);
-        if (cancelled) return;
-        if (!res.ok) {
-          setMetadataError((json as any)?.message || (json as any)?.error || `Failed to load agent metadata (${res.status})`);
-          setMetadataLoaded(true);
-          return;
-        }
-        const meta =
-          json &&
-          typeof json === 'object' &&
-          (json as any).identityMetadata &&
-          typeof (json as any).identityMetadata === 'object' &&
-          (json as any).identityMetadata.metadata &&
-          typeof (json as any).identityMetadata.metadata === 'object'
-            ? ((json as any).identityMetadata.metadata as Record<string, string>)
-            : null;
-        if (meta) {
-          setOnChainMetadata(meta);
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          if (controller.signal.aborted) {
-            setMetadataError('Timed out loading on-chain metadata.');
-          } else {
-            setMetadataError(e?.message || 'Failed to load on-chain metadata');
-          }
-        }
-      } finally {
-        if (!cancelled) {
-          setMetadataLoaded(true);
-          setMetadataLoading(false);
-        }
-        clearTimeout(timeout);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timeout);
-      controller.abort();
-    };
-  }, [activeTab, canonicalUaid]);
-
   // Fetch agent info for association addresses
   useEffect(() => {
     if (!associationsData || !associationsData.ok || associationsData.associations.length === 0) return;
@@ -662,88 +594,6 @@ const AgentDetailsTabs = ({
     return agentInfoByAddress.get(addrLower) || null;
   }, [agent, agentInfoByAddress]);
 
-  // Load registration data when registration tab is selected
-  useEffect(() => {
-    // If we already failed once, don't spin in a retry loop.
-    // Users can refresh the page if they want to retry, or we can add an explicit retry button later.
-    if (activeTab === 'registration' && agent.agentUri && !registrationData && !registrationLoading && !registrationError) {
-      setRegistrationLoading(true);
-      setRegistrationError(null);
-      const normalizedUri = normalizeResourceUrl(agent.agentUri);
-      if (!normalizedUri) {
-        setRegistrationError('Invalid token URI');
-        setRegistrationLoading(false);
-        return;
-      }
-      // Handle data URIs directly without fetch
-      if (normalizedUri.startsWith('data:')) {
-        try {
-          const commaIndex = normalizedUri.indexOf(',');
-          if (commaIndex === -1) throw new Error('Invalid data URI');
-          
-          const isBase64 = normalizedUri.includes(';base64');
-          const data = normalizedUri.slice(commaIndex + 1);
-          
-          let decoded: string;
-          if (isBase64) {
-            // Check if it looks like plain JSON despite saying base64
-            const trimmedData = data.trim();
-            if (trimmedData.startsWith('{') || trimmedData.startsWith('[')) {
-              decoded = data; // Treat as plain text
-            } else {
-              try {
-                decoded = atob(data);
-              } catch (e) {
-                // If base64 decode fails, try as plain text or URL decoded
-                try {
-                  decoded = decodeURIComponent(data);
-                } catch {
-                  decoded = data;
-                }
-              }
-            }
-          } else {
-            decoded = decodeURIComponent(data);
-          }
-
-          // Verify it's valid JSON if possible (for pretty printing)
-          try {
-            const json = JSON.parse(decoded);
-            setRegistrationData(JSON.stringify(json, null, 2));
-          } catch {
-            setRegistrationData(decoded);
-          }
-          setRegistrationLoading(false);
-          return;
-        } catch (error) {
-          console.warn('Failed to parse data URI:', error);
-          // Fall through to fetch if manual parse fails (unlikely for data URIs)
-        }
-      }
-
-      // Add a short timeout so a bad gateway can't hang the UI.
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 10_000);
-      fetch(normalizedUri, { signal: ctrl.signal })
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error('Failed to fetch registration data');
-          }
-          return response.text();
-        })
-        .then((text) => {
-          setRegistrationData(text);
-          setRegistrationLoading(false);
-        })
-        .catch((error) => {
-          console.error('Failed to load registration:', error);
-          setRegistrationError(error instanceof Error ? error.message : 'Failed to load registration data');
-          setRegistrationLoading(false);
-        })
-        .finally(() => clearTimeout(timeout));
-    }
-  }, [activeTab, agent.agentUri, registrationData, registrationLoading, registrationError, normalizeResourceUrl]);
-
   // Keep activeTab in sync when used as an embedded single-panel renderer
   useEffect(() => {
     if (!renderOnlyTab) return;
@@ -763,6 +613,89 @@ const AgentDetailsTabs = ({
         overflow: 'hidden',
       };
 
+  const hasEnsIdentity = Boolean((agent as any).identityEnsDid || (agent as any).identityEnsDescriptorJson);
+  const hasHolIdentity = Boolean(
+    (agent as any).identityHolDid || (agent as any).identityHolUaid || (agent as any).identityHolDescriptorJson,
+  );
+  const isSmartAgent =
+    (agent as any).isSmartAgent === true ||
+    (typeof (agent as any).smartAgentAccount === 'string' && (agent as any).smartAgentAccount.trim().startsWith('0x'));
+
+  const mainTabDefs = useMemo(() => {
+    const tabs: Array<{ id: TabId; label: string }> = [
+      { id: 'id8004', label: isSmartAgent ? 'Smart Agent (8004)' : '8004' },
+    ];
+    if (hasEnsIdentity) tabs.push({ id: 'ens', label: 'ENS' });
+    if (hasHolIdentity) tabs.push({ id: 'hol', label: 'HOL' });
+    return tabs;
+  }, [hasEnsIdentity, hasHolIdentity, isSmartAgent]);
+
+  useEffect(() => {
+    if (renderOnlyTab) return;
+    if (activeTab === 'ens' && !hasEnsIdentity) setActiveTab('id8004');
+    if (activeTab === 'hol' && !hasHolIdentity) setActiveTab('id8004');
+  }, [activeTab, hasEnsIdentity, hasHolIdentity, renderOnlyTab]);
+
+  const extractServiceEndpointFromDescriptorJson = useCallback(
+    (descriptorJson: string | null | undefined, serviceName: string): string | null => {
+      if (!descriptorJson) return null;
+      try {
+        const parsed = JSON.parse(descriptorJson) as any;
+        const services = Array.isArray(parsed?.services) ? parsed.services : [];
+        const target = serviceName.trim().toLowerCase();
+        for (const svc of services) {
+          const name = typeof svc?.name === 'string' ? svc.name.trim().toLowerCase() : '';
+          const endpoint = typeof svc?.endpoint === 'string' ? svc.endpoint.trim() : '';
+          if (name === target && endpoint) return endpoint;
+        }
+      } catch {
+        // ignore
+      }
+      return null;
+    },
+    [],
+  );
+
+  const identityTab = activeTab === 'ens' || activeTab === 'hol' || activeTab === 'id8004' ? activeTab : 'id8004';
+  const identityDid =
+    identityTab === 'ens'
+      ? ((agent as any).identityEnsDid ?? null)
+      : identityTab === 'hol'
+        ? ((agent as any).identityHolDid ?? null)
+        : ((agent as any).identity8004Did ?? agent.did ?? null);
+  const identityHolUaid = identityTab === 'hol' ? ((agent as any).identityHolUaid ?? null) : null;
+  const identityDescriptorJsonRaw =
+    identityTab === 'ens'
+      ? ((agent as any).identityEnsDescriptorJson ?? null)
+      : identityTab === 'hol'
+        ? ((agent as any).identityHolDescriptorJson ?? null)
+        : ((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null);
+  const identityOnchainMetadataJsonRaw =
+    identityTab === 'ens'
+      ? ((agent as any).identityEnsOnchainMetadataJson ?? null)
+      : identityTab === 'hol'
+        ? ((agent as any).identityHolOnchainMetadataJson ?? null)
+        : ((agent as any).identity8004OnchainMetadataJson ?? (agent as any).onchainMetadataJson ?? null);
+
+  const identityDescriptor = useMemo(
+    () => parseJsonObject(identityDescriptorJsonRaw),
+    [identityDescriptorJsonRaw],
+  );
+  const identityOnchainMetadata = useMemo(() => {
+    const parsed = parseJsonObject(identityOnchainMetadataJsonRaw);
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
+  }, [identityOnchainMetadataJsonRaw]);
+
+  const identityA2aEndpoint =
+    extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'a2a') ?? (identityTab === 'id8004' ? agent.a2aEndpoint : null);
+  const identityMcpEndpoint =
+    extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'mcp') ?? (identityTab === 'id8004' ? agent.mcpEndpoint : null);
+
+  const identityDescriptorPretty = useMemo(
+    () => formatJsonIfPossible(identityDescriptorJsonRaw),
+    [identityDescriptorJsonRaw],
+  );
+
   return (
     <ContainerTag style={containerStyle}>
       {/* Tab Navigation (hidden when renderOnlyTab is set) */}
@@ -775,9 +708,9 @@ const AgentDetailsTabs = ({
             overflowX: 'auto',
           }}
         >
-          {MAIN_TAB_DEFS.map((tab) => {
+          {mainTabDefs.map((tab) => {
             const isActive = activeTab === tab.id;
-            const label = getTabLabel(tab.id);
+            const label = tab.label;
             return (
               <button
                 key={tab.id}
@@ -821,8 +754,9 @@ const AgentDetailsTabs = ({
 
       {/* Tab Content */}
       <div style={{ padding: embedded ? 0 : '1.5rem' }}>
-        {activeTab === 'overview' && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.5rem' }}>
+        {(activeTab === 'id8004' || activeTab === 'ens' || activeTab === 'hol') && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.5rem' }}>
             {/* Left Column: Identity Info and Endpoints stacked */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
               {/* Identity Info Pane */}
@@ -834,40 +768,69 @@ const AgentDetailsTabs = ({
                   backgroundColor: palette.surfaceMuted,
                 }}
               >
-              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>8004 Identity Registry</h3>
+              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>
+                {identityTab === 'ens' ? 'ENS Identity' : identityTab === 'hol' ? 'HOL Identity' : '8004 Identity Registry'}
+              </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.9rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-                  <div>
-                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
-                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
-                  </div>
-                  <div>
-                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
-                    <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
-                  </div>
-                </div>
-
-                <div>
-                  <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OwnerAccount</strong>
-                  <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
-                    {(agent as any).identityOwnerAccount || '—'}
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-                  <div>
-                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OperatorAccount</strong>
-                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
-                      {(agent as any).identityOperatorAccount || '—'}
+                {identityTab === 'id8004' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                      <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
+                    </div>
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                      <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
                     </div>
                   </div>
-                  <div>
-                    <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>WalletAccount</strong>
-                    <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
-                      {(agent as any).identityWalletAccount || '—'}
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>DID</strong>
+                      <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                        {identityDid ?? '—'}
+                      </div>
+                    </div>
+                    {identityTab === 'hol' && identityHolUaid && (
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>HOL UAID</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                          {identityHolUaid}
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                      <div style={{ color: palette.textPrimary }}>{agent.chainId || '—'}</div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {identityTab === 'id8004' && (
+                  <>
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OwnerAccount</strong>
+                      <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                        {(agent as any).identityOwnerAccount || '—'}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OperatorAccount</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                          {(agent as any).identityOperatorAccount || '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>WalletAccount</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                          {(agent as any).identityWalletAccount || '—'}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -891,9 +854,9 @@ const AgentDetailsTabs = ({
               >
                 <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>A2A</strong>
-                    {agent.a2aEndpoint ? (
+                    {identityA2aEndpoint ? (
                       <a
-                        href={agent.a2aEndpoint}
+                        href={identityA2aEndpoint}
                         target="_blank"
                         rel="noopener noreferrer"
                     style={{
@@ -911,7 +874,7 @@ const AgentDetailsTabs = ({
                           e.currentTarget.style.textDecoration = 'none';
                         }}
                       >
-                        {agent.a2aEndpoint}
+                        {identityA2aEndpoint}
                       </a>
                     ) : (
                       <div style={{ fontFamily: 'monospace', color: palette.textSecondary }}>—</div>
@@ -919,9 +882,9 @@ const AgentDetailsTabs = ({
                 </div>
                 <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>MCP</strong>
-                    {agent.mcpEndpoint ? (
+                    {identityMcpEndpoint ? (
                       <a
-                        href={agent.mcpEndpoint}
+                        href={identityMcpEndpoint}
                         target="_blank"
                         rel="noopener noreferrer"
                     style={{
@@ -939,7 +902,7 @@ const AgentDetailsTabs = ({
                           e.currentTarget.style.textDecoration = 'none';
                         }}
                       >
-                        {agent.mcpEndpoint}
+                        {identityMcpEndpoint}
                       </a>
                     ) : (
                       <div style={{ fontFamily: 'monospace', color: palette.textSecondary }}>—</div>
@@ -967,27 +930,33 @@ const AgentDetailsTabs = ({
                   fontSize: '0.9rem',
                 }}
               >
-                {(onChainMetadata.agentCategory || agent.agentCategory) && (
+                {(((identityOnchainMetadata as any).agentCategory as string | undefined) || agent.agentCategory) && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Category</strong>
                     <div style={{ color: palette.textPrimary, fontWeight: 500 }}>
-                      {onChainMetadata.agentCategory || agent.agentCategory}
+                      {((identityOnchainMetadata as any).agentCategory as string | undefined) || agent.agentCategory}
                     </div>
                   </div>
                 )}
-            {agent.description && (
+            {(typeof (identityDescriptor as any)?.description === 'string' ? (identityDescriptor as any).description : agent.description) && (
               <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Description</strong>
                 <p style={{ margin: 0, lineHeight: 1.6, color: palette.textPrimary }}>
-                  {agent.description}
+                  {typeof (identityDescriptor as any)?.description === 'string'
+                    ? (identityDescriptor as any).description
+                    : agent.description}
                 </p>
               </div>
             )}
-                {agent.image && (
+                {(typeof (identityDescriptor as any)?.image === 'string' ? (identityDescriptor as any).image : agent.image) && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Image</strong>
                     <a
-                      href={agent.image}
+                      href={
+                        (typeof (identityDescriptor as any)?.image === 'string'
+                          ? (identityDescriptor as any).image
+                          : agent.image) as string
+                      }
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{
@@ -1003,19 +972,21 @@ const AgentDetailsTabs = ({
                         e.currentTarget.style.textDecoration = 'none';
                       }}
                     >
-                      {agent.image}
+                      {typeof (identityDescriptor as any)?.image === 'string'
+                        ? (identityDescriptor as any).image
+                        : agent.image}
                     </a>
                   </div>
                 )}
-                {agent.agentUri && (
+                {(((identityOnchainMetadata as any).agentUri as string | undefined) || agent.agentUri) && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent URI</strong>
                     <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: palette.textPrimary, fontSize: '0.85rem' }}>
-                      {agent.agentUri}
+                      {((identityOnchainMetadata as any).agentUri as string | undefined) || agent.agentUri}
                     </div>
                   </div>
                 )}
-                {agent.contractAddress && (
+                {identityTab === 'id8004' && agent.contractAddress && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Contract Address</strong>
                     <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
@@ -1023,24 +994,28 @@ const AgentDetailsTabs = ({
                     </div>
                   </div>
                 )}
-                {agent.did && (
+                {identityDid && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>DID</strong>
                     <div style={{ fontFamily: 'monospace', wordBreak: 'break-all', color: palette.textPrimary, fontSize: '0.85rem' }}>
-                      {agent.did}
+                      {identityDid}
                     </div>
                   </div>
                 )}
-                {agent.supportedTrust && (
+                {(typeof (identityDescriptor as any)?.supportedTrust !== 'undefined' || agent.supportedTrust) && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Supported Trust</strong>
                     <div style={{ color: palette.textPrimary }}>
-                      {typeof agent.supportedTrust === 'string' ? agent.supportedTrust : JSON.stringify(agent.supportedTrust)}
+                      {typeof (identityDescriptor as any)?.supportedTrust !== 'undefined'
+                        ? JSON.stringify((identityDescriptor as any).supportedTrust)
+                        : typeof agent.supportedTrust === 'string'
+                          ? agent.supportedTrust
+                          : JSON.stringify(agent.supportedTrust)}
                     </div>
                   </div>
                 )}
-                {/* On-Chain Metadata from AIAgentIdentityClient */}
-                {Object.keys(onChainMetadata).length > 0 && (
+                {/* KB-provided onchainMetadataJson (already assembled; no chain call) */}
+                {Object.keys(identityOnchainMetadata).length > 0 && (
                   <div>
                     <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.5rem', marginTop: '0.5rem' }}>On-Chain Metadata</strong>
                     <div
@@ -1051,59 +1026,36 @@ const AgentDetailsTabs = ({
                         fontSize: '0.85rem',
                       }}
                     >
-                      {Object.entries(onChainMetadata).map(([key, value]) => (
+                      {Object.entries(identityOnchainMetadata).map(([key, value]) => (
                         <div key={key}>
                           <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>
                             {key}
                           </strong>
                           <div style={{ color: palette.textPrimary, wordBreak: 'break-word', fontFamily: key === 'agentAccount' ? 'monospace' : 'inherit' }}>
-                            {value}
+                            {typeof value === 'string' ? value : JSON.stringify(value)}
                           </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-                {metadataLoading && Object.keys(onChainMetadata).length === 0 && (
-                  <div style={{ color: palette.textSecondary, fontSize: '0.85rem' }}>
-                    Loading on-chain metadata...
-                  </div>
-                )}
-                {metadataError && (
-                  <div style={{ color: palette.dangerText, fontSize: '0.85rem' }}>
-                    {metadataError}
-                  </div>
-                )}
               </div>
             </div>
-          </div>
-        )}
+            </div>
 
-        {activeTab === 'registration' && (
-          <div>
-            {!agent.agentUri ? (
-              <p style={{ color: palette.textSecondary, margin: 0 }}>
-                No registration data available for this agent.
-              </p>
-            ) : registrationLoading ? (
-              <p style={{ color: palette.textSecondary, margin: 0 }}>
-                Loading registration data...
-              </p>
-            ) : registrationError ? (
-              <p style={{ color: palette.dangerText, margin: 0 }}>
-                {registrationError}
-              </p>
-            ) : registrationData ? (
-              <div
-                style={{
-                  border: `1px solid ${palette.border}`,
-                  borderRadius: '12px',
-                  padding: '1rem',
-                  backgroundColor: palette.surfaceMuted,
-                  maxHeight: '600px',
-                  overflow: 'auto',
-                }}
-              >
+            {/* Descriptor JSON (from identity descriptor json) */}
+            <div
+              style={{
+                border: `1px solid ${palette.border}`,
+                borderRadius: '12px',
+                padding: '1.25rem',
+                backgroundColor: palette.surfaceMuted,
+              }}
+            >
+              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>
+                Descriptor JSON
+              </h3>
+              {identityDescriptorPretty ? (
                 <pre
                   style={{
                     whiteSpace: 'pre-wrap',
@@ -1112,16 +1064,16 @@ const AgentDetailsTabs = ({
                     fontSize: '0.85rem',
                     margin: 0,
                     color: palette.textPrimary,
+                    maxHeight: '600px',
+                    overflow: 'auto',
                   }}
                 >
-                  {registrationData}
+                  {identityDescriptorPretty}
                 </pre>
-              </div>
-            ) : (
-              <p style={{ color: palette.textSecondary, margin: 0 }}>
-                No registration data available.
-              </p>
-            )}
+              ) : (
+                <div style={{ color: palette.textSecondary }}>No descriptor JSON available for this identity.</div>
+              )}
+            </div>
           </div>
         )}
 

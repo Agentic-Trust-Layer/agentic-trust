@@ -56,6 +56,17 @@ export interface AgentData {
   trustLedgerBadgeCount?: number | null;
   trustLedgerOverallRank?: number | null;
   trustLedgerCapabilityRank?: number | null;
+  // Identity-scoped fields (KB v2)
+  identity8004Did?: string | null;
+  identityEnsDid?: string | null;
+  identityHolDid?: string | null;
+  identityHolUaid?: string | null;
+  identity8004DescriptorJson?: string | null;
+  identityEnsDescriptorJson?: string | null;
+  identityHolDescriptorJson?: string | null;
+  identity8004OnchainMetadataJson?: string | null;
+  identityEnsOnchainMetadataJson?: string | null;
+  identityHolOnchainMetadataJson?: string | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -110,7 +121,20 @@ export type KbIdentity = {
   iri: string;
   kind: string;
   did: string;
+  uaidHOL?: string | null;
   descriptor?: KbIdentityDescriptor | null;
+};
+
+// ERC-8004 identity with attached account info (GraphDB KB v2)
+export type KbIdentity8004 = {
+  iri: string;
+  kind: string; // always "8004"
+  did: string;
+  descriptor?: KbIdentityDescriptor | null;
+  ownerAccount?: KbAccount | null;
+  operatorAccount?: KbAccount | null;
+  walletAccount?: KbAccount | null;
+  ownerEOAAccount?: KbAccount | null;
 };
 
 export type KbAccount = {
@@ -151,18 +175,9 @@ export type KbAgent = {
   assertions?: KbAssertionsSummary | null;
   /** Primary identity (GraphDB KB v2); prefer identity8004/identityEns when absent */
   identity?: KbIdentity | null;
-  identity8004?: KbIdentity | null;
+  identity8004?: KbIdentity8004 | null;
+  identityHol?: KbIdentity | null;
   identityEns?: KbIdentity | null;
-  // Accounts attached to the ERC-8004 identity (identity-scoped)
-  identityOwnerAccount?: KbAccount | null;
-  identityOperatorAccount?: KbAccount | null;
-  identityWalletAccount?: KbAccount | null;
-
-  // Accounts attached to the agent (agent-scoped)
-  agentOwnerAccount?: KbAccount | null;
-  agentOperatorAccount?: KbAccount | null;
-  agentWalletAccount?: KbAccount | null;
-  agentOwnerEOAAccount?: KbAccount | null;
 
   // SmartAgent -> ERC-8004 agent-controlled account (AgentAccount)
   agentAccount?: KbAccount | null;
@@ -771,10 +786,9 @@ export class AIAgentDiscoveryClient {
     // Best-effort: infer chainId from the most specific account we have.
     const chainIdFromAccounts =
       (typeof a.agentAccount?.chainId === 'number' ? a.agentAccount?.chainId : null) ??
-      (typeof a.agentWalletAccount?.chainId === 'number' ? a.agentWalletAccount?.chainId : null) ??
-      (typeof a.agentOwnerEOAAccount?.chainId === 'number' ? a.agentOwnerEOAAccount?.chainId : null) ??
-      (typeof a.identityOwnerAccount?.chainId === 'number' ? a.identityOwnerAccount?.chainId : null) ??
-      (typeof a.identityWalletAccount?.chainId === 'number' ? a.identityWalletAccount?.chainId : null) ??
+      (typeof a.identity8004?.walletAccount?.chainId === 'number' ? a.identity8004?.walletAccount?.chainId : null) ??
+      (typeof a.identity8004?.ownerEOAAccount?.chainId === 'number' ? a.identity8004?.ownerEOAAccount?.chainId : null) ??
+      (typeof a.identity8004?.ownerAccount?.chainId === 'number' ? a.identity8004?.ownerAccount?.chainId : null) ??
       null;
 
     const chainId =
@@ -793,15 +807,13 @@ export class AIAgentDiscoveryClient {
     const agentAccount =
       pickAccountAddress(
         a.agentAccount,
-        a.agentWalletAccount,
-        a.identityWalletAccount,
-        a.agentOwnerEOAAccount,
-        a.identityOwnerAccount,
-        a.agentOwnerAccount,
+        a.identity8004?.walletAccount,
+        a.identity8004?.ownerEOAAccount,
+        a.identity8004?.ownerAccount,
       ) ?? null;
 
     const identityOwner =
-      pickAccountAddress(a.identityOwnerAccount, a.agentOwnerEOAAccount, a.agentOwnerAccount) ?? null;
+      pickAccountAddress(a.identity8004?.ownerAccount, a.identity8004?.ownerEOAAccount) ?? null;
 
     const registeredBy =
       (typeof a.identity8004?.descriptor?.registeredBy === 'string' && a.identity8004.descriptor.registeredBy.trim()
@@ -810,22 +822,29 @@ export class AIAgentDiscoveryClient {
       (typeof a.identityEns?.descriptor?.registeredBy === 'string' && a.identityEns.descriptor.registeredBy.trim()
         ? a.identityEns.descriptor.registeredBy.trim()
         : null) ??
+      (typeof a.identityHol?.descriptor?.registeredBy === 'string' && a.identityHol.descriptor.registeredBy.trim()
+        ? a.identityHol.descriptor.registeredBy.trim()
+        : null) ??
       null;
 
     const registeredByAddress =
       registeredBy && /^0x[a-fA-F0-9]{40}$/.test(registeredBy) ? registeredBy : null;
 
     const isOwnerEoa =
-      (a.agentOwnerEOAAccount?.accountType ?? a.identityOwnerAccount?.accountType ?? '')
+      (a.identity8004?.ownerEOAAccount?.accountType ?? a.identity8004?.ownerAccount?.accountType ?? '')
         .toString()
         .toLowerCase()
         .includes('eoa');
 
-    // Pull descriptor JSON where available.
-    const rawJson =
-      (typeof a.identity8004?.descriptor?.json === 'string' && a.identity8004.descriptor.json) ||
-      (typeof a.identityEns?.descriptor?.json === 'string' && a.identityEns.descriptor.json) ||
-      null;
+    const identity8004DescriptorJson =
+      typeof a.identity8004?.descriptor?.json === 'string' ? a.identity8004.descriptor.json : null;
+    const identityEnsDescriptorJson =
+      typeof a.identityEns?.descriptor?.json === 'string' ? a.identityEns.descriptor.json : null;
+    const identityHolDescriptorJson =
+      typeof a.identityHol?.descriptor?.json === 'string' ? a.identityHol.descriptor.json : null;
+
+    // Legacy aggregate: prefer 8004, else ENS, else HOL.
+    const rawJson = identity8004DescriptorJson || identityEnsDescriptorJson || identityHolDescriptorJson || null;
 
     const extractServiceEndpointFromDescriptorJson = (
       descriptorJson: string | null,
@@ -847,24 +866,33 @@ export class AIAgentDiscoveryClient {
       return null;
     };
 
-    // Pull on-chain metadata JSON (for Info card) where available.
-    const onchainMetadataJson =
-      (typeof a.identity8004?.descriptor?.onchainMetadataJson === 'string' &&
+    const identity8004OnchainMetadataJson =
+      typeof a.identity8004?.descriptor?.onchainMetadataJson === 'string' &&
       a.identity8004.descriptor.onchainMetadataJson.trim()
         ? a.identity8004.descriptor.onchainMetadataJson
-        : null) ??
-      (typeof a.identityEns?.descriptor?.onchainMetadataJson === 'string' &&
+        : null;
+    const identityEnsOnchainMetadataJson =
+      typeof a.identityEns?.descriptor?.onchainMetadataJson === 'string' &&
       a.identityEns.descriptor.onchainMetadataJson.trim()
         ? a.identityEns.descriptor.onchainMetadataJson
-        : null) ??
-      null;
+        : null;
+    const identityHolOnchainMetadataJson =
+      typeof a.identityHol?.descriptor?.onchainMetadataJson === 'string' &&
+      a.identityHol.descriptor.onchainMetadataJson.trim()
+        ? a.identityHol.descriptor.onchainMetadataJson
+        : null;
+
+    // Legacy aggregate: prefer 8004, else ENS, else HOL.
+    const onchainMetadataJson =
+      identity8004OnchainMetadataJson ?? identityEnsOnchainMetadataJson ?? identityHolOnchainMetadataJson ?? null;
 
     // Pull registration URI from onchain metadata if present (KB-backed, not on-chain call).
     // Per UAID migration: expect a single canonical field name `agentUri`.
     const agentUriFromOnchainMetadata = (() => {
       const candidates = [
-        a.identity8004?.descriptor?.onchainMetadataJson,
-        a.identityEns?.descriptor?.onchainMetadataJson,
+        identity8004OnchainMetadataJson,
+        identityEnsOnchainMetadataJson,
+        identityHolOnchainMetadataJson,
       ];
       for (const raw of candidates) {
         if (typeof raw !== 'string' || !raw.trim()) continue;
@@ -886,6 +914,9 @@ export class AIAgentDiscoveryClient {
         : []),
       ...(Array.isArray(a.identityEns?.descriptor?.protocolDescriptors)
         ? (a.identityEns?.descriptor?.protocolDescriptors as KbProtocolDescriptor[])
+        : []),
+      ...(Array.isArray(a.identityHol?.descriptor?.protocolDescriptors)
+        ? (a.identityHol?.descriptor?.protocolDescriptors as KbProtocolDescriptor[])
         : []),
     ];
 
@@ -948,14 +979,26 @@ export class AIAgentDiscoveryClient {
       eoaAgentIdentityOwnerAccount: registeredByAddress ?? (isOwnerEoa ? identityOwner : null),
       eoaAgentAccount: isOwnerEoa ? agentAccount : null,
       // Extra KB v2 account fields (flattened)
-      identityOwnerAccount: pickAccountAddress(a.identityOwnerAccount) ?? undefined,
-      identityWalletAccount: pickAccountAddress(a.identityWalletAccount) ?? undefined,
-      identityOperatorAccount: pickAccountAddress(a.identityOperatorAccount) ?? undefined,
-      agentOwnerAccount: pickAccountAddress(a.agentOwnerAccount) ?? undefined,
-      agentWalletAccount: pickAccountAddress(a.agentWalletAccount) ?? undefined,
-      agentOperatorAccount: pickAccountAddress(a.agentOperatorAccount) ?? undefined,
-      agentOwnerEOAAccount: pickAccountAddress(a.agentOwnerEOAAccount) ?? undefined,
+      identityOwnerAccount: pickAccountAddress(a.identity8004?.ownerAccount) ?? undefined,
+      identityWalletAccount: pickAccountAddress(a.identity8004?.walletAccount) ?? undefined,
+      identityOperatorAccount: pickAccountAddress(a.identity8004?.operatorAccount) ?? undefined,
+      // Agent-scoped fields are not present in KB v2; mirror identity accounts for legacy consumers.
+      agentOwnerAccount: pickAccountAddress(a.identity8004?.ownerAccount) ?? undefined,
+      agentWalletAccount: pickAccountAddress(a.identity8004?.walletAccount) ?? undefined,
+      agentOperatorAccount: pickAccountAddress(a.identity8004?.operatorAccount) ?? undefined,
+      agentOwnerEOAAccount: pickAccountAddress(a.identity8004?.ownerEOAAccount) ?? undefined,
       smartAgentAccount: pickAccountAddress(a.agentAccount) ?? undefined,
+      // Identity tab fields (per-identity)
+      identity8004Did: typeof a.identity8004?.did === 'string' ? a.identity8004.did : undefined,
+      identityEnsDid: typeof a.identityEns?.did === 'string' ? a.identityEns.did : undefined,
+      identityHolDid: typeof a.identityHol?.did === 'string' ? a.identityHol.did : undefined,
+      identityHolUaid: typeof a.identityHol?.uaidHOL === 'string' ? a.identityHol.uaidHOL : undefined,
+      identity8004DescriptorJson: identity8004DescriptorJson ?? undefined,
+      identityEnsDescriptorJson: identityEnsDescriptorJson ?? undefined,
+      identityHolDescriptorJson: identityHolDescriptorJson ?? undefined,
+      identity8004OnchainMetadataJson: identity8004OnchainMetadataJson ?? undefined,
+      identityEnsOnchainMetadataJson: identityEnsOnchainMetadataJson ?? undefined,
+      identityHolOnchainMetadataJson: identityHolOnchainMetadataJson ?? undefined,
       didIdentity: did8004,
       did: did8004,
       agentUri: agentUriFromOnchainMetadata ?? undefined,
@@ -1028,11 +1071,16 @@ export class AIAgentDiscoveryClient {
             domains
           }
         }
+        ownerAccount { iri chainId address accountType didEthr }
+        operatorAccount { iri chainId address accountType didEthr }
+        walletAccount { iri chainId address accountType didEthr }
+        ownerEOAAccount { iri chainId address accountType didEthr }
       }
       identityEns {
         iri
         kind
         did
+        uaidHOL
         descriptor {
           iri
           kind
@@ -1056,14 +1104,34 @@ export class AIAgentDiscoveryClient {
           }
         }
       }
-      identityOwnerAccount { iri chainId address accountType didEthr }
-      identityOperatorAccount { iri chainId address accountType didEthr }
-      identityWalletAccount { iri chainId address accountType didEthr }
-
-      agentOwnerAccount { iri chainId address accountType didEthr }
-      agentOperatorAccount { iri chainId address accountType didEthr }
-      agentWalletAccount { iri chainId address accountType didEthr }
-      agentOwnerEOAAccount { iri chainId address accountType didEthr }
+      identityHol {
+        iri
+        kind
+        did
+        uaidHOL
+        descriptor {
+          iri
+          kind
+          json
+          onchainMetadataJson
+          registeredBy
+          registryNamespace
+          skills
+          domains
+          protocolDescriptors {
+            iri
+            protocol
+            serviceUrl
+            name
+            description
+            image
+            protocolVersion
+            json
+            skills
+            domains
+          }
+        }
+      }
 
       agentAccount { iri chainId address accountType didEthr }
     `;

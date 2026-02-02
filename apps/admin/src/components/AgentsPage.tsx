@@ -42,6 +42,20 @@ export type AgentsPageAgent = {
   agentOperatorAccount?: string | null;
   agentOwnerEOAAccount?: string | null;
   smartAgentAccount?: string | null;
+  /**
+   * KB v2 identity descriptors (per-identity).
+   * Used to render identity-scoped tabs in agent details view.
+   */
+  identity8004Did?: string | null;
+  identityEnsDid?: string | null;
+  identityHolDid?: string | null;
+  identityHolUaid?: string | null;
+  identity8004DescriptorJson?: string | null;
+  identityEnsDescriptorJson?: string | null;
+  identityHolDescriptorJson?: string | null;
+  identity8004OnchainMetadataJson?: string | null;
+  identityEnsOnchainMetadataJson?: string | null;
+  identityHolOnchainMetadataJson?: string | null;
   agentCategory?: string | null;
   active?: boolean | null;
   agentUri?: string | null;
@@ -71,6 +85,13 @@ export type AgentsPageAgent = {
   trustLedgerBadgeCount?: number | null;
   trustLedgerOverallRank?: number | null;
   trustLedgerCapabilityRank?: number | null;
+  /**
+   * KB v2 identity nodes (for identity-scoped details tabs).
+   * Shape matches the discovery GraphQL KB schema; kept as unknown for flexibility.
+   */
+  identity8004?: unknown | null;
+  identityEns?: unknown | null;
+  identityHol?: unknown | null;
 };
 
 type Agent = AgentsPageAgent;
@@ -424,18 +445,27 @@ export function AgentsPage({
   };
 
   const getEnsNameLink = (agent: Agent): { name: string; href: string } | null => {
-    const uaid = getAgentKey(agent);
-    if (!uaid) return null;
-    const parts = parseUaidDid8004Parts(uaid);
-    if (!parts) return null;
-    const base = ENS_APP_BY_CHAIN[parts.chainId];
+    const chainId =
+      typeof agent.chainId === 'number' && Number.isFinite(agent.chainId) && agent.chainId > 0
+        ? agent.chainId
+        : null;
+    const base = chainId ? ENS_APP_BY_CHAIN[chainId] : undefined;
     if (!base) return null;
 
-    // Prefer did:ens if present
-    const did = agent.did;
+    // Prefer did:ens identity if present (KB v2 identity tabs)
+    const did = ((agent as any).identityEnsDid ?? agent.did) as unknown;
     if (typeof did === 'string' && did.startsWith('did:ens:')) {
       const name = did.slice('did:ens:'.length);
       if (name) {
+        return { name, href: `${base}/${name}` };
+      }
+    }
+
+    // Prefer didName if present (some discovery payloads return it directly)
+    const didName = (agent as any).didName;
+    if (typeof didName === 'string') {
+      const name = didName.trim();
+      if (name && name.toLowerCase().endsWith('.eth')) {
         return { name, href: `${base}/${name}` };
       }
     }
@@ -3782,7 +3812,13 @@ export function AgentsPage({
                 : null;
 
             const chainMeta = (() => {
-              if (!parts8004) {
+              const resolvedChainId =
+                parts8004?.chainId ??
+                (typeof agent.chainId === 'number' && Number.isFinite(agent.chainId) && agent.chainId > 0
+                  ? agent.chainId
+                  : null);
+
+              if (!resolvedChainId) {
                 if (filters.chainId === '295') {
                   return {
                     chainId: 295,
@@ -3804,36 +3840,43 @@ export function AgentsPage({
                   blockExplorerUrls: [],
                 };
               }
+
               try {
-                return getChainDisplayMetadataSafe(parts8004.chainId);
+                return getChainDisplayMetadataSafe(resolvedChainId);
               } catch {
                 try {
-                  return getChainDisplayMetadata(parts8004.chainId);
+                  return getChainDisplayMetadata(resolvedChainId);
                 } catch {
-                  // Fallback when chain not in config (e.g. chainId 1 before deploy)
-                  const known: Record<number, string> = {
-                    1: 'Ethereum Mainnet',
-                    11155111: 'Ethereum Sepolia',
-                    84532: 'Base Sepolia',
-                    11155420: 'Optimism Sepolia',
+                  // Fallback when chain not in config
+                  const known: Record<number, { displayName: string; symbol: string }> = {
+                    1: { displayName: 'Ethereum Mainnet', symbol: 'ETH' },
+                    11155111: { displayName: 'Sepolia', symbol: 'ETH' },
+                    84532: { displayName: 'Base Sepolia', symbol: 'ETH' },
+                    11155420: { displayName: 'Optimism Sepolia', symbol: 'ETH' },
                   };
-                  const displayName = known[parts8004.chainId] ?? `Chain ${parts8004.chainId}`;
+                  const entry = known[resolvedChainId];
+                  const displayName = entry?.displayName ?? `Chain ${resolvedChainId}`;
                   return {
-                    chainId: parts8004.chainId,
-                    chainIdHex: `0x${parts8004.chainId.toString(16)}` as `0x${string}`,
+                    chainId: resolvedChainId,
+                    chainIdHex: `0x${resolvedChainId.toString(16)}` as `0x${string}`,
                     chainName: displayName.toLowerCase().replace(/\s+/g, '-'),
                     displayName,
-                    nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+                    nativeCurrency: { name: entry?.symbol === 'ETH' ? 'Ether' : 'N/A', symbol: entry?.symbol ?? 'N/A', decimals: entry?.symbol === 'ETH' ? 18 : 0 },
                     rpcUrls: [],
-                    blockExplorerUrls: parts8004.chainId === 1 ? ['https://etherscan.io'] : [],
+                    blockExplorerUrls: resolvedChainId === 1 ? ['https://etherscan.io'] : [],
                   };
                 }
               }
             })();
-            const chainLabel =
-              chainMeta?.displayName ||
-              chainMeta?.chainName ||
-              'Unknown';
+
+            const chainLabel = (() => {
+              const name = chainMeta?.displayName || chainMeta?.chainName || 'Unknown';
+              const symbol =
+                chainMeta?.nativeCurrency?.symbol && chainMeta.nativeCurrency.symbol !== 'N/A'
+                  ? chainMeta.nativeCurrency.symbol
+                  : null;
+              return symbol ? `${name} ${symbol}` : name;
+            })();
             const ownerDisplay =
               typeof agent.agentAccount === 'string' && agent.agentAccount.length > 10
                 ? `${agent.agentAccount.slice(0, 5)}…${agent.agentAccount.slice(-5)}`
@@ -4119,8 +4162,7 @@ export function AgentsPage({
                   {(() => {
                     const ensLink = getEnsNameLink(agent);
                     const isEnsName =
-                      typeof agent.agentName === 'string' &&
-                      agent.agentName.toLowerCase().endsWith('.eth');
+                      Boolean(ensLink?.name) && String(ensLink?.name).toLowerCase().endsWith('.eth');
 
                     // Get display name: handle empty strings explicitly
                     const displayName = 
@@ -4132,7 +4174,7 @@ export function AgentsPage({
                     return (
                       <>
                         <h4 style={{ margin: 0, fontSize: '1.15rem' }}>
-                          {ensLink && isEnsName ? (
+                          {ensLink ? (
                             <a
                               data-agent-card-link
                               onClick={(event) => event.stopPropagation()}
@@ -4161,27 +4203,6 @@ export function AgentsPage({
                           >
                             {agent.agentCategory}
                           </div>
-                        )}
-                        {ensLink && !isEnsName && (
-                          <a
-                            data-agent-card-link
-                            onClick={(event) => event.stopPropagation()}
-                            href={ensLink.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            style={{
-                              display: 'inline-block',
-                              marginTop: '0.25rem',
-                              color: palette.textPrimary,
-                              textDecoration: 'none',
-                              borderBottom: '1px dashed rgba(15,23,42,0.3)',
-                              fontSize: '0.95rem',
-                              fontWeight: 600,
-                              wordBreak: 'break-all',
-                            }}
-                          >
-                            {ensLink.name}
-                          </a>
                         )}
                       </>
                     );
