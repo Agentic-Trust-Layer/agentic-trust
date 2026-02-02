@@ -109,6 +109,12 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
     typeof (params as any).agentIdentifierMatch === 'string' ? (params as any).agentIdentifierMatch.trim() : '';
   if (agentIdentifierMatchRaw) {
     where.agentIdentifierMatch = agentIdentifierMatchRaw;
+    // KB convention: chainId=295 represents "Hashgraph Online".
+    // When agentIdentifierMatch is used without an explicit chain selection, default to chainId=295
+    // so agent-id searches work without requiring the user to pick a chain.
+    if (typeof where.chainId !== 'number') {
+      where.chainId = 295;
+    }
   }
 
   // agentName => agentName_contains
@@ -132,7 +138,9 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   }
 
   // KB ordering (stable)
-  const orderBy = 'agentId8004';
+  // For Hashgraph Online (chainId=295), agents may not have agentId8004 populated.
+  // Ordering by agentId8004 can yield an empty agents list while total is non-zero.
+  const orderBy = (where.chainId === 295 ? 'uaid' : 'agentId8004') as 'agentId8004' | 'agentName' | 'uaid';
   const orderDirection = 'DESC';
 
   if (process.env.NODE_ENV === 'development') {
@@ -206,6 +214,23 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   const agents = list.map((a) => {
     const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
     const parsed = did8004 ? parseDid8004(did8004) : null;
+    const chainIdFromWhere = typeof where.chainId === 'number' ? where.chainId : null;
+    const chainId = parsed?.chainId ?? chainIdFromWhere;
+
+    const agentIdFromUaid = (() => {
+      const uaid = typeof a?.uaid === 'string' ? a.uaid : '';
+      if (!uaid) return null;
+      // Prefer nativeId=... if present (more human-readable than full UAID)
+      const marker = ';nativeId=';
+      const idx = uaid.indexOf(marker);
+      if (idx === -1) return uaid;
+      const start = idx + marker.length;
+      const tail = uaid.slice(start);
+      const end = tail.indexOf(';');
+      const nativeId = (end === -1 ? tail : tail.slice(0, end)).trim();
+      return nativeId || uaid;
+    })();
+
     const feedbackCountRaw = a?.assertions?.reviewResponses?.total;
     const validationCountRaw = a?.assertions?.validationResponses?.total;
     const feedbackCount =
@@ -217,8 +242,12 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
 
     return {
       uaid: typeof a?.uaid === 'string' ? a.uaid : null,
-      chainId: parsed?.chainId ?? null,
-      agentId: parsed ? String(parsed.agentId8004) : (a?.agentId8004 != null ? String(a.agentId8004) : null),
+      chainId,
+      agentId: parsed
+        ? String(parsed.agentId8004)
+        : (a?.agentId8004 != null
+            ? String(a.agentId8004)
+            : agentIdFromUaid),
       createdAtTime: typeof a?.createdAtTime === 'number' ? a.createdAtTime : null,
       agentAccount: '',
       agentIdentityOwnerAccount: '',

@@ -46,6 +46,10 @@ function didMethodSpecificId(did: string): string {
  * Parse a UAID DID-target:
  *   uaid:did:<methodSpecificId>;k=v;...
  *
+ * Also supports UAID AID-target:
+ *   uaid:aid:<agentId>;k=v;...
+ * where <agentId> (between ':' and ';') is the canonical agent identifier.
+ *
  * Returns the reconstructed target DID (e.g. did:ethr:..., did:web:...).
  */
 export function parseHcs14UaidDidTarget(rawUaid: string): ParsedUaidDidTarget {
@@ -53,15 +57,18 @@ export function parseHcs14UaidDidTarget(rawUaid: string): ParsedUaidDidTarget {
   if (!uaid) {
     throw new Error('Missing UAID');
   }
-  if (!uaid.startsWith('uaid:did:')) {
+
+  const isDidTarget = uaid.startsWith('uaid:did:');
+  const isAidTarget = uaid.startsWith('uaid:aid:');
+  if (!isDidTarget && !isAidTarget) {
     throw new Error(`Unsupported UAID format: ${uaid}`);
   }
 
-  const withoutPrefix = uaid.slice('uaid:did:'.length);
-  const [msid, ...rest] = withoutPrefix.split(';');
-  const methodSpecificId = String(msid ?? '').trim();
-  if (!methodSpecificId) {
-    throw new Error(`Invalid UAID (missing target DID): ${uaid}`);
+  const withoutPrefix = uaid.slice(isDidTarget ? 'uaid:did:'.length : 'uaid:aid:'.length);
+  const [idPart, ...rest] = withoutPrefix.split(';');
+  const id = String(idPart ?? '').trim();
+  if (!id) {
+    throw new Error(`Invalid UAID (missing target): ${uaid}`);
   }
 
   const routing: Record<string, string> = {};
@@ -77,7 +84,9 @@ export function parseHcs14UaidDidTarget(rawUaid: string): ParsedUaidDidTarget {
 
   return {
     uaid,
-    targetDid: `did:${methodSpecificId}`,
+    // For uaid:did, reconstruct the did:<method>:<msid...> target.
+    // For uaid:aid, there is no DID target; treat "aid:<id>" as the target identifier string.
+    targetDid: isDidTarget ? `did:${id}` : `aid:${id}`,
     routing,
   };
 }

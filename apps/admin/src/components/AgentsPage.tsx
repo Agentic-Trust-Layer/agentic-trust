@@ -341,17 +341,34 @@ export function AgentsPage({
     if (uaid.startsWith('uaid:')) {
       return uaid;
     }
-    const chainId =
-      typeof agent.chainId === 'number' && Number.isFinite(agent.chainId)
-        ? agent.chainId
-        : DEFAULT_CHAIN_ID;
-    const agentId =
-      typeof agent.agentId === 'string'
-        ? agent.agentId.trim()
-        : agent.agentId !== undefined && agent.agentId !== null
-          ? String(agent.agentId)
-          : '';
-    return `${chainId}:${agentId}`;
+    return null;
+  };
+
+  const parseUaidDid8004Parts = (uaid: string): { chainId: number; agentId: string } | null => {
+    const raw = String(uaid || '').trim();
+    if (!raw.startsWith('uaid:did:8004:')) return null;
+    const did = raw.slice('uaid:'.length);
+    const m = /^did:8004:(\d+):(\d+)$/.exec(did);
+    if (!m) return null;
+    const chainId = Number(m[1]);
+    const agentId = m[2];
+    if (!Number.isFinite(chainId) || !agentId) return null;
+    return { chainId, agentId };
+  };
+
+  const getAgentDisplayId = (uaid: string): string => {
+    const parts8004 = parseUaidDid8004Parts(uaid);
+    if (parts8004) return parts8004.agentId;
+    const marker = ';nativeId=';
+    const idx = uaid.indexOf(marker);
+    if (idx !== -1) {
+      const start = idx + marker.length;
+      const tail = uaid.slice(start);
+      const end = tail.indexOf(';');
+      const nativeId = (end === -1 ? tail : tail.slice(0, end)).trim();
+      if (nativeId) return nativeId;
+    }
+    return uaid.length > 48 ? `${uaid.slice(0, 22)}…${uaid.slice(-18)}` : uaid;
   };
 
   const EXPLORER_BY_CHAIN: Record<number, string> = {
@@ -406,7 +423,12 @@ export function AgentsPage({
   };
 
   const getEnsNameLink = (agent: Agent): { name: string; href: string } | null => {
-    const base = ENS_APP_BY_CHAIN[agent.chainId] ?? 'https://app.ens.domains';
+    const uaid = getAgentKey(agent);
+    if (!uaid) return null;
+    const parts = parseUaidDid8004Parts(uaid);
+    if (!parts) return null;
+    const base = ENS_APP_BY_CHAIN[parts.chainId];
+    if (!base) return null;
 
     // Prefer did:ens if present
     const did = agent.did;
@@ -869,7 +891,18 @@ export function AgentsPage({
       return;
     }
     const { agent } = activeDialog;
-    const key = `${agent.chainId}:${agent.agentId}`;
+    const key = getAgentKey(agent);
+    if (!key) {
+      setA2APreview({
+        key: null,
+        loading: false,
+        error: 'Agent is missing UAID.',
+        messageEndpointUrl: null,
+        agentCardUrl: null,
+        agentCardText: null,
+      });
+      return;
+    }
     const endpoint = agent.a2aEndpoint;
     if (!endpoint) {
       setA2APreview({
@@ -1184,10 +1217,17 @@ export function AgentsPage({
       return null;
     }
     const { agent, action } = activeDialog;
+    const uaid = getAgentKey(agent);
+    const did8004Parts = uaid ? parseUaidDid8004Parts(uaid) : null;
     const baseInfo = (
       <ul style={{ paddingLeft: '1.25rem', margin: '0.5rem 0', color: palette.textPrimary }}>
-        <li><strong>Agent ID:</strong> {agent.agentId}</li>
-        <li><strong>Chain:</strong> {agent.chainId}</li>
+        <li><strong>UAID:</strong> {uaid ?? '—'}</li>
+        {did8004Parts ? (
+          <>
+            <li><strong>8004 Chain:</strong> {did8004Parts.chainId}</li>
+            <li><strong>8004 Agent ID:</strong> {did8004Parts.agentId}</li>
+          </>
+        ) : null}
         {agent.agentAccount ? <li><strong>Account:</strong> {agent.agentAccount}</li> : null}
       </ul>
     );
@@ -1322,7 +1362,8 @@ export function AgentsPage({
           </>
         );
       case 'registration': {
-        const previewMatchesAgent = registrationPreview.key === `${agent.chainId}:${agent.agentId}`;
+        const uaid = getAgentKey(agent);
+        const previewMatchesAgent = Boolean(uaid && registrationPreview.key === uaid);
         return (
           <>
             <p style={{ marginTop: 0 }}>
@@ -1357,8 +1398,8 @@ export function AgentsPage({
         );
       }
       case 'registration-edit': {
-        const previewMatchesAgent =
-          registrationPreview.key === `${agent.chainId}:${agent.agentId}`;
+        const uaid = getAgentKey(agent);
+        const previewMatchesAgent = Boolean(uaid && registrationPreview.key === uaid);
         const isLoading = !previewMatchesAgent || registrationPreview.loading || tokenUriLoading;
         const error =
           previewMatchesAgent && registrationPreview.error ? registrationPreview.error : null;
@@ -1521,11 +1562,21 @@ export function AgentsPage({
                     }
 
                     setRegistrationEditSaving(true);
-                    const did8004 = buildDid8004(agent.chainId, agent.agentId);
-                    const chain = getChainForId(agent.chainId);
+                    const uaid = getAgentKey(agent);
+                    if (!uaid) {
+                      setRegistrationEditError('Agent UAID is missing.');
+                      return;
+                    }
+                    const did8004Parts = parseUaidDid8004Parts(uaid);
+                    if (!did8004Parts) {
+                      setRegistrationEditError('Registration edits are only supported for UAIDs targeting did:8004.');
+                      return;
+                    }
+                    const did8004 = uaid.slice('uaid:'.length);
+                    const chain = getChainForId(did8004Parts.chainId);
 
                     // Rebuild SmartAccount client for this agent using wallet + bundler
-                    const bundlerEnv = getBundlerUrlForId(agent.chainId);
+                    const bundlerEnv = getBundlerUrlForId(did8004Parts.chainId);
                     if (!bundlerEnv) {
                       setRegistrationEditError(
                         'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
@@ -1617,7 +1668,8 @@ export function AgentsPage({
           </>
         );
       case 'a2a': {
-        const a2aMatchesAgent = a2aPreview.key === `${agent.chainId}:${agent.agentId}`;
+        const uaid = getAgentKey(agent);
+        const a2aMatchesAgent = Boolean(uaid && a2aPreview.key === uaid);
         return (
           <>
             <p style={{ marginTop: 0 }}>
@@ -2187,7 +2239,7 @@ export function AgentsPage({
         return (
           <>
             <p style={{ marginTop: 0 }}>
-              Submit feedback for <strong>{agent.agentName || `Agent #${agent.agentId}`}</strong>.
+              Submit feedback for <strong>{agent.agentName || `Agent ${uaid ? getAgentDisplayId(uaid) : '—'}`}</strong>.
             </p>
 
             <div style={{ marginBottom: '1rem' }}>
@@ -2556,13 +2608,24 @@ export function AgentsPage({
                     if (!feedbackAuthId) {
                       throw new Error('No feedbackAuth returned by provider');
                     }
-                    if (!resolvedAgentId || !resolvedChainId) {
-                      throw new Error('feedback-auth response missing agentId/chainId');
+
+                    // UAID-only policy: only allow on-chain feedback for UAIDs targeting did:8004.
+                    const did8004Parts = parseUaidDid8004Parts(uaid);
+                    if (!did8004Parts) {
+                      throw new Error('Give Review is only supported for UAIDs targeting did:8004.');
+                    }
+
+                    // Ensure the provider response matches the UAID we are acting on.
+                    if (resolvedChainId != null && Number(resolvedChainId) !== did8004Parts.chainId) {
+                      throw new Error(`feedback-auth chainId mismatch (expected ${did8004Parts.chainId}, got ${resolvedChainId})`);
+                    }
+                    if (resolvedAgentId != null && String(resolvedAgentId) !== String(did8004Parts.agentId)) {
+                      throw new Error(`feedback-auth agentId mismatch (expected ${did8004Parts.agentId}, got ${resolvedAgentId})`);
                     }
 
                     // Build SmartAccount client for this agent using the connected wallet
-                    const chain = getChainForId(resolvedChainId);
-                    const bundlerEnv = getBundlerUrlForId(resolvedChainId);
+                    const chain = getChainForId(did8004Parts.chainId);
+                    const bundlerEnv = getBundlerUrlForId(did8004Parts.chainId);
                     if (!bundlerEnv) {
                       throw new Error(
                         'Missing bundler URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_* env vars.',
@@ -2571,7 +2634,7 @@ export function AgentsPage({
 
                     // Submit feedback via client-side EOA transaction (user pays gas)
                     setFeedbackSubmitStatus('Submitting feedback transaction…');
-                    const did8004 = buildDid8004(resolvedChainId, resolvedAgentId);
+                    const did8004 = uaid.slice('uaid:'.length);
                     const feedbackResult = await giveFeedbackWithWallet({
                       did8004,
                       chain,
@@ -2690,7 +2753,15 @@ export function AgentsPage({
 
   const handleOpenSession = useCallback(
     async (agent: Agent) => {
-      const agentKey = `${agent.chainId}:${agent.agentId}`;
+      const uaid = getAgentKey(agent);
+      if (!uaid) {
+        throw new Error('Agent UAID is missing.');
+      }
+      const did8004Parts = parseUaidDid8004Parts(uaid);
+      if (!did8004Parts) {
+        throw new Error('Session packages are only supported for UAIDs targeting did:8004.');
+      }
+      const agentKey = uaid;
       
       try {
         if (!provider || !walletAddress) {
@@ -2699,21 +2770,19 @@ export function AgentsPage({
         if (!agent.agentAccount || !agent.agentAccount.startsWith('0x')) {
           throw new Error('Agent account is missing or invalid.');
         }
-        const agentIdNumeric = Number(agent.agentId);
+        const agentIdNumeric = Number(did8004Parts.agentId);
         if (!Number.isFinite(agentIdNumeric)) {
           throw new Error('Agent id is invalid.');
         }
 
-        const key = typeof agent.uaid === 'string' && agent.uaid.trim()
-          ? agent.uaid.trim()
-          : `${agent.chainId}:${agent.agentId}`;
+        const key = uaid;
         
         // Start progress bar
         setSessionProgress(prev => ({ ...prev, [agentKey]: 0 }));
         
         setSessionPreview(prev => ({ ...prev, key, loading: true, error: null, text: null }));
 
-        const chainEnv = getClientChainEnv(agent.chainId);
+        const chainEnv = getClientChainEnv(did8004Parts.chainId);
         if (!chainEnv.rpcUrl) {
           throw new Error(
             'Missing RPC URL configuration for this chain. Set NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_* env vars.',
@@ -2742,7 +2811,7 @@ export function AgentsPage({
 
         const pkg = await generateSessionPackage({
           agentId: agentIdNumeric,
-          chainId: agent.chainId,
+          chainId: did8004Parts.chainId,
           agentAccount: agent.agentAccount as `0x${string}`,
           provider,
           ownerAddress: walletAddress as `0x${string}`,
@@ -3687,24 +3756,48 @@ export function AgentsPage({
           )}
 
           {agentsToRender.map(agent => {
-            const ownershipKey = `${agent.chainId}:${agent.agentId}`;
-            const isOwned = Boolean(ownedMap[ownershipKey]);
+            const uaid = getAgentKey(agent);
+            if (!uaid) return null;
+            const isOwned = Boolean(ownedMap[uaid]);
             const imageUrl =
               typeof agent.image === 'string' && agent.image.trim()
                 ? agent.image.trim()
                 : shadowAgentSrc;
-            const explorerBase = EXPLORER_BY_CHAIN[agent.chainId] ?? 'https://etherscan.io';
+            const parts8004 = parseUaidDid8004Parts(uaid);
+            const explorerBase = parts8004 ? EXPLORER_BY_CHAIN[parts8004.chainId] : undefined;
             const nftTransfersUrl =
-              typeof agent.agentAccount === 'string' && agent.agentAccount
+              explorerBase && typeof agent.agentAccount === 'string' && agent.agentAccount
                 ? `${explorerBase}/address/${agent.agentAccount}#nfttransfers`
                 : null;
 
             const chainMeta = (() => {
+              if (!parts8004) {
+                if (filters.chainId === '295') {
+                  return {
+                    chainId: 295,
+                    chainIdHex: `0x${(295).toString(16)}` as `0x${string}`,
+                    chainName: 'hashgraph-online',
+                    displayName: 'Hashgraph Online',
+                    nativeCurrency: { name: 'HBAR', symbol: 'HBAR', decimals: 8 },
+                    rpcUrls: [],
+                    blockExplorerUrls: [],
+                  };
+                }
+                return {
+                  chainId: 0,
+                  chainIdHex: `0x0` as `0x${string}`,
+                  chainName: 'unknown',
+                  displayName: 'Unknown',
+                  nativeCurrency: { name: 'N/A', symbol: 'N/A', decimals: 0 },
+                  rpcUrls: [],
+                  blockExplorerUrls: [],
+                };
+              }
               try {
-                return getChainDisplayMetadataSafe(agent.chainId);
+                return getChainDisplayMetadataSafe(parts8004.chainId);
               } catch {
                 try {
-                  return getChainDisplayMetadata(agent.chainId);
+                  return getChainDisplayMetadata(parts8004.chainId);
                 } catch {
                   // Fallback when chain not in config (e.g. chainId 1 before deploy)
                   const known: Record<number, string> = {
@@ -3713,15 +3806,15 @@ export function AgentsPage({
                     84532: 'Base Sepolia',
                     11155420: 'Optimism Sepolia',
                   };
-                  const displayName = known[agent.chainId] ?? `Chain ${agent.chainId}`;
+                  const displayName = known[parts8004.chainId] ?? `Chain ${parts8004.chainId}`;
                   return {
-                    chainId: agent.chainId,
-                    chainIdHex: `0x${agent.chainId.toString(16)}` as `0x${string}`,
+                    chainId: parts8004.chainId,
+                    chainIdHex: `0x${parts8004.chainId.toString(16)}` as `0x${string}`,
                     chainName: displayName.toLowerCase().replace(/\s+/g, '-'),
                     displayName,
                     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
                     rpcUrls: [],
-                    blockExplorerUrls: agent.chainId === 1 ? ['https://etherscan.io'] : [],
+                    blockExplorerUrls: parts8004.chainId === 1 ? ['https://etherscan.io'] : [],
                   };
                 }
               }
@@ -3729,7 +3822,7 @@ export function AgentsPage({
             const chainLabel =
               chainMeta?.displayName ||
               chainMeta?.chainName ||
-              `Chain ${agent.chainId}`;
+              'Unknown';
             const ownerDisplay =
               typeof agent.agentAccount === 'string' && agent.agentAccount.length > 10
                 ? `${agent.agentAccount.slice(0, 5)}…${agent.agentAccount.slice(-5)}`
@@ -3810,7 +3903,7 @@ export function AgentsPage({
               secondsAgo !== null ? Math.floor(secondsAgo / 60) : null;
             return (
               <article
-                key={String((agent as any).uaid ?? `${agent.chainId}-${agent.agentId}`)}
+                key={uaid}
                 style={{
                   borderRadius: '20px',
                   border: `1px solid ${palette.border}`,
@@ -3889,7 +3982,7 @@ export function AgentsPage({
                               setNavigatingToAgent(uaid);
                               router.push(`/admin-tools/${encodeURIComponent(uaid)}`);
                             }}
-                            aria-label={`Edit Agent ${agent.agentId}`}
+                            aria-label={`Edit Agent ${getAgentDisplayId(uaid)}`}
                             title={isActive ? 'Edit agent (active)' : 'Edit agent (inactive)'}
                             style={{
                               width: '32px',
@@ -3967,7 +4060,7 @@ export function AgentsPage({
                           fontWeight: 600,
                         }}
                       >
-                        Agent #{agent.agentId}
+                        Agent {getAgentDisplayId(uaid)}
                       </a>
                     ) : (
                       <p
@@ -3979,7 +4072,7 @@ export function AgentsPage({
                           marginBottom: '0.25rem',
                         }}
                       >
-                        Agent #{agent.agentId}
+                        Agent {getAgentDisplayId(uaid)}
                       </p>
                     )}
                     <div
@@ -4609,7 +4702,7 @@ export function AgentsPage({
           >
             <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem' }}>
               <span>
-                {ACTION_LABELS[action]} — {agent.agentName || `Agent #${agent.agentId}`}
+                {ACTION_LABELS[action]} — {agent.agentName || `Agent ${getAgentDisplayId(getAgentKey(agent) ?? '—')}`}
               </span>
               {action === 'session' && sessionPreview.text && (
                 <button

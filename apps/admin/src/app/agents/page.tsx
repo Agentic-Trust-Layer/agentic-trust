@@ -121,7 +121,10 @@ export default function AgentsRoute() {
   const supportedChainIds = getSupportedChainIds();
   const chainOptions = useMemo(
     () =>
-      supportedChainIds.map((chainId: number) => {
+      Array.from(new Set([...supportedChainIds, 295])).map((chainId: number) => {
+        if (chainId === 295) {
+          return { id: chainId, label: 'Hashgraph Online' };
+        }
         const metadata = getChainDisplayMetadata(chainId);
         const label = metadata?.displayName || metadata?.chainName || `Chain ${chainId}`;
         return { id: chainId, label };
@@ -214,7 +217,9 @@ export default function AgentsRoute() {
           // so we mark returned agents as owned by key.
           const ownedEntries: Record<string, boolean> = {};
           for (const agent of ownedAgents) {
-            ownedEntries[`${agent.chainId}:${agent.agentId}`] = true;
+            const uaid = typeof (agent as any)?.uaid === 'string' ? String((agent as any).uaid).trim() : '';
+            if (!uaid || !uaid.startsWith('uaid:')) continue;
+            ownedEntries[uaid] = true;
           }
           setOwnedMap(ownedEntries);
 
@@ -253,6 +258,15 @@ export default function AgentsRoute() {
         }
 
         const data = await response.json();
+        if (process.env.NODE_ENV === 'development') {
+          const list = Array.isArray((data as any)?.agents) ? ((data as any).agents as any[]) : [];
+          // eslint-disable-next-line no-console
+          console.log('[Admin][AgentsRoute] /api/agents/search response:', {
+            agentsLength: list.length,
+            total: (data as any)?.total,
+            sampleUaid: list.slice(0, 5).map((a) => a?.uaid).filter(Boolean),
+          });
+        }
         setAgents((data.agents as Agent[]) ?? []);
         setTotal(data.total);
         setTotalPages(data.totalPages);
@@ -325,12 +339,22 @@ export default function AgentsRoute() {
   useEffect(() => {
     let cancelled = false;
 
+    const parseUaidDid8004Parts = (uaid: string): { chainId: number; agentId: string } | null => {
+      const raw = String(uaid || '').trim();
+      if (!raw.startsWith('uaid:did:8004:')) return null;
+      const did = raw.slice('uaid:'.length);
+      const m = /^did:8004:(\d+):(\d+)$/.exec(did);
+      if (!m) return null;
+      const chainId = Number(m[1]);
+      const agentId = m[2];
+      if (!Number.isFinite(chainId) || !agentId) return null;
+      return { chainId, agentId };
+    };
+
     async function getClient(chainId: number): Promise<PublicClient> {
       if (!clientCache.current[chainId]) {
         const rpcUrl = getChainRpcUrl(chainId);
-        if (!rpcUrl) {
-          throw new Error(`Missing RPC URL for chain ${chainId}`);
-        }
+        if (!rpcUrl) return null as unknown as PublicClient;
         clientCache.current[chainId] = createPublicClient({
           transport: http(rpcUrl),
         });
@@ -355,7 +379,17 @@ export default function AgentsRoute() {
       const entries: Record<string, boolean> = {};
 
       for (const agent of agents) {
-        const ownershipKey = `${agent.chainId}:${agent.agentId}`;
+        const uaid = typeof (agent as any)?.uaid === 'string' ? String((agent as any).uaid).trim() : '';
+        if (!uaid || !uaid.startsWith('uaid:')) {
+          continue;
+        }
+        const ownershipKey = uaid;
+        const did8004Parts = parseUaidDid8004Parts(uaid);
+        if (!did8004Parts) {
+          // Non-EVM UAIDs: ownership via EVM RPC doesn't apply.
+          entries[ownershipKey] = false;
+          continue;
+        }
         const account = typeof agent.agentAccount === 'string' ? agent.agentAccount : null;
         if (!account || !account.startsWith('0x')) {
           entries[ownershipKey] = false;
@@ -363,7 +397,12 @@ export default function AgentsRoute() {
         }
 
         try {
-          const client = await getClient(agent.chainId);
+          const client = await getClient(did8004Parts.chainId);
+          if (!client) {
+            // Non-EVM chain or missing RPC; skip ownership computation.
+            entries[ownershipKey] = false;
+            continue;
+          }
           const code = await client.getBytecode({ address: account as Address });
 
           if (!code || code === '0x') {
