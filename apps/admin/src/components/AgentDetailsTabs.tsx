@@ -630,6 +630,29 @@ const AgentDetailsTabs = ({
     return tabs;
   }, [hasEnsIdentity, hasHolIdentity, isSmartAgent]);
 
+  const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
+  const registerProtocols = useMemo(
+    () =>
+      [
+        { id: 'ens', label: 'ENS' },
+        { id: 'hol', label: 'HOL' },
+        { id: 'agentverse', label: 'AgentVerse' },
+        { id: 'ans', label: 'ANS' },
+        { id: 'aid', label: 'AID' },
+      ] as const,
+    [],
+  );
+
+  const handleStartRegistration = useCallback(
+    (protocol: string) => {
+      const safeProtocol = String(protocol || '').trim().toLowerCase();
+      if (!safeProtocol) return;
+      const target = `/agent-registration/${encodeURIComponent(safeProtocol)}?uaid=${encodeURIComponent(uaid)}`;
+      window.location.href = target;
+    },
+    [uaid],
+  );
+
   useEffect(() => {
     if (renderOnlyTab) return;
     if (activeTab === 'ens' && !hasEnsIdentity) setActiveTab('id8004');
@@ -703,52 +726,74 @@ const AgentDetailsTabs = ({
         <div
           style={{
             display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
             borderBottom: `2px solid ${palette.border}`,
             backgroundColor: palette.surfaceMuted,
             overflowX: 'auto',
           }}
         >
-          {mainTabDefs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const label = tab.label;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-              onClick={() => {
-                setActiveTab(tab.id);
+          <div style={{ display: 'flex', overflowX: 'auto' }}>
+            {mainTabDefs.map((tab) => {
+              const isActive = activeTab === tab.id;
+              const label = tab.label;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(tab.id);
+                  }}
+                  style={{
+                    padding: '1rem 1.5rem',
+                    border: 'none',
+                    borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
+                    backgroundColor: 'transparent',
+                    color: isActive ? palette.accent : palette.textSecondary,
+                    fontWeight: isActive ? 600 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    fontSize: '0.95rem',
+                    whiteSpace: 'nowrap',
+                    position: 'relative',
+                    minWidth: '120px',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.color = palette.textPrimary;
+                      e.currentTarget.style.backgroundColor = palette.surface;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.color = palette.textSecondary;
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ padding: '0.5rem 1rem', flex: '0 0 auto' }}>
+            <button
+              type="button"
+              onClick={() => setRegisterDialogOpen(true)}
+              style={{
+                padding: '0.55rem 0.9rem',
+                borderRadius: '999px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surface,
+                color: palette.textPrimary,
+                fontWeight: 700,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
               }}
-                style={{
-                  padding: '1rem 1.5rem',
-                  border: 'none',
-                  borderBottom: `3px solid ${isActive ? palette.accent : 'transparent'}`,
-                  backgroundColor: 'transparent',
-                  color: isActive ? palette.accent : palette.textSecondary,
-                  fontWeight: isActive ? 600 : 500,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  fontSize: '0.95rem',
-                  whiteSpace: 'nowrap',
-                  position: 'relative',
-                  minWidth: '120px',
-                }}
-                onMouseEnter={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.color = palette.textPrimary;
-                    e.currentTarget.style.backgroundColor = palette.surface;
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isActive) {
-                    e.currentTarget.style.color = palette.textSecondary;
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                  }
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
+            >
+              Register agent
+            </button>
+          </div>
         </div>
       )}
 
@@ -768,9 +813,7 @@ const AgentDetailsTabs = ({
                   backgroundColor: palette.surfaceMuted,
                 }}
               >
-              <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>
-                {identityTab === 'ens' ? 'ENS Identity' : identityTab === 'hol' ? 'HOL Identity' : '8004 Identity Registry'}
-              </h3>
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.9rem' }}>
                 {identityTab === 'id8004' ? (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
@@ -2588,6 +2631,47 @@ const AgentDetailsTabs = ({
                 )}
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Register agent dialog */}
+      {!embedded && !renderOnlyTab && (
+        <Dialog open={registerDialogOpen} onClose={() => setRegisterDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ pb: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ fontWeight: 700 }}>Register agent</div>
+              <IconButton aria-label="Close" onClick={() => setRegisterDialogOpen(false)}>
+                <CloseIcon />
+              </IconButton>
+            </div>
+          </DialogTitle>
+          <DialogContent sx={{ pt: 2 }}>
+            <div style={{ color: palette.textSecondary, marginBottom: '1rem' }}>
+              Choose a registration protocol.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
+              {registerProtocols.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleStartRegistration(p.id)}
+                  style={{
+                    padding: '0.9rem 1rem',
+                    borderRadius: '12px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surface,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: palette.textPrimary }}>{p.label}</div>
+                  <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: palette.textSecondary }}>
+                    Start {p.label} registration
+                  </div>
+                </button>
+              ))}
+            </div>
           </DialogContent>
         </Dialog>
       )}

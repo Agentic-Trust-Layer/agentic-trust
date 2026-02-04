@@ -116,6 +116,9 @@ export {
   createRegistrationJSON,
 } from './lib/agentRegistration';
 
+export { registerHolAgent } from './lib/holRegistration';
+export { createHolLedgerChallenge, verifyHolLedgerChallenge } from './lib/holLedgerAuth';
+
 export {
   type AgentRegistrationInfo,
 } from './models/agentRegistrationInfo';
