@@ -1656,7 +1656,8 @@ export class AIAgentDiscoveryClient {
 
     const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const orderBy =
-      (await this.pickKbAgentOrderBy(['agentId8004', 'createdAtTime', 'uaid', 'agentName'])) ?? 'agentName';
+      (await this.pickKbAgentOrderBy(['createdAtTime', 'updatedAtTime', 'agentId8004', 'uaid', 'agentName'])) ??
+      'agentName';
     const query = `
       query ListKbAgents($first: Int, $skip: Int, $orderBy: KbAgentOrderBy) {
         kbAgents(first: $first, skip: $skip, orderBy: $orderBy, orderDirection: DESC) {
@@ -2523,7 +2524,8 @@ export class AIAgentDiscoveryClient {
     const effectiveOrderByKb =
       options.orderBy === 'agentName'
         ? ((await this.pickKbAgentOrderBy(['agentName'])) ?? 'agentName')
-        : ((await this.pickKbAgentOrderBy(['agentId8004', 'createdAtTime', 'uaid', 'agentName'])) ?? 'agentName');
+        : ((await this.pickKbAgentOrderBy(['createdAtTime', 'updatedAtTime', 'agentId8004', 'uaid', 'agentName'])) ??
+            'agentName');
 
     const whereIn = (options.where ?? {}) as Record<string, unknown>;
     const kbWhere: Record<string, unknown> = {};
@@ -3006,7 +3008,8 @@ export class AIAgentDiscoveryClient {
 
     const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const orderBy =
-      (await this.pickKbAgentOrderBy(['agentId8004', 'createdAtTime', 'uaid', 'agentName'])) ?? 'agentName';
+      (await this.pickKbAgentOrderBy(['createdAtTime', 'updatedAtTime', 'agentId8004', 'uaid', 'agentName'])) ??
+      'agentName';
     const query = `
       query KbAgentsByName($where: KbAgentWhereInput, $first: Int, $orderBy: KbAgentOrderBy) {
         kbAgents(where: $where, first: $first, orderBy: $orderBy, orderDirection: DESC) {
@@ -3559,7 +3562,8 @@ export class AIAgentDiscoveryClient {
     const orderByKb =
       orderBy === 'agentName'
         ? ((await this.pickKbAgentOrderBy(['agentName'])) ?? 'agentName')
-        : ((await this.pickKbAgentOrderBy(['agentId8004', 'createdAtTime', 'uaid', 'agentName'])) ?? 'agentName');
+        : ((await this.pickKbAgentOrderBy(['createdAtTime', 'updatedAtTime', 'agentId8004', 'uaid', 'agentName'])) ??
+            'agentName');
 
     const selection = await this.getKbAgentSelection({ includeIdentityAndAccounts: false });
     const query = `

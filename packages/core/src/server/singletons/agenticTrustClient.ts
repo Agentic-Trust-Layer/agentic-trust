@@ -1194,7 +1194,6 @@ export class AgenticTrustClient {
       agentIdentityOwnerAccount: String(agent.agentIdentityOwnerAccount ?? ''),
       eoaAgentIdentityOwnerAccount: (agent as any).eoaAgentIdentityOwnerAccount ?? null,
       eoaAgentAccount: (agent as any).eoaAgentAccount ?? null,
-      // Flatten KB v2 account fields so admin UI can display them
       identityOwnerAccount: (agent as any).identityOwnerAccount ?? null,
       identityWalletAccount: (agent as any).identityWalletAccount ?? null,
       identityOperatorAccount: (agent as any).identityOperatorAccount ?? null,

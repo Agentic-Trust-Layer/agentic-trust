@@ -56,6 +56,8 @@ export const graphQLSchemaStringKb = `
     agentId8004
     agentName
     uaid
+    createdAtTime
+    updatedAtTime
   }
 
   input KbAgentWhereInput {

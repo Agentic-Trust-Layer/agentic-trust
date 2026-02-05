@@ -62,14 +62,13 @@ type KbAgentsResponse = {
     hasMore?: boolean | null;
     agents?: Array<{
       uaid?: string | null;
-      did8004?: string | null;
-      agentId8004?: number | null;
       agentName?: string | null;
       agentDescription?: string | null;
       agentImage?: string | null;
       createdAtTime?: number | null;
       createdAtBlock?: number | null;
       updatedAtTime?: number | null;
+      identity8004?: { did?: string | null } | null;
       assertions?: {
         reviewResponses?: { total?: number | null } | null;
         validationResponses?: { total?: number | null } | null;
@@ -137,10 +136,21 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
     where.hasValidations = true;
   }
 
-  // KB ordering (stable)
-  // New KB schema may no longer expose agentId8004 on KbAgent; prefer uaid ordering.
-  const orderBy = 'uaid' as 'uaid' | 'agentName';
-  const orderDirection = 'DESC';
+  // KB ordering (stable): default newest agents first.
+  const rawOrderBy = typeof (options as any).orderBy === 'string' ? String((options as any).orderBy).trim() : '';
+  const orderBy = (
+    rawOrderBy === 'createdAtTime' ||
+    rawOrderBy === 'updatedAtTime' ||
+    rawOrderBy === 'uaid' ||
+    rawOrderBy === 'agentName' ||
+    rawOrderBy === 'agentId8004'
+      ? rawOrderBy
+      : 'createdAtTime'
+  ) as 'createdAtTime' | 'updatedAtTime' | 'uaid' | 'agentName' | 'agentId8004';
+
+  const rawOrderDirection =
+    typeof (options as any).orderDirection === 'string' ? String((options as any).orderDirection).trim().toUpperCase() : '';
+  const orderDirection = rawOrderDirection === 'ASC' ? 'ASC' : 'DESC';
 
   if (process.env.NODE_ENV === 'development') {
     console.log('[AgenticTrust][Search][KB] where:', JSON.stringify(where, null, 2));
