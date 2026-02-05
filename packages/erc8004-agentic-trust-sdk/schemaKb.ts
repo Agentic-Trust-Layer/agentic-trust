@@ -2,10 +2,12 @@
  * GraphDB-backed (knowledge base) GraphQL schema (v2).
  *
  * This schema is intentionally aligned to the KB model:
- * Agent → Identity → Descriptor → (assembled) ProtocolDescriptor.
+ * Agent → Identity → ServiceEndpoints → Protocol → Descriptor(json).
  *
  * Used as reference for the discovery client; the live backend is introspected at runtime.
  */
+
+import { buildSchema, type GraphQLSchema } from 'graphql';
 
 export const graphQLSchemaStringKb = `
   type OasfSkill {
@@ -77,7 +79,7 @@ export const graphQLSchemaStringKb = `
     iri: ID!
     chainId: Int
     address: String
-    accountType: String
+    accountType: String # EOAAccount | SmartAccount | Account | (null/unknown)
     didEthr: String
   }
 
@@ -114,22 +116,35 @@ export const graphQLSchemaStringKb = `
     tags: [String!]
   }
 
-  type KbProtocolDescriptor {
+  # Generic descriptor for core entities (protocols, endpoints, etc.)
+  type KbDescriptor {
     iri: ID!
-    protocol: String!
-    serviceUrl: String!
     name: String
     description: String
     image: String
-    protocolVersion: String
     json: String
+  }
+
+  type KbProtocol {
+    iri: ID!
+    protocol: String! # a2a | mcp | other
+    serviceUrl: String
+    protocolVersion: String
+    descriptor: KbDescriptor
     skills: [String!]!
     domains: [String!]!
   }
 
+  type KbServiceEndpoint {
+    iri: ID!
+    name: String # a2a | mcp | other
+    descriptor: KbDescriptor
+    protocol: KbProtocol
+  }
+
   type KbIdentityDescriptor {
     iri: ID!
-    kind: String!
+    kind: String! # 8004 | ens | hol | nanda | other
     name: String
     description: String
     image: String
@@ -139,14 +154,15 @@ export const graphQLSchemaStringKb = `
     registryNamespace: String
     skills: [String!]!
     domains: [String!]!
-    protocolDescriptors: [KbProtocolDescriptor!]!
   }
 
   type KbIdentity {
     iri: ID!
-    kind: String!
+    kind: String! # 8004 | ens | hol | nanda | other
     did: String!
+    uaidHOL: String
     descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
   }
 
   type KbAgentDescriptor {
@@ -167,11 +183,9 @@ export const graphQLSchemaStringKb = `
     createdAtBlock: Int
     createdAtTime: Int
     updatedAtTime: Int
-    did8004: String
-    agentId8004: Int
-    isSmartAgent: Boolean!
     identity: KbIdentity
     identity8004: KbIdentity
+    identityHol: KbIdentity
     identityEns: KbIdentity
     assertions: KbAgentAssertions
     reviewAssertions(first: Int, skip: Int): KbReviewResponseConnection
@@ -246,3 +260,7 @@ export const graphQLSchemaStringKb = `
     kbAssociations(chainId: Int!, first: Int, skip: Int): [KbAssociation!]!
   }
 `;
+
+export function buildGraphQLSchemaKb(): GraphQLSchema {
+  return buildSchema(graphQLSchemaStringKb);
+}

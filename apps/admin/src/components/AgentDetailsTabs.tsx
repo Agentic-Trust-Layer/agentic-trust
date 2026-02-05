@@ -117,6 +117,43 @@ const formatRelativeTime = (timestamp?: number | null) => {
   return `${secondsAgo} second${secondsAgo === 1 ? '' : 's'} ago`;
 };
 
+type StructuredOnchainMetadataEntry = {
+  id?: string;
+  key?: string;
+  value?: string;
+  setBy?: string;
+  txHash?: string;
+  blockNumber?: string | number;
+  timestamp?: string | number;
+  setAt?: string | number;
+  indexedKey?: string;
+  valueHex?: string;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object') return null;
+  if (Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function toEpochSeconds(value: unknown): number | null {
+  const n = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(n)) return null;
+  // Heuristic: treat > 1e12 as ms.
+  const seconds = n > 1e12 ? Math.floor(n / 1000) : Math.floor(n);
+  return seconds > 0 ? seconds : null;
+}
+
+function formatIsoTime(value: unknown): string | null {
+  const s = toEpochSeconds(value);
+  if (!s) return null;
+  try {
+    return new Date(s * 1000).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 const AgentDetailsTabs = ({
   uaid,
   agent,
@@ -709,6 +746,18 @@ const AgentDetailsTabs = ({
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
   }, [identityOnchainMetadataJsonRaw]);
 
+  const structuredOnchainMetadata = useMemo(() => {
+    if (identityTab !== 'id8004') return null;
+    const meta = asRecord(identityOnchainMetadata);
+    if (!meta) return null;
+    const entriesRaw = meta.entries;
+    const byKeyRaw = meta.byKey;
+    const entries = Array.isArray(entriesRaw) ? (entriesRaw as StructuredOnchainMetadataEntry[]) : null;
+    const byKey = asRecord(byKeyRaw);
+    if (!entries || entries.length === 0) return null;
+    return { entries, byKey };
+  }, [identityOnchainMetadata, identityTab]);
+
   const identityA2aEndpoint =
     extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'a2a') ?? (identityTab === 'id8004' ? agent.a2aEndpoint : null);
   const identityMcpEndpoint =
@@ -1069,16 +1118,135 @@ const AgentDetailsTabs = ({
                         fontSize: '0.85rem',
                       }}
                     >
-                      {Object.entries(identityOnchainMetadata).map(([key, value]) => (
-                        <div key={key}>
-                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                            {key}
-                          </strong>
-                          <div style={{ color: palette.textPrimary, wordBreak: 'break-word', fontFamily: key === 'agentAccount' ? 'monospace' : 'inherit' }}>
-                            {typeof value === 'string' ? value : JSON.stringify(value)}
+                      {structuredOnchainMetadata ? (
+                        <>
+                          {structuredOnchainMetadata.byKey && (
+                            <div>
+                              <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.4rem' }}>
+                                Summary
+                              </strong>
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                                  gap: '0.6rem 1rem',
+                                }}
+                              >
+                                {Object.entries(structuredOnchainMetadata.byKey).map(([k, v]) => (
+                                  <div key={k} style={{ minWidth: 0 }}>
+                                    <div
+                                      style={{
+                                        color: palette.textSecondary,
+                                        fontFamily: 'monospace',
+                                        fontSize: '0.78rem',
+                                        marginBottom: '0.2rem',
+                                      }}
+                                    >
+                                      {k}
+                                    </div>
+                                    <div
+                                      style={{
+                                        color: palette.textPrimary,
+                                        wordBreak: 'break-all',
+                                        fontFamily:
+                                          typeof v === 'string' && (v.startsWith('0x') || v.startsWith('uaid:'))
+                                            ? 'monospace'
+                                            : 'inherit',
+                                      }}
+                                    >
+                                      {typeof v === 'string' ? v : JSON.stringify(v)}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.4rem' }}>
+                              Entries ({structuredOnchainMetadata.entries.length})
+                            </strong>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                              {structuredOnchainMetadata.entries.map((entry, idx) => {
+                                const entryKey = typeof entry?.key === 'string' ? entry.key : `entry_${idx}`;
+                                const value = typeof entry?.value === 'string' ? entry.value : null;
+                                const setBy = typeof entry?.setBy === 'string' ? entry.setBy : null;
+                                const txHash = typeof entry?.txHash === 'string' ? entry.txHash : null;
+                                const blockNumber =
+                                  typeof entry?.blockNumber === 'string' || typeof entry?.blockNumber === 'number'
+                                    ? String(entry.blockNumber)
+                                    : null;
+                                const iso = formatIsoTime(entry?.timestamp ?? entry?.setAt);
+                                const rel = toEpochSeconds(entry?.timestamp ?? entry?.setAt);
+
+                                return (
+                                  <div
+                                    key={entry?.id || `${entryKey}_${idx}`}
+                                    style={{
+                                      border: `1px solid ${palette.border}`,
+                                      borderRadius: '10px',
+                                      padding: '0.75rem',
+                                      backgroundColor: palette.surface,
+                                    }}
+                                  >
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem' }}>
+                                      <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontFamily: 'monospace', fontSize: '0.82rem', color: palette.textSecondary }}>
+                                          {entryKey}
+                                        </div>
+                                        <div style={{ color: palette.textPrimary, wordBreak: 'break-all', fontFamily: value?.startsWith('0x') ? 'monospace' : 'inherit' }}>
+                                          {value ?? '—'}
+                                        </div>
+                                      </div>
+                                      <div style={{ color: palette.textSecondary, fontSize: '0.78rem', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                        {rel ? formatRelativeTime(rel) : '—'}
+                                      </div>
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        display: 'grid',
+                                        gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                                        gap: '0.4rem 1rem',
+                                        marginTop: '0.6rem',
+                                        fontSize: '0.8rem',
+                                      }}
+                                    >
+                                      <div style={{ minWidth: 0 }}>
+                                        <span style={{ color: palette.textSecondary }}>setBy</span>{' '}
+                                        <span style={{ color: palette.textPrimary, fontFamily: 'monospace' }}>{setBy ? shorten(setBy) : '—'}</span>
+                                      </div>
+                                      <div style={{ minWidth: 0 }}>
+                                        <span style={{ color: palette.textSecondary }}>block</span>{' '}
+                                        <span style={{ color: palette.textPrimary, fontFamily: 'monospace' }}>{blockNumber ?? '—'}</span>
+                                      </div>
+                                      <div style={{ minWidth: 0 }}>
+                                        <span style={{ color: palette.textSecondary }}>tx</span>{' '}
+                                        <span style={{ color: palette.textPrimary, fontFamily: 'monospace' }}>{txHash ? shorten(txHash) : '—'}</span>
+                                      </div>
+                                      <div style={{ minWidth: 0 }}>
+                                        <span style={{ color: palette.textSecondary }}>time</span>{' '}
+                                        <span style={{ color: palette.textPrimary, fontFamily: 'monospace' }}>{iso ?? '—'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        </>
+                      ) : (
+                        Object.entries(identityOnchainMetadata).map(([key, value]) => (
+                          <div key={key}>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                              {key}
+                            </strong>
+                            <div style={{ color: palette.textPrimary, wordBreak: 'break-word', fontFamily: key === 'agentAccount' ? 'monospace' : 'inherit' }}>
+                              {typeof value === 'string' ? value : JSON.stringify(value)}
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </div>
                   </div>
                 )}

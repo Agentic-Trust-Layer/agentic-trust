@@ -17,6 +17,18 @@ type Props = {
   uaid: string;
 };
 
+function isValidServiceUrl(value: string): boolean {
+  const v = value.trim();
+  if (!v) return false;
+  if (/^(uaid:|did:)/i.test(v)) return false;
+  try {
+    const u = new URL(v);
+    return u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'ws:' || u.protocol === 'wss:';
+  } catch {
+    return false;
+  }
+}
+
 export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
   const auth = useAuth();
   const wallet = useWallet();
@@ -31,7 +43,6 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
   const [agent, setAgent] = useState<AgentsPageAgent | null>(null);
   const [agentLoading, setAgentLoading] = useState(false);
   const [holEndpoint, setHolEndpoint] = useState('');
-  const [holAdditionalRegistries, setHolAdditionalRegistries] = useState('');
   const [hwcConnector, setHwcConnector] = useState<any | null>(null);
   const [hederaAccountId, setHederaAccountId] = useState<string | null>(null);
   const [hederaSigner, setHederaSigner] = useState<any | null>(null);
@@ -59,24 +70,11 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
         }
         const agent = json as AgentsPageAgent;
         setAgent(agent);
-        if (typeof agent?.a2aEndpoint === 'string' && agent.a2aEndpoint.trim()) {
+        if (typeof agent?.a2aEndpoint === 'string' && isValidServiceUrl(agent.a2aEndpoint)) {
           setHolEndpoint(agent.a2aEndpoint.trim());
         }
 
-        const chainId = typeof agent?.chainId === 'number' ? agent.chainId : null;
-        const registry =
-          chainId === 11155111
-            ? 'erc-8004:ethereum-sepolia'
-            : chainId === 1
-              ? 'erc-8004:ethereum-mainnet'
-              : chainId === 84532
-                ? 'erc-8004:base-sepolia'
-                : chainId === 11155420
-                  ? 'erc-8004:optimism-sepolia'
-                  : '';
-        if (registry) {
-          setHolAdditionalRegistries(registry);
-        }
+
       } catch (e: any) {
         if (!cancelled) {
           setError(e?.message ?? 'Failed to load agent');
@@ -211,10 +209,9 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
     }
   }, [normalizedProtocol, protocol]);
 
-  const holUaid = canonicalUaid;
   const canSubmitHol =
     normalizedProtocol === 'hol' &&
-    holUaid.startsWith('uaid:') &&
+    canonicalUaid.startsWith('uaid:') &&
     holEndpoint.trim().length > 0;
 
   async function connectHashpack() {
@@ -317,13 +314,9 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          uaidHOL: holUaid,
+          uaid: canonicalUaid,
           endpoint: holEndpoint.trim(),
-          communicationProtocol: 'a2a',
-          additionalRegistries: holAdditionalRegistries
-            .split(',')
-            .map((v) => v.trim())
-            .filter(Boolean),
+          communicationProtocol: 'a2a'
         }),
       });
       const json = await res.json().catch(() => null);
@@ -362,10 +355,6 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
             </Alert>
           ) : (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <Alert severity="info">
-                HOL write flow is wired via `/api/hol/register`.
-                HOL UAID is set to your agent UAID.
-              </Alert>
 
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                 <Button
@@ -388,7 +377,7 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
               </Box>
               {ledgerAuthStatus && <Alert severity="success">{ledgerAuthStatus}</Alert>}
 
-              <TextField label="HOL UAID" value={holUaid} fullWidth disabled />
+              <TextField label="UAID" value={canonicalUaid} fullWidth disabled />
 
               {agentLoading ? (
                 <Alert severity="info">Loading agent details…</Alert>
@@ -402,21 +391,13 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
 
               <TextField
                 label="A2A endpoint"
-                value={holEndpoint}
+                value={canonicalUaid}
                 onChange={(e) => setHolEndpoint(e.target.value)}
                 placeholder="https://your-agent.example.com/a2a"
                 fullWidth
                 disabled={saving}
               />
 
-              <TextField
-                label="Additional registries (comma-separated)"
-                value={holAdditionalRegistries}
-                onChange={(e) => setHolAdditionalRegistries(e.target.value)}
-                placeholder="erc-8004:ethereum-sepolia"
-                fullWidth
-                disabled={saving}
-              />
 
               <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
@@ -437,7 +418,7 @@ export default function ProtocolRegistrationPage({ protocol, uaid }: Props) {
         <DialogContent>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ color: 'text.secondary' }}>HOL UAID</Box>
-            <Box sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{holUaid || '—'}</Box>
+            <Box sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{canonicalUaid || '—'}</Box>
             <Box sx={{ color: 'text.secondary', mt: 2 }}>A2A endpoint</Box>
             <Box sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{holEndpoint.trim() || '—'}</Box>
           </Box>

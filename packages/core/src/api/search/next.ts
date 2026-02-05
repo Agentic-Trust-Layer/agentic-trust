@@ -138,9 +138,8 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   }
 
   // KB ordering (stable)
-  // For Hashgraph Online (chainId=295), agents may not have agentId8004 populated.
-  // Ordering by agentId8004 can yield an empty agents list while total is non-zero.
-  const orderBy = (where.chainId === 295 ? 'uaid' : 'agentId8004') as 'agentId8004' | 'agentName' | 'uaid';
+  // New KB schema may no longer expose agentId8004 on KbAgent; prefer uaid ordering.
+  const orderBy = 'uaid' as 'uaid' | 'agentName';
   const orderDirection = 'DESC';
 
   if (process.env.NODE_ENV === 'development') {
@@ -154,14 +153,13 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
         hasMore
         agents {
           uaid
-          did8004
-          agentId8004
           agentName
           agentDescription
           agentImage
           createdAtTime
           createdAtBlock
           updatedAtTime
+          identity8004 { did }
           assertions { reviewResponses { total } validationResponses { total } total }
         }
       }
@@ -233,7 +231,8 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   }
 
   const agents = list.map((a) => {
-    const did8004 = typeof a?.did8004 === 'string' ? a.did8004 : '';
+    const did8004Raw = typeof (a as any)?.identity8004?.did === 'string' ? (a as any).identity8004.did : '';
+    const did8004 = did8004Raw ? did8004Raw : '';
     const parsed = did8004 ? parseDid8004(did8004) : null;
     const chainIdFromWhere = typeof where.chainId === 'number' ? where.chainId : null;
     const chainId = parsed?.chainId ?? chainIdFromWhere;
@@ -266,9 +265,7 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
       chainId,
       agentId: parsed
         ? String(parsed.agentId8004)
-        : (a?.agentId8004 != null
-            ? String(a.agentId8004)
-            : agentIdFromUaid),
+        : agentIdFromUaid,
       createdAtTime: typeof a?.createdAtTime === 'number' ? a.createdAtTime : null,
       agentAccount: '',
       agentIdentityOwnerAccount: '',

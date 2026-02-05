@@ -96,10 +96,10 @@ type AgentRegistrationRequest = {
 
 type HolRegistrationInput = {
   /**
-   * The HOL UAID is the agent UAID (uaid:*).
+   * UAID is the agent UAID (uaid:*).
    * This is the primary identifier we want HOL to store.
    */
-  uaidHOL: string;
+  uaid: string;
   /**
    * Communication protocol endpoint used by HOL registry broker (e.g. A2A endpoint URL).
    */
@@ -108,13 +108,6 @@ type HolRegistrationInput = {
    * Defaults to "a2a".
    */
   communicationProtocol?: string | null;
-  /**
-   * Optional: fan-out to additional registries (e.g. ["erc-8004:ethereum-sepolia"])
-   */
-  additionalRegistries?: string[] | null;
-  /**
-   * Optional: metadata merged into registry broker metadata.
-   */
   metadata?: Record<string, string> | null;
   name?: string | null;
   description?: string | null;
@@ -132,13 +125,12 @@ type HolRegistrationInput = {
 };
 
 export async function registerHolAgent(input: HolRegistrationInput): Promise<unknown> {
-  const uaidHOL = String(input?.uaidHOL ?? '').trim();
+  const uaid = String(input?.uaid ?? '').trim();
   const endpoint = String(input?.endpoint ?? '').trim();
   const communicationProtocol = String(input?.communicationProtocol ?? 'a2a').trim() || 'a2a';
-  const additionalRegistries = Array.isArray(input?.additionalRegistries) ? input.additionalRegistries : null;
   const metadata = input?.metadata && typeof input.metadata === 'object' ? input.metadata : null;
-  if (!uaidHOL.startsWith('uaid:')) {
-    throw new Error('registerHolAgent: uaidHOL must start with "uaid:"');
+  if (!uaid.startsWith('uaid:')) {
+    throw new Error('registerHolAgent: uaid must start with "uaid:"');
   }
   if (!endpoint) {
     throw new Error('registerHolAgent: endpoint is required');
@@ -203,16 +195,16 @@ export async function registerHolAgent(input: HolRegistrationInput): Promise<unk
     });
   }
 
-  const did = `did:hol:${uaidHOL}`;
+  const did = `${uaid}`;
 
   console.log("********* profile")
   const profile = {
     version: '1.0.0',
     type: ProfileType.AI_AGENT,
-    display_name: input?.name ?? uaidHOL,
+    display_name: input?.name ?? uaid,
     bio: input?.description ?? '',
     profileImage: input?.image ?? undefined,
-    uaid: uaidHOL,
+    uaid: uaid,
     properties: {
       source: 'agentic-trust-admin',
       did,
@@ -231,10 +223,9 @@ export async function registerHolAgent(input: HolRegistrationInput): Promise<unk
     registry: 'hashgraph-online',
     communicationProtocol,
     endpoint,
-    ...(additionalRegistries && additionalRegistries.length > 0 ? { additionalRegistries } : {}),
     metadata: {
       provider: 'agentic-trust-admin',
-      uaidHOL,
+      uaid,
       did,
       ...(metadata ?? {}),
     },
