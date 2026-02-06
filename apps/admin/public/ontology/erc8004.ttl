@@ -1,0 +1,228 @@
+@base <https://agentictrust.io/ontology/erc8004#> .
+@prefix : <https://agentictrust.io/ontology/erc8004#> .
+@prefix eth: <https://agentictrust.io/ontology/eth#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:Ontology a owl:Ontology ;
+  rdfs:label "ERC-8004 Ontology" ;
+  owl:versionInfo "0.1.0" ;
+  owl:imports <https://agentictrust.io/ontology/eth> ;
+  owl:imports <https://agentictrust.io/ontology/core> ;
+  owl:imports <https://agentictrust.io/ontology/core/trust> ;
+  owl:imports <https://agentictrust.io/ontology/core/identity> ;
+  owl:imports <https://agentictrust.io/ontology/core/descriptors> .
+
+@prefix core: <https://agentictrust.io/ontology/core#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:AgentAccount a owl:Class ;
+  rdfs:label "ERC-8004 Agent Account" ;
+  rdfs:subClassOf eth:Account .
+
+:AgentIdentityRegistry8004 a owl:Class ;
+  rdfs:label "AgentIdentityRegistry8004" ;
+  rdfs:comment "ERC-8004 identity registry." ;
+  rdfs:subClassOf core:AgentRegistry ;
+  rdfs:subClassOf prov:Entity .
+
+::agentId a owl:DatatypeProperty ;
+  rdfs:label "agentId" ;
+  rdfs:comment "ERC-8004 agent token id as integer. Equivalent to the last segment of did:8004:<chainId>:<agentId> and materialized here for fast query/sort without string parsing." ;
+  rdfs:domain :AgentIdentity8004 ;
+  rdfs:range xsd:integer .
+
+:AgentIdentity8004 a owl:Class ;
+  rdfs:label "AgentIdentity8004" ;
+  rdfs:comment "ERC-8004 agent identity." ;
+  rdfs:subClassOf core:AgentIdentity ;
+  rdfs:subClassOf prov:Entity .
+
+:AIAgent8004 a owl:Class ;
+  rdfs:label "AIAgent8004" ;
+  rdfs:comment "ERC-8004 discoverable AI agent node." ;
+  rdfs:subClassOf core:AIAgent ;
+  rdfs:subClassOf prov:SoftwareAgent .
+
+:SmartAgent a owl:Class ;
+  rdfs:label "SmartAgent" ;
+  rdfs:comment "ERC-8004 AI agent that is associated with a Smart Account (account abstraction / contract account)." ;
+  rdfs:subClassOf :AIAgent8004 .
+
+:hasAgentAccount a owl:ObjectProperty ;
+  rdfs:label "hasAgentAccount" ;
+  rdfs:comment "Associates a SmartAgent with its AgentAccount node (an ERC-8004 agent-controlled account, typically a smart account)." ;
+  rdfs:domain :SmartAgent ;
+  rdfs:range :AgentAccount .
+
+:hasOwnerAccount a owl:ObjectProperty ;
+  rdfs:label "hasOwnerAccount" ;
+  rdfs:comment "Links an ERC-8004 agent identity to its owner account (EOA or Smart Account)." ;
+  rdfs:domain :AgentIdentity8004 ;
+  rdfs:range eth:Account .
+
+:hasOwnerEOAAccount a owl:ObjectProperty ;
+  rdfs:label "hasOwnerEOAAccount" ;
+  rdfs:comment "Effective EOA owner of the ERC-8004 identity owner account (if the owner account is a smart account, this points to its controlling EOA)." ;
+  rdfs:domain :AgentIdentity8004 ;
+  rdfs:range eth:Account .
+
+:hasWalletAccount a owl:ObjectProperty ;
+  rdfs:label "hasWalletAccount" ;
+  rdfs:comment "Links an ERC-8004 agent identity to its wallet account (EOA or Smart Account)." ;
+  rdfs:domain :AgentIdentity8004 ;
+  rdfs:range eth:Account .
+
+:hasOperatorAccount a owl:ObjectProperty ;
+  rdfs:label "hasOperatorAccount" ;
+  rdfs:comment "Links an ERC-8004 agent identity to an operator account (EOA or Smart Account), when known." ;
+  rdfs:domain :AgentIdentity8004 ;
+  rdfs:range eth:Account .
+
+:IdentityIdentifier8004 a owl:Class ;
+  rdfs:label "IdentityIdentifier8004" ;
+  rdfs:comment "ERC-8004 agent identity identifier (did:8004:chainId:agentId)." ;
+  rdfs:subClassOf core:UniversalIdentifier ;
+  rdfs:subClassOf prov:Entity .
+
+:IdentityDescriptor8004 a owl:Class ;
+  rdfs:label "IdentityDescriptor8004" ;
+  rdfs:comment "Descriptor for an ERC-8004 identity." ;
+  rdfs:subClassOf core:AgentIdentityDescriptor .
+
+:Descriptor8004Identity a owl:Class ;
+  rdfs:label "Descriptor8004Identity" ;
+  rdfs:comment "Descriptor for an ERC-8004 identity. Stores registration JSON and NFT metadata JSON explicitly." ;
+  rdfs:subClassOf :IdentityDescriptor8004 ;
+  rdfs:subClassOf core:Descriptor .
+
+:nftMetadataJson a owl:DatatypeProperty ;
+  rdfs:label "nftMetadataJson" ;
+  rdfs:comment "Raw on-chain NFT metadata payload for the ERC-8004 identity. This may be arbitrary JSON." ;
+  rdfs:domain :Descriptor8004Identity ;
+  rdfs:range xsd:string .
+
+:registrationJson a owl:DatatypeProperty ;
+  rdfs:label "registrationJson" ;
+  rdfs:comment "Raw ERC-8004 registration JSON (agentURI payload) stored losslessly on the 8004 identity descriptor." ;
+  rdfs:domain :Descriptor8004Identity ;
+  rdfs:range xsd:string .
+
+:registeredBy a owl:DatatypeProperty ;
+  rdfs:label "registeredBy" ;
+  rdfs:comment "Human-readable registration issuer/brand extracted from on-chain metadata (best-effort)." ;
+  rdfs:domain :Descriptor8004Identity ;
+  rdfs:range xsd:string .
+
+:registryNamespace a owl:DatatypeProperty ;
+  rdfs:label "registryNamespace" ;
+  rdfs:comment "Registry namespace extracted from on-chain metadata (best-effort), e.g. erc-8004." ;
+  rdfs:domain :Descriptor8004Identity ;
+  rdfs:range xsd:string .
+
+:ValidationRequestSituation a owl:Class ;
+  rdfs:label "ValidationRequestSituation" ;
+  rdfs:comment "ERC-8004 validation request record modeled as a Situation." ;
+  rdfs:subClassOf core:VerificationRequestSituation .
+
+:ValidationResponse a owl:Class ;
+  rdfs:label "ValidationResponse" ;
+  rdfs:comment "ERC-8004 validation response record." ;
+  rdfs:subClassOf core:VerificationTrustAssertion .
+
+:Feedback a owl:Class ;
+  rdfs:label "Feedback" ;
+  rdfs:comment "ERC-8004 feedback record." ;
+  rdfs:subClassOf core:ReputationTrustAssertion .
+
+########
+# Subgraph ingest (raw records + checkpoints stored in GraphDB)
+########
+
+:SubgraphIngestRecord a owl:Class ;
+  rdfs:label "SubgraphIngestRecord" ;
+  rdfs:comment "Raw record ingested from a The Graph (or similar) subgraph, linked to the typed ERC-8004/8092 entity it represents." ;
+  rdfs:subClassOf prov:Entity .
+
+:subgraphChainId a owl:DatatypeProperty ;
+  rdfs:label "subgraphChainId" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:integer .
+
+:subgraphSource a owl:DatatypeProperty ;
+  rdfs:label "subgraphSource" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:string .
+
+:subgraphEntityKind a owl:DatatypeProperty ;
+  rdfs:label "subgraphEntityKind" ;
+  rdfs:comment "Internal ingest kind label (e.g. agents, feedbacks). Not an ontology class name." ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:string .
+
+:subgraphEntityId a owl:DatatypeProperty ;
+  rdfs:label "subgraphEntityId" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:string .
+
+:subgraphCursorValue a owl:DatatypeProperty ;
+  rdfs:label "subgraphCursorValue" ;
+  rdfs:comment "Monotonic cursor used for incremental ingestion (e.g. blockNumber, updatedAt, mintedAt)." ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:string .
+
+:subgraphRawJson a owl:DatatypeProperty ;
+  rdfs:label "subgraphRawJson" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:string .
+
+:subgraphTxHash a owl:DatatypeProperty ;
+  rdfs:label "subgraphTxHash" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:string .
+
+:subgraphBlockNumber a owl:DatatypeProperty ;
+  rdfs:label "subgraphBlockNumber" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:integer .
+
+:subgraphTimestamp a owl:DatatypeProperty ;
+  rdfs:label "subgraphTimestamp" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range xsd:integer .
+
+:recordsEntity a owl:ObjectProperty ;
+  rdfs:label "recordsEntity" ;
+  rdfs:domain :SubgraphIngestRecord ;
+  rdfs:range owl:Thing .
+
+:SubgraphIngestCheckpoint a owl:Class ;
+  rdfs:label "SubgraphIngestCheckpoint" ;
+  rdfs:comment "GraphDB-resident checkpoint for incremental subgraph ingestion." ;
+  rdfs:subClassOf prov:Entity .
+
+:checkpointChainId a owl:DatatypeProperty ;
+  rdfs:label "checkpointChainId" ;
+  rdfs:domain :SubgraphIngestCheckpoint ;
+  rdfs:range xsd:integer .
+
+:checkpointSection a owl:DatatypeProperty ;
+  rdfs:label "checkpointSection" ;
+  rdfs:domain :SubgraphIngestCheckpoint ;
+  rdfs:range xsd:string .
+
+:checkpointCursor a owl:DatatypeProperty ;
+  rdfs:label "checkpointCursor" ;
+  rdfs:domain :SubgraphIngestCheckpoint ;
+  rdfs:range xsd:string .
+
+:checkpointUpdatedAt a owl:DatatypeProperty ;
+  rdfs:label "checkpointUpdatedAt" ;
+  rdfs:domain :SubgraphIngestCheckpoint ;
+  rdfs:range xsd:integer .
+::agentId8004 a owl:DatatypeProperty ;
+  rdfs:label "agentId8004" ;
+  rdfs:comment "Materialized ERC-8004 agent id (token id) as integer, for fast ordering/filtering without string parsing of did:8004." ;
+  rdfs:domain :AgentIdentity8004 ;
+  rdfs:range xsd:integer .

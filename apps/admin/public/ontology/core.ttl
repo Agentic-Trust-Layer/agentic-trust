@@ -1,0 +1,162 @@
+@base <https://agentictrust.io/ontology/core#> .
+@prefix : <https://agentictrust.io/ontology/core#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix oasf: <https://agentictrust.io/ontology/oasf#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<https://agentictrust.io/ontology/core> a owl:Ontology ;
+  rdfs:label "Agentic Trust Core Ontology" ;
+  owl:versionInfo "0.1.0" ;
+  owl:imports <http://www.w3.org/ns/prov-o#> ;
+  owl:imports <http://purl.org/net/p-plan#> ;
+  owl:imports <http://purl.org/dc/terms/> .
+
+:Agent a owl:Class ;
+  rdfs:label "Agent" ;
+  rdfs:subClassOf prov:Agent .
+
+########
+# Agents / orgs / protocols (shared across modules)
+########
+
+:Organization a owl:Class ;
+  rdfs:label "Organization" ;
+  rdfs:subClassOf prov:Agent .
+
+:AgentDeployment a owl:Class ;
+  rdfs:label "AgentDeployment" ;
+  rdfs:comment "Executable agent application deployment (service instance)." ;
+  rdfs:subClassOf prov:SoftwareAgent .
+
+:AIAgent a owl:Class ;
+  rdfs:label "AIAgent" ;
+  rdfs:comment "Discoverable AI agent identity node used for GraphDB discovery." ;
+  rdfs:subClassOf :Agent ;
+  rdfs:subClassOf prov:SoftwareAgent .
+
+:Protocol a owl:Class ;
+  rdfs:label "Protocol" ;
+  rdfs:subClassOf prov:Entity .
+
+:Endpoint a owl:Class ;
+  rdfs:label "Endpoint" ;
+  rdfs:subClassOf prov:Entity .
+
+########
+# Intent/Task orchestration core (upper / cross-domain)
+########
+
+:IntentType a owl:Class ;
+  rdfs:label "Intent Type" ;
+  rdfs:subClassOf skos:Concept .
+
+:TaskType a owl:Class ;
+  rdfs:label "Task Type" ;
+  rdfs:subClassOf skos:Concept .
+
+:Skill a owl:Class ;
+  rdfs:label "Skill" ;
+  rdfs:subClassOf oasf:Skill .
+
+:SkillType a owl:Class ;
+  rdfs:label "Skill Type" ;
+  rdfs:subClassOf skos:Concept .
+
+:Intent a owl:Class ;
+  rdfs:label "Intent" ;
+  rdfs:subClassOf prov:Entity .
+
+:Task a owl:Class ;
+  rdfs:label "Task" ;
+  rdfs:subClassOf prov:Activity .
+
+:Plan a owl:Class ;
+  rdfs:label "Plan" ;
+  rdfs:subClassOf prov:Plan, p-plan:Plan .
+
+:PlanStep a owl:Class ;
+  rdfs:label "Plan Step" ;
+  rdfs:subClassOf p-plan:Step .
+
+:Action a owl:Class ;
+  rdfs:label "Action" ;
+  rdfs:subClassOf prov:Activity .
+
+:ActionType a owl:Class ;
+  rdfs:label "Action Type" ;
+  rdfs:subClassOf skos:Concept .
+
+:hasIntentType a owl:ObjectProperty ;
+  rdfs:label "has intent type" ;
+  rdfs:domain :Intent ;
+  rdfs:range :IntentType .
+
+:hasTaskType a owl:ObjectProperty ;
+  rdfs:label "has task type" ;
+  rdfs:domain :Task ;
+  rdfs:range :TaskType .
+
+:planForIntent a owl:ObjectProperty ;
+  rdfs:label "plan for intent" ;
+  rdfs:domain :Plan ;
+  rdfs:range :Intent .
+
+:hasStep a owl:ObjectProperty ;
+  rdfs:label "has step" ;
+  rdfs:domain :Plan ;
+  rdfs:range :PlanStep .
+
+:stepOrder a owl:DatatypeProperty ;
+  rdfs:label "step order" ;
+  rdfs:domain :PlanStep ;
+  rdfs:range xsd:integer .
+
+:stepTaskType a owl:ObjectProperty ;
+  rdfs:label "step task type" ;
+  rdfs:domain :PlanStep ;
+  rdfs:range :TaskType .
+
+:stepActionType a owl:ObjectProperty ;
+  rdfs:label "step action type" ;
+  rdfs:domain :PlanStep ;
+  rdfs:range :ActionType .
+
+:usesSkill a owl:ObjectProperty ;
+  rdfs:label "uses skill" ;
+  rdfs:domain prov:Activity ;
+  rdfs:range oasf:Skill .
+
+:hasSkillType a owl:ObjectProperty ;
+  rdfs:label "has skill type" ;
+  rdfs:domain oasf:Skill ;
+  rdfs:range :SkillType .
+
+:targetOrganization a owl:DatatypeProperty ;
+  rdfs:label "target organization" ;
+  rdfs:domain :Intent ;
+  rdfs:range xsd:string .
+
+:desiredStatus a owl:DatatypeProperty ;
+  rdfs:label "desired status" ;
+  rdfs:domain :Intent ;
+  rdfs:range xsd:string .
+
+:actionTarget a owl:DatatypeProperty ;
+  rdfs:label "action target" ;
+  rdfs:domain :Action ;
+  rdfs:range xsd:string .
+
+:actionTool a owl:DatatypeProperty ;
+  rdfs:label "action tool" ;
+  rdfs:domain :Action ;
+  rdfs:range xsd:string .
+
+:actionParametersJson a owl:DatatypeProperty ;
+  rdfs:label "action parameters json" ;
+  rdfs:domain :Action ;
+  rdfs:range xsd:string .
