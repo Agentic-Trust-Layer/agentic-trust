@@ -186,9 +186,10 @@ export type KbAgent = {
   agentImage?: string | null;
   agentDescriptor?: KbAgentDescriptor | null;
   agentTypes: string[];
+  // These legacy convenience fields may be removed from newer KB schemas.
   did8004?: string | null;
   agentId8004?: number | null;
-  isSmartAgent: boolean;
+  isSmartAgent?: boolean | null;
   createdAtBlock?: number | null;
   createdAtTime?: number | string | null;
   updatedAtTime?: number | string | null;
@@ -963,6 +964,11 @@ export class AIAgentDiscoveryClient {
       return null;
     };
 
+    const SMART_AGENT_TYPE_IRI = 'https://agentictrust.io/ontology/erc8004#SmartAgent';
+    const hasSmartAgentType =
+      Array.isArray((a as any).agentTypes) &&
+      ((a as any).agentTypes as unknown[]).some((t) => String(t ?? '').trim() === SMART_AGENT_TYPE_IRI);
+
     const did8004 =
       (typeof (a as any).identity8004?.did === 'string' && String((a as any).identity8004.did).trim()
         ? String((a as any).identity8004.did).trim()
@@ -1010,6 +1016,19 @@ export class AIAgentDiscoveryClient {
         a.identity8004?.ownerEOAAccount,
         a.identity8004?.ownerAccount,
       ) ?? null;
+
+    // A "smart agent" is one that has a SmartAgent type OR an agent-controlled account attached.
+    const smartAgentAccount = pickAccountAddress(
+      (a as any).agentAccount,
+      (a as any).identity8004?.agentAccount,
+    );
+
+    const isSmartAgent = (() => {
+      if (typeof (a as any).isSmartAgent === 'boolean') {
+        return (a as any).isSmartAgent as boolean;
+      }
+      return Boolean(smartAgentAccount) || hasSmartAgentType;
+    })();
 
     const identityOwner =
       pickAccountAddress(a.identity8004?.ownerAccount, a.identity8004?.ownerEOAAccount) ?? null;
@@ -1207,7 +1226,8 @@ export class AIAgentDiscoveryClient {
       agentWalletAccount: pickAccountAddress(a.identity8004?.walletAccount) ?? undefined,
       agentOperatorAccount: pickAccountAddress(a.identity8004?.operatorAccount) ?? undefined,
       agentOwnerEOAAccount: pickAccountAddress(a.identity8004?.ownerEOAAccount) ?? undefined,
-      smartAgentAccount: pickAccountAddress(a.agentAccount) ?? undefined,
+      smartAgentAccount: smartAgentAccount ?? undefined,
+      isSmartAgent: isSmartAgent,
       // Identity tab fields (per-identity)
       identity8004Did: typeof a.identity8004?.did === 'string' ? a.identity8004.did : undefined,
       identityEnsDid: typeof a.identityEns?.did === 'string' ? a.identityEns.did : undefined,
