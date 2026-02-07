@@ -27,6 +27,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
+  view: 'newest',
   protocol: 'all',
   path: '',
   minReviews: '',

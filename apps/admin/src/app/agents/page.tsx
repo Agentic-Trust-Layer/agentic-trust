@@ -46,6 +46,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
+  view: 'newest',
   protocol: 'all',
   path: '',
   minReviews: '',
@@ -200,7 +201,7 @@ export default function AgentsRoute() {
         // "My agents" should not just filter the current discovery page.
         // If enabled, load the owned agents list directly (then the UI can still
         // apply secondary client-side filters like protocol / 8004-agent name).
-        if (safeFilters.mineOnly && walletConnected && walletAddress) {
+        if (safeFilters.view !== 'ranked' && safeFilters.mineOnly && walletConnected && walletAddress) {
           const ownedUrl =
             `/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}` +
             `&limit=1000&orderBy=createdAtTime&orderDirection=DESC&source=mineOnly`;
@@ -227,6 +228,39 @@ export default function AgentsRoute() {
           setTotal(ownedAgents.length);
           setTotalPages(1);
           setCurrentPage(1);
+          setHasLoaded(true);
+          return;
+        }
+
+        if (safeFilters.view === 'ranked') {
+          const chainIdRaw = safeFilters.chainId;
+          const chainId =
+            chainIdRaw && chainIdRaw !== 'all' ? Number(chainIdRaw) : Number.NaN;
+          if (!Number.isFinite(chainId)) {
+            throw new Error('Ranked view requires a specific chain (not "all").');
+          }
+
+          const rankedRes = await fetch('/api/agents/ranked', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chainId,
+              page,
+              pageSize: PAGE_SIZE,
+            }),
+            cache: 'no-store',
+          });
+
+          if (!rankedRes.ok) {
+            const err = await rankedRes.json().catch(() => ({}));
+            throw new Error(err?.error || err?.message || `Failed to fetch ranked agents (${rankedRes.status})`);
+          }
+
+          const rankedData = await rankedRes.json().catch(() => ({} as any));
+          setAgents((rankedData.agents as Agent[]) ?? []);
+          setTotal(rankedData.total);
+          setTotalPages(rankedData.totalPages);
+          setCurrentPage(rankedData.page ?? page);
           setHasLoaded(true);
           return;
         }
@@ -322,6 +356,7 @@ export default function AgentsRoute() {
       agentIdentifierMatch: '',
       mineOnly: false,
       only8004Agents: false,
+      view: 'newest',
       protocol: 'all',
       path: '',
       minReviews: '',

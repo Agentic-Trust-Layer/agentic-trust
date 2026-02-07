@@ -96,9 +96,9 @@ export type AgentsPageAgent = {
 
 type Agent = AgentsPageAgent;
 
-// Temporary kill-switch for the Agent Index (right-side leaderboard).
-// Keeps the code paths, but prevents large KB queries from running in dev.
-const ENABLE_AGENT_INDEX = false;
+// Agent Index (right-side leaderboard).
+// Uses the KB ranked agents query (bestRank DESC).
+const ENABLE_AGENT_INDEX = true;
 
 type ChainOption = {
   id: number;
@@ -117,6 +117,7 @@ export type AgentsPageFilters = {
   agentIdentifierMatch: string;
   mineOnly: boolean;
   only8004Agents: boolean;
+  view: 'newest' | 'ranked';
   protocol: 'all' | 'a2a' | 'mcp';
   path: string;
   minReviews: string;
@@ -192,6 +193,7 @@ const DEFAULT_FILTERS: AgentsPageFilters = {
   agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
+  view: 'newest',
   protocol: 'all',
   path: '',
   minReviews: '',
@@ -257,17 +259,19 @@ export function AgentsPage({
 
   const [atiLeaderboardCategory, setAtiLeaderboardCategory] = useState<string>('');
   const [atiLeaderboardTimeWindow, setAtiLeaderboardTimeWindow] = useState<'all' | '10d' | '30d' | '180d'>('all');
-  const [atiLeaderboardChainId, setAtiLeaderboardChainId] = useState<string>('all');
+  // Ranked query requires a specific chain id. Default to mainnet.
+  const [atiLeaderboardChainId, setAtiLeaderboardChainId] = useState<string>('1');
   const [atiLeaderboard, setAtiLeaderboard] = useState<
     Array<{
       agentId: string;
       chainId: number;
       agentName: string;
-      trustLedgerScore: number;
+      trustLedgerScore: number | null;
       trustLedgerOverallRank: number;
       trustLedgerBadgeCount?: number | null;
       agentCategory?: string | null;
       image?: string | null;
+      uaid?: string | null;
     }>
   >([]);
   const [atiLeaderboardLoading, setAtiLeaderboardLoading] = useState(false);
@@ -509,29 +513,21 @@ export function AgentsPage({
         setAtiLeaderboardLoading(true);
         setAtiLeaderboardError(null);
 
-        const params: Record<string, unknown> = {};
-        const chainForLeaderboard = atiLeaderboardChainId && atiLeaderboardChainId !== 'all' ? atiLeaderboardChainId : 'all';
-        if (chainForLeaderboard !== 'all') {
-          const parsed = Number(chainForLeaderboard);
-          if (Number.isFinite(parsed)) {
-            params.chains = [parsed];
-          }
+        const chainIdParsed = Number(atiLeaderboardChainId);
+        if (!Number.isFinite(chainIdParsed)) {
+          throw new Error('Agent Index requires a valid chain id.');
         }
-        const category = (atiLeaderboardCategory || '').trim();
-        if (category) {
-          params.agentCategory = category;
-        }
-        // Time window applies to agent creation time for leaderboard views.
-        if (atiLeaderboardTimeWindow === '10d') params.createdWithinDays = 10;
-        if (atiLeaderboardTimeWindow === '30d') params.createdWithinDays = 30;
-        if (atiLeaderboardTimeWindow === '180d') params.createdWithinDays = 180;
 
-        const url =
-          `/api/agents/search?page=1&pageSize=2000` +
-          `&orderBy=createdAtTime&orderDirection=DESC` +
-          `&params=${encodeURIComponent(JSON.stringify(params))}` +
-          `&source=leaderboard`;
-        const res = await fetch(url, { cache: 'no-store' });
+        const res = await fetch('/api/agents/ranked', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            chainId: chainIdParsed,
+            page: 1,
+            pageSize: 10,
+          }),
+          cache: 'no-store',
+        });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body?.error || body?.message || `Failed to load leaderboard (${res.status})`);
@@ -540,15 +536,21 @@ export function AgentsPage({
         const list = Array.isArray(body?.agents) ? (body.agents as any[]) : [];
 
         const top = list
-          .map((a) => {
-            const scoreRaw = a?.trustLedgerScore;
-            const score = typeof scoreRaw === 'number' ? scoreRaw : Number(scoreRaw);
+          .map((a, idx) => {
             const rankRaw = a?.trustLedgerOverallRank;
             const rank = typeof rankRaw === 'number' ? rankRaw : Number(rankRaw);
-            if (!Number.isFinite(score) || !Number.isFinite(rank) || rank <= 0) return null;
+            const resolvedRank = Number.isFinite(rank) && rank > 0 ? rank : idx + 1;
+
+            const scoreRaw = a?.trustLedgerScore;
+            const scoreParsed = typeof scoreRaw === 'number' ? scoreRaw : Number(scoreRaw);
+            const score = Number.isFinite(scoreParsed) ? scoreParsed : null;
+
             const agentId = typeof a?.agentId === 'string' ? a.agentId : String(a?.agentId ?? '');
             const chainId = typeof a?.chainId === 'number' ? a.chainId : Number(a?.chainId ?? 0);
-            const agentName = typeof a?.agentName === 'string' && a.agentName.trim() ? a.agentName.trim() : `Agent #${agentId || '—'}`;
+            const agentName =
+              typeof a?.agentName === 'string' && a.agentName.trim()
+                ? a.agentName.trim()
+                : `Agent #${agentId || '—'}`;
             const agentCategory =
               typeof a?.agentCategory === 'string' && a.agentCategory.trim().length > 0 ? a.agentCategory.trim() : null;
             const image =
@@ -567,21 +569,23 @@ export function AgentsPage({
               chainId,
               agentName,
               trustLedgerScore: score,
-              trustLedgerOverallRank: rank,
+              trustLedgerOverallRank: resolvedRank,
               trustLedgerBadgeCount,
               agentCategory,
               image,
+              uaid: typeof a?.uaid === 'string' ? a.uaid : null,
             };
           })
           .filter(Boolean) as Array<{
           agentId: string;
           chainId: number;
           agentName: string;
-          trustLedgerScore: number;
+          trustLedgerScore: number | null;
           trustLedgerOverallRank: number;
           trustLedgerBadgeCount?: number | null;
           agentCategory?: string | null;
           image?: string | null;
+          uaid?: string | null;
         }>;
 
         top.sort((a, b) => a.trustLedgerOverallRank - b.trustLedgerOverallRank);
@@ -600,7 +604,7 @@ export function AgentsPage({
     return () => {
       cancelled = true;
     };
-  }, [atiLeaderboardCategory, atiLeaderboardTimeWindow, atiLeaderboardChainId]);
+  }, [atiLeaderboardChainId]);
 
   const closeDialog = () => {
     setActiveDialog(null);
@@ -3300,6 +3304,63 @@ export function AgentsPage({
                 </span>
                 <span>8004-agent.eth</span>
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const nextView: AgentsPageFilters['view'] = filters.view === 'ranked' ? 'newest' : 'ranked';
+                  const nextChainId =
+                    nextView === 'ranked' && (filters.chainId === 'all' || !String(filters.chainId || '').trim())
+                      ? '1'
+                      : filters.chainId;
+                  const nextMineOnly = nextView === 'ranked' ? false : filters.mineOnly;
+                  const updatedFilters: AgentsPageFilters = {
+                    ...filters,
+                    view: nextView,
+                    chainId: nextChainId,
+                    mineOnly: nextMineOnly,
+                  };
+                  onFilterChange('view', nextView);
+                  if (nextChainId !== filters.chainId) {
+                    onFilterChange('chainId', nextChainId);
+                  }
+                  if (nextMineOnly !== filters.mineOnly) {
+                    onFilterChange('mineOnly', nextMineOnly);
+                  }
+                  onSearch(updatedFilters);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${filters.view === 'ranked' ? '#7c3aed' : palette.border}`,
+                  backgroundColor: filters.view === 'ranked' ? '#7c3aed' : palette.surfaceMuted,
+                  color: filters.view === 'ranked' ? palette.surface : palette.textSecondary,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="Toggle Ranked view (bestRank DESC)"
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    border: `1px solid ${filters.view === 'ranked' ? palette.surface : palette.border}`,
+                    backgroundColor: 'transparent',
+                    fontSize: '0.7rem',
+                    color: filters.view === 'ranked' ? palette.surface : 'transparent',
+                  }}
+                >
+                  {filters.view === 'ranked' ? '✓' : ''}
+                </span>
+                <span>ranked</span>
+              </button>
               {isConnected && Boolean(walletAddress) && (
                 <button
                   type="button"
@@ -4412,6 +4473,35 @@ export function AgentsPage({
                         score {Math.round(trustLedgerScore)} · rank #{trustLedgerOverallRank}
                       </span>
                     )}
+                    {(() => {
+                      const score =
+                        typeof (agent as any).atiOverallScore === 'number' &&
+                        Number.isFinite((agent as any).atiOverallScore)
+                          ? ((agent as any).atiOverallScore as number)
+                          : null;
+                      const conf =
+                        typeof (agent as any).atiOverallConfidence === 'number' &&
+                        Number.isFinite((agent as any).atiOverallConfidence)
+                          ? ((agent as any).atiOverallConfidence as number)
+                          : null;
+                      const version =
+                        typeof (agent as any).atiVersion === 'string' && (agent as any).atiVersion.trim()
+                          ? String((agent as any).atiVersion).trim()
+                          : null;
+                      const computedAt =
+                        typeof (agent as any).atiComputedAt === 'number' && Number.isFinite((agent as any).atiComputedAt)
+                          ? ((agent as any).atiComputedAt as number)
+                          : null;
+                      if (score === null) return null;
+                      return (
+                        <span
+                          title={`ATI${version ? ` v${version}` : ''}${computedAt ? ` · computedAt: ${computedAt}` : ''}${conf !== null ? ` · confidence: ${conf}` : ''}`}
+                        >
+                          ATI {Math.round(score)}
+                          {conf !== null ? ` · conf ${Math.round(conf * 100)}%` : ''}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
               </article>
@@ -4503,6 +4593,7 @@ export function AgentsPage({
                     value={atiLeaderboardTimeWindow}
                     onChange={(e) => setAtiLeaderboardTimeWindow(e.target.value as any)}
                     aria-label="ATI leaderboard time window"
+                    disabled
                     style={{
                       padding: '0.2rem 0.5rem',
                       borderRadius: '8px',
@@ -4533,7 +4624,6 @@ export function AgentsPage({
                       height: 28,
                     }}
                   >
-                    <option value="all">All Chains</option>
                     {chainOptions.map((c) => (
                       <option key={c.id} value={String(c.id)}>
                         {c.label}
@@ -4545,6 +4635,7 @@ export function AgentsPage({
                     value={atiLeaderboardCategory}
                     onChange={(e) => setAtiLeaderboardCategory(e.target.value)}
                     aria-label="ATI leaderboard agent category"
+                    disabled
                     style={{
                       padding: '0.2rem 0.5rem',
                       borderRadius: '8px',
@@ -4663,7 +4754,9 @@ export function AgentsPage({
                             title={`Agent Index score${typeof row.trustLedgerBadgeCount === 'number' ? ` · badges: ${row.trustLedgerBadgeCount}` : ''}`}
                             style={{ fontSize: '0.9rem', fontWeight: 800, color: palette.accent }}
                           >
-                            {Math.round(row.trustLedgerScore)}
+                            {typeof row.trustLedgerScore === 'number' && Number.isFinite(row.trustLedgerScore)
+                              ? Math.round(row.trustLedgerScore)
+                              : '—'}
                           </div>
                         </button>
                       ))
