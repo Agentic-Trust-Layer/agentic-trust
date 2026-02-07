@@ -85,6 +85,26 @@ const shorten = (value?: string | null) => {
   return `${value.slice(0, 6)}…${value.slice(-6)}`;
 };
 
+function getChainLabel(chainId: number | null | undefined): string {
+  if (!chainId || !Number.isFinite(chainId)) return 'Unknown chain';
+  if (chainId === 1) return 'Mainnet';
+  if (chainId === 11155111) return 'Sepolia';
+  if (chainId === 84532) return 'Base Sepolia';
+  if (chainId === 11155420) return 'OP Sepolia';
+  if (chainId === 295) return 'Hashgraph Online';
+  return `Chain ${chainId}`;
+}
+
+function parseRegistryFromDid(did: unknown): { registryId: '8004' | '8122'; chainId: number } | null {
+  if (typeof did !== 'string') return null;
+  const raw = did.trim();
+  const m = /^did:(8004|8122):(\d+):/.exec(raw);
+  if (!m) return null;
+  const chainId = Number(m[2]);
+  if (!Number.isFinite(chainId)) return null;
+  return { registryId: m[1] as '8004' | '8122', chainId };
+}
+
 function formatJsonIfPossible(text: string | null | undefined): string | null {
   if (!text) return null;
   try {
@@ -659,13 +679,35 @@ const AgentDetailsTabs = ({
     (typeof (agent as any).smartAgentAccount === 'string' && (agent as any).smartAgentAccount.trim().startsWith('0x'));
 
   const mainTabDefs = useMemo(() => {
+    const did = (agent as any).identity8004Did ?? agent.did ?? null;
+    const descriptor = parseJsonObject((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null) ?? {};
+    const parsedDid = parseRegistryFromDid(did);
+    const registryId: '8004' | '8122' = (() => {
+      if (parsedDid?.registryId) return parsedDid.registryId;
+      const registryNamespace =
+        typeof (descriptor as any)?.registryNamespace === 'string'
+          ? String((descriptor as any).registryNamespace).trim().toLowerCase()
+          : '';
+      const type =
+        typeof (descriptor as any)?.type === 'string'
+          ? String((descriptor as any).type).trim().toLowerCase()
+          : '';
+      if (registryNamespace.includes('8122') || type.includes('8122')) return '8122';
+      return '8004';
+    })();
+    const chainIdForRegistry = parsedDid?.chainId ?? (typeof agent.chainId === 'number' ? agent.chainId : null);
+    const chainLabel = getChainLabel(chainIdForRegistry);
+    const registryLabel = isSmartAgent
+      ? `Smart Agent (${registryId} ${chainLabel})`
+      : `${registryId} ${chainLabel}`;
+
     const tabs: Array<{ id: TabId; label: string }> = [
-      { id: 'id8004', label: isSmartAgent ? 'Smart Agent (8004)' : '8004' },
+      { id: 'id8004', label: registryLabel },
     ];
     if (hasEnsIdentity) tabs.push({ id: 'ens', label: 'ENS' });
     if (hasHolIdentity) tabs.push({ id: 'hol', label: 'HOL' });
     return tabs;
-  }, [hasEnsIdentity, hasHolIdentity, isSmartAgent]);
+  }, [agent, hasEnsIdentity, hasHolIdentity, isSmartAgent]);
 
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const registerProtocols = useMemo(
@@ -767,6 +809,41 @@ const AgentDetailsTabs = ({
     () => formatJsonIfPossible(identityDescriptorJsonRaw),
     [identityDescriptorJsonRaw],
   );
+
+  const identityRegistryInfo = useMemo(() => {
+    if (identityTab !== 'id8004') return null;
+    const parsedDid = parseRegistryFromDid(identityDid);
+    const registryNamespace =
+      typeof (identityDescriptor as any)?.registryNamespace === 'string'
+        ? String((identityDescriptor as any).registryNamespace).trim()
+        : null;
+    const registeredBy =
+      typeof (identityDescriptor as any)?.registeredBy === 'string'
+        ? String((identityDescriptor as any).registeredBy).trim()
+        : null;
+    const type =
+      typeof (identityDescriptor as any)?.type === 'string'
+        ? String((identityDescriptor as any).type).trim()
+        : null;
+    const registryId: '8004' | '8122' = (() => {
+      if (parsedDid?.registryId) return parsedDid.registryId;
+      const ns = (registryNamespace ?? '').toLowerCase();
+      const t = (type ?? '').toLowerCase();
+      if (ns.includes('8122') || t.includes('8122')) return '8122';
+      return '8004';
+    })();
+    const chainId = parsedDid?.chainId ?? (typeof agent.chainId === 'number' ? agent.chainId : null);
+    return {
+      registryId,
+      chainId,
+      chainLabel: getChainLabel(chainId),
+      registryNamespace,
+      registeredBy,
+      type,
+      uaid: typeof (identityDescriptor as any)?.uaid === 'string' ? String((identityDescriptor as any).uaid).trim() : null,
+      registrations: Array.isArray((identityDescriptor as any)?.registrations) ? ((identityDescriptor as any).registrations as any[]) : null,
+    };
+  }, [agent.chainId, identityDescriptor, identityDid, identityTab]);
 
   return (
     <ContainerTag style={containerStyle}>
@@ -900,6 +977,82 @@ const AgentDetailsTabs = ({
 
                 {identityTab === 'id8004' && (
                   <>
+                    {identityRegistryInfo && (
+                      <div
+                        style={{
+                          borderTop: `1px dashed ${palette.border}`,
+                          paddingTop: '0.85rem',
+                          marginTop: '0.25rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '0.6rem',
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                            Registry
+                          </strong>
+                          <div style={{ color: palette.textPrimary }}>
+                            {identityRegistryInfo.registryId} {identityRegistryInfo.chainLabel}
+                          </div>
+                        </div>
+                        {identityRegistryInfo.registryNamespace && (
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                              Registry Namespace
+                            </strong>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                              {identityRegistryInfo.registryNamespace}
+                            </div>
+                          </div>
+                        )}
+                        {identityRegistryInfo.registeredBy && (
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                              Registered By
+                            </strong>
+                            <div style={{ color: palette.textPrimary }}>{identityRegistryInfo.registeredBy}</div>
+                          </div>
+                        )}
+                        {identityRegistryInfo.type && (
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                              Registration Type
+                            </strong>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                              {identityRegistryInfo.type}
+                            </div>
+                          </div>
+                        )}
+                        {identityRegistryInfo.registrations && identityRegistryInfo.registrations.length > 0 && (
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                              Registrations
+                            </strong>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                              {identityRegistryInfo.registrations.slice(0, 8).map((r, idx) => (
+                                <div key={r?.agentId ?? idx} style={{ color: palette.textPrimary }}>
+                                  <span style={{ fontFamily: 'monospace' }}>
+                                    {String(r?.agentRegistry ?? '').trim() || '—'}
+                                  </span>
+                                  {r?.registeredAt ? (
+                                    <span style={{ color: palette.textSecondary }}>
+                                      {' '}
+                                      · {String(r.registeredAt)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              ))}
+                              {identityRegistryInfo.registrations.length > 8 && (
+                                <div style={{ color: palette.textSecondary }}>
+                                  +{identityRegistryInfo.registrations.length - 8} more…
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div>
                       <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>OwnerAccount</strong>
                       <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>

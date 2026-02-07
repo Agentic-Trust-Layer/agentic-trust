@@ -28,6 +28,7 @@ export {
   type SemanticAgentMatch,
   type SemanticAgentSearchResult,
 } from './AIAgentDiscoveryClient';
+export { graphQLSchemaString, buildGraphQLSchema } from './schema';
 export { graphQLSchemaStringKb, buildGraphQLSchemaKb } from './schemaKb';
 
 // Re-export AccountProvider types from @agentic-trust/8004-sdk for convenience

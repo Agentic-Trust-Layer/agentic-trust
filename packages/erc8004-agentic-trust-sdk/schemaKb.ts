@@ -2,7 +2,7 @@
  * GraphDB-backed (knowledge base) GraphQL schema (v2).
  *
  * This schema is intentionally aligned to the KB model:
- * Agent → Identity → ServiceEndpoints → Protocol → Descriptor(json).
+ * Agent → Identity → Descriptor → (assembled) ProtocolDescriptor.
  *
  * Used as reference for the discovery client; the live backend is introspected at runtime.
  */
@@ -58,11 +58,13 @@ export const graphQLSchemaStringKb = `
     uaid
     createdAtTime
     updatedAtTime
+    trustLedgerTotalPoints
+    atiOverallScore
+    bestRank
   }
 
   input KbAgentWhereInput {
     chainId: Int
-    agentId8004: Int
     agentIdentifierMatch: String
     did8004: String
     uaid: String
@@ -81,77 +83,50 @@ export const graphQLSchemaStringKb = `
     iri: ID!
     chainId: Int
     address: String
-    accountType: String # EOAAccount | SmartAccount | Account | (null/unknown)
+    accountType: String
     didEthr: String
   }
 
-  type KbAssociation {
-    iri: ID!
-    record: KbSubgraphRecord
-  }
-
-  type KbSemanticAgentMatch {
-    agent: KbAgent
-    score: Float!
-    matchReasons: [String!]
-  }
-
-  type KbSemanticAgentSearchResult {
-    matches: [KbSemanticAgentMatch!]!
-    total: Int!
-    intentType: String
-  }
-
-  input SemanticAgentSearchInput {
-    text: String
-    intentJson: String
-    topK: Int
-    minScore: Float
-    requiredSkills: [String!]
-    filters: SemanticSearchFilterInput
-  }
-
-  input SemanticSearchFilterInput {
-    capabilities: [String!]
-    inputMode: String
-    outputMode: String
-    tags: [String!]
-  }
-
-  # Generic descriptor for core entities (protocols, endpoints, etc.)
   type KbDescriptor {
     iri: ID!
     name: String
     description: String
     image: String
-    json: String
+  }
+
+  type KbProtocolDescriptor {
+    iri: ID!
+    name: String
+    description: String
+    image: String
+    agentCardJson: String
   }
 
   type KbProtocol {
     iri: ID!
-    protocol: String! # a2a | mcp | other
-    serviceUrl: String
+    protocol: String!
     protocolVersion: String
-    descriptor: KbDescriptor
+    serviceUrl: String
+    descriptor: KbProtocolDescriptor
     skills: [String!]!
     domains: [String!]!
   }
 
   type KbServiceEndpoint {
     iri: ID!
-    name: String # a2a | mcp | other
+    name: String!
     descriptor: KbDescriptor
-    protocol: KbProtocol
+    protocol: KbProtocol!
   }
 
   type KbIdentityDescriptor {
     iri: ID!
-    kind: String! # 8004 | ens | hol | nanda | other
+    kind: String!
     name: String
     description: String
     image: String
-    json: String
-    onchainMetadataJson: String
+    registrationJson: String
+    nftMetadataJson: String
     registeredBy: String
     registryNamespace: String
     skills: [String!]!
@@ -160,11 +135,42 @@ export const graphQLSchemaStringKb = `
 
   type KbIdentity {
     iri: ID!
-    kind: String! # 8004 | ens | hol | nanda | other
+    kind: String!
     did: String!
     uaidHOL: String
     descriptor: KbIdentityDescriptor
     serviceEndpoints: [KbServiceEndpoint!]!
+  }
+
+  type KbIdentity8004 {
+    iri: ID!
+    kind: String!
+    did: String!
+    did8004: String!
+    agentId8004: Int
+    isSmartAgent: Boolean!
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
+    ownerAccount: KbAccount
+    operatorAccount: KbAccount
+    walletAccount: KbAccount
+    ownerEOAAccount: KbAccount
+    agentAccount: KbAccount
+  }
+
+  type KbIdentity8122 {
+    iri: ID!
+    kind: String!
+    did: String!
+    did8122: String!
+    agentId8122: String!
+    registryAddress: String
+    endpointType: String
+    endpoint: String
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
+    ownerAccount: KbAccount
+    agentAccount: KbAccount
   }
 
   type KbAgentDescriptor {
@@ -185,21 +191,22 @@ export const graphQLSchemaStringKb = `
     createdAtBlock: Int
     createdAtTime: Int
     updatedAtTime: Int
+    trustLedgerTotalPoints: Int
+    trustLedgerBadgeCount: Int
+    trustLedgerComputedAt: Int
+    atiOverallScore: Int
+    atiOverallConfidence: Float
+    atiVersion: String
+    atiComputedAt: Int
     identity: KbIdentity
-    identity8004: KbIdentity
+    identity8004: KbIdentity8004
+    identity8122: KbIdentity8122
     identityHol: KbIdentity
     identityEns: KbIdentity
+    serviceEndpoints: [KbServiceEndpoint!]!
     assertions: KbAgentAssertions
     reviewAssertions(first: Int, skip: Int): KbReviewResponseConnection
     validationAssertions(first: Int, skip: Int): KbValidationResponseConnection
-    identityOwnerAccount: KbAccount
-    identityOperatorAccount: KbAccount
-    identityWalletAccount: KbAccount
-    agentOwnerAccount: KbAccount
-    agentOperatorAccount: KbAccount
-    agentWalletAccount: KbAccount
-    agentOwnerEOAAccount: KbAccount
-    agentAccount: KbAccount
   }
 
   type KbAgentSearchResult {
@@ -243,6 +250,39 @@ export const graphQLSchemaStringKb = `
     total: Int!
     reviewResponses: KbReviewResponseConnection!
     validationResponses: KbValidationResponseConnection!
+  }
+
+  type KbAssociation {
+    iri: ID!
+    record: KbSubgraphRecord
+  }
+
+  type KbSemanticAgentMatch {
+    agent: KbAgent
+    score: Float!
+    matchReasons: [String!]
+  }
+
+  type KbSemanticAgentSearchResult {
+    matches: [KbSemanticAgentMatch!]!
+    total: Int!
+    intentType: String
+  }
+
+  input SemanticAgentSearchInput {
+    text: String
+    intentJson: String
+    topK: Int
+    minScore: Float
+    requiredSkills: [String!]
+    filters: SemanticSearchFilterInput
+  }
+
+  input SemanticSearchFilterInput {
+    capabilities: [String!]
+    inputMode: String
+    outputMode: String
+    tags: [String!]
   }
 
   type Query {
