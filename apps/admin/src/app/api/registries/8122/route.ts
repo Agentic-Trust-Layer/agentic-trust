@@ -78,16 +78,25 @@ export async function POST(req: Request) {
   } catch (error: any) {
     // eslint-disable-next-line no-console
     console.error('[api/registries/8122] failed', error);
+    const resolved = resolveDiscoveryEndpoint();
+    const msg = error?.message || 'Failed to fetch ERC-8122 registries';
+    const isUpstreamNullNonNull =
+      typeof msg === 'string' && msg.includes('Cannot return null for non-nullable field Query.kbErc8122Registries');
+    const hint = isUpstreamNullNonNull
+      ? 'Upstream discovery GraphQL resolver returned null for non-nullable Query.kbErc8122Registries (backend bug / not deployed / misconfigured).'
+      : undefined;
+
+    // If discovery is returning GraphQL errors with HTTP 200, treat as upstream failure (502),
+    // so prod telemetry doesn't mislabel it as our server being broken.
+    const status = isUpstreamNullNonNull ? 502 : 500;
     return NextResponse.json(
-      (() => {
-        const msg = error?.message || 'Failed to fetch ERC-8122 registries';
-        const hint =
-          typeof msg === 'string' && msg.includes('Cannot return null for non-nullable field Query.kbErc8122Registries')
-            ? 'Discovery backend resolver failed for kbErc8122Registries (server bug / not deployed / misconfigured).'
-            : undefined;
-        return { error: msg, hint };
-      })(),
-      { status: 500 },
+      {
+        error: msg,
+        hint,
+        endpoint: resolved?.endpoint,
+        endpointSource: resolved?.source,
+      },
+      { status },
     );
   }
 }

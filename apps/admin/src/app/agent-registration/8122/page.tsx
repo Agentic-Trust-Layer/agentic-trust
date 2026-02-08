@@ -148,8 +148,42 @@ function buildDid8122(params: { chainId: number; registry: Address; agentId: big
   return `did:8122:${params.chainId}:${params.registry}:${params.agentId.toString()}`;
 }
 
-function buildUaidFromDid(did: string): string {
-  return `uaid:${did}`;
+function buildDidEthr(params: { chainId: number; account: Address }): string {
+  return `did:ethr:${params.chainId}:${params.account.toLowerCase()}`;
+}
+
+async function generateSmartAgentUaid(params: {
+  chainId: number;
+  account: Address;
+  registry: Address;
+  proto: 'a2a' | 'mcp';
+  nativeId: string;
+}): Promise<{ uaid: string; didEthr: string }> {
+  const didEthr = buildDidEthr({ chainId: params.chainId, account: params.account });
+  try {
+    const res = await fetch('/api/agents/generate-uaid', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentAccount: params.account,
+        chainId: params.chainId,
+        uid: didEthr,
+        registry: params.registry,
+        proto: params.proto,
+        nativeId: params.nativeId,
+      }),
+    });
+    const json = (await res.json().catch(() => null)) as any;
+    const uaid = typeof json?.uaid === 'string' ? json.uaid.trim() : '';
+    if (res.ok && uaid) {
+      return { uaid, didEthr };
+    }
+  } catch {
+    // ignore
+  }
+  // Fallback: UAID DID-target form with routing params (best-effort).
+  const uaid = `uaid:${didEthr};registry=${params.registry};proto=${params.proto};nativeId=${params.nativeId};uid=${didEthr}`;
+  return { uaid, didEthr };
 }
 
 export default function AgentRegistration8122WizardPage() {
@@ -238,6 +272,7 @@ export default function AgentRegistration8122WizardPage() {
     agentId?: string;
     txHash?: string;
     did?: string;
+    did8122?: string;
     uaid?: string;
     registry?: string;
     registrar?: string;
@@ -780,8 +815,14 @@ export default function AgentRegistration8122WizardPage() {
         functionName: 'registry',
       })) as Address;
 
-      const did = buildDid8122({ chainId: selectedChainId, registry: getAddress(registry) as Address, agentId });
-      const uaid = buildUaidFromDid(did);
+      const did8122 = buildDid8122({ chainId: selectedChainId, registry: getAddress(registry) as Address, agentId });
+      const { uaid, didEthr } = await generateSmartAgentUaid({
+        chainId: selectedChainId,
+        account: aaAddr,
+        registry: getAddress(registry) as Address,
+        proto: protocolSettings.protocol === 'MCP' ? 'mcp' : 'a2a',
+        nativeId: did8122,
+      });
 
       // Best-effort: write UAID metadata after mint.
       // Send it as a second UserOperation from the SmartAccount (since it owns the token).
@@ -806,7 +847,8 @@ export default function AgentRegistration8122WizardPage() {
       openCompletionModal({
         agentId: agentId.toString(),
         txHash: txHash ?? undefined,
-        did,
+        did: didEthr,
+        did8122,
         uaid,
         registry: String(registry),
         registrar: String(registrar),
@@ -1526,6 +1568,11 @@ export default function AgentRegistration8122WizardPage() {
                 {registrationCompleteDetails.did && (
                   <div>
                     DID: <code>{registrationCompleteDetails.did}</code>
+                  </div>
+                )}
+                {registrationCompleteDetails.did8122 && (
+                  <div>
+                    8122 DID: <code>{registrationCompleteDetails.did8122}</code>
                   </div>
                 )}
                 {registrationCompleteDetails.agentId && (

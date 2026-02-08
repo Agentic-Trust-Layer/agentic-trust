@@ -34,7 +34,13 @@ function parseAgentIdFromUaid(uaid: string): string {
     const tail = raw.slice(start);
     const end = tail.indexOf(';');
     const nativeId = (end === -1 ? tail : tail.slice(0, end)).trim();
-    if (nativeId) return nativeId;
+    if (nativeId) {
+      // If nativeId is a DID, prefer the trailing numeric segment (e.g. did:8122:...:<agentId>).
+      const parts = nativeId.split(':').filter(Boolean);
+      const last = parts.length > 0 ? parts[parts.length - 1] : '';
+      if (/^\d+$/.test(last)) return last;
+      return nativeId;
+    }
   }
   return raw;
 }

@@ -892,7 +892,9 @@ export class AIAgentDiscoveryClient {
         })()
       : '';
 
-    return `
+    const identity8004Block =
+      kbAgentFields.has('identity8004') && identity8004Type
+        ? `
       identity8004 {
         iri
         kind
@@ -907,7 +909,11 @@ export class AIAgentDiscoveryClient {
         walletAccount { iri chainId address accountType didEthr }
         ownerEOAAccount { iri chainId address accountType didEthr }
         agentAccount { iri chainId address accountType didEthr }
-      }
+      }`
+        : '';
+
+    return `
+      ${identity8004Block}
       ${identity8122Block}
       identityEns {
         iri
@@ -1463,7 +1469,7 @@ export class AIAgentDiscoveryClient {
           `,
           mode === 'full'
             ? `
-      identity8004 { iri kind did }
+      identity8122 { iri kind did }
       identityEns { iri kind did uaidHOL }
       identityHol { iri kind did uaidHOL }
     `
