@@ -61,8 +61,6 @@ export function Header({
     const candidates = [
       process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL,
       process.env.AGENTIC_TRUST_DISCOVERY_URL,
-      process.env.NEXT_PUBLIC_GRAPHQL_API_URL,
-      process.env.GRAPHQL_API_URL,
     ];
     const raw = candidates.find(value => typeof value === 'string' && value?.trim());
     if (!raw) {

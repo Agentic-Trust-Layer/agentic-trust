@@ -10,6 +10,15 @@ function normalizeDiscoveryUrl(value: string | undefined | null): string | null 
   return `${raw}/graphql-kb`;
 }
 
+function resolveDiscoveryEndpoint(): string | null {
+  const candidates = [
+    process.env.AGENTIC_TRUST_DISCOVERY_URL,
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL,
+  ];
+  const raw = candidates.find((v) => typeof v === 'string' && v.trim().length > 0);
+  return normalizeDiscoveryUrl(raw ?? null);
+}
+
 function parseAgentIdFromUaid(uaid: string): string {
   const raw = String(uaid || '').trim();
   const did8004 = /^uaid:did:8004:(\d+):(\d+)$/.exec(raw);
@@ -65,10 +74,13 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'chainId is required (number)' }, { status: 400 });
     }
 
-    const endpoint = normalizeDiscoveryUrl(process.env.AGENTIC_TRUST_DISCOVERY_URL);
+    const endpoint = resolveDiscoveryEndpoint();
     if (!endpoint) {
       return NextResponse.json(
-        { error: 'Missing AGENTIC_TRUST_DISCOVERY_URL' },
+        {
+          error:
+            'Missing discovery URL. Set AGENTIC_TRUST_DISCOVERY_URL (preferred) or NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL.',
+        },
         { status: 500 },
       );
     }

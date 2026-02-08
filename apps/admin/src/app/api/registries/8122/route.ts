@@ -11,6 +11,15 @@ function normalizeDiscoveryUrl(value: string | undefined | null): string | null 
   return `${raw}/graphql-kb`;
 }
 
+function resolveDiscoveryEndpoint(): string | null {
+  const candidates = [
+    process.env.AGENTIC_TRUST_DISCOVERY_URL,
+    process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL,
+  ];
+  const raw = candidates.find((v) => typeof v === 'string' && v.trim().length > 0);
+  return normalizeDiscoveryUrl(raw ?? null);
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -28,9 +37,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'chainId is required (number)' }, { status: 400 });
     }
 
-    const endpoint = normalizeDiscoveryUrl(process.env.AGENTIC_TRUST_DISCOVERY_URL);
+    const endpoint = resolveDiscoveryEndpoint();
     if (!endpoint) {
-      return NextResponse.json({ error: 'Missing AGENTIC_TRUST_DISCOVERY_URL' }, { status: 500 });
+      return NextResponse.json(
+        {
+          error:
+            'Missing discovery URL. Set AGENTIC_TRUST_DISCOVERY_URL (preferred) or NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL.',
+        },
+        { status: 500 },
+      );
     }
 
     const apiKey =
@@ -56,6 +71,8 @@ export async function POST(req: Request) {
       registries,
     });
   } catch (error: any) {
+    // eslint-disable-next-line no-console
+    console.error('[api/registries/8122] failed', error);
     return NextResponse.json(
       { error: error?.message || 'Failed to fetch ERC-8122 registries' },
       { status: 500 },
