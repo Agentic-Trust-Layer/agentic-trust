@@ -65,16 +65,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const client = new AIAgentDiscoveryClient({
-      endpoint: resolved.endpoint,
-      apiKey,
-    });
-
-    const registries = await client.erc8122Registries({
-      chainId,
-      first,
-      skip,
-    });
+    const client = new AIAgentDiscoveryClient({ endpoint: resolved.endpoint, apiKey });
+    const registries = await client.erc8122Registries({ chainId, first, skip });
 
     return NextResponse.json({
       ok: true,
@@ -87,9 +79,14 @@ export async function POST(req: Request) {
     // eslint-disable-next-line no-console
     console.error('[api/registries/8122] failed', error);
     return NextResponse.json(
-      {
-        error: error?.message || 'Failed to fetch ERC-8122 registries',
-      },
+      (() => {
+        const msg = error?.message || 'Failed to fetch ERC-8122 registries';
+        const hint =
+          typeof msg === 'string' && msg.includes('Cannot return null for non-nullable field Query.kbErc8122Registries')
+            ? 'Discovery backend resolver failed for kbErc8122Registries (server bug / not deployed / misconfigured).'
+            : undefined;
+        return { error: msg, hint };
+      })(),
       { status: 500 },
     );
   }

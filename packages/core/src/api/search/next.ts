@@ -47,13 +47,47 @@ function normalizeDiscoveryUrl(value: string | undefined | null): string | null 
   return `${raw}/graphql-kb`;
 }
 
-function parseDid8004(did8004: string): { chainId: number; agentId8004: number } | null {
-  const m = /^did:8004:(\d+):(\d+)$/.exec(did8004.trim());
-  if (!m) return null;
-  const chainId = Number(m[1]);
-  const agentId8004 = Number(m[2]);
-  if (!Number.isFinite(chainId) || !Number.isFinite(agentId8004)) return null;
-  return { chainId, agentId8004 };
+function parseChainIdFromUaid(uaid: string | null | undefined): number | null {
+  const raw = String(uaid || '').trim();
+  if (!raw.startsWith('uaid:')) return null;
+
+  // Drop UAID routing params (HCS-14 style), keep only the DID-ish prefix.
+  const uaidCore = raw.split(';')[0]?.trim() || '';
+  const did = uaidCore.slice('uaid:'.length);
+  if (!did.startsWith('did:')) return null;
+
+  const parts = did.split(':').filter(Boolean);
+  // did:<method>:<...>
+  if (parts.length < 3 || String(parts[0] || '').toLowerCase() !== 'did') return null;
+  const methodSpecific = parts.slice(2); // everything after did:<method>
+
+  const asChainId = (value: string | undefined): number | null => {
+    if (!value) return null;
+    if (!/^\d+$/.test(value)) return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    // sanity bounds: chain ids are positive and well below 1e9
+    if (n <= 0 || n >= 1_000_000_000) return null;
+    return n;
+  };
+
+  // Most of our DIDs: did:<method>:<chainId>:...
+  const direct = asChainId(methodSpecific[0]);
+  if (direct != null) return direct;
+
+  // did:pkh:eip155:<chainId>:0x...
+  if (String(methodSpecific[0] || '').toLowerCase() === 'eip155') {
+    const eip155 = asChainId(methodSpecific[1]);
+    if (eip155 != null) return eip155;
+  }
+
+  // Generic fallback: find a plausible chain id in the first few segments.
+  for (const seg of methodSpecific.slice(0, 3)) {
+    const n = asChainId(seg);
+    if (n != null) return n;
+  }
+
+  return null;
 }
 
 type KbAgentsResponse = {
@@ -68,7 +102,6 @@ type KbAgentsResponse = {
       createdAtTime?: number | null;
       createdAtBlock?: number | null;
       updatedAtTime?: number | null;
-      identity8004?: { did?: string | null } | null;
       assertions?: {
         reviewResponses?: { total?: number | null } | null;
         validationResponses?: { total?: number | null } | null;
@@ -169,7 +202,6 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
           createdAtTime
           createdAtBlock
           updatedAtTime
-          identity8004 { did }
           assertions { reviewResponses { total } validationResponses { total } total }
         }
       }
@@ -241,11 +273,10 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
   }
 
   const agents = list.map((a) => {
-    const did8004Raw = typeof (a as any)?.identity8004?.did === 'string' ? (a as any).identity8004.did : '';
-    const did8004 = did8004Raw ? did8004Raw : '';
-    const parsed = did8004 ? parseDid8004(did8004) : null;
+    const uaidRaw = typeof a?.uaid === 'string' ? a.uaid : '';
+    const chainIdFromUaid = parseChainIdFromUaid(uaidRaw);
     const chainIdFromWhere = typeof where.chainId === 'number' ? where.chainId : null;
-    const chainId = parsed?.chainId ?? chainIdFromWhere;
+    const chainId = chainIdFromUaid ?? chainIdFromWhere;
 
     const agentIdFromUaid = (() => {
       const uaid = typeof a?.uaid === 'string' ? a.uaid : '';
@@ -273,20 +304,18 @@ async function executeKbSearch(options: DiscoverRequest): Promise<SearchResultPa
     return {
       uaid: typeof a?.uaid === 'string' ? a.uaid : null,
       chainId,
-      agentId: parsed
-        ? String(parsed.agentId8004)
-        : agentIdFromUaid,
+      agentId: agentIdFromUaid,
       createdAtTime: typeof a?.createdAtTime === 'number' ? a.createdAtTime : null,
       agentAccount: '',
       agentIdentityOwnerAccount: '',
       agentName: typeof a?.agentName === 'string' ? a.agentName : null,
       description: typeof a?.agentDescription === 'string' ? a.agentDescription : null,
       image: typeof a?.agentImage === 'string' ? a.agentImage : null,
-      didIdentity: did8004 || null,
+      didIdentity: null,
       createdAtBlock: typeof a?.createdAtBlock === 'number' ? a.createdAtBlock : 0,
       updatedAtTime: typeof a?.updatedAtTime === 'number' ? a.updatedAtTime : null,
       agentCardReadAt: null,
-      did: did8004 || null,
+      did: null,
       mcp: false,
       active: true,
       feedbackCount,
