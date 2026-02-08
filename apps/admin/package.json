@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@agentic-trust/8092-sdk": "workspace:*",
+    "@agentic-trust/8122-sdk": "workspace:*",
     "@agentic-trust/core": "workspace:*",
     "@agentic-trust/veramo-agent-extension": "workspace:*",
     "@emotion/cache": "^11.11.3",

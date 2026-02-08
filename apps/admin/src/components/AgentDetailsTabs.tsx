@@ -674,6 +674,9 @@ const AgentDetailsTabs = ({
   const hasHolIdentity = Boolean(
     (agent as any).identityHolDid || (agent as any).identityHolUaid || (agent as any).identityHolDescriptorJson,
   );
+  const didForRegistry = String((agent as any).identity8004Did ?? (agent as any).did ?? '').trim();
+  const has8004Registry = didForRegistry.startsWith('did:8004:');
+  const has8122Registry = didForRegistry.startsWith('did:8122:');
   const isSmartAgent =
     (agent as any).isSmartAgent === true ||
     (typeof (agent as any).smartAgentAccount === 'string' && (agent as any).smartAgentAccount.trim().startsWith('0x'));
@@ -711,23 +714,35 @@ const AgentDetailsTabs = ({
 
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const registerProtocols = useMemo(
-    () =>
-      [
-        { id: 'ens', label: 'ENS' },
-        { id: 'hol', label: 'HOL' },
-        { id: 'agentverse', label: 'AgentVerse' },
-        { id: 'ans', label: 'ANS' },
-        { id: 'aid', label: 'AID' },
-      ] as const,
-    [],
+    () => {
+      const out: Array<{ id: string; label: string; description: string }> = [];
+      if (!has8004Registry) {
+        out.push({ id: '8004', label: '8004', description: 'Register/update on-chain identity (ERC-8004)' });
+      }
+      if (!has8122Registry) {
+        out.push({ id: '8122', label: '8122', description: 'Register/update on-chain identity (ERC-8122)' });
+      }
+      if (!hasEnsIdentity) {
+        out.push({ id: 'ens', label: 'ENS', description: 'Publish ENS identity' });
+      }
+      if (!hasHolIdentity) {
+        out.push({ id: 'hol', label: 'HOL', description: 'Register with Hashgraph Online' });
+      }
+      return out;
+    },
+    [has8004Registry, has8122Registry, hasEnsIdentity, hasHolIdentity],
   );
 
   const handleStartRegistration = useCallback(
     (protocol: string) => {
       const safeProtocol = String(protocol || '').trim().toLowerCase();
       if (!safeProtocol) return;
-      const target = `/agent-registration/${encodeURIComponent(safeProtocol)}?uaid=${encodeURIComponent(uaid)}`;
-      window.location.href = target;
+      if (safeProtocol === '8004' || safeProtocol === '8122') {
+        // On-chain registry flows live in the Admin Tools registration tab.
+        window.location.href = `/admin-tools/${encodeURIComponent(uaid)}?tab=registration&registry=${encodeURIComponent(safeProtocol)}`;
+        return;
+      }
+      window.location.href = `/agent-registration/${encodeURIComponent(safeProtocol)}?uaid=${encodeURIComponent(uaid)}`;
     },
     [uaid],
   );
@@ -2971,28 +2986,34 @@ const AgentDetailsTabs = ({
             <div style={{ color: palette.textSecondary, marginBottom: '1rem' }}>
               Choose a registration protocol.
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
-              {registerProtocols.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => handleStartRegistration(p.id)}
-                  style={{
-                    padding: '0.9rem 1rem',
-                    borderRadius: '12px',
-                    border: `1px solid ${palette.border}`,
-                    backgroundColor: palette.surface,
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ fontWeight: 800, color: palette.textPrimary }}>{p.label}</div>
-                  <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: palette.textSecondary }}>
-                    Start {p.label} registration
-                  </div>
-                </button>
-              ))}
-            </div>
+            {registerProtocols.length === 0 ? (
+              <div style={{ color: palette.textSecondary }}>
+                This agent already has all supported registries (8004/8122/ENS/HOL).
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
+                {registerProtocols.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleStartRegistration(p.id)}
+                    style={{
+                      padding: '0.9rem 1rem',
+                      borderRadius: '12px',
+                      border: `1px solid ${palette.border}`,
+                      backgroundColor: palette.surface,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, color: palette.textPrimary }}>{p.label}</div>
+                    <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: palette.textSecondary }}>
+                      {p.description}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </DialogContent>
         </Dialog>
       )}

@@ -158,6 +158,19 @@ export const graphQLSchemaStringKb = `
     agentAccount: KbAccount
   }
 
+  # ERC-8122 registries (factory-deployed registries + registrars)
+  type KbAgentRegistry8122 {
+    iri: ID!
+    chainId: Int!
+    registryAddress: String!
+    registrarAddress: String
+    registryName: String
+    registryImplementationAddress: String
+    registrarImplementationAddress: String
+    registeredAgentCount: Int
+    lastAgentUpdatedAtTime: Int
+  }
+
   type KbIdentity8122 {
     iri: ID!
     kind: String!
@@ -165,6 +178,7 @@ export const graphQLSchemaStringKb = `
     did8122: String!
     agentId8122: String!
     registryAddress: String
+    registry: KbAgentRegistry8122
     endpointType: String
     endpoint: String
     descriptor: KbIdentityDescriptor
@@ -297,6 +311,7 @@ export const graphQLSchemaStringKb = `
     kbIsOwner(uaid: String!, walletAddress: String!): Boolean!
     kbAgentByUaid(uaid: String!): KbAgent
     kbSemanticAgentSearch(input: SemanticAgentSearchInput!): KbSemanticAgentSearchResult!
+    kbErc8122Registries(chainId: Int!, first: Int, skip: Int): [KbAgentRegistry8122!]!
     kbReviews(chainId: Int!, first: Int, skip: Int): [KbReviewResponse!]!
     kbValidations(chainId: Int!, first: Int, skip: Int): [KbValidationResponse!]!
     kbAssociations(chainId: Int!, first: Int, skip: Int): [KbAssociation!]!

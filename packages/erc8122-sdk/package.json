@@ -1,0 +1,32 @@
+{
+  "name": "@agentic-trust/8122-sdk",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ERC-8122 Agent Registry SDK - ABIs + helpers for interacting with ERC-8122 registries/registrars",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "dev": "tsc -b --watch",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "viem": "^2.0.0"
+  },
+  "peerDependencies": {
+    "viem": ">=2.0.0"
+  }
+}
+

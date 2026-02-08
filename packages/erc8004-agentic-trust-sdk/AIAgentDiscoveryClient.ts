@@ -2838,6 +2838,80 @@ export class AIAgentDiscoveryClient {
     };
   }
 
+  async erc8122Registries(params: { chainId: number; first?: number; skip?: number }): Promise<Array<{
+    iri?: string | null;
+    chainId: number;
+    registryAddress: string;
+    registrarAddress?: string | null;
+    registryName?: string | null;
+    registryImplementationAddress?: string | null;
+    registrarImplementationAddress?: string | null;
+    registeredAgentCount?: number | null;
+    lastAgentUpdatedAtTime?: number | null;
+  }>> {
+    const chainId = Math.floor(params.chainId);
+    if (!Number.isFinite(chainId)) {
+      throw new Error('erc8122Registries requires chainId');
+    }
+    const first =
+      typeof params.first === 'number' && Number.isFinite(params.first) && params.first > 0
+        ? Math.floor(params.first)
+        : 50;
+    const skip =
+      typeof params.skip === 'number' && Number.isFinite(params.skip) && params.skip >= 0
+        ? Math.floor(params.skip)
+        : 0;
+
+    const query = `
+      query Registries8122($chainId: Int!, $first: Int, $skip: Int) {
+        kbErc8122Registries(chainId: $chainId, first: $first, skip: $skip) {
+          iri
+          chainId
+          registryAddress
+          registrarAddress
+          registryName
+          registryImplementationAddress
+          registrarImplementationAddress
+          registeredAgentCount
+          lastAgentUpdatedAtTime
+        }
+      }
+    `;
+
+    const data = await this.gqlRequest<{
+      kbErc8122Registries?: Array<Record<string, unknown> | null> | null;
+    }>(query, { chainId, first, skip });
+
+    const rows = Array.isArray(data?.kbErc8122Registries) ? data.kbErc8122Registries : [];
+    const out: Array<any> = [];
+    for (const r of rows) {
+      if (!r || typeof r !== 'object') continue;
+      const registryAddressRaw = (r as any).registryAddress;
+      const registryAddress = typeof registryAddressRaw === 'string' ? registryAddressRaw : '';
+      if (!registryAddress) continue;
+      out.push({
+        iri: typeof (r as any).iri === 'string' ? (r as any).iri : null,
+        chainId,
+        registryAddress,
+        registrarAddress: typeof (r as any).registrarAddress === 'string' ? (r as any).registrarAddress : null,
+        registryName: typeof (r as any).registryName === 'string' ? (r as any).registryName : null,
+        registryImplementationAddress:
+          typeof (r as any).registryImplementationAddress === 'string'
+            ? (r as any).registryImplementationAddress
+            : null,
+        registrarImplementationAddress:
+          typeof (r as any).registrarImplementationAddress === 'string'
+            ? (r as any).registrarImplementationAddress
+            : null,
+        registeredAgentCount:
+          typeof (r as any).registeredAgentCount === 'number' ? (r as any).registeredAgentCount : null,
+        lastAgentUpdatedAtTime:
+          typeof (r as any).lastAgentUpdatedAtTime === 'number' ? (r as any).lastAgentUpdatedAtTime : null,
+      });
+    }
+    return out;
+  }
+
   private async detectSearchStrategy(): Promise<SearchStrategy | null> {
     if (this.searchStrategy !== undefined) {
       return this.searchStrategy;

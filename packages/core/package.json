@@ -32,6 +32,7 @@
   "dependencies": {
     "@agentic-trust/8004-ext-sdk": "workspace:*",
     "@agentic-trust/8004-sdk": "workspace:*",
+    "@agentic-trust/8122-sdk": "workspace:*",
     "@agentic-trust/8092-sdk": "workspace:*",
     "@agentic-trust/veramo-agent-extension": "workspace:*",
     "@ensdomains/ensjs": "^3.0.0",

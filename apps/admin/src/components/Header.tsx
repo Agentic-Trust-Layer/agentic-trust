@@ -37,6 +37,7 @@ export function Header({
   const [isMobile, setIsMobile] = useState(false);
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const [navigatingToRegistration, setNavigatingToRegistration] = useState(false);
+  const [showRegistrationMenu, setShowRegistrationMenu] = useState(false);
 
   const shortAddress = useMemo(() => {
     if (!displayAddress || displayAddress.length < 10) return displayAddress ?? '';
@@ -225,44 +226,111 @@ export function Header({
             }}
           >
             {isConnected && (
-              <button
-                onClick={async () => {
-                  setNavigatingToRegistration(true);
-                  router.push('/agent-registration');
-                  // Keep loading state for a short time to show spinner
-                  setTimeout(() => setNavigatingToRegistration(false), 1000);
-                }}
-                disabled={navigatingToRegistration}
-                style={{
-                  textDecoration: 'none',
-                  padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
-                  borderRadius: '999px',
-                  border: `1px solid ${palette.borderStrong}`,
-                  backgroundColor: pathname.startsWith('/agent-registration') ? palette.accent : palette.surfaceMuted,
-                  color: pathname.startsWith('/agent-registration') ? palette.surface : palette.textPrimary,
-                  fontWeight: 600,
-                  fontSize: isMobile ? '0.9rem' : '0.95rem',
-                  cursor: navigatingToRegistration ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  opacity: navigatingToRegistration ? 0.7 : 1,
-                }}
-              >
-                {navigatingToRegistration && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => {
+                    if (navigatingToRegistration) return;
+                    setShowRegistrationMenu(prev => !prev);
+                  }}
+                  disabled={navigatingToRegistration}
+                  style={{
+                    textDecoration: 'none',
+                    padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
+                    borderRadius: '999px',
+                    border: `1px solid ${palette.borderStrong}`,
+                    backgroundColor: pathname.startsWith('/agent-registration') ? palette.accent : palette.surfaceMuted,
+                    color: pathname.startsWith('/agent-registration') ? palette.surface : palette.textPrimary,
+                    fontWeight: 600,
+                    fontSize: isMobile ? '0.9rem' : '0.95rem',
+                    cursor: navigatingToRegistration ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    opacity: navigatingToRegistration ? 0.7 : 1,
+                  }}
+                  title="Choose registry (8004 / 8122)"
+                >
+                  {navigatingToRegistration && (
+                    <div
+                      style={{
+                        width: '16px',
+                        height: '16px',
+                        border: '2px solid currentColor',
+                        borderTop: '2px solid transparent',
+                        borderRadius: '50%',
+                        animation: 'spin 1s linear infinite',
+                      }}
+                    />
+                  )}
+                  {isMobile ? 'Register' : 'Agent Registration'}
+                  <span style={{ marginLeft: '0.15rem', fontSize: '0.75rem', opacity: 0.85 }}>▾</span>
+                </button>
+                {showRegistrationMenu && (
                   <div
                     style={{
-                      width: '16px',
-                      height: '16px',
-                      border: '2px solid currentColor',
-                      borderTop: '2px solid transparent',
-                      borderRadius: '50%',
-                      animation: 'spin 1s linear infinite',
+                      position: 'absolute',
+                      right: 0,
+                      marginTop: '0.4rem',
+                      backgroundColor: palette.surface,
+                      borderRadius: '10px',
+                      border: `1px solid ${palette.border}`,
+                      boxShadow: '0 10px 25px rgba(15,23,42,0.35)',
+                      minWidth: isMobile ? '210px' : '260px',
+                      zIndex: 20,
+                      overflow: 'hidden',
                     }}
-                  />
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRegistrationMenu(false);
+                        setNavigatingToRegistration(true);
+                        router.push('/agent-registration'); // ERC-8004 flow
+                        setTimeout(() => setNavigatingToRegistration(false), 1000);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        color: palette.textPrimary,
+                        borderBottom: `1px solid ${palette.border}`,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8004</div>
+                      <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
+                        Create/register an agent (existing flow)
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRegistrationMenu(false);
+                        setNavigatingToRegistration(true);
+                        router.push('/agent-registration/8122'); // ERC-8122 flow
+                        setTimeout(() => setNavigatingToRegistration(false), 1000);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        color: palette.textPrimary,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8122</div>
+                      <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
+                        Deploy/mint via ERC-8122 registrar
+                      </div>
+                    </button>
+                  </div>
                 )}
-                {isMobile ? 'Register' : 'Agent Registration'}
-              </button>
+              </div>
             )}
             {navItems.map(item => {
               const isActive =
@@ -386,6 +454,26 @@ export function Header({
                     }}
                   >
                     Messaging
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      router.push('/registries/8122');
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.85rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      color: palette.textPrimary,
+                      borderBottom: `1px solid ${palette.border}`,
+                    }}
+                  >
+                    8122 Collections
                   </button>
                   <button
                     type="button"
