@@ -11,13 +11,15 @@ function normalizeDiscoveryUrl(value: string | undefined | null): string | null 
   return `${raw}/graphql-kb`;
 }
 
-function resolveDiscoveryEndpoint(): string | null {
+function resolveDiscoveryEndpoint(): { endpoint: string; source: string } | null {
   const candidates = [
-    process.env.AGENTIC_TRUST_DISCOVERY_URL,
-    process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL,
+    { key: 'AGENTIC_TRUST_DISCOVERY_URL', value: process.env.AGENTIC_TRUST_DISCOVERY_URL },
+    { key: 'NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL', value: process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL },
   ];
-  const raw = candidates.find((v) => typeof v === 'string' && v.trim().length > 0);
-  return normalizeDiscoveryUrl(raw ?? null);
+  const picked = candidates.find((c) => typeof c.value === 'string' && c.value.trim().length > 0) ?? null;
+  const endpoint = normalizeDiscoveryUrl(picked?.value ?? null);
+  if (!endpoint || !picked) return null;
+  return { endpoint, source: picked.key };
 }
 
 export async function POST(req: Request) {
@@ -37,8 +39,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'chainId is required (number)' }, { status: 400 });
     }
 
-    const endpoint = resolveDiscoveryEndpoint();
-    if (!endpoint) {
+    const resolved = resolveDiscoveryEndpoint();
+    if (!resolved) {
       return NextResponse.json(
         {
           error:
@@ -51,9 +53,20 @@ export async function POST(req: Request) {
     const apiKey =
       (process.env.GRAPHQL_ACCESS_CODE || process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || '').trim() ||
       undefined;
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            'Missing discovery access code. Set GRAPHQL_ACCESS_CODE (preferred) or AGENTIC_TRUST_DISCOVERY_API_KEY on the server.',
+          endpoint: resolved.endpoint,
+          endpointSource: resolved.source,
+        },
+        { status: 500 },
+      );
+    }
 
     const client = new AIAgentDiscoveryClient({
-      endpoint,
+      endpoint: resolved.endpoint,
       apiKey,
     });
 
@@ -74,7 +87,9 @@ export async function POST(req: Request) {
     // eslint-disable-next-line no-console
     console.error('[api/registries/8122] failed', error);
     return NextResponse.json(
-      { error: error?.message || 'Failed to fetch ERC-8122 registries' },
+      {
+        error: error?.message || 'Failed to fetch ERC-8122 registries',
+      },
       { status: 500 },
     );
   }

@@ -10,13 +10,15 @@ function normalizeDiscoveryUrl(value: string | undefined | null): string | null 
   return `${raw}/graphql-kb`;
 }
 
-function resolveDiscoveryEndpoint(): string | null {
+function resolveDiscoveryEndpoint(): { endpoint: string; source: string } | null {
   const candidates = [
-    process.env.AGENTIC_TRUST_DISCOVERY_URL,
-    process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL,
+    { key: 'AGENTIC_TRUST_DISCOVERY_URL', value: process.env.AGENTIC_TRUST_DISCOVERY_URL },
+    { key: 'NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL', value: process.env.NEXT_PUBLIC_AGENTIC_TRUST_DISCOVERY_URL },
   ];
-  const raw = candidates.find((v) => typeof v === 'string' && v.trim().length > 0);
-  return normalizeDiscoveryUrl(raw ?? null);
+  const picked = candidates.find((c) => typeof c.value === 'string' && c.value.trim().length > 0) ?? null;
+  const endpoint = normalizeDiscoveryUrl(picked?.value ?? null);
+  if (!endpoint || !picked) return null;
+  return { endpoint, source: picked.key };
 }
 
 function parseAgentIdFromUaid(uaid: string): string {
@@ -74,8 +76,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'chainId is required (number)' }, { status: 400 });
     }
 
-    const endpoint = resolveDiscoveryEndpoint();
-    if (!endpoint) {
+    const resolved = resolveDiscoveryEndpoint();
+    if (!resolved) {
       return NextResponse.json(
         {
           error:
@@ -87,6 +89,17 @@ export async function POST(req: Request) {
 
     const apiKey =
       (process.env.GRAPHQL_ACCESS_CODE || process.env.AGENTIC_TRUST_DISCOVERY_API_KEY || '').trim();
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            'Missing discovery access code. Set GRAPHQL_ACCESS_CODE (preferred) or AGENTIC_TRUST_DISCOVERY_API_KEY on the server.',
+          endpoint: resolved.endpoint,
+          endpointSource: resolved.source,
+        },
+        { status: 500 },
+      );
+    }
 
     const query = `
       query KbRankedAgents($chainId: Int!, $first: Int!, $skip: Int!) {
@@ -119,7 +132,7 @@ export async function POST(req: Request) {
       }
     `;
 
-    const res = await fetch(endpoint, {
+    const res = await fetch(resolved.endpoint, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -193,7 +206,7 @@ export async function POST(req: Request) {
       totalPages: Math.max(1, Math.ceil(Math.max(0, total) / Math.max(1, first))),
       hasMore: Boolean(payload?.hasMore),
       debug: process.env.NODE_ENV === 'development'
-        ? { endpoint, chainId, first, skip }
+        ? { endpoint: resolved.endpoint, endpointSource: resolved.source, chainId, first, skip }
         : undefined,
     });
   } catch (error: any) {
