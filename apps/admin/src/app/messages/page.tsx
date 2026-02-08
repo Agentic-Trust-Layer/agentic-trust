@@ -2762,7 +2762,7 @@ export default function MessagesPage() {
                   <Box>
                     <Button
                       variant="contained"
-                      href="/agent-registration"
+                      href="/agent-registration/8004"
                       disabled={Boolean(ownedAgentsError)}
                       sx={{
                         mt: 1,

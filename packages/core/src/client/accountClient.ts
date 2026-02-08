@@ -347,14 +347,76 @@ export async function sendSponsoredUserOperation(params: {
   const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
 
   console.log('[sendSponsoredUserOperation] Sending user operation (MetaMask should prompt for signature)...');
-  const userOpHash = await (bundlerClient as any).sendUserOperation({ 
-    account: accountClient, 
-    calls,
-    ...fee
-  });
+  try {
+    const userOpHash = await (bundlerClient as any).sendUserOperation({
+      account: accountClient,
+      calls,
+      ...fee,
+    });
 
-  console.log('[sendSponsoredUserOperation] User operation sent:', userOpHash);
-  return userOpHash as `0x${string}`;
+    console.log('[sendSponsoredUserOperation] User operation sent:', userOpHash);
+    return userOpHash as `0x${string}`;
+  } catch (err) {
+    // Ensure upstream UIs always get a human-readable message.
+    const anyErr = err as any;
+    const parts: string[] = [];
+    const shortMessage = typeof anyErr?.shortMessage === 'string' ? anyErr.shortMessage : '';
+    const message = typeof anyErr?.message === 'string' ? anyErr.message : '';
+    const details = typeof anyErr?.details === 'string' ? anyErr.details : '';
+    const causeMsg =
+      typeof anyErr?.cause?.shortMessage === 'string'
+        ? anyErr.cause.shortMessage
+        : typeof anyErr?.cause?.message === 'string'
+          ? anyErr.cause.message
+          : '';
+    const metaMessagesRaw = Array.isArray(anyErr?.metaMessages)
+      ? anyErr.metaMessages
+      : Array.isArray(anyErr?.cause?.metaMessages)
+        ? anyErr.cause.metaMessages
+        : null;
+    const metaMessages = metaMessagesRaw ? metaMessagesRaw.map((m: any) => String(m)) : null;
+    if (shortMessage) parts.push(shortMessage);
+    if (message && message !== shortMessage) parts.push(message);
+    if (details && details !== message) parts.push(details);
+    if (causeMsg && !parts.includes(causeMsg)) parts.push(causeMsg);
+    if (metaMessages?.length) parts.push(`metaMessages:\n- ${metaMessages.join('\n- ')}`);
+
+    let errorJson = '';
+    try {
+      errorJson = JSON.stringify(
+        {
+          name: anyErr?.name,
+          code: anyErr?.code,
+          message: anyErr?.message,
+          shortMessage: anyErr?.shortMessage,
+          details: anyErr?.details,
+          data: anyErr?.data,
+          metaMessages,
+          cause: anyErr?.cause
+            ? {
+                name: anyErr.cause?.name,
+                code: anyErr.cause?.code,
+                message: anyErr.cause?.message,
+                shortMessage: anyErr.cause?.shortMessage,
+                details: anyErr.cause?.details,
+                data: anyErr.cause?.data,
+                metaMessages: Array.isArray(anyErr.cause?.metaMessages)
+                  ? anyErr.cause.metaMessages.map((m: any) => String(m))
+                  : undefined,
+              }
+            : undefined,
+        },
+        null,
+        2,
+      );
+    } catch {
+      // ignore
+    }
+
+    const summary = parts.filter(Boolean).join(' | ') || 'Unknown bundler error';
+    const suffix = errorJson ? `\n\nBundler error details:\n${errorJson}` : '';
+    throw new Error(`Bundler sendUserOperation failed: ${summary}${suffix}`);
+  }
 }
 
 /**
@@ -377,7 +439,17 @@ export async function waitForUserOperationReceipt(params: {
     paymasterContext: { mode: 'SPONSORED' } 
   } as any);
 
-  return await (bundlerClient as any).waitForUserOperationReceipt({ hash });
+  try {
+    return await (bundlerClient as any).waitForUserOperationReceipt({ hash });
+  } catch (err) {
+    const anyErr = err as any;
+    const msg =
+      (typeof anyErr?.shortMessage === 'string' && anyErr.shortMessage) ||
+      (typeof anyErr?.details === 'string' && anyErr.details) ||
+      (typeof anyErr?.message === 'string' && anyErr.message) ||
+      String(err);
+    throw new Error(`Bundler waitForUserOperationReceipt failed: ${msg}`);
+  }
 }
 
 /**

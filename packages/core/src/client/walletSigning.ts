@@ -52,6 +52,8 @@ export {
   getCounterfactualAccountClientByAgentName,
   getCounterfactualSmartAccountAddressByAgentName,
   getCounterfactualAAAddressByAgentName,
+  sendSponsoredUserOperation,
+  waitForUserOperationReceipt,
 } from './accountClient';
 
 async function preflightValidationRegistryAuthorization(params: {

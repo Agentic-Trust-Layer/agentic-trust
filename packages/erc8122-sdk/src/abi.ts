@@ -127,6 +127,23 @@ export const agentRegistrarAbi = [
     outputs: [{ name: 'agentId', type: 'uint256' }],
   },
   {
+    type: 'function',
+    name: 'mint',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'to', type: 'address' },
+      {
+        name: 'metadata',
+        type: 'tuple[]',
+        components: [
+          { name: 'key', type: 'string' },
+          { name: 'value', type: 'bytes' },
+        ],
+      },
+    ],
+    outputs: [{ name: 'agentId', type: 'uint256' }],
+  },
+  {
     type: 'event',
     name: 'AgentMinted',
     inputs: [

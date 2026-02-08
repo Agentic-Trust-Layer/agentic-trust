@@ -396,7 +396,7 @@ export function HomePage({
                   variant="outlined"
                   size="large"
                   endIcon={<ArrowOutward />}
-                  href="/agent-registration"
+                  href="/agent-registration/8004"
                 >
                   Register an Agent (2 min)
                 </Button>

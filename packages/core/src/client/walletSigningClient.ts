@@ -22,6 +22,8 @@ export {
   getDeployedAccountClientByAgentName,
   getDeployedAccountClientByAddress,
   getCounterfactualSmartAccountAddressByAgentName,
+  sendSponsoredUserOperation,
+  waitForUserOperationReceipt,
 } from './walletSigning';
 export {
   createAgentDirect,

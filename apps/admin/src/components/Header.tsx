@@ -285,7 +285,7 @@ export function Header({
                       onClick={() => {
                         setShowRegistrationMenu(false);
                         setNavigatingToRegistration(true);
-                        router.push('/agent-registration'); // ERC-8004 flow
+                        router.push('/agent-registration/8004'); // ERC-8004 flow
                         setTimeout(() => setNavigatingToRegistration(false), 1000);
                       }}
                       style={{
