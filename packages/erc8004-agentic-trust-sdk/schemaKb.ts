@@ -133,29 +133,32 @@ export const graphQLSchemaStringKb = `
     domains: [String!]!
   }
 
-  type KbIdentity {
+  # Agent identity record (may include multiple identities per agent, even multiple of the same kind).
+  interface KbAgentIdentity {
     iri: ID!
-    kind: String!
+    kind: String! # 8004 | 8122 | ens | hol | other
     did: String!
-    uaidHOL: String
     descriptor: KbIdentityDescriptor
     serviceEndpoints: [KbServiceEndpoint!]!
   }
 
-  type KbIdentity8004 {
+  type KbIdentity8004 implements KbAgentIdentity {
     iri: ID!
-    kind: String!
+    kind: String! # "8004"
     did: String!
+
     did8004: String!
     agentId8004: Int
-    isSmartAgent: Boolean!
+    isSmartAgent: Boolean
+
     descriptor: KbIdentityDescriptor
     serviceEndpoints: [KbServiceEndpoint!]!
+
     ownerAccount: KbAccount
+    agentAccount: KbAccount
     operatorAccount: KbAccount
     walletAccount: KbAccount
     ownerEOAAccount: KbAccount
-    agentAccount: KbAccount
   }
 
   # ERC-8122 registries (factory-deployed registries + registrars)
@@ -171,20 +174,54 @@ export const graphQLSchemaStringKb = `
     lastAgentUpdatedAtTime: Int
   }
 
-  type KbIdentity8122 {
+  type KbIdentity8122 implements KbAgentIdentity {
     iri: ID!
-    kind: String!
+    kind: String! # "8122"
     did: String!
+
     did8122: String!
     agentId8122: String!
     registryAddress: String
     registry: KbAgentRegistry8122
     endpointType: String
     endpoint: String
+
     descriptor: KbIdentityDescriptor
     serviceEndpoints: [KbServiceEndpoint!]!
+
     ownerAccount: KbAccount
     agentAccount: KbAccount
+  }
+
+  type KbIdentityEns implements KbAgentIdentity {
+    iri: ID!
+    kind: String! # "ens"
+    did: String!
+
+    didEns: String!
+
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
+  }
+
+  type KbIdentityHol implements KbAgentIdentity {
+    iri: ID!
+    kind: String! # "hol"
+    did: String!
+
+    uaidHOL: String
+
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
+  }
+
+  type KbIdentityOther implements KbAgentIdentity {
+    iri: ID!
+    kind: String!
+    did: String!
+
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
   }
 
   type KbAgentDescriptor {
@@ -212,11 +249,7 @@ export const graphQLSchemaStringKb = `
     atiOverallConfidence: Float
     atiVersion: String
     atiComputedAt: Int
-    identity: KbIdentity
-    identity8004: KbIdentity8004
-    identity8122: KbIdentity8122
-    identityHol: KbIdentity
-    identityEns: KbIdentity
+    identities: [KbAgentIdentity!]!
     serviceEndpoints: [KbServiceEndpoint!]!
     assertions: KbAgentAssertions
     reviewAssertions(first: Int, skip: Int): KbReviewResponseConnection

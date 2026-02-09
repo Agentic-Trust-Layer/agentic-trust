@@ -105,6 +105,42 @@ function parseRegistryFromDid(did: unknown): { registryId: '8004' | '8122'; chai
   return { registryId: m[1] as '8004' | '8122', chainId };
 }
 
+function parseRegistryFromUaid(
+  uaid: unknown,
+): { registryId: '8004' | '8122'; chainId: number; source: 'targetDid' | 'nativeId' } | null {
+  if (typeof uaid !== 'string') return null;
+  const raw = uaid.trim();
+  if (!raw.startsWith('uaid:did:')) return null;
+
+  const afterPrefix = raw.slice('uaid:did:'.length);
+  const idPart = (afterPrefix.split(';')[0] ?? '').trim();
+  if (!idPart) return null;
+
+  const targetDid = `did:${idPart}`;
+  const targetParsed = parseRegistryFromDid(targetDid);
+  if (targetParsed) return { ...targetParsed, source: 'targetDid' };
+
+  const marker = ';nativeId=';
+  const idx = raw.indexOf(marker);
+  if (idx !== -1) {
+    const start = idx + marker.length;
+    const tail = raw.slice(start);
+    const end = tail.indexOf(';');
+    const encoded = (end === -1 ? tail : tail.slice(0, end)).trim();
+    if (encoded) {
+      // UAID param encoding uses %3B/%3D/%25 (see core/server/lib/uaid.ts).
+      const decoded = encoded
+        .replace(/%3D/gi, '=')
+        .replace(/%3B/gi, ';')
+        .replace(/%25/gi, '%');
+      const nativeParsed = parseRegistryFromDid(decoded);
+      if (nativeParsed) return { ...nativeParsed, source: 'nativeId' };
+    }
+  }
+
+  return null;
+}
+
 function formatJsonIfPossible(text: string | null | undefined): string | null {
   if (!text) return null;
   try {
@@ -675,8 +711,9 @@ const AgentDetailsTabs = ({
     (agent as any).identityHolDid || (agent as any).identityHolUaid || (agent as any).identityHolDescriptorJson,
   );
   const didForRegistry = String((agent as any).identity8004Did ?? (agent as any).did ?? '').trim();
-  const has8004Registry = didForRegistry.startsWith('did:8004:');
-  const has8122Registry = didForRegistry.startsWith('did:8122:');
+  const parsedRegistryFromUaid = parseRegistryFromUaid(uaid);
+  const has8004Registry = parsedRegistryFromUaid?.registryId === '8004' || didForRegistry.startsWith('did:8004:');
+  const has8122Registry = parsedRegistryFromUaid?.registryId === '8122' || didForRegistry.startsWith('did:8122:');
   const isSmartAgent =
     (agent as any).isSmartAgent === true ||
     (typeof (agent as any).smartAgentAccount === 'string' && (agent as any).smartAgentAccount.trim().startsWith('0x'));
@@ -684,7 +721,7 @@ const AgentDetailsTabs = ({
   const mainTabDefs = useMemo(() => {
     const did = (agent as any).identity8004Did ?? agent.did ?? null;
     const descriptor = parseJsonObject((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null) ?? {};
-    const parsedDid = parseRegistryFromDid(did);
+    const parsedDid = parseRegistryFromUaid(uaid) ?? parseRegistryFromDid(did);
     const registryId: '8004' | '8122' = (() => {
       if (parsedDid?.registryId) return parsedDid.registryId;
       const registryNamespace =
@@ -710,7 +747,7 @@ const AgentDetailsTabs = ({
     if (hasEnsIdentity) tabs.push({ id: 'ens', label: 'ENS' });
     if (hasHolIdentity) tabs.push({ id: 'hol', label: 'HOL' });
     return tabs;
-  }, [agent, hasEnsIdentity, hasHolIdentity, isSmartAgent]);
+  }, [agent, uaid, hasEnsIdentity, hasHolIdentity, isSmartAgent]);
 
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const registerProtocols = useMemo(

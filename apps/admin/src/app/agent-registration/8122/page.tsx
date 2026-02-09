@@ -152,6 +152,23 @@ function buildDidEthr(params: { chainId: number; account: Address }): string {
   return `did:ethr:${params.chainId}:${params.account.toLowerCase()}`;
 }
 
+function isL1ChainId(chainId: number): boolean {
+  return chainId === 1 || chainId === 11155111;
+}
+
+function normalizeEnsAgentLabel(params: { agentName: string; orgName: string | null }): string {
+  const rawOrg = String(params.orgName || '').trim();
+  const rawAgent = String(params.agentName || '').trim();
+  const cleanOrgName = rawOrg.replace(/\.eth$/i, '').toLowerCase();
+  const orgPattern = cleanOrgName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return rawAgent
+    .replace(new RegExp(`^${orgPattern}\\.`, 'i'), '')
+    .replace(/\.eth$/i, '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '-');
+}
+
 async function generateSmartAgentUaid(params: {
   chainId: number;
   account: Address;
@@ -254,6 +271,12 @@ export default function AgentRegistration8122WizardPage() {
   const defaultMcpEndpoint = normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/api/mcp` : '';
   const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
 
+  const resolveAgentBaseUrl = useCallback((): string => {
+    const explicit = (createForm.agentUrl || '').trim();
+    if (explicit) return explicit;
+    return '';
+  }, [createForm.agentUrl]);
+
   const [protocolSettings, setProtocolSettings] = useState<{
     protocol: 'A2A' | 'MCP' | null;
     a2aEndpoint: string;
@@ -273,6 +296,7 @@ export default function AgentRegistration8122WizardPage() {
     txHash?: string;
     did?: string;
     did8122?: string;
+    ensName?: string;
     uaid?: string;
     registry?: string;
     registrar?: string;
@@ -692,8 +716,12 @@ export default function AgentRegistration8122WizardPage() {
         functionName: 'mintPrice',
       })) as bigint;
 
+      // Match 8004 flow: when ENS is enabled, treat the public-facing agentName as the full ENS name.
+      // (The base label is still `createForm.agentName`; ENS registration uses that label under the org.)
+      const finalAgentName = ensFullNamePreview || createForm.agentName.trim();
+
       const metadata: Erc8122MetadataEntry[] = [
-        { key: 'name', value: toHex(createForm.agentName.trim()) as `0x${string}` },
+        { key: 'name', value: toHex(finalAgentName) as `0x${string}` },
         { key: 'description', value: toHex(createForm.description.trim()) as `0x${string}` },
         { key: 'image', value: toHex((createForm.image || '').trim()) as `0x${string}` },
         { key: 'endpoint_type', value: toHex(endpointType) as `0x${string}` },
@@ -721,6 +749,168 @@ export default function AgentRegistration8122WizardPage() {
       const requestedAgentAccount = getAddress(createForm.agentAccount) as Address;
       if (requestedAgentAccount !== aaAddr) {
         throw new Error(`Agent account mismatch. Expected computed AA ${aaAddr} but got ${requestedAgentAccount}.`);
+      }
+
+      // =========================================================================
+      // ENS registration (mirror ERC-8004 flow)
+      // =========================================================================
+      if (ensFullNamePreview && ensOrgName && ensAvailable === true) {
+        try {
+          const baseUrl = resolveAgentBaseUrl() || undefined;
+          const agentLabel = createForm.agentName.trim(); // same input used by 8004 flow
+
+          if (isL1ChainId(selectedChainId)) {
+            setSuccess(`Creating ENS subdomain for agent: ${agentLabel}`);
+            const addRes = await fetch('/api/names/add-to-l1-org', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                agentAccount: aaAddr,
+                orgName: ensOrgName,
+                agentName: agentLabel,
+                agentUrl: baseUrl,
+                chainId: selectedChainId,
+              }),
+            });
+            if (!addRes.ok) {
+              const err = await addRes.json().catch(() => ({}));
+              console.warn('[8122][ENS][L1] add-to-l1-org failed', err);
+            }
+
+            setSuccess('Preparing ENS metadata update...');
+            const infoRes = await fetch('/api/names/set-l1-name-info', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                agentAddress: aaAddr,
+                orgName: ensOrgName,
+                agentName: agentLabel,
+                agentUrl: baseUrl,
+                agentDescription: createForm.description || undefined,
+                chainId: selectedChainId,
+              }),
+            });
+            if (!infoRes.ok) {
+              const err = await infoRes.json().catch(() => ({}));
+              console.warn('[8122][ENS][L1] set-l1-name-info failed', err);
+            } else {
+              const infoJson = (await infoRes.json().catch(() => null)) as any;
+              const infoCallsRaw = Array.isArray(infoJson?.calls) ? (infoJson.calls as any[]) : [];
+              const calls = infoCallsRaw
+                .map((c) => {
+                  const to = typeof c?.to === 'string' ? (c.to as `0x${string}`) : null;
+                  const data = typeof c?.data === 'string' ? (c.data as `0x${string}`) : null;
+                  if (!to || !data) return null;
+                  let value: bigint | undefined = undefined;
+                  if (c?.value !== null && c?.value !== undefined) {
+                    try {
+                      value = BigInt(c.value);
+                    } catch {
+                      value = undefined;
+                    }
+                  }
+                  return { to, data, value };
+                })
+                .filter(Boolean) as Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
+              if (calls.length > 0) {
+                setSuccess('MetaMask signature: update ENS metadata (URL/description/image)');
+                const uoHash = await sendSponsoredUserOperation({
+                  bundlerUrl,
+                  chain,
+                  accountClient,
+                  calls,
+                });
+                await waitForUserOperationReceipt({ bundlerUrl, chain, hash: uoHash });
+              }
+            }
+          } else {
+            // L2 ENS setup (same endpoints as 8004 flow)
+            const cleanLabel = normalizeEnsAgentLabel({ agentName: createForm.agentName, orgName: ensOrgName });
+            setSuccess('Preparing L2 ENS calls...');
+            const addRes = await fetch('/api/names/add-to-l2-org', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                agentAddress: aaAddr,
+                orgName: ensOrgName,
+                agentName: cleanLabel,
+                agentUrl: baseUrl,
+                agentDescription: createForm.description || undefined,
+                agentImage: createForm.image || undefined,
+                chainId: selectedChainId,
+              }),
+            });
+            const addJson = (await addRes.json().catch(() => null)) as any;
+            const addCallsRaw = Array.isArray(addJson?.calls) ? (addJson.calls as any[]) : [];
+            const addCalls = addCallsRaw
+              .map((c) => {
+                const to = typeof c?.to === 'string' ? (c.to as `0x${string}`) : null;
+                const data = typeof c?.data === 'string' ? (c.data as `0x${string}`) : null;
+                if (!to || !data) return null;
+                let value: bigint | undefined = undefined;
+                if (c?.value !== null && c?.value !== undefined) {
+                  try {
+                    value = BigInt(c.value);
+                  } catch {
+                    value = undefined;
+                  }
+                }
+                return { to, data, value };
+              })
+              .filter(Boolean) as Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
+            if (addCalls.length > 0) {
+              const uoHash = await sendSponsoredUserOperation({
+                bundlerUrl,
+                chain,
+                accountClient,
+                calls: addCalls,
+              });
+              await waitForUserOperationReceipt({ bundlerUrl, chain, hash: uoHash });
+            }
+
+            const infoRes = await fetch('/api/names/set-l2-name-info', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                agentAddress: aaAddr,
+                orgName: ensOrgName,
+                agentName: cleanLabel,
+                agentUrl: baseUrl,
+                agentDescription: createForm.description || undefined,
+                chainId: selectedChainId,
+              }),
+            });
+            const infoJson = (await infoRes.json().catch(() => null)) as any;
+            const infoCallsRaw = Array.isArray(infoJson?.calls) ? (infoJson.calls as any[]) : [];
+            const infoCalls = infoCallsRaw
+              .map((c) => {
+                const to = typeof c?.to === 'string' ? (c.to as `0x${string}`) : null;
+                const data = typeof c?.data === 'string' ? (c.data as `0x${string}`) : null;
+                if (!to || !data) return null;
+                let value: bigint | undefined = undefined;
+                if (c?.value !== null && c?.value !== undefined) {
+                  try {
+                    value = BigInt(c.value);
+                  } catch {
+                    value = undefined;
+                  }
+                }
+                return { to, data, value };
+              })
+              .filter(Boolean) as Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
+            if (infoCalls.length > 0) {
+              const uoHash = await sendSponsoredUserOperation({
+                bundlerUrl,
+                chain,
+                accountClient,
+                calls: infoCalls,
+              });
+              await waitForUserOperationReceipt({ bundlerUrl, chain, hash: uoHash });
+            }
+          }
+        } catch (ensError) {
+          console.warn('[8122][ENS] setup failed (non-fatal):', ensError);
+        }
       }
 
       // Owner ("to") should be the smart account contract.
@@ -849,6 +1039,7 @@ export default function AgentRegistration8122WizardPage() {
         txHash: txHash ?? undefined,
         did: didEthr,
         did8122,
+        ensName: ensFullNamePreview || undefined,
         uaid,
         registry: String(registry),
         registrar: String(registrar),
@@ -1573,6 +1764,11 @@ export default function AgentRegistration8122WizardPage() {
                 {registrationCompleteDetails.did8122 && (
                   <div>
                     8122 DID: <code>{registrationCompleteDetails.did8122}</code>
+                  </div>
+                )}
+                {registrationCompleteDetails.ensName && (
+                  <div>
+                    ENS: <code>{registrationCompleteDetails.ensName}</code>
                   </div>
                 )}
                 {registrationCompleteDetails.agentId && (

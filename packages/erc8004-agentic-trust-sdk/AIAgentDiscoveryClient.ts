@@ -807,7 +807,12 @@ export class AIAgentDiscoveryClient {
       return parts.join(' ');
     };
 
-    const identityDescriptorType = await typeOfField('KbIdentity', 'descriptor');
+    // Newer KB schemas expose identities as a list (`KbAgent.identities: [KbAgentIdentity!]!`)
+    // instead of named fields (`identity8004`, `identityEns`, etc).
+    const kbAgentFields = await fieldNames('KbAgent');
+    const hasIdentitiesList = kbAgentFields.has('identities');
+
+    const identityDescriptorType = await typeOfField(hasIdentitiesList ? 'KbAgentIdentity' : 'KbIdentity', 'descriptor');
     const identityDescriptorFields = await fieldNames(identityDescriptorType ?? 'KbIdentityDescriptor');
     if (!identityDescriptorFields.has('registrationJson')) {
       throw new Error('KB schema mismatch: KbIdentityDescriptor.registrationJson is required.');
@@ -859,9 +864,8 @@ export class AIAgentDiscoveryClient {
           }
         }`;
 
-    const kbAgentFields = await fieldNames('KbAgent');
-    const identity8004Type = await typeOfField('KbAgent', 'identity8004');
-    const identity8004Fields = identity8004Type ? await fieldNames(identity8004Type) : new Set<string>();
+    // Identity fields are type-dependent; introspect the concrete types directly when possible.
+    const identity8004Fields = await fieldNames('KbIdentity8004');
     const identity8004Extras = [
       identity8004Fields.has('did8004') ? 'did8004' : '',
       identity8004Fields.has('agentId8004') ? 'agentId8004' : '',
@@ -870,7 +874,44 @@ export class AIAgentDiscoveryClient {
       .filter(Boolean)
       .join('\n        ');
 
-    const identity8122Block = kbAgentFields.has('identity8122')
+    // New schema: identities list with inline fragments.
+    const identitiesListBlock = hasIdentitiesList
+      ? `
+      identities {
+        iri
+        kind
+        did
+        descriptor {
+          ${identityDescriptorSelection}
+        }
+        ${serviceEndpointsBlock}
+        ... on KbIdentity8004 {
+          ${identity8004Extras}
+          ownerAccount { iri chainId address accountType didEthr }
+          operatorAccount { iri chainId address accountType didEthr }
+          walletAccount { iri chainId address accountType didEthr }
+          ownerEOAAccount { iri chainId address accountType didEthr }
+          agentAccount { iri chainId address accountType didEthr }
+        }
+        ... on KbIdentity8122 {
+          did8122
+          agentId8122
+          registryAddress
+          endpointType
+          endpoint
+          ownerAccount { iri chainId address accountType didEthr }
+          agentAccount { iri chainId address accountType didEthr }
+        }
+        ... on KbIdentityEns {
+          didEns
+        }
+        ... on KbIdentityHol {
+          uaidHOL
+        }
+      }`
+      : '';
+
+    const identity8122Block = !hasIdentitiesList && kbAgentFields.has('identity8122')
       ? (() => {
           return `
       identity8122 {
@@ -892,8 +933,7 @@ export class AIAgentDiscoveryClient {
         })()
       : '';
 
-    const identity8004Block =
-      kbAgentFields.has('identity8004') && identity8004Type
+    const identity8004Block = !hasIdentitiesList && kbAgentFields.has('identity8004')
         ? `
       identity8004 {
         iri
@@ -912,9 +952,9 @@ export class AIAgentDiscoveryClient {
       }`
         : '';
 
-    return `
-      ${identity8004Block}
-      ${identity8122Block}
+    const identityEnsBlock =
+      !hasIdentitiesList && kbAgentFields.has('identityEns')
+        ? `
       identityEns {
         iri
         kind
@@ -924,7 +964,12 @@ export class AIAgentDiscoveryClient {
           ${identityDescriptorSelection}
         }
         ${serviceEndpointsBlock}
-      }
+      }`
+        : '';
+
+    const identityHolBlock =
+      !hasIdentitiesList && kbAgentFields.has('identityHol')
+        ? `
       identityHol {
         iri
         kind
@@ -934,7 +979,15 @@ export class AIAgentDiscoveryClient {
           ${identityDescriptorSelection}
         }
         ${serviceEndpointsBlock}
-      }`;
+      }`
+        : '';
+
+    return `
+      ${identitiesListBlock}
+      ${identity8004Block}
+      ${identity8122Block}
+      ${identityEnsBlock}
+      ${identityHolBlock}`;
   }
 
   private async hasQueryField(fieldName: string): Promise<boolean> {
@@ -976,6 +1029,26 @@ export class AIAgentDiscoveryClient {
    */
   private mapKbAgentToAgentData(agent: KbAgent | null | undefined): AgentData {
     const a = (agent ?? {}) as Partial<KbAgent>;
+    const aAny = a as any;
+
+    // Back-compat: newer KB schema returns identities as a list.
+    // Normalize into the legacy named slots so the rest of this mapper stays stable.
+    const identitiesList: any[] | null = Array.isArray(aAny.identities) ? (aAny.identities as any[]) : null;
+    if (identitiesList && identitiesList.length > 0) {
+      const pick = (kind: string): any | null => {
+        const k = kind.toLowerCase();
+        return (
+          identitiesList.find((x) => String(x?.kind ?? '').toLowerCase() === k) ??
+          identitiesList.find((x) => String(x?.kind ?? '').toLowerCase() === (k === '8004' ? 'erc8004' : k)) ??
+          null
+        );
+      };
+      if (!aAny.identity8004) aAny.identity8004 = pick('8004') ?? undefined;
+      if (!aAny.identity8122) aAny.identity8122 = pick('8122') ?? undefined;
+      if (!aAny.identityEns) aAny.identityEns = pick('ens') ?? undefined;
+      if (!aAny.identityHol) aAny.identityHol = pick('hol') ?? undefined;
+      if (!aAny.identity) aAny.identity = aAny.identity8004 ?? aAny.identity8122 ?? aAny.identityEns ?? aAny.identityHol ?? undefined;
+    }
 
     const toFiniteNumberOrUndefined = (value: unknown): number | undefined => {
       return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
@@ -1469,9 +1542,7 @@ export class AIAgentDiscoveryClient {
           `,
           mode === 'full'
             ? `
-      identity8122 { iri kind did }
-      identityEns { iri kind did uaidHOL }
-      identityHol { iri kind did uaidHOL }
+      identities { iri kind did }
     `
             : '',
         ]
