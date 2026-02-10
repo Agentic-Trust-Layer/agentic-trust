@@ -44,7 +44,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ uaid });
     } catch (error) {
       console.warn('[generate-uaid] Failed to generate UAID:', error);
-      return NextResponse.json({ uaid: null }, { status: 200 });
+      return NextResponse.json(
+        { error: 'Failed to generate UAID', message: error instanceof Error ? error.message : 'Unknown error' },
+        { status: 500 },
+      );
     }
   } catch (error) {
     console.error('[generate-uaid] Error:', error);

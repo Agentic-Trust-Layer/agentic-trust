@@ -88,6 +88,38 @@ function isL1ChainId(chainId: number): boolean {
   return chainId === 1 || chainId === 11155111;
 }
 
+function normalizeEnsOrgName(orgName: string): string {
+  return String(orgName || '')
+    .trim()
+    .replace(/\.eth$/i, '')
+    .replace(/^\.+/, '') // strip leading dots
+    .replace(/\.+$/, '') // strip trailing dots
+    .toLowerCase();
+}
+
+function normalizeEnsLabel(label: string, orgName?: string | null): string {
+  const raw = String(label || '').trim();
+  if (!raw) return '';
+  const cleanOrg = orgName ? normalizeEnsOrgName(orgName) : '';
+  let v = raw.toLowerCase();
+  // If user pasted a full ENS name, reduce to the label part.
+  v = v.replace(/\.eth$/i, '');
+  if (cleanOrg) {
+    // Remove ".<org>" suffix if present.
+    v = v.replace(new RegExp(`\\.${cleanOrg}$`, 'i'), '');
+  }
+  // Strip any trailing dots left over from user input.
+  v = v.replace(/\.+$/, '');
+  return v;
+}
+
+function buildEnsFullName(params: { label: string; orgName: string }): string {
+  const cleanOrg = normalizeEnsOrgName(params.orgName);
+  const cleanLabel = normalizeEnsLabel(params.label, cleanOrg);
+  if (!cleanLabel || !cleanOrg) return '';
+  return `${cleanLabel}.${cleanOrg}.eth`;
+}
+
 export default function AgentUpgradePage({ params }: { params: { uaid: string } }) {
   const router = useRouter();
   const uaid = decodeURIComponent(params.uaid || '');
@@ -196,8 +228,10 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
   const [ensChecking, setEnsChecking] = useState(false);
   const [ensAvailable, setEnsAvailable] = useState<boolean | null>(null);
   const [ensExisting, setEnsExisting] = useState<{ image: string | null; url: string | null; description: string | null } | null>(null);
-  const ensFullNamePreview =
-    form.agentName && ensOrgName ? `${form.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth` : '';
+  const ensFullNamePreview = useMemo(() => {
+    if (!form.agentName || !ensOrgName) return '';
+    return buildEnsFullName({ label: form.agentName, orgName: ensOrgName });
+  }, [ensOrgName, form.agentName]);
 
   useEffect(() => {
     if (!form.agentName || !ensOrgName) {
@@ -358,6 +392,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
     if (!form.agentName.trim()) throw new Error('Agent name is required.');
     if (!ensOrgName) throw new Error('ENS org name is not configured for this chain.');
     if (ensAvailable !== true) throw new Error('ENS name must be available.');
+    if (!ensFullNamePreview) throw new Error('ENS name is not ready.');
     if (isOwner === false) throw new Error('Connected wallet is not the owner of this agent NFT.');
 
     setUpgrading(true);
@@ -372,6 +407,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
       const baseUrl = String(normalizedBaseUrl || '').trim();
       const agentDescription = String(form.description || '').trim();
       const agentLabel = form.agentName.trim();
+      const ensLabel = normalizeEnsLabel(agentLabel, ensOrgName);
+      const ensNameFull = ensFullNamePreview;
 
       if (isL1ChainId(chainId)) {
         setStatus('Creating ENS subdomain…');
@@ -381,7 +418,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           body: JSON.stringify({
             agentAccount: aaAddr,
             orgName: ensOrgName,
-            agentName: agentLabel,
+            agentName: ensLabel,
             agentUrl: baseUrl,
             chainId,
           }),
@@ -394,7 +431,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           body: JSON.stringify({
             agentAddress: aaAddr,
             orgName: ensOrgName,
-            agentName: agentLabel,
+            agentName: ensLabel,
             agentUrl: baseUrl,
             agentDescription,
             chainId,
@@ -437,7 +474,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           body: JSON.stringify({
             agentAddress: aaAddr,
             orgName: ensOrgName,
-            agentName: agentLabel.toLowerCase(),
+            agentName: ensLabel,
             agentUrl: baseUrl,
             agentDescription,
             agentImage: form.image || undefined,
@@ -478,7 +515,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           body: JSON.stringify({
             agentAddress: aaAddr,
             orgName: ensOrgName,
-            agentName: agentLabel.toLowerCase(),
+            agentName: ensLabel,
             agentUrl: baseUrl,
             agentDescription,
             chainId,
@@ -541,11 +578,16 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
             }),
           });
           const json = (await res.json().catch(() => null)) as any;
+          if (!res.ok) {
+            throw new Error(json?.message || json?.error || `UAID generation failed (${res.status})`);
+          }
           const v = typeof json?.uaid === 'string' ? json.uaid.trim() : '';
-          return v || `uaid:${uid}`;
+          if (!v) {
+            throw new Error('UAID generation returned empty UAID');
+          }
+          return v;
         } catch {
-          const uid = `did:ethr:${chainId}:${aaAddr.toLowerCase()}`;
-          return `uaid:${uid}`;
+          throw new Error('Failed to generate UAID for upgraded agent');
         }
       })();
 
@@ -555,7 +597,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
       await ensureEip1193Chain(eip1193Provider, chainId);
       const encoder = new TextEncoder();
       const metadataEntries: Array<{ key: string; value: string }> = [
-        { key: 'agentName', value: form.agentName.trim() },
+        // When upgrading to a Smart Agent, set the displayed agent name to the ENS name we created.
+        { key: 'agentName', value: ensNameFull },
         { key: 'agentAccount', value: aaAddr },
         { key: 'registeredBy', value: 'agentic-trust' },
         { key: 'registryNamespace', value: 'erc-8004' },
@@ -587,7 +630,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
       // 5) Update 8004 agentUri registration JSON (EOA must do setAgentURI because EOA owns the NFT)
       const registrationPayload = {
         type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
-        name: form.agentName.trim(),
+        // Keep registration JSON name aligned to the ENS name.
+        name: ensNameFull,
         description: form.description.trim() ? form.description.trim() : undefined,
         image: form.image.trim() ? form.image.trim() : undefined,
         active: true,
