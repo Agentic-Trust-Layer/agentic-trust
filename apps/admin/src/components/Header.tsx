@@ -283,6 +283,31 @@ export function Header({
                       onClick={() => {
                         setShowRegistrationMenu(false);
                         setNavigatingToRegistration(true);
+                        router.push('/agent-registration/smart-agent'); // Smart Agent flow (AA + ENS only)
+                        setTimeout(() => setNavigatingToRegistration(false), 1000);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        color: palette.textPrimary,
+                        borderBottom: `1px solid ${palette.border}`,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>Smart Agent</div>
+                      <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
+                        Smart account + ENS Registration
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRegistrationMenu(false);
+                        setNavigatingToRegistration(true);
                         router.push('/agent-registration/8004'); // ERC-8004 flow
                         setTimeout(() => setNavigatingToRegistration(false), 1000);
                       }}
