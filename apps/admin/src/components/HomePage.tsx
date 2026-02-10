@@ -6,30 +6,16 @@ import {
   Button,
   Card,
   CardContent,
-  Chip,
   Container,
-  Divider,
   Grid,
   Link as MuiLink,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
   Stack,
   Typography,
 } from '@mui/material';
 import {
-  ArrowOutward,
-  AutoGraph,
-  Explore as ExploreIcon,
-  GitHub,
-  Group,
   ShieldOutlined,
-  Telegram,
-  Timeline,
   Twitter,
-  Verified,
-  Forum,
+  Explore as ExploreIcon,
 } from '@mui/icons-material';
 import { useWeb3Auth } from './Web3AuthProvider';
 import { useWallet } from './WalletProvider';
@@ -251,15 +237,12 @@ type HomePageProps = {
   isConnected?: boolean;
 };
 
-const articleUrl =
-  'https://blockchain.news/ainews/agent-trust-graphs-for-erc-8004-ai-agents-visualizing-on-chain-validator-networks-and-real-reputation-scores';
-
 export function HomePage({
   onNavigateAgents,
   onOpenAdminTools,
   isConnected,
 }: HomePageProps) {
-  const primaryCta = 'Explore the Agent Community';
+  const primaryCta = 'Open Agent Explorer';
 
   return (
     <Box
@@ -288,7 +271,7 @@ export function HomePage({
                 variant="overline"
                 sx={{ letterSpacing: '0.2em', color: 'text.secondary', fontWeight: 700 }}
               >
-                ERC-8004 · Identity · Validation · Reputation
+                Smart Agents · ERC-4337 Smart Accounts · ENS · Trust Graphs
               </Typography>
               <Typography
                 variant="h2"
@@ -299,61 +282,41 @@ export function HomePage({
                   lineHeight: 1.1,
                 }}
               >
-                8004 Smart Agents
+                Smart Agents for on-chain trust
               </Typography>
               <Typography variant="h6" sx={{ mt: 2, color: 'text.secondary', maxWidth: 860, mx: 'auto' }}>
-                Ship an on-chain agent identity with a smart-account owner, a unique ENS name, and trust-graph-native
-                feedback + validations.
-              </Typography>
-
-              <Box
-                component="pre"
-                sx={{
-                  display: 'inline-block',
-                  mt: 3,
-                  mb: 1,
-                  px: 2,
-                  py: 1,
-                  borderRadius: 2,
-                  border: `1px solid ${palette.border}`,
-                  backgroundColor: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                  fontFamily: 'monospace',
-                  fontSize: { xs: '0.9em', md: '0.95em' },
-                  lineHeight: 1.45,
-                  whiteSpace: 'pre',
-                  userSelect: 'all',
-                }}
-              >
-                npx @agentic-trust/create-8004-agent
-              </Box>
-              <Typography variant="body2" sx={{ color: 'text.secondary', maxWidth: 860, mx: 'auto' }}>
-                Creates a local A2A agent with <strong>/.well-known/agent.json</strong> and an <strong>/a2a</strong>{' '}
-                endpoint ready to issue <strong>feedbackAuth</strong> and respond to validations.
+                Deploy a Smart Agent with an ERC-4337 Smart Account, publish an ENS identity for discovery, and participate
+                in trust graphs built from on-chain feedback and validations.
               </Typography>
 
               <Grid container spacing={2.5} sx={{ mt: { xs: 4, md: 5 } }}>
                 {[
                   {
-                    title: 'Smart-account owner',
+                    title: 'ERC-4337 Smart Account',
                     body:
-                      'Owned by a smart account with EIP-1271 signature validation and DID support (did:ethr).',
+                      'A programmable account for your agent. It enables modern signing, sponsorship, and secure automation patterns.',
                     icon: <ShieldOutlined fontSize="large" color="primary" />,
                   },
                   {
-                    title: 'Unique ENS name',
+                    title: 'ENS for discovery',
                     body:
-                      'A human-readable, resolvable name like <name>.8004-agent.eth for discovery and routing.',
-                    icon: <Verified fontSize="large" color="primary" />,
+                      'A human-readable identity used for discovery and routing in clients and the Knowledge Base.',
+                    icon: <ExploreIcon fontSize="large" color="primary" />,
                   },
                   {
-                    title: 'Trust Graph ready',
+                    title: 'Identity Registry + Trust Graph',
                     body:
-                      'Feedback + validations attach to your agent and propagate through ERC-8004 identity, validation, and reputation registries.',
-                    icon: <AutoGraph fontSize="large" color="primary" />,
+                      'ERC-8004 anchors on-chain trust signals (validations + feedback) that roll up into reputation and graph views.',
+                    icon: <ShieldOutlined fontSize="large" color="primary" />,
+                  },
+                  {
+                    title: 'Agentic Trust Ontology',
+                    body:
+                      'An Agent Knowledge Base and Context Graph that connect identities, endpoints, and trust signals into a queryable model.',
+                    icon: <ShieldOutlined fontSize="large" color="primary" />,
                   },
                 ].map((card) => (
-                  <Grid item xs={12} md={4} key={card.title}>
+                  <Grid item xs={12} md={6} key={card.title}>
                     <Card
                       variant="outlined"
                       sx={{
@@ -392,28 +355,16 @@ export function HomePage({
                 >
                   {primaryCta}
                 </Button>
-                <Button
-                  variant="outlined"
-                  size="large"
-                  endIcon={<ArrowOutward />}
-                  href="/agent-registration/8004"
-                >
-                  Register an Agent (2 min)
-                </Button>
-                <Button
-                  variant="text"
-                  size="large"
-                  endIcon={<ArrowOutward />}
-                  href={articleUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Read the Article
+                <Button variant="outlined" size="large" href="/agents">
+                  Browse agents
                 </Button>
               </Stack>
+              <Typography variant="body2" sx={{ mt: 2, color: 'text.secondary' }}>
+                Direct link: <MuiLink href="/agents">agentictrust.io/agents</MuiLink>
+              </Typography>
             </Box>
 
-            {/* How it works */}
+            {/* System model */}
             <Card
               variant="outlined"
               sx={{
@@ -424,31 +375,56 @@ export function HomePage({
             >
               <CardContent>
                 <Typography variant="h4" fontWeight={800} gutterBottom>
-                  How an 8004 Smart Agent works
+                  Identity, discovery, and trust
                 </Typography>
                 <Typography variant="body1" color="text.secondary" gutterBottom>
-                  A simple loop: publish identity → serve A2A → collect validations + feedback → show up in the Trust
-                  Graph.
+                  Smart Agents are discovered through ENS and evaluated through trust signals that land on-chain.
                 </Typography>
-                <List>
-                  {[
-                    'Your agent publishes /.well-known/agent.json and exposes an A2A endpoint.',
-                    'Validators issue on-chain validations (and can be organized into pools).',
-                    'Reviewers request feedbackAuth from the agent, then submit feedback on-chain.',
-                    'Everything becomes queryable and visualizable as an ERC-8004 Trust Graph.',
-                  ].map((item) => (
-                    <ListItem key={item} disableGutters>
-                      <ListItemIcon>
-                        <Verified color="primary" />
-                      </ListItemIcon>
-                      <ListItemText primary={item} />
-                    </ListItem>
-                  ))}
-                </List>
+                <Grid container spacing={2.5} sx={{ mt: 1 }}>
+                  <Grid item xs={12} md={4}>
+                    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: palette.border, height: '100%' }}>
+                      <CardContent>
+                        <Typography variant="h6" fontWeight={900} gutterBottom>
+                          ENS identity (discovery)
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          ENS provides a stable, human-readable name that points to your agent’s service metadata and helps
+                          clients find the right endpoint.
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: palette.border, height: '100%' }}>
+                      <CardContent>
+                        <Typography variant="h6" fontWeight={900} gutterBottom>
+                          ERC-8004 Identity Registry (trust)
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          ERC-8004 is the on-chain anchor for trust signals like validations and feedback, which drive trust
+                          graphs and reputation computation.
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} md={4}>
+                    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: palette.border, height: '100%' }}>
+                      <CardContent>
+                        <Typography variant="h6" fontWeight={900} gutterBottom>
+                          Knowledge Base + Context Graph
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          The Agentic Trust ontology maps identities, endpoints, and trust signals into a queryable graph
+                          used by discovery and analytics.
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
               </CardContent>
             </Card>
 
-            {/* Getting started */}
+            {/* Explore */}
             <Card
               variant="outlined"
               sx={{
@@ -459,7 +435,7 @@ export function HomePage({
             >
               <CardContent>
                 <Typography variant="h4" fontWeight={800} gutterBottom textAlign="center">
-                  Get started in minutes
+                  Explore Smart Agents
                 </Typography>
                 <Typography
                   variant="body1"
@@ -467,115 +443,58 @@ export function HomePage({
                   textAlign="center"
                   sx={{ mb: 4 }}
                 >
-                  Two paths: build a local agent with the CLI, or register directly in the UI.
-                </Typography>
-                <List>
-                  {[
-                    'Run the CLI to scaffold an A2A agent (includes feedbackAuth + validation wiring).',
-                    'Start your dev server (your agent.json + A2A endpoint come online).',
-                    'Register the agent to the ERC-8004 Identity Registry (MetaMask smart account).',
-                    'Share your ENS name / endpoint so validators and reviewers can find you.',
-                    'Collect validations + feedback; watch the Trust Graph and reputation score update.',
-                  ].map((item, idx) => (
-                    <ListItem key={item} disableGutters>
-                      <ListItemIcon>
-                        <Chip label={idx + 1} color="primary" size="small" />
-                      </ListItemIcon>
-                      <ListItemText primary={item} />
-                    </ListItem>
-                  ))}
-                </List>
-                <Typography
-                  variant="body2"
-                  color="text.secondary"
-                  textAlign="center"
-                  sx={{ mt: 2, fontStyle: 'italic' }}
-                >
-                  Tip: if your agent can’t issue feedbackAuth yet, it probably needs a SessionPackage configured.
+                  Browse agents, open profiles, and inspect identities (ENS + registries) and trust signals.
                 </Typography>
                 <Stack direction="row" justifyContent="center" sx={{ mt: 3 }}>
                   <Button variant="contained" size="large" onClick={onNavigateAgents}>
-                    Explore Agents
+                    {primaryCta}
                   </Button>
                 </Stack>
               </CardContent>
             </Card>
 
-            {/* Trust graph + validator pools */}
-            <Grid container spacing={3}>
-              <Grid item xs={12} md={6}>
-                <Card
-                  variant="outlined"
+            {/* Build locally (CLI) */}
+            <Card
+              variant="outlined"
+              sx={{
+                borderRadius: 4,
+                borderColor: palette.border,
+                backgroundColor: 'background.paper',
+              }}
+            >
+              <CardContent>
+                <Typography variant="h4" fontWeight={800} gutterBottom>
+                  Build a local A2A agent
+                </Typography>
+                <Typography variant="body1" color="text.secondary" gutterBottom>
+                  Scaffold a local agent that serves A2A and is ready to issue feedbackAuth and respond to validations.
+                </Typography>
+                <Box
+                  component="pre"
                   sx={{
-                    height: '100%',
-                    borderRadius: 4,
-                    borderColor: palette.border,
-                    backgroundColor: 'background.paper',
+                    display: 'inline-block',
+                    mt: 1,
+                    mb: 1,
+                    px: 2,
+                    py: 1,
+                    borderRadius: 2,
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontFamily: 'monospace',
+                    fontSize: { xs: '0.9em', md: '0.95em' },
+                    lineHeight: 1.45,
+                    whiteSpace: 'pre',
+                    userSelect: 'all',
                   }}
                 >
-                  <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <AutoGraph color="primary" />
-                      <Typography variant="h5" fontWeight={700}>
-                        Live Trust Graph Viewer
-                      </Typography>
-                    </Box>
-                    <Typography variant="body1" color="text.secondary">
-                      Real-time graph of agents, validation relationships, reviewer credentials, and
-                      reputation score propagation. Filter by vertical, zoom into clusters, click a
-                      node for on-chain proofs.
-                    </Typography>
-                    <Button variant="contained" onClick={onNavigateAgents} startIcon={<ExploreIcon />}>
-                      Open the Trust Graph
-                    </Button>
-                  </CardContent>
-                </Card>
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Card
-                  variant="outlined"
-                  sx={{
-                    height: '100%',
-                    borderRadius: 4,
-                    borderColor: palette.border,
-                    backgroundColor: 'background.paper',
-                  }}
-                >
-                  <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Group color="primary" />
-                      <Typography variant="h5" fontWeight={700}>
-                        Gamified Vertical Validator Pools
-                      </Typography>
-                    </Box>
-                    <Typography variant="body1" color="text.secondary">
-                      DeFi risk, healthcare compliance, legal research, supply-chain, security, and
-                      more. Stake → validate → earn reputation and rewards → climb leaderboards.
-                    </Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap">
-                      {[
-                        'DeFi Risk',
-                        'Healthcare',
-                        'Legal Research',
-                        'Supply Chain',
-                        'Security',
-                        'Research',
-                      ].map((pool) => (
-                        <Chip key={pool} label={pool} variant="outlined" />
-                      ))}
-                    </Stack>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                      <Button variant="outlined" href="/pools">
-                        Browse Pools
-                      </Button>
-                      <Button variant="contained" href="/validator">
-                        Become a Validator
-                      </Button>
-                    </Stack>
-                  </CardContent>
-                </Card>
-              </Grid>
-            </Grid>
+                  npx @agentic-trust/create-8004-agent
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Creates a local A2A agent with <strong>/.well-known/agent.json</strong> and an <strong>/a2a</strong> endpoint.
+                </Typography>
+              </CardContent>
+            </Card>
 
             {/* Community */}
             <Card
@@ -591,16 +510,11 @@ export function HomePage({
                   Built in Public — Join the Community
                 </Typography>
                 <Typography variant="body1" color="text.secondary" gutterBottom>
-                  The first useful layer on top of ERC-8004 while the registries are still young.
-                  Come build the trust layer with us.
+                  Come build the Smart Agent trust layer with us.
                 </Typography>
                 <Stack direction="row" spacing={4} justifyContent="center" sx={{ mt: 3 }}>
                   <MuiLink href="https://x.com/8004agent" target="_blank" color="inherit">
                     <Twitter fontSize="large" />
-                  </MuiLink>
-                  
-                  <MuiLink href="https://github.com/Agentic-Trust-Layer/agentic-trust" target="_blank" color="inherit">
-                    <GitHub fontSize="large" />
                   </MuiLink>
                   {onOpenAdminTools && (
                     <MuiLink onClick={onOpenAdminTools} sx={{ cursor: 'pointer' }} color="inherit">
@@ -609,15 +523,13 @@ export function HomePage({
                   )}
                 </Stack>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
-                  agentictrust.io — December 2025 · First-mover coordination layer for ERC-8004 trust
-                  graphs.
+                  agentictrust.io — Smart Agents + trust graphs.
                 </Typography>
               </CardContent>
             </Card>
           </Stack>
         </Container>
       </Box>
-      <Divider />
     </Box>
   );
 }
