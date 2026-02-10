@@ -404,36 +404,6 @@ export class AgentsAPI {
       let tokenUri = '';
       const chainId: number = targetChainId;
       console.log('[agents.createAgentWithEOAOwnerUsingWallet] Using chainId', chainId);
-      let uaid: string | undefined;
-      try {
-        const didEthr = buildDidEthr(chainId, params.agentAccount, { encode: false });
-        const uid = didEthr;
-        const nativeId = `eip155:${chainId}:${params.agentAccount}`;
-        const domain =
-          typeof params.agentUrl === 'string' && params.agentUrl.trim()
-            ? (() => {
-                try {
-                  return new URL(params.agentUrl).hostname;
-                } catch {
-                  return undefined;
-                }
-              })()
-            : undefined;
-        uaid = (
-          await generateHcs14UaidDidTarget({
-            targetDid: didEthr,
-            routing: {
-              registry: 'erc-8004',
-              proto: 'a2a',
-              nativeId,
-              uid,
-              domain,
-            },
-          })
-        ).uaid;
-      } catch (error) {
-        console.warn('[agents.createAgentWithEOAOwnerUsingWallet] Failed to generate UAID:', error);
-      }
       
       try {
         const registrationJSON = createRegistrationJSON({
@@ -446,7 +416,6 @@ export class AgentsAPI {
           identityRegistry: identityRegistryHex as `0x${string}`,
           supportedTrust: params.supportedTrust,
           endpoints: params.endpoints,
-          uaid,
         });
         
         const uploadResult = await uploadRegistration(registrationJSON);
@@ -468,7 +437,6 @@ export class AgentsAPI {
         ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
         { key: 'registeredBy', value: 'agentic-trust' },
         { key: 'registryNamespace', value: 'erc-8004' },
-        ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
       ].filter(m => m.value !== '');
 
       
@@ -559,6 +527,7 @@ export class AgentsAPI {
     // After we have an agentId, write it back by updating tokenUri so registrations[].agentId is populated.
     try {
       const agentIdStr = result.agentId.toString();
+      const uaid = `uaid:did:8004:${chainId}:${agentIdStr}`;
       const updatedRegistrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
@@ -631,36 +600,6 @@ export class AgentsAPI {
 
     // Create registration JSON and upload to IPFS
     let tokenUri = '';
-    let uaid: string | undefined;
-    try {
-      const didEthr = buildDidEthr(targetChainId, params.agentAccount, { encode: false });
-      const uid = didEthr;
-      const nativeId = `eip155:${targetChainId}:${params.agentAccount}`;
-      const domain =
-        typeof params.agentUrl === 'string' && params.agentUrl.trim()
-          ? (() => {
-              try {
-                return new URL(params.agentUrl).hostname;
-              } catch {
-                return undefined;
-              }
-            })()
-          : undefined;
-      uaid = (
-        await generateHcs14UaidDidTarget({
-          targetDid: didEthr,
-          routing: {
-            registry: 'erc-8004',
-            proto: 'a2a',
-            nativeId,
-            uid,
-            domain,
-          },
-        })
-      ).uaid;
-    } catch (error) {
-      console.warn('[agents.createAgentWithEOAOwnerUsingPrivateKey] Failed to generate UAID:', error);
-    }
     try {
       const registrationJSON = createRegistrationJSON({
         name: params.agentName,
@@ -672,7 +611,6 @@ export class AgentsAPI {
         identityRegistry: identityRegistryHex as `0x${string}`,
         supportedTrust: params.supportedTrust,
         endpoints: params.endpoints,
-        uaid,
       });
       const uploadResult = await uploadRegistration(registrationJSON);
       tokenUri = uploadResult.tokenUri;
@@ -691,7 +629,6 @@ export class AgentsAPI {
       ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
       { key: 'registeredBy', value: 'agentic-trust' },
       { key: 'registryNamespace', value: 'erc-8004' },
-      ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
     ].filter(m => m.value !== '');
 
     // Execute registration
@@ -700,6 +637,7 @@ export class AgentsAPI {
     // After we have an agentId, write it back by updating tokenUri so registrations[].agentId is populated.
     try {
       const agentIdStr = result.agentId.toString();
+      const uaid = `uaid:did:8004:${targetChainId}:${agentIdStr}`;
       const updatedRegistrationJSON = createRegistrationJSON({
         name: params.agentName,
         agentAccount: params.agentAccount,
