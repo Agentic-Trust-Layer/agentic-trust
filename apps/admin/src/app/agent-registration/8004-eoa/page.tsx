@@ -11,7 +11,8 @@ import { useWallet } from '@/components/WalletProvider';
 import { grayscalePalette as palette } from '@/styles/palette';
 import { SUPPORTED_TRUST_MECHANISMS } from '@/models/agentRegistration';
 
-import { createAgentWithWallet } from '@agentic-trust/core/client';
+import { signAndSendTransaction } from '@agentic-trust/core/client';
+import type { PreparedTransaction } from '@agentic-trust/core/client';
 import {
   DEFAULT_CHAIN_ID,
   getChainById,
@@ -247,9 +248,12 @@ export default function AgentRegistration8004EoaPage() {
 
       await ensureEip1193Chain(eip1193Provider, selectedChainId);
 
-      setSuccess('MetaMask signature: register agent identity (ERC-8004)…');
-      const result = await createAgentWithWallet({
-        agentData: {
+      setSuccess('Preparing ERC-8004 registration transaction…');
+      const planRes = await fetch('/api/agents/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'eoa',
           agentName: form.agentName.trim(),
           // EOA-only flow: agent account is the connected EOA address.
           agentAccount: eoaAddress,
@@ -258,26 +262,58 @@ export default function AgentRegistration8004EoaPage() {
           image: form.image.trim() ? form.image.trim() : undefined,
           agentUrl: normalizedBaseUrl || undefined,
           endpoints: endpoints.length > 0 ? endpoints : undefined,
-        },
+          chainId: selectedChainId,
+        }),
+      });
+      const planBody = await planRes.json().catch(() => ({} as any));
+      if (!planRes.ok) {
+        throw new Error(planBody?.error || planBody?.message || `Failed to prepare registration (${planRes.status})`);
+      }
+
+      if (planBody?.mode !== 'eoa' || !planBody?.transaction?.to || !planBody?.transaction?.data) {
+        throw new Error('Server response missing EOA transaction details');
+      }
+
+      const txChainId = Number(planBody.transaction.chainId ?? planBody.chainId);
+      if (!Number.isFinite(txChainId) || txChainId <= 0) {
+        throw new Error('Server response missing valid chainId for transaction');
+      }
+
+      const preparedTx: PreparedTransaction = {
+        to: planBody.transaction.to as `0x${string}`,
+        data: planBody.transaction.data as `0x${string}`,
+        value: (planBody.transaction.value ?? '0x0') as `0x${string}`,
+        gas: planBody.transaction.gas as `0x${string}` | undefined,
+        gasPrice: planBody.transaction.gasPrice as `0x${string}` | undefined,
+        maxFeePerGas: planBody.transaction.maxFeePerGas as `0x${string}` | undefined,
+        maxPriorityFeePerGas: planBody.transaction.maxPriorityFeePerGas as `0x${string}` | undefined,
+        nonce: planBody.transaction.nonce as number | undefined,
+        chainId: txChainId,
+      };
+
+      setSuccess('MetaMask signature: register agent identity (ERC-8004)…');
+      const chain = getChainById(txChainId);
+      const txResult = await signAndSendTransaction({
+        transaction: preparedTx,
         account: eoaAddress,
+        chain,
         ethereumProvider: eip1193Provider as any,
         onStatusUpdate: setSuccess,
-        useAA: false,
-        chainId: selectedChainId,
+        extractAgentId: true,
       });
 
-      const agentId = result.agentId ? String(result.agentId) : undefined;
+      const agentId = txResult.agentId ? String(txResult.agentId) : undefined;
       const did8004 = agentId ? `did:8004:${selectedChainId}:${agentId}` : undefined;
       const uaid = agentId ? `uaid:${did8004}` : undefined;
 
       setRegistrationCompleteDetails({
         agentId,
-        txHash: result.txHash,
+        txHash: txResult.hash,
         did8004,
         uaid,
       });
       setRegistrationCompleteOpen(true);
-      setSuccess(agentId ? `Registered agent ${agentId}` : `Transaction confirmed: ${result.txHash}`);
+      setSuccess(agentId ? `Registered agent ${agentId}` : `Transaction confirmed: ${txResult.hash}`);
     } catch (e: any) {
       setError(e?.message || 'Registration failed');
     } finally {
@@ -617,7 +653,14 @@ export default function AgentRegistration8004EoaPage() {
 
   return (
     <div style={{ minHeight: '100vh', backgroundColor: palette.background }}>
-      <Header />
+      <Header
+        displayAddress={walletAddress ?? null}
+        privateKeyMode={privateKeyMode}
+        isConnected={isConnected}
+        onConnect={openLoginModal}
+        onDisconnect={handleDisconnect}
+        disableConnect={loading || registering}
+      />
       <main style={{ padding: '2rem 1rem' }}>
         <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
           <section

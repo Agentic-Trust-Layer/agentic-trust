@@ -105,9 +105,19 @@ export async function discoverAgents(
         if (rawJsonStr) {
           try {
             const registration = JSON.parse(rawJsonStr);
-            if (registration?.endpoints && Array.isArray(registration.endpoints)) {
+            if (registration?.services && Array.isArray(registration.services)) {
+              const entry = registration.services.find(
+                (s: any) =>
+                  s &&
+                  typeof s.type === 'string' &&
+                  String(s.type).toLowerCase() === 'mcp' &&
+                  typeof s.endpoint === 'string',
+              );
+              if (entry) mcpEndpoint = entry.endpoint;
+            } else if (registration?.endpoints && Array.isArray(registration.endpoints)) {
+              // legacy
               const mcpEndpointEntry = registration.endpoints.find(
-                (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp')
+                (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp'),
               );
               if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
                 mcpEndpoint = mcpEndpointEntry.endpoint;
@@ -117,10 +127,17 @@ export async function discoverAgents(
             // Ignore JSON parse errors
           }
         }
-        // If not found in rawJson, try to extract from endpoints array if available
+        // If not found in rawJson, try to extract from services/endpoints fields if available
+        if (!mcpEndpoint && raw?.services && Array.isArray(raw.services)) {
+          const entry = raw.services.find(
+            (s: any) =>
+              s && typeof s.type === 'string' && String(s.type).toLowerCase() === 'mcp' && typeof s.endpoint === 'string',
+          );
+          if (entry) mcpEndpoint = entry.endpoint;
+        }
         if (!mcpEndpoint && raw?.endpoints && Array.isArray(raw.endpoints)) {
           const mcpEndpointEntry = raw.endpoints.find(
-            (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp')
+            (ep: any) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp'),
           );
           if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
             mcpEndpoint = mcpEndpointEntry.endpoint;

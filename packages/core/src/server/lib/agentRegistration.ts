@@ -88,6 +88,12 @@ export function createRegistrationJSON(params: {
   chainId?: number;
   identityRegistry?: `0x${string}`;
   supportedTrust?: string[];
+  services?: Array<{
+    type: string;
+    endpoint: string;
+    version?: string;
+    capabilities?: string[];
+  }>;
   endpoints?: Array<{
     name: string;
     endpoint: string;
@@ -104,18 +110,51 @@ export function createRegistrationJSON(params: {
   external_url?: string;
   attributes?: Array<{ trait_type: string; value: string | number }>;
 }): AgentRegistrationInfo {
-  const endpoints: Array<{
-    name: string;
+  // Normalize caller-provided services/endpoints into a single `services` array.
+  // New registrations should emit `services` (not `endpoints`).
+  const services: Array<{
+    type: string;
     endpoint: string;
     version?: string;
-    capabilities?: Record<string, any>;
-    a2aSkills?: string[];
-    a2aDomains?: string[];
-    mcpSkills?: string[];
-    mcpDomains?: string[];
-  }> = (params.endpoints ? params.endpoints.map(e => ({ ...e })) : [])
-    // Never include MCP endpoint entries in registration JSON.
-    .filter(e => e.name !== 'MCP');
+    capabilities?: string[];
+  }> = [];
+
+  if (Array.isArray(params.services)) {
+    for (const s of params.services) {
+      const type = typeof s?.type === 'string' ? s.type.trim() : '';
+      const endpoint = typeof s?.endpoint === 'string' ? s.endpoint.trim() : '';
+      if (!type || !endpoint) continue;
+      services.push({
+        type: type.toLowerCase(),
+        endpoint,
+        version: typeof s.version === 'string' ? s.version : undefined,
+        capabilities: Array.isArray(s.capabilities) ? s.capabilities.map((c) => String(c)) : undefined,
+      });
+    }
+  }
+
+  if (Array.isArray(params.endpoints)) {
+    for (const e of params.endpoints) {
+      const name = typeof e?.name === 'string' ? e.name.trim() : '';
+      const endpoint = typeof e?.endpoint === 'string' ? e.endpoint.trim() : '';
+      if (!name || !endpoint) continue;
+      const capsFromRecord =
+        e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
+          ? Object.keys(e.capabilities as Record<string, unknown>)
+          : [];
+      const caps =
+        (Array.isArray(e.a2aSkills) ? e.a2aSkills : [])
+          .concat(Array.isArray(e.mcpSkills) ? e.mcpSkills : [])
+          .concat(capsFromRecord);
+      const capabilities = caps.length > 0 ? Array.from(new Set(caps.map((c) => String(c).trim()).filter(Boolean))) : undefined;
+      services.push({
+        type: name.toLowerCase(),
+        endpoint,
+        version: typeof e.version === 'string' ? e.version : undefined,
+        capabilities,
+      });
+    }
+  }
   
   // If agentUrl is provided, automatically create an A2A endpoint
   if (params.agentUrl) {
@@ -125,7 +164,7 @@ export function createRegistrationJSON(params: {
     // don't accidentally become the registered A2A endpoint).
     // Default to the canonical A2A agent card location (agent-card.json).
     const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
-    const existingA2A = endpoints.find(e => e.name === 'A2A');
+    const existingA2A = services.find((s) => s.type === 'a2a');
     if (existingA2A) {
       if (existingA2A.endpoint !== a2aEndpoint) {
         console.warn('[createRegistrationJSON] Overriding A2A endpoint to match agentUrl:', {
@@ -136,10 +175,9 @@ export function createRegistrationJSON(params: {
       }
       existingA2A.endpoint = a2aEndpoint;
       existingA2A.version = existingA2A.version || '0.3.0';
-      // Preserve a2aSkills if already set
     } else {
-      endpoints.push({
-        name: 'A2A',
+      services.push({
+        type: 'a2a',
         endpoint: a2aEndpoint,
         version: '0.3.0',
       });
@@ -172,7 +210,7 @@ export function createRegistrationJSON(params: {
     description: params.description,
     image: params.image,
     active: typeof params.active === 'boolean' ? params.active : true,
-    endpoints: endpoints.length > 0 ? endpoints : undefined,
+    services: services.length > 0 ? services : undefined,
     registrations: registrations.length > 0 ? registrations : undefined,
     agentAccount: params.agentAccount,
     // Registry metadata fields

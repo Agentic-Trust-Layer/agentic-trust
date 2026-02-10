@@ -25,7 +25,17 @@ export interface AgentRegistrationInfo {
   image?: string;
 
   /**
-   * Agent endpoints (A2A, MCP, etc.)
+   * Agent services (A2A, MCP, APIs, etc.)
+   */
+  services?: Array<{
+    type: string;
+    endpoint: string;
+    version?: string;
+    capabilities?: string[];
+  }>;
+
+  /**
+   * @deprecated Legacy field. New registrations should use `services`.
    */
   endpoints?: Array<{
     name: string;

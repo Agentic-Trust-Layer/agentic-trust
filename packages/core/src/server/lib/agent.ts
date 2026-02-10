@@ -1132,6 +1132,7 @@ export async function loadAgentDetail(
     if (typeof reg.description === 'string') flattened.description = reg.description;
     if (typeof reg.image === 'string') flattened.image = reg.image;
     if (typeof reg.agentAccount === 'string') flattened.agentAccount = reg.agentAccount;
+    if ((reg as any).services) flattened.services = (reg as any).services;
     if (reg.endpoints) flattened.endpoints = reg.endpoints;
     if (reg.supportedTrust) flattened.supportedTrust = reg.supportedTrust;
     if (typeof reg.createdAt !== 'undefined') flattened.createdAt = reg.createdAt;
@@ -1146,6 +1147,7 @@ export async function loadAgentDetail(
         key !== 'description' &&
         key !== 'image' &&
         key !== 'agentAccount' &&
+        key !== 'services' &&
         key !== 'endpoints' &&
         key !== 'supportedTrust' &&
         key !== 'createdAt' &&
