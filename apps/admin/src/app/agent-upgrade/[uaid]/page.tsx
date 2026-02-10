@@ -144,6 +144,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [nextWalletPrompt, setNextWalletPrompt] = useState<string | null>(null);
   const [upgrading, setUpgrading] = useState(false);
 
   const [agentLoading, setAgentLoading] = useState(true);
@@ -375,6 +376,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
     const bundlerUrl = chainEnv?.bundlerUrl || getClientBundlerUrl(chainId);
     if (!bundlerUrl) throw new Error('Missing bundler URL.');
     await ensureEip1193Chain(eip1193Provider, chainId);
+    setNextWalletPrompt('MetaMask: deploy/activate Smart Account (if prompted)');
     const client = await getDeployedAccountClientByAgentName(bundlerUrl, form.agentName.trim(), eoaAddress, {
       ethereumProvider: eip1193Provider,
       chain,
@@ -398,10 +400,12 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
     setUpgrading(true);
     setError(null);
     setStatus(null);
+    setNextWalletPrompt(null);
     try {
       // 1) Deploy smart account (if needed)
       setStatus('Deploying Smart Account…');
       const { bundlerUrl, accountClient, aaAddr } = await deploySmartAccount();
+      setNextWalletPrompt(null);
 
       // 2) ENS registration (same endpoints/shape as 8004 flow)
       const baseUrl = String(normalizedBaseUrl || '').trim();
@@ -456,7 +460,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           })
           .filter(Boolean) as Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
         if (infoCalls.length > 0) {
-          setStatus('MetaMask signature: update ENS metadata…');
+          setStatus('Updating ENS metadata…');
+          setNextWalletPrompt('MetaMask: approve ENS metadata update (UserOperation)');
           const uoHash = await sendSponsoredUserOperation({
             bundlerUrl,
             chain,
@@ -464,6 +469,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
             calls: infoCalls,
           });
           await waitForUserOperationReceipt({ bundlerUrl, chain, hash: uoHash });
+          setNextWalletPrompt(null);
         }
       } else {
         // L2 ENS: execute calls via smart account userOp
@@ -500,6 +506,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           })
           .filter(Boolean) as Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
         if (addCalls.length > 0) {
+          setStatus('Registering ENS on L2…');
+          setNextWalletPrompt('MetaMask: approve ENS registration (UserOperation)');
           const uoHash = await sendSponsoredUserOperation({
             bundlerUrl,
             chain,
@@ -507,6 +515,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
             calls: addCalls,
           });
           await waitForUserOperationReceipt({ bundlerUrl, chain, hash: uoHash });
+          setNextWalletPrompt(null);
         }
 
         const infoRes = await fetch('/api/names/set-l2-name-info', {
@@ -540,6 +549,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           })
           .filter(Boolean) as Array<{ to: `0x${string}`; data: `0x${string}`; value?: bigint }>;
         if (infoCalls.length > 0) {
+          setStatus('Updating ENS metadata on L2…');
+          setNextWalletPrompt('MetaMask: approve ENS metadata update (UserOperation)');
           const uoHash = await sendSponsoredUserOperation({
             bundlerUrl,
             chain,
@@ -547,6 +558,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
             calls: infoCalls,
           });
           await waitForUserOperationReceipt({ bundlerUrl, chain, hash: uoHash });
+          setNextWalletPrompt(null);
         }
       }
 
@@ -593,7 +605,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
 
       // 4) Update 8004 on-chain metadata (EOA must do this because EOA owns the NFT)
       // Mirror the keys we set during the full 8004 registration flow and ensure UAID is included.
-      setStatus('MetaMask signature: update 8004 metadata…');
+      setStatus('Updating 8004 metadata…');
       await ensureEip1193Chain(eip1193Provider, chainId);
       const encoder = new TextEncoder();
       const metadataEntries: Array<{ key: string; value: string }> = [
@@ -605,7 +617,9 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
         { key: 'uaid', value: uaidEthr },
       ].filter((m) => m.key && m.value !== undefined);
 
-      for (const entry of metadataEntries) {
+      for (let i = 0; i < metadataEntries.length; i++) {
+        const entry = metadataEntries[i]!;
+        setNextWalletPrompt(`MetaMask: approve metadata update (${i + 1}/${metadataEntries.length}) (${entry.key})`);
         const bytes = encoder.encode(String(entry.value ?? ''));
         const data = encodeFunctionData({
           abi: identityRegistrySetMetadataAbi,
@@ -626,6 +640,7 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
           extractAgentId: false,
         });
       }
+      setNextWalletPrompt(null);
 
       // 5) Update 8004 agentUri registration JSON (EOA must do setAgentURI because EOA owns the NFT)
       const registrationPayload = {
@@ -672,7 +687,8 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
       }
       const txChainId = Number(updJson.transaction.chainId ?? updJson.chainId ?? chainId);
       await ensureEip1193Chain(eip1193Provider, txChainId);
-      setStatus('MetaMask signature: setAgentURI…');
+      setStatus('Updating tokenURI (agentUri)…');
+      setNextWalletPrompt('MetaMask: approve tokenURI update (setAgentURI)');
       await signAndSendTransaction({
         transaction: {
           to: updJson.transaction.to,
@@ -686,12 +702,14 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
         onStatusUpdate: setStatus,
         extractAgentId: false,
       });
+      setNextWalletPrompt(null);
 
       setStatus('Upgrade complete.');
     } catch (e: any) {
       setError(e?.message || 'Upgrade failed');
     } finally {
       setUpgrading(false);
+      setNextWalletPrompt(null);
     }
   }, [
     upgrading,
@@ -963,6 +981,39 @@ export default function AgentUpgradePage({ params }: { params: { uaid: string } 
       />
 
       <main style={{ maxWidth: '1100px', margin: '0 auto', padding: '2rem 1.25rem' }}>
+        {(upgrading || nextWalletPrompt) && (
+          <div
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 20,
+              marginBottom: '1rem',
+              borderRadius: '16px',
+              border: `1px solid ${palette.border}`,
+              background: 'linear-gradient(135deg, #0b1220, #111827)',
+              color: '#fff',
+              padding: '1rem 1.1rem',
+              boxShadow: '0 12px 28px rgba(15,23,42,0.25)',
+            }}
+          >
+            <div style={{ fontWeight: 900, fontSize: '1rem' }}>Smart Agent upgrade in progress</div>
+            <div style={{ marginTop: '0.35rem', opacity: 0.92, fontSize: '0.95rem' }}>
+              {nextWalletPrompt ? (
+                <>
+                  <span style={{ fontWeight: 800 }}>Next:</span> {nextWalletPrompt}
+                </>
+              ) : (
+                <>
+                  <span style={{ fontWeight: 800 }}>Status:</span> {status || 'Working…'}
+                </>
+              )}
+            </div>
+            <div style={{ marginTop: '0.35rem', opacity: 0.85, fontSize: '0.85rem' }}>
+              Keep MetaMask open. If you don’t see a prompt, check the MetaMask extension window.
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem' }}>
           <div>
             <div style={{ fontSize: '1.35rem', fontWeight: 900, color: palette.textPrimary }}>Agent Upgrade</div>
