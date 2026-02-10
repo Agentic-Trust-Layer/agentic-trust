@@ -76,6 +76,13 @@ export interface CreateAgentPayload {
 export interface UpdateAgentRegistrationPayload {
   did8004: string;
   registration: unknown;
+  /**
+   * Optional on-chain metadata updates to apply alongside tokenURI update.
+   * Each entry maps to IdentityRegistry.setMetadata(agentId, key, bytes(value)).
+   *
+   * NOTE: Multi-call metadata updates require smartAccount mode (UserOperation).
+   */
+  metadata?: Array<{ key: string; value: string }>;
   mode?: AgentOperationMode;
 }
 

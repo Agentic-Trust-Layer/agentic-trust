@@ -205,12 +205,21 @@ export function updateAgentRegistrationRouteHandler(
       }
       const body = (await req.json()) as {
         registration: unknown;
+        metadata?: unknown;
         mode?: unknown;
       };
       const ctx = createContext(req);
       const input: UpdateAgentRegistrationPayload = {
         did8004,
         registration: body?.registration,
+        metadata: Array.isArray(body?.metadata)
+          ? (body.metadata as any[])
+              .map((m) => ({
+                key: typeof m?.key === 'string' ? m.key : '',
+                value: typeof m?.value === 'string' ? m.value : '',
+              }))
+              .filter((m) => m.key.trim() && m.value !== undefined)
+          : undefined,
         mode: typeof body?.mode === 'string' ? (body.mode as any) : undefined,
       };
       const result: AgentOperationPlan =

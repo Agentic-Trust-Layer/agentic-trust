@@ -353,6 +353,9 @@ export async function updateAgentRegistrationCore(
   const uploadResult = await uploadRegistration(registrationObject as any);
 
   if (mode === 'eoa') {
+    if (Array.isArray((input as any)?.metadata) && (input as any).metadata.length > 0) {
+      throw new AgentApiError('metadata updates require mode="smartAccount"', 400);
+    }
     const identityRegistry = getChainContractAddress(
       'AGENTIC_TRUST_IDENTITY_REGISTRY',
       parsed.chainId,
@@ -395,6 +398,10 @@ export async function updateAgentRegistrationCore(
     agentId: parsed.agentId,
     chainId: parsed.chainId,
     tokenUri: uploadResult.tokenUri,
+    metadata:
+      Array.isArray((input as any)?.metadata) && (input as any).metadata.length > 0
+        ? ((input as any).metadata as Array<{ key: string; value: string }>)
+        : undefined,
   });
 
   return {

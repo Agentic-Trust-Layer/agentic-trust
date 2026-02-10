@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getAgenticTrustClient, getDiscoveryClient } from '@agentic-trust/core/server';
+import { getAgenticTrustClient } from '@agentic-trust/core/server';
 
 export async function GET(
   request: NextRequest,
@@ -93,13 +93,38 @@ export async function POST(
       );
     }
 
-    const discovery = await getDiscoveryClient();
-    if (typeof (discovery as any).isOwnerByUaid !== 'function') {
-      throw new Error('Discovery KB schema missing Query.kbIsOwner');
-    }
-    const isOwner = await (discovery as any).isOwnerByUaid(uaid, walletAddress);
+    const walletLower = walletAddress.toLowerCase();
 
-    return NextResponse.json({ isOwner });
+    // Always use on-chain ownerOf for did:8004 UAIDs (discovery/KB can be stale).
+    const m = /^uaid:did:8004:(\d+):(\d+)\b/.exec(uaid);
+    if (m) {
+      const chainId = Number(m[1]);
+      const agentId = String(m[2]);
+      if (Number.isFinite(chainId) && /^\d+$/.test(agentId)) {
+        try {
+          const client = await getAgenticTrustClient();
+          const owner = await (client as any).getAgentOwner?.(agentId, chainId);
+          const onchainIsOwner =
+            typeof owner === 'string' && owner.toLowerCase() === walletLower;
+          return NextResponse.json({
+            isOwner: onchainIsOwner,
+            source: 'onchain',
+            onchainOwner: owner ?? null,
+          });
+        } catch (e) {
+          throw e;
+        }
+      }
+    }
+
+    // For non-8004 UAIDs we can't reliably resolve on-chain ownership here.
+    return NextResponse.json(
+      {
+        error: 'Unsupported identifier',
+        message: 'On-chain ownership check currently supports only uaid:did:8004:{chainId}:{agentId}.',
+      },
+      { status: 400 },
+    );
   } catch (error) {
     console.error('Error in agent isOwner route:', error);
     return NextResponse.json(

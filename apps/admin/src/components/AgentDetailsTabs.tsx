@@ -3087,6 +3087,31 @@ const AgentDetailsTabs = ({
             <div style={{ color: palette.textSecondary, marginBottom: '1rem' }}>
               Choose a registration protocol.
             </div>
+            {!isSmartAgent && (
+              <div style={{ marginBottom: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRegisterDialogOpen(false);
+                    window.location.href = `/agent-upgrade/${encodeURIComponent(uaid)}`;
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '0.9rem 1rem',
+                    borderRadius: '12px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surface,
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ fontWeight: 800, color: palette.textPrimary }}>Make Smart Account</div>
+                  <div style={{ marginTop: '0.25rem', fontSize: '0.85rem', color: palette.textSecondary }}>
+                    Upgrade this agent with a Smart Account + ENS + updated 8004 metadata.
+                  </div>
+                </button>
+              </div>
+            )}
             {registerProtocols.length === 0 ? (
               <div style={{ color: palette.textSecondary }}>
                 This agent already has all supported registries (8004/8122/ENS/HOL).
