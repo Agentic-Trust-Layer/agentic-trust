@@ -1136,10 +1136,14 @@ export class AIAgentDiscoveryClient {
       return null;
     };
 
-    const SMART_AGENT_TYPE_IRI = 'https://agentictrust.io/ontology/erc8004#SmartAgent';
+    // KB agentTypes have evolved over time; accept both legacy + current IRIs.
+    const SMART_AGENT_TYPE_IRIS = [
+      'https://agentictrust.io/ontology/core#AISmartAgent',
+      'https://agentictrust.io/ontology/erc8004#SmartAgent',
+    ] as const;
     const hasSmartAgentType =
       Array.isArray((a as any).agentTypes) &&
-      ((a as any).agentTypes as unknown[]).some((t) => String(t ?? '').trim() === SMART_AGENT_TYPE_IRI);
+      ((a as any).agentTypes as unknown[]).some((t) => SMART_AGENT_TYPE_IRIS.includes(String(t ?? '').trim() as any));
 
     const didPrimary =
       (typeof (a as any).identity8004?.did === 'string' && String((a as any).identity8004.did).trim()
@@ -1204,14 +1208,13 @@ export class AIAgentDiscoveryClient {
         (a as any).identity8122?.ownerAccount,
       ) ?? null;
 
-    // A "smart agent" is one that has a SmartAgent type OR an agent-controlled account attached.
-    const smartAgentAccount = pickAccountAddress((a as any).identity8004?.agentAccount);
-
     const isSmartAgent = (() => {
+      // Canonical definition: ontology type (agentTypes). Prefer this over any legacy boolean.
+      if (Array.isArray((a as any).agentTypes)) return hasSmartAgentType;
       if (typeof (a as any).isSmartAgent === 'boolean') {
         return (a as any).isSmartAgent as boolean;
       }
-      return Boolean(smartAgentAccount) || hasSmartAgentType;
+      return false;
     })();
 
     const identityOwner =
@@ -1366,6 +1369,7 @@ export class AIAgentDiscoveryClient {
           ? a.uaid.trim()
           : null,
       agentName: typeof a.agentName === 'string' ? a.agentName : undefined,
+      agentTypes: Array.isArray((a as any).agentTypes) ? ((a as any).agentTypes as string[]) : undefined,
       description:
         typeof a.agentDescription === 'string'
           ? a.agentDescription
@@ -1410,7 +1414,8 @@ export class AIAgentDiscoveryClient {
       agentWalletAccount: pickAccountAddress(a.identity8004?.walletAccount) ?? undefined,
       agentOperatorAccount: pickAccountAddress(a.identity8004?.operatorAccount) ?? undefined,
       agentOwnerEOAAccount: pickAccountAddress(a.identity8004?.ownerEOAAccount) ?? undefined,
-      smartAgentAccount: smartAgentAccount ?? undefined,
+      // Preserve for legacy callers, but do not use it to infer smart-agent-ness.
+      smartAgentAccount: pickAccountAddress((a as any).identity8004?.agentAccount) ?? undefined,
       isSmartAgent: isSmartAgent,
       // Identity tab fields (per-identity)
       identity8004Did:

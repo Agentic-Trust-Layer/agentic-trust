@@ -730,9 +730,22 @@ const AgentDetailsTabs = ({
   const parsedRegistryFromUaid = parseRegistryFromUaid(uaid);
   const has8004Registry = parsedRegistryFromUaid?.registryId === '8004' || didForRegistry.startsWith('did:8004:');
   const has8122Registry = parsedRegistryFromUaid?.registryId === '8122' || didForRegistry.startsWith('did:8122:');
-  const isSmartAgent =
-    (agent as any).isSmartAgent === true ||
-    (typeof (agent as any).smartAgentAccount === 'string' && (agent as any).smartAgentAccount.trim().startsWith('0x'));
+  const SMART_AGENT_TYPE_IRIS = [
+    'https://agentictrust.io/ontology/core#AISmartAgent',
+    'https://agentictrust.io/ontology/erc8004#SmartAgent',
+  ] as const;
+  const hasAgentTypesField = Array.isArray((agent as any).agentTypes);
+  const hasSmartAgentType =
+    Array.isArray((agent as any).agentTypes) &&
+    ((agent as any).agentTypes as unknown[]).some((t) => SMART_AGENT_TYPE_IRIS.includes(String(t ?? '').trim() as any));
+  const isSmartAgent = (() => {
+    // Canonical: ontology type when present.
+    if (hasAgentTypesField) return hasSmartAgentType;
+    // Secondary canonical: UAID targets did:ethr for smart agents.
+    if (typeof uaid === 'string' && uaid.trim().startsWith('uaid:did:ethr:')) return true;
+    // Otherwise: treat as non-smart (prevents false positives on did:8004 agents).
+    return false;
+  })();
 
   const mainTabDefs = useMemo(() => {
     const did = (agent as any).identity8004Did ?? agent.did ?? null;
