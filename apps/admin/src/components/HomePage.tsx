@@ -1,21 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   Box,
   Button,
   Card,
   CardContent,
   Container,
-  Grid,
   Link as MuiLink,
   Stack,
   Typography,
 } from '@mui/material';
 import {
+  AccountTreeOutlined,
+  ArrowDownwardRounded,
+  ArrowForwardRounded,
+  BoltOutlined,
+  Explore as ExploreIcon,
   ShieldOutlined,
   Twitter,
-  Explore as ExploreIcon,
+  VerifiedOutlined,
 } from '@mui/icons-material';
 import { useWeb3Auth } from './Web3AuthProvider';
 import { useWallet } from './WalletProvider';
@@ -118,7 +122,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
             textAlign: 'center',
           }}
         >
-          Agentic Trust Community Connect
+          Open Agent Explorer
         </h1>
 
         {error && (
@@ -234,15 +238,22 @@ export function LoginModal({ onClose }: LoginModalProps) {
 type HomePageProps = {
   onNavigateAgents: () => void;
   onOpenAdminTools?: () => void;
-  isConnected?: boolean;
 };
 
 export function HomePage({
   onNavigateAgents,
   onOpenAdminTools,
-  isConnected,
 }: HomePageProps) {
-  const primaryCta = 'Open Agent Explorer';
+  const primaryHeroCta = 'Explore Live Agents →';
+  const secondaryHeroCta = 'See how the stack works ↓';
+  const explorerCta = 'Open Agent Explorer →';
+
+  const stackRef = useRef<HTMLDivElement | null>(null);
+  const scrollToStack = useCallback(() => {
+    stackRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const loopLabels = ['Agent', 'Execution', 'Identity', 'Context', 'Trust', 'Discovery', 'Agent'] as const;
 
   return (
     <Box
@@ -271,7 +282,7 @@ export function HomePage({
                 variant="overline"
                 sx={{ letterSpacing: '0.2em', color: 'text.secondary', fontWeight: 700 }}
               >
-                Smart Agents · ERC-4337 Smart Accounts · ENS · Trust Graphs
+                Smart Agents · ERC-4337 · ENS · ERC-8004 · Knowledge Base
               </Typography>
               <Typography
                 variant="h2"
@@ -282,68 +293,23 @@ export function HomePage({
                   lineHeight: 1.1,
                 }}
               >
-                Smart Agents for on-chain trust
+                Smart Agents need more than execution.
               </Typography>
-              <Typography variant="h6" sx={{ mt: 2, color: 'text.secondary', maxWidth: 860, mx: 'auto' }}>
-                Deploy a Smart Agent with an ERC-4337 Smart Account, publish an ENS identity for discovery, and participate
-                in trust graphs built from on-chain feedback and validations.
+              <Typography
+                variant="h4"
+                sx={{ mt: 1.5, fontWeight: 800, fontSize: { xs: '1.55rem', md: '2.1rem' }, lineHeight: 1.15 }}
+              >
+                They need identity, trust, and context.
               </Typography>
 
-              <Grid container spacing={2.5} sx={{ mt: { xs: 4, md: 5 } }}>
-                {[
-                  {
-                    title: 'ERC-4337 Smart Account',
-                    body:
-                      'A programmable account for your agent. It enables modern signing, sponsorship, and secure automation patterns.',
-                    icon: <ShieldOutlined fontSize="large" color="primary" />,
-                  },
-                  {
-                    title: 'ENS for discovery',
-                    body:
-                      'A human-readable identity used for discovery and routing in clients and the Knowledge Base.',
-                    icon: <ExploreIcon fontSize="large" color="primary" />,
-                  },
-                  {
-                    title: 'Identity Registry + Trust Graph',
-                    body:
-                      'ERC-8004 anchors on-chain trust signals (validations + feedback) that roll up into reputation and graph views.',
-                    icon: <ShieldOutlined fontSize="large" color="primary" />,
-                  },
-                  {
-                    title: 'Agentic Trust Ontology',
-                    body:
-                      'An Agent Knowledge Base and Context Graph that connect identities, endpoints, and trust signals into a queryable model.',
-                    icon: <ShieldOutlined fontSize="large" color="primary" />,
-                  },
-                ].map((card) => (
-                  <Grid item xs={12} md={6} key={card.title}>
-                    <Card
-                      variant="outlined"
-                      sx={{
-                        height: '100%',
-                        borderRadius: 3,
-                        borderColor: palette.border,
-                        backgroundColor: 'background.paper',
-                      }}
-                    >
-                      <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          {card.icon}
-                          <Typography variant="h6" fontWeight={800}>
-                            {card.title}
-                          </Typography>
-                        </Box>
-                        <Typography variant="body2" color="text.secondary">
-                          {card.body}
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-              </Grid>
+              <Typography variant="h6" sx={{ mt: 2.5, color: 'text.secondary', maxWidth: 980, mx: 'auto' }}>
+                AgenticTrust is the coordination layer that lets autonomous agents execute actions, prove identity,
+                establish trust, and build shared context — all verifiable, composable, and discoverable.
+              </Typography>
+
               <Stack
                 direction={{ xs: 'column', sm: 'row' }}
-                spacing={2}
+                spacing={1.5}
                 justifyContent="center"
                 sx={{ mt: 4 }}
               >
@@ -352,19 +318,245 @@ export function HomePage({
                   size="large"
                   startIcon={<ExploreIcon />}
                   onClick={onNavigateAgents}
+                  sx={{
+                    fontSize: '1.1rem',
+                    fontWeight: 900,
+                    py: 2,
+                    px: 4,
+                    borderRadius: 3,
+                    textTransform: 'none',
+                    boxShadow: '0 8px 24px rgba(15,23,42,0.15)',
+                  }}
                 >
-                  {primaryCta}
+                  {primaryHeroCta}
                 </Button>
-                <Button variant="outlined" size="large" href="/agents">
-                  Browse agents
+                <Button
+                  variant="outlined"
+                  size="large"
+                  onClick={scrollToStack}
+                  sx={{
+                    fontSize: '1.02rem',
+                    fontWeight: 800,
+                    py: 2,
+                    px: 3.5,
+                    borderRadius: 3,
+                    textTransform: 'none',
+                    borderColor: palette.borderStrong,
+                  }}
+                >
+                  {secondaryHeroCta}
                 </Button>
               </Stack>
-              <Typography variant="body2" sx={{ mt: 2, color: 'text.secondary' }}>
-                Direct link: <MuiLink href="/agents">agentictrust.io/agents</MuiLink>
+
+              <Typography variant="body2" sx={{ mt: 1.5, color: 'text.secondary' }}>
+                <MuiLink href="/agents" sx={{ fontWeight: 700 }}>
+                  agentictrust.io/agents
+                </MuiLink>
               </Typography>
+
+              {/* Loop diagram */}
+              <Box
+                sx={{
+                  mt: 4,
+                  mx: 'auto',
+                  maxWidth: 1040,
+                  px: { xs: 1, md: 2 },
+                  py: 2,
+                  borderRadius: 3,
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: 'background.paper',
+                  '@keyframes arrowFlow': {
+                    '0%': { opacity: 0.35, transform: 'translateX(0px)' },
+                    '50%': { opacity: 0.85, transform: 'translateX(4px)' },
+                    '100%': { opacity: 0.35, transform: 'translateX(0px)' },
+                  },
+                  '@media (prefers-reduced-motion: reduce)': {
+                    '& .HomeLoop_arrow': { animation: 'none !important' },
+                  },
+                }}
+              >
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  useFlexGap
+                  flexWrap="wrap"
+                  alignItems="center"
+                  justifyContent="center"
+                >
+                  {loopLabels.map((label, idx) => (
+                    <Box key={`${label}::${idx}`} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box
+                        sx={{
+                          px: 1.25,
+                          py: 0.6,
+                          borderRadius: 999,
+                          border: `1px solid ${palette.borderStrong}`,
+                          backgroundColor: palette.surfaceMuted,
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontWeight: 900, letterSpacing: '0.04em' }}>
+                          {label}
+                        </Typography>
+                      </Box>
+                      {idx < loopLabels.length - 1 && (
+                        <ArrowForwardRounded
+                          className="HomeLoop_arrow"
+                          sx={{
+                            color: palette.textMuted,
+                            animation: 'arrowFlow 2.6s ease-in-out infinite',
+                          }}
+                        />
+                      )}
+                    </Box>
+                  ))}
+                </Stack>
+              </Box>
             </Box>
 
-            {/* System model */}
+            {/* Stack */}
+            <Box ref={stackRef} id="stack">
+              <Card
+                variant="outlined"
+                sx={{
+                  borderRadius: 4,
+                  borderColor: palette.border,
+                  backgroundColor: 'background.paper',
+                }}
+              >
+                <CardContent>
+                  <Typography variant="h4" fontWeight={900} gutterBottom>
+                    One agent system. Three interlocking layers.
+                  </Typography>
+                  <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 980 }}>
+                    ERC-4337 is the execution backbone. ENS + ERC-8004 provide identity, discovery, and trust. A Knowledge
+                    Base grounded in the Agentic Trust Ontology turns events and metadata into a queryable context graph and
+                    memory layer.
+                  </Typography>
+
+                  <Stack
+                    direction={{ xs: 'column', md: 'row' }}
+                    spacing={2}
+                    alignItems="stretch"
+                    sx={{ mt: 3 }}
+                  >
+                    <Card variant="outlined" sx={{ flex: 1, borderRadius: 3, borderColor: palette.border }}>
+                      <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <BoltOutlined color="primary" />
+                          <Typography variant="h6" fontWeight={900}>
+                            Execution layer
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          Smart agents execute actions via ERC-4337 smart accounts: programmable permissions, delegation, and
+                          accountable execution.
+                        </Typography>
+                        <Box component="ul" sx={{ pl: 2.5, my: 0, color: 'text.secondary' }}>
+                          <li>
+                            <Typography variant="body2" color="text.secondary">
+                              Delegated authority and bounded sessions
+                            </Typography>
+                          </li>
+                          <li>
+                            <Typography variant="body2" color="text.secondary">
+                              Deterministic, on-chain accountable execution
+                            </Typography>
+                          </li>
+                        </Box>
+                      </CardContent>
+                    </Card>
+
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        px: 1,
+                      }}
+                    >
+                      <ArrowForwardRounded sx={{ display: { xs: 'none', md: 'block' }, color: palette.textMuted }} />
+                      <ArrowDownwardRounded sx={{ display: { xs: 'block', md: 'none' }, color: palette.textMuted }} />
+                    </Box>
+
+                    <Card variant="outlined" sx={{ flex: 1, borderRadius: 3, borderColor: palette.border }}>
+                      <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <VerifiedOutlined color="primary" />
+                          <Typography variant="h6" fontWeight={900}>
+                            Identity, discovery & trust
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          ENS makes agents discoverable. ERC-8004 anchors identity and trust signals (validations + feedback)
+                          into graphable reputation.
+                        </Typography>
+                        <Box component="ul" sx={{ pl: 2.5, my: 0, color: 'text.secondary' }}>
+                          <li>
+                            <Typography variant="body2" color="text.secondary">
+                              Discoverable identities (ENS + UAIDs)
+                            </Typography>
+                          </li>
+                          <li>
+                            <Typography variant="body2" color="text.secondary">
+                              Verifiable trust signals on-chain (ERC-8004)
+                            </Typography>
+                          </li>
+                        </Box>
+                      </CardContent>
+                    </Card>
+
+                    <Box
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        px: 1,
+                      }}
+                    >
+                      <ArrowForwardRounded sx={{ display: { xs: 'none', md: 'block' }, color: palette.textMuted }} />
+                      <ArrowDownwardRounded sx={{ display: { xs: 'block', md: 'none' }, color: palette.textMuted }} />
+                    </Box>
+
+                    <Card variant="outlined" sx={{ flex: 1, borderRadius: 3, borderColor: palette.border }}>
+                      <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <AccountTreeOutlined color="primary" />
+                          <Typography variant="h6" fontWeight={900}>
+                            Context graph & memory
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary">
+                          A Knowledge Base grounded in the Agentic Trust Ontology connects identities, services, and trust
+                          signals into a context graph you can query, audit, and build on.
+                        </Typography>
+                        <Box component="ul" sx={{ pl: 2.5, my: 0, color: 'text.secondary' }}>
+                          <li>
+                            <Typography variant="body2" color="text.secondary">
+                              Ontology-driven context graph and inference
+                            </Typography>
+                          </li>
+                          <li>
+                            <Typography variant="body2" color="text.secondary">
+                              Verifiable memory trails and analytics
+                            </Typography>
+                          </li>
+                        </Box>
+                      </CardContent>
+                    </Card>
+                  </Stack>
+
+                  <Typography
+                    variant="body1"
+                    sx={{ mt: 3, fontStyle: 'italic', color: 'text.secondary', maxWidth: 980 }}
+                  >
+                    Execution without identity is dangerous. Identity without context is meaningless. Context without execution
+                    is inert.
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Box>
+
+            {/* Why this matters */}
             <Card
               variant="outlined"
               sx={{
@@ -374,57 +566,34 @@ export function HomePage({
               }}
             >
               <CardContent>
-                <Typography variant="h4" fontWeight={800} gutterBottom>
-                  Identity, discovery, and trust
+                <Typography variant="h4" fontWeight={900} gutterBottom>
+                  Why AgenticTrust exists
                 </Typography>
-                <Typography variant="body1" color="text.secondary" gutterBottom>
-                  Smart Agents are discovered through ENS and evaluated through trust signals that land on-chain.
+                <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 980 }}>
+                  Autonomous agents need bounded authority, verifiable identity, and shared semantics — otherwise you get
+                  opaque bots, unsafe delegation, and unverifiable “memory”.
                 </Typography>
-                <Grid container spacing={2.5} sx={{ mt: 1 }}>
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: palette.border, height: '100%' }}>
-                      <CardContent>
-                        <Typography variant="h6" fontWeight={900} gutterBottom>
-                          ENS identity (discovery)
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          ENS provides a stable, human-readable name that points to your agent’s service metadata and helps
-                          clients find the right endpoint.
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: palette.border, height: '100%' }}>
-                      <CardContent>
-                        <Typography variant="h6" fontWeight={900} gutterBottom>
-                          ERC-8004 Identity Registry (trust)
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          ERC-8004 is the on-chain anchor for trust signals like validations and feedback, which drive trust
-                          graphs and reputation computation.
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: palette.border, height: '100%' }}>
-                      <CardContent>
-                        <Typography variant="h6" fontWeight={900} gutterBottom>
-                          Knowledge Base + Context Graph
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          The Agentic Trust ontology maps identities, endpoints, and trust signals into a queryable graph
-                          used by discovery and analytics.
-                        </Typography>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                </Grid>
+                <Box component="ul" sx={{ mt: 2, mb: 0, pl: 3 }}>
+                  <li>
+                    <Typography variant="body1">Bounded authority for autonomous execution</Typography>
+                  </li>
+                  <li>
+                    <Typography variant="body1">Trust can’t be inferred from wallets alone</Typography>
+                  </li>
+                  <li>
+                    <Typography variant="body1">Discovery needs shared semantics (not ad-hoc APIs)</Typography>
+                  </li>
+                  <li>
+                    <Typography variant="body1">Memory must be verifiable and queryable</Typography>
+                  </li>
+                  <li>
+                    <Typography variant="body1">Agents must interoperate across orgs and chains</Typography>
+                  </li>
+                </Box>
               </CardContent>
             </Card>
 
-            {/* Explore */}
+            {/* Explorer */}
             <Card
               variant="outlined"
               sx={{
@@ -434,21 +603,33 @@ export function HomePage({
               }}
             >
               <CardContent>
-                <Typography variant="h4" fontWeight={800} gutterBottom textAlign="center">
-                  Explore Smart Agents
+                <Typography variant="h4" fontWeight={900} gutterBottom>
+                  See the trust graph in action
                 </Typography>
-                <Typography
-                  variant="body1"
-                  color="text.secondary"
-                  textAlign="center"
-                  sx={{ mb: 4 }}
-                >
-                  Browse agents, open profiles, and inspect identities (ENS + registries) and trust signals.
+                <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 980 }}>
+                  Open Agent Explorer lets you inspect real agents, identities, service endpoints, and trust signals — live and
+                  verifiable.
                 </Typography>
-                <Stack direction="row" justifyContent="center" sx={{ mt: 3 }}>
-                  <Button variant="contained" size="large" onClick={onNavigateAgents}>
-                    {primaryCta}
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 3 }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    startIcon={<ExploreIcon />}
+                    onClick={onNavigateAgents}
+                    sx={{
+                      fontSize: '1.05rem',
+                      fontWeight: 900,
+                      py: 1.75,
+                      px: 3.5,
+                      borderRadius: 3,
+                      textTransform: 'none',
+                    }}
+                  >
+                    {explorerCta}
                   </Button>
+                  <Typography variant="body2" color="text.secondary" sx={{ alignSelf: { sm: 'center' } }}>
+                    No wallet required. Read-only by design.
+                  </Typography>
                 </Stack>
               </CardContent>
             </Card>

@@ -40,7 +40,6 @@ export default function LandingPage() {
         <HomePage
           onNavigateAgents={handleNavigateAgents}
           onOpenAdminTools={() => router.push('/admin-tools?mode=create')}
-          isConnected={isConnected}
         />
       </Container>
     </Box>
