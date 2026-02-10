@@ -466,7 +466,7 @@ export default function AgentRegistrationPage() {
           marginBottom: '1rem',
         }}
       >
-        Agent Registration
+        Create Smart Agent with 8004 Identity Registration
       </p>
       <h2 style={{ margin: 0, fontSize: '2.25rem', color: '#4a4a4a' }}>
         Connect a wallet to register agents.  Use social login for convenience. It's free and easy.

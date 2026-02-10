@@ -8,7 +8,7 @@ export type Hcs14RoutingParams = {
 };
 /**
  * Generate an HCS-14 UAID in DID-target form:
- *   uaid:did:<did:ethr...>;uid=...;registry=...;proto=...;nativeId=...;domain=...
+ *   uaid:did:<method>:<methodSpecificId...>;uid=...;registry=...;proto=...;nativeId=...;domain=...
  *
  * This allows construction *before* ERC-8004 identity registration, since the
  * agent account DID (did:ethr) exists prior to minting the identity NFT.

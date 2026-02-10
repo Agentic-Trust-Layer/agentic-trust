@@ -174,7 +174,7 @@ async function generateSmartAgentUaid(params: {
   account: Address;
   registry: Address;
   proto: 'a2a' | 'mcp';
-  nativeId: string;
+  nativeId?: string;
 }): Promise<{ uaid: string; didEthr: string }> {
   const didEthr = buildDidEthr({ chainId: params.chainId, account: params.account });
   try {
@@ -187,7 +187,9 @@ async function generateSmartAgentUaid(params: {
         uid: didEthr,
         registry: params.registry,
         proto: params.proto,
-        nativeId: params.nativeId,
+        ...(typeof params.nativeId === 'string' && params.nativeId.trim()
+          ? { nativeId: params.nativeId.trim() }
+          : {}),
       }),
     });
     const json = (await res.json().catch(() => null)) as any;
@@ -199,7 +201,9 @@ async function generateSmartAgentUaid(params: {
     // ignore
   }
   // Fallback: UAID DID-target form with routing params (best-effort).
-  const uaid = `uaid:${didEthr};registry=${params.registry};proto=${params.proto};nativeId=${params.nativeId};uid=${didEthr}`;
+  const nativeIdPart =
+    typeof params.nativeId === 'string' && params.nativeId.trim() ? `;nativeId=${params.nativeId.trim()}` : '';
+  const uaid = `uaid:${didEthr};registry=${params.registry};proto=${params.proto}${nativeIdPart};uid=${didEthr}`;
   return { uaid, didEthr };
 }
 
@@ -288,6 +292,54 @@ export default function AgentRegistration8122WizardPage() {
   });
 
   const [supportedTrust, setSupportedTrust] = useState<string[]>([]);
+
+  const [uaidPreview, setUaidPreview] = useState<string | null>(null);
+  const [uaidPreviewLoading, setUaidPreviewLoading] = useState(false);
+  const [uaidPreviewError, setUaidPreviewError] = useState<string | null>(null);
+
+  // Generate a smart-agent UAID preview (like 8004 flow) when entering Review step.
+  useEffect(() => {
+    let cancelled = false;
+    setUaidPreviewError(null);
+    setUaidPreview(null);
+
+    if (createStep !== 4) return;
+    if (!useAA) return;
+    const acct = (createForm.agentAccount || '').trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(acct)) return;
+    const registryRaw = (selectedCollection?.registryAddress || '').trim();
+    if (!/^0x[a-fA-F0-9]{40}$/.test(registryRaw)) return;
+
+    (async () => {
+      setUaidPreviewLoading(true);
+      try {
+        const res = await fetch('/api/agents/generate-uaid', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            agentAccount: acct,
+            chainId: selectedChainId,
+            uid: `did:ethr:${selectedChainId}:${acct.toLowerCase()}`,
+            registry: registryRaw,
+            proto: protocolSettings.protocol === 'MCP' ? 'mcp' : 'a2a',
+          }),
+        });
+        const json = (await res.json().catch(() => null)) as any;
+        const uaid = typeof json?.uaid === 'string' ? json.uaid.trim() : '';
+        if (cancelled) return;
+        setUaidPreview(uaid || null);
+      } catch (e) {
+        if (cancelled) return;
+        setUaidPreviewError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setUaidPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [createStep, useAA, createForm.agentAccount, selectedChainId, selectedCollection?.registryAddress, protocolSettings.protocol]);
 
   const [registering, setRegistering] = useState(false);
   const [registrationCompleteOpen, setRegistrationCompleteOpen] = useState(false);
@@ -751,6 +803,23 @@ export default function AgentRegistration8122WizardPage() {
         throw new Error(`Agent account mismatch. Expected computed AA ${aaAddr} but got ${requestedAgentAccount}.`);
       }
 
+      // Compute registry now (used for UAID routing + later DID8122).
+      const registry = (await publicClient.readContract({
+        address: registrar,
+        abi: agentRegistrarAbi,
+        functionName: 'registry',
+      })) as Address;
+
+      // Create a smart-agent UAID (target did:ethr) before mint (like 8004 flow).
+      // After mint we will set UAID again with nativeId=did:8122:... once agentId is known.
+      const { uaid: uaidBeforeMint } = await generateSmartAgentUaid({
+        chainId: selectedChainId,
+        account: aaAddr,
+        registry: getAddress(registry) as Address,
+        proto: protocolSettings.protocol === 'MCP' ? 'mcp' : 'a2a',
+      });
+      metadata.push({ key: 'uaid', value: toHex(uaidBeforeMint) as `0x${string}` });
+
       // =========================================================================
       // ENS registration (mirror ERC-8004 flow)
       // =========================================================================
@@ -998,12 +1067,6 @@ export default function AgentRegistration8122WizardPage() {
       if (agentId == null) {
         throw new Error(`Mint mined but AgentMinted event was not found. tx=${txHash}`);
       }
-
-      const registry = (await publicClient.readContract({
-        address: registrar,
-        abi: agentRegistrarAbi,
-        functionName: 'registry',
-      })) as Address;
 
       const did8122 = buildDid8122({ chainId: selectedChainId, registry: getAddress(registry) as Address, agentId });
       const { uaid, didEthr } = await generateSmartAgentUaid({
@@ -1530,7 +1593,19 @@ export default function AgentRegistration8122WizardPage() {
                 Supported trust: <code>{supportedTrust.length ? supportedTrust.join(', ') : '—'}</code>
               </div>
               <div style={{ marginTop: '0.75rem' }}>
-                UAID metadata: will attempt to set <code>uaid</code> after mint.
+                UAID (smart-account, did:ethr):{' '}
+                {uaidPreviewLoading ? (
+                  'Generating…'
+                ) : uaidPreview ? (
+                  <code>{uaidPreview}</code>
+                ) : uaidPreviewError ? (
+                  <span style={{ color: palette.dangerText }}>Failed</span>
+                ) : (
+                  '—'
+                )}
+                <div style={{ marginTop: '0.35rem', opacity: 0.9 }}>
+                  After mint we update UAID metadata again to include <code>nativeId=did:8122:...</code>.
+                </div>
               </div>
             </div>
           </>
@@ -1552,11 +1627,7 @@ export default function AgentRegistration8122WizardPage() {
         disableConnect={loading}
       />
 
-      <main style={{ padding: '2rem', maxWidth: '1100px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '1.25rem' }}>
-          <div style={{ color: palette.textSecondary, fontSize: '0.9rem' }}>Agent Registration</div>
-          <h1 style={{ margin: '0.25rem 0 0', fontSize: '1.6rem' }}>ERC-8122</h1>
-        </div>
+      <main style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
 
         {!canSign && (
           <div
@@ -1610,11 +1681,12 @@ export default function AgentRegistration8122WizardPage() {
         <section
           style={{
             border: `1px solid ${palette.border}`,
-            borderRadius: '12px',
-            padding: '1rem',
+            borderRadius: '8px',
+            padding: '1.5rem',
             background: palette.surface,
           }}
         >
+          <h2 style={{ margin: '0 0 1rem', fontSize: '1.5rem' }}>Create Smart Agent with 8122 Identity Registration</h2>
           <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '0.9rem' }}>
             {CREATE_STEPS.map((label, idx) => {
               const active = idx === createStep;
@@ -1741,11 +1813,12 @@ export default function AgentRegistration8122WizardPage() {
             <div
               style={{
                 background: palette.surface,
-                borderRadius: '14px',
+                borderRadius: '16px',
                 border: `1px solid ${palette.border}`,
-                maxWidth: '720px',
+                maxWidth: '640px',
                 width: '100%',
-                padding: '1.1rem 1.2rem',
+                padding: '1.25rem',
+                boxShadow: '0 20px 60px rgba(15,23,42,0.25)',
               }}
               onClick={(e) => e.stopPropagation()}
             >

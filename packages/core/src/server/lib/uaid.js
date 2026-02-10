@@ -16,7 +16,10 @@ function didMethodSpecificId(did) {
     if (parts.length < 3 || parts[0] !== 'did') {
         throw new Error(`Invalid DID: ${decoded}`);
     }
-    return parts.slice(2).join(':');
+    // UAID DID-target idPart must be "<method>:<method-specific-id...>" so that
+    // parseHcs14UaidDidTarget can reconstruct "did:<method>:..." correctly.
+    // Example targetDid "did:ethr:11155111:0xabc..." => idPart "ethr:11155111:0xabc..."
+    return parts.slice(1).join(':');
 }
 /**
  * Generate an HCS-14 UAID in DID-target form:
@@ -40,7 +43,7 @@ export async function generateHcs14UaidDidTarget(params) {
     }
     const suffix = parts.length > 0 ? `;${parts.join(';')}` : '';
     return {
-        // For uaid:did, {id} is the DID method-specific identifier (no "did:<method>:" prefix).
+        // For uaid:did, {id} is "<method>:<methodSpecificId...>" (no leading "did:").
         uaid: `uaid:did:${methodSpecificId}${suffix}`,
     };
 }
