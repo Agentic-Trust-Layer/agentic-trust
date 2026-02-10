@@ -322,9 +322,34 @@ export function Header({
                         borderBottom: `1px solid ${palette.border}`,
                       }}
                     >
-                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8004</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8004 Smart Agent</div>
                       <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
-                        Create/register an agent (existing flow)
+                        Create/register a Smart Agent
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRegistrationMenu(false);
+                        setNavigatingToRegistration(true);
+                        router.push('/agent-registration/8004-eoa'); // ERC-8004 EOA-only flow
+                        setTimeout(() => setNavigatingToRegistration(false), 1000);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '0.65rem 0.85rem',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        color: palette.textPrimary,
+                        borderBottom: `1px solid ${palette.border}`,
+                      }}
+                    >
+                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8004 (EOA only)</div>
+                      <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
+                        Register identity from your wallet (no ENS, no smart account)
                       </div>
                     </button>
 
@@ -346,9 +371,9 @@ export function Header({
                         color: palette.textPrimary,
                       }}
                     >
-                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8122</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8122 Smart Agent</div>
                       <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
-                        Deploy/mint via ERC-8122 registrar
+                      Create/register a Smart Agent
                       </div>
                     </button>
                   </div>

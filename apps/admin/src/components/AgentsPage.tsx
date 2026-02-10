@@ -3857,7 +3857,7 @@ export function AgentsPage({
             </div>
           )}
 
-          {agentsToRender.map(agent => {
+          {agentsToRender.map((agent, idx) => {
             const uaid = getAgentKey(agent);
             if (!uaid) return null;
             const isOwned = Boolean(ownedMap[uaid]);
@@ -4018,7 +4018,9 @@ export function AgentsPage({
               secondsAgo !== null ? Math.floor(secondsAgo / 60) : null;
             return (
               <article
-                key={uaid}
+                // UAID can appear more than once in the list (e.g. upstream duplication).
+                // Include idx to keep React keys unique and stable per render.
+                key={`${uaid}::${idx}`}
                 style={{
                   borderRadius: '20px',
                   border: `1px solid ${palette.border}`,
@@ -4673,7 +4675,7 @@ export function AgentsPage({
                     ) : (
                       atiLeaderboard.map((row, idx) => (
                         <button
-                          key={String((row as any).uaid ?? `${row.chainId}:${row.agentId}`)}
+                          key={`${String((row as any).uaid ?? `${row.chainId}:${row.agentId}`)}::lb::${idx}`}
                           type="button"
                           onClick={() => {
                             const uaid = String((row as any).uaid ?? '').trim();
