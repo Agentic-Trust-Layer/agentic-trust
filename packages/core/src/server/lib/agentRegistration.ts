@@ -124,6 +124,7 @@ export function createRegistrationJSON(params: {
       const type = typeof s?.type === 'string' ? s.type.trim() : '';
       const endpoint = typeof s?.endpoint === 'string' ? s.endpoint.trim() : '';
       if (!type || !endpoint) continue;
+      if (type.toLowerCase() === 'mcp') continue;
       services.push({
         type: type.toLowerCase(),
         endpoint,
@@ -138,6 +139,7 @@ export function createRegistrationJSON(params: {
       const name = typeof e?.name === 'string' ? e.name.trim() : '';
       const endpoint = typeof e?.endpoint === 'string' ? e.endpoint.trim() : '';
       if (!name || !endpoint) continue;
+      if (name.toLowerCase() === 'mcp') continue;
       const capsFromRecord =
         e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
           ? Object.keys(e.capabilities as Record<string, unknown>)

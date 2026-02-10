@@ -88,6 +88,7 @@ export default function AgentRegistration8004EoaPage() {
   const [registering, setRegistering] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [agentUrlAutofillDisabled, setAgentUrlAutofillDisabled] = useState(false);
 
   const supportedChainIds = useMemo(() => {
     try {
@@ -142,28 +143,28 @@ export default function AgentRegistration8004EoaPage() {
     did8004?: string;
   } | null>(null);
 
-  // autofill agent URL like 8004
+  const handleAgentUrlInputChange = useCallback((value: string) => {
+    setAgentUrlAutofillDisabled(true);
+    setForm((prev) => ({ ...prev, agentUrl: value }));
+  }, []);
+
+  const handleResetAgentUrlToDefault = useCallback(() => {
+    setAgentUrlAutofillDisabled(false);
+    const defaultUrl = buildDefaultAgentUrl(form.agentName);
+    setForm((prev) => ({ ...prev, agentUrl: defaultUrl }));
+  }, [form.agentName]);
+
+  // autofill agent URL like 8004 (keeps in sync unless user edits the URL)
   useEffect(() => {
+    if (agentUrlAutofillDisabled) return;
     const defaultUrl = buildDefaultAgentUrl(form.agentName);
     setForm((prev) => {
       const current = (prev.agentUrl || '').trim();
-      if (current) return prev;
-      if (!defaultUrl) return prev;
+      if ((current || '') === (defaultUrl || '')) return prev;
+      if (!current && !defaultUrl) return prev;
       return { ...prev, agentUrl: defaultUrl };
     });
-  }, [form.agentName]);
-
-  // default endpoints derived from agentUrl
-  useEffect(() => {
-    const base = (form.agentUrl || '').trim().replace(/\/$/, '');
-    if (!base) return;
-    if (protocol === 'A2A') {
-      setA2aEndpoint((prev) => (prev.trim() ? prev : `${base}/.well-known/agent-card.json`));
-    }
-    if (protocol === 'MCP') {
-      setMcpEndpoint((prev) => (prev.trim() ? prev : `${base}/api/mcp`));
-    }
-  }, [form.agentUrl, protocol]);
+  }, [agentUrlAutofillDisabled, form.agentName]);
 
   const handleImageUploadClick = useCallback(() => {
     setImageUploadError(null);
@@ -192,7 +193,38 @@ export default function AgentRegistration8004EoaPage() {
     }
   }, []);
 
-  const normalizedBaseUrl = (form.agentUrl || '').trim().replace(/\/$/, '');
+  const resolvedAgentBaseUrl = useMemo(() => {
+    const explicit = (form.agentUrl || '').trim();
+    if (explicit) return explicit;
+    return buildDefaultAgentUrl(form.agentName);
+  }, [form.agentName, form.agentUrl]);
+
+  const normalizedBaseUrl = useMemo(
+    () => (resolvedAgentBaseUrl || '').trim().replace(/\/$/, ''),
+    [resolvedAgentBaseUrl],
+  );
+
+  // Default A2A endpoint to the canonical agent card URL (/.well-known/agent-card.json) and MCP to /api/mcp.
+  // Keep the derived endpoint in sync with the base URL unless the user has customized it.
+  const defaultA2AEndpoint = normalizedBaseUrl ? `${normalizedBaseUrl}/.well-known/agent-card.json` : '';
+  const defaultMcpEndpoint = normalizedBaseUrl ? `${normalizedBaseUrl}/api/mcp` : '';
+  const previousDefaultsRef = useRef({ a2a: '', mcp: '' });
+  useEffect(() => {
+    const prevDefaults = previousDefaultsRef.current;
+    if (protocol === 'A2A' && defaultA2AEndpoint) {
+      setA2aEndpoint((prev) => {
+        const shouldUpdate = !prev.trim() || prev.trim() === prevDefaults.a2a;
+        return shouldUpdate ? defaultA2AEndpoint : prev;
+      });
+    }
+    if (protocol === 'MCP' && defaultMcpEndpoint) {
+      setMcpEndpoint((prev) => {
+        const shouldUpdate = !prev.trim() || prev.trim() === prevDefaults.mcp;
+        return shouldUpdate ? defaultMcpEndpoint : prev;
+      });
+    }
+    previousDefaultsRef.current = { a2a: defaultA2AEndpoint, mcp: defaultMcpEndpoint };
+  }, [protocol, defaultA2AEndpoint, defaultMcpEndpoint]);
 
   const endpoints = useMemo(() => {
     const out: Array<{ name: string; endpoint: string; version?: string }> = [];
@@ -306,6 +338,91 @@ export default function AgentRegistration8004EoaPage() {
       const did8004 = agentId ? `did:8004:${selectedChainId}:${agentId}` : undefined;
       const uaid = agentId ? `uaid:${did8004}` : undefined;
 
+      // Finalize tokenURI registration JSON so it includes uaid:did:8004:{chainId}:{agentId}
+      // (EOA flow cannot know agentId until the on-chain tx is confirmed).
+      if (agentId && uaid) {
+        try {
+          const services: Array<{ type: string; endpoint: string; version?: string; capabilities?: string[] }> = [];
+          if (protocol === 'A2A' && a2aEndpoint.trim()) {
+            services.push({
+              type: 'a2a',
+              endpoint: a2aEndpoint.trim(),
+              version: '0.3.0',
+            });
+          }
+          // Keep MCP out of registration JSON (server also enforces this).
+
+          const registrationPayload = {
+            type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+            name: form.agentName.trim(),
+            description: form.description.trim() ? form.description.trim() : undefined,
+            image: form.image.trim() ? form.image.trim() : undefined,
+            active: true,
+            uaid,
+            agentAccount: eoaAddress,
+            registeredBy: 'agentic-trust',
+            registryNamespace: 'erc-8004',
+            supportedTrust: supportedTrust.length > 0 ? supportedTrust : undefined,
+            services: services.length > 0 ? services : undefined,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          setSuccess('Preparing final registration JSON (tokenURI)…');
+          const finalizeRes = await fetch(`/api/agents/${encodeURIComponent(uaid)}/registration`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode: 'eoa',
+              registration: registrationPayload,
+            }),
+          });
+          const finalizeBody = await finalizeRes.json().catch(() => ({} as any));
+          if (!finalizeRes.ok) {
+            throw new Error(
+              finalizeBody?.error ||
+                finalizeBody?.message ||
+                `Failed to finalize registration (${finalizeRes.status})`,
+            );
+          }
+          if (finalizeBody?.mode !== 'eoa' || !finalizeBody?.transaction?.to || !finalizeBody?.transaction?.data) {
+            throw new Error('Finalize response missing EOA transaction details');
+          }
+
+          const finalizeChainId = Number(finalizeBody.transaction.chainId ?? finalizeBody.chainId ?? txChainId);
+          if (!Number.isFinite(finalizeChainId) || finalizeChainId <= 0) {
+            throw new Error('Finalize response missing valid chainId for transaction');
+          }
+
+          await ensureEip1193Chain(eip1193Provider as any, finalizeChainId);
+
+          const finalizeTx: PreparedTransaction = {
+            to: finalizeBody.transaction.to as `0x${string}`,
+            data: finalizeBody.transaction.data as `0x${string}`,
+            value: (finalizeBody.transaction.value ?? '0x0') as `0x${string}`,
+            gas: finalizeBody.transaction.gas as `0x${string}` | undefined,
+            gasPrice: finalizeBody.transaction.gasPrice as `0x${string}` | undefined,
+            maxFeePerGas: finalizeBody.transaction.maxFeePerGas as `0x${string}` | undefined,
+            maxPriorityFeePerGas: finalizeBody.transaction.maxPriorityFeePerGas as `0x${string}` | undefined,
+            nonce: finalizeBody.transaction.nonce as number | undefined,
+            chainId: finalizeChainId,
+          };
+
+          setSuccess('MetaMask signature: setAgentURI (finalize registration)…');
+          await signAndSendTransaction({
+            transaction: finalizeTx,
+            account: eoaAddress,
+            chain: getChainById(finalizeChainId),
+            ethereumProvider: eip1193Provider as any,
+            onStatusUpdate: setSuccess,
+            extractAgentId: false,
+          });
+        } catch (finalizeError) {
+          console.warn('[8004-eoa] Failed to finalize registration tokenURI:', finalizeError);
+          // Non-fatal: the agent is already registered; this only updates tokenURI JSON.
+        }
+      }
+
       setRegistrationCompleteDetails({
         agentId,
         txHash: txResult.hash,
@@ -323,6 +440,8 @@ export default function AgentRegistration8004EoaPage() {
     eip1193Provider,
     eoaAddress,
     endpoints,
+    protocol,
+    a2aEndpoint,
     form.agentName,
     form.description,
     form.image,
@@ -469,17 +588,38 @@ export default function AgentRegistration8004EoaPage() {
 
           <div style={{ marginTop: '1rem' }}>
             <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 700 }}>Agent URL</label>
-            <input
-              value={form.agentUrl}
-              onChange={(e) => setForm((p) => ({ ...p, agentUrl: e.target.value }))}
-              style={{
-                width: '100%',
-                padding: '0.55rem 0.75rem',
-                border: `1px solid ${palette.border}`,
-                borderRadius: '10px',
-                backgroundColor: palette.surface,
-              }}
-            />
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <input
+                value={form.agentUrl}
+                onChange={(e) => handleAgentUrlInputChange(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '0.55rem 0.75rem',
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '10px',
+                  backgroundColor: palette.surface,
+                }}
+              />
+              {agentUrlAutofillDisabled && (
+                <button
+                  type="button"
+                  onClick={handleResetAgentUrlToDefault}
+                  style={{
+                    padding: '0.55rem 0.9rem',
+                    borderRadius: '10px',
+                    border: `1px solid ${palette.border}`,
+                    backgroundColor: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Reset Agent URL to the auto-generated default"
+                >
+                  Reset
+                </button>
+              )}
+            </div>
           </div>
 
           <div style={{ marginTop: '1rem' }}>

@@ -517,7 +517,6 @@ export class AgentsAPI {
       ...(params.agentCategory ? [{ key: 'agentCategory', value: String(params.agentCategory) }] : []),
       { key: 'registeredBy', value: 'agentic-trust' },
       { key: 'registryNamespace', value: 'erc-8004' },
-      ...(uaid ? [{ key: 'uaid', value: uaid }] : []),
     ].filter(m => m.value !== ''); // Remove empty values
 
 
