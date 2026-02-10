@@ -1,4 +1,4 @@
-import { zeroAddress } from 'viem';
+import { encodeFunctionData, zeroAddress } from 'viem';
 import { uploadRegistration } from '../../server/lib/agentRegistration';
 import { getAgenticTrustClient } from '../../server/lib/agenticTrust';
 import { parseDid8004 } from '../../shared/did8004';
@@ -228,7 +228,20 @@ export async function createAgentCore(
     transaction,
   };
 }
-const SUPPORTED_UPDATE_MODES: AgentOperationMode[] = ['smartAccount'];
+const SUPPORTED_UPDATE_MODES: AgentOperationMode[] = ['smartAccount', 'eoa'];
+
+const identityRegistrySetAgentUriAbi = [
+  {
+    type: 'function',
+    name: 'setAgentURI',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'agentId', type: 'uint256' },
+      { name: 'tokenURI', type: 'string' },
+    ],
+    outputs: [],
+  },
+] as const;
 
 function normalizeRegistrationPayload(
   registration: unknown,
@@ -288,8 +301,14 @@ export async function updateAgentRegistrationCore(
 
   const registrationObject = normalizeRegistrationPayload(input.registration);
 
-  // Enforce: never include MCP endpoint entries in registration JSON.
+  // Enforce: never include MCP entries in registration JSON.
   try {
+    const maybeServices = (registrationObject as any)?.services;
+    if (Array.isArray(maybeServices)) {
+      (registrationObject as any).services = maybeServices.filter(
+        (s: any) => String(s?.type || '').toLowerCase() !== 'mcp',
+      );
+    }
     const maybeEndpoints = (registrationObject as any)?.endpoints;
     if (Array.isArray(maybeEndpoints)) {
       (registrationObject as any).endpoints = maybeEndpoints.filter(
@@ -332,6 +351,44 @@ export async function updateAgentRegistrationCore(
   }
 
   const uploadResult = await uploadRegistration(registrationObject as any);
+
+  if (mode === 'eoa') {
+    const identityRegistry = getChainContractAddress(
+      'AGENTIC_TRUST_IDENTITY_REGISTRY',
+      parsed.chainId,
+    );
+    if (!identityRegistry) {
+      throw new AgentApiError(
+        `Missing identity registry address for chain ${parsed.chainId}`,
+        500,
+      );
+    }
+
+    const data = encodeFunctionData({
+      abi: identityRegistrySetAgentUriAbi,
+      functionName: 'setAgentURI',
+      args: [BigInt(parsed.agentId), uploadResult.tokenUri],
+    });
+
+    const txPayload: AgentPreparedTransactionPayload = {
+      to: identityRegistry,
+      data,
+      value: '0',
+      chainId: parsed.chainId,
+    };
+
+    return {
+      success: true,
+      operation: 'update',
+      mode: 'eoa',
+      chainId: parsed.chainId,
+      cid: uploadResult.cid,
+      tokenUri: uploadResult.tokenUri,
+      identityRegistry,
+      calls: [],
+      transaction: txPayload,
+    };
+  }
 
   const client = await resolveClient(ctx);
   const prepared = await client.prepareUpdateAgent({
