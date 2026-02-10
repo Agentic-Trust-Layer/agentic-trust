@@ -141,6 +141,22 @@ function parseRegistryFromUaid(
   return null;
 }
 
+function parseChainIdFromUaid(uaid: unknown): number | null {
+  if (typeof uaid !== 'string') return null;
+  const raw = uaid.trim();
+  if (!raw.startsWith('uaid:did:')) return null;
+  const afterPrefix = raw.slice('uaid:did:'.length);
+  const idPart = (afterPrefix.split(';')[0] ?? '').trim();
+  if (!idPart) return null;
+  // idPart is "<method>:<...>" (e.g. "ethr:11155111:0xabc...")
+  const parts = idPart.split(':').filter(Boolean);
+  if (parts.length < 2) return null;
+  const maybeChain = parts[1];
+  if (!/^\d+$/.test(maybeChain)) return null;
+  const n = Number(maybeChain);
+  return Number.isFinite(n) ? n : null;
+}
+
 function formatJsonIfPossible(text: string | null | undefined): string | null {
   if (!text) return null;
   try {
@@ -722,8 +738,10 @@ const AgentDetailsTabs = ({
     const did = (agent as any).identity8004Did ?? agent.did ?? null;
     const descriptor = parseJsonObject((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null) ?? {};
     const parsedDid = parseRegistryFromUaid(uaid) ?? parseRegistryFromDid(did);
-    const registryId: '8004' | '8122' = (() => {
+    const registryId: '8004' | '8122' | null = (() => {
       if (parsedDid?.registryId) return parsedDid.registryId;
+      if (has8122Registry) return '8122';
+      if (has8004Registry) return '8004';
       const registryNamespace =
         typeof (descriptor as any)?.registryNamespace === 'string'
           ? String((descriptor as any).registryNamespace).trim().toLowerCase()
@@ -733,13 +751,21 @@ const AgentDetailsTabs = ({
           ? String((descriptor as any).type).trim().toLowerCase()
           : '';
       if (registryNamespace.includes('8122') || type.includes('8122')) return '8122';
-      return '8004';
+      if (registryNamespace.includes('8004') || type.includes('8004')) return '8004';
+      return null;
     })();
-    const chainIdForRegistry = parsedDid?.chainId ?? (typeof agent.chainId === 'number' ? agent.chainId : null);
+    const chainIdForRegistry =
+      parsedDid?.chainId ??
+      (typeof agent.chainId === 'number' && Number.isFinite(agent.chainId) && agent.chainId > 0 ? agent.chainId : null) ??
+      parseChainIdFromUaid(uaid);
     const chainLabel = getChainLabel(chainIdForRegistry);
-    const registryLabel = isSmartAgent
-      ? `Smart Agent (${registryId} ${chainLabel})`
-      : `${registryId} ${chainLabel}`;
+    const registryLabel = (() => {
+      // If the agent has no on-chain registry identity, do not imply "8004".
+      if (!registryId) {
+        return isSmartAgent ? `Smart Agent (${chainLabel})` : `Agent (${chainLabel})`;
+      }
+      return isSmartAgent ? `Smart Agent (${registryId} ${chainLabel})` : `${registryId} ${chainLabel}`;
+    })();
 
     const tabs: Array<{ id: TabId; label: string }> = [
       { id: 'id8004', label: registryLabel },
@@ -747,7 +773,7 @@ const AgentDetailsTabs = ({
     if (hasEnsIdentity) tabs.push({ id: 'ens', label: 'ENS' });
     if (hasHolIdentity) tabs.push({ id: 'hol', label: 'HOL' });
     return tabs;
-  }, [agent, uaid, hasEnsIdentity, hasHolIdentity, isSmartAgent]);
+  }, [agent, uaid, hasEnsIdentity, hasHolIdentity, isSmartAgent, has8004Registry, has8122Registry]);
 
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const registerProtocols = useMemo(
@@ -864,7 +890,11 @@ const AgentDetailsTabs = ({
 
   const identityRegistryInfo = useMemo(() => {
     if (identityTab !== 'id8004') return null;
+    const parsedFromUaid = parseRegistryFromUaid(uaid);
     const parsedDid = parseRegistryFromDid(identityDid);
+    const parsed = parsedFromUaid ?? parsedDid;
+    // If this agent has no 8004/8122 registry identity, don't show a registry badge at all.
+    if (!parsed) return null;
     const registryNamespace =
       typeof (identityDescriptor as any)?.registryNamespace === 'string'
         ? String((identityDescriptor as any).registryNamespace).trim()
@@ -877,14 +907,8 @@ const AgentDetailsTabs = ({
       typeof (identityDescriptor as any)?.type === 'string'
         ? String((identityDescriptor as any).type).trim()
         : null;
-    const registryId: '8004' | '8122' = (() => {
-      if (parsedDid?.registryId) return parsedDid.registryId;
-      const ns = (registryNamespace ?? '').toLowerCase();
-      const t = (type ?? '').toLowerCase();
-      if (ns.includes('8122') || t.includes('8122')) return '8122';
-      return '8004';
-    })();
-    const chainId = parsedDid?.chainId ?? (typeof agent.chainId === 'number' ? agent.chainId : null);
+    const registryId: '8004' | '8122' = parsed.registryId;
+    const chainId = parsed.chainId;
     return {
       registryId,
       chainId,
@@ -895,7 +919,7 @@ const AgentDetailsTabs = ({
       uaid: typeof (identityDescriptor as any)?.uaid === 'string' ? String((identityDescriptor as any).uaid).trim() : null,
       registrations: Array.isArray((identityDescriptor as any)?.registrations) ? ((identityDescriptor as any).registrations as any[]) : null,
     };
-  }, [agent.chainId, identityDescriptor, identityDid, identityTab]);
+  }, [identityDescriptor, identityDid, identityTab, uaid]);
 
   return (
     <ContainerTag style={containerStyle}>
@@ -994,16 +1018,43 @@ const AgentDetailsTabs = ({
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem', fontSize: '0.9rem' }}>
                 {identityTab === 'id8004' ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-                    <div>
-                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
-                      <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
+                  !has8004Registry && !has8122Registry ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>UAID</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                          {uaid ?? '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>DID</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                          {agent.did ?? '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                        <div style={{ color: palette.textPrimary }}>
+                          {getChainLabel(
+                            (typeof agent.chainId === 'number' && Number.isFinite(agent.chainId) && agent.chainId > 0
+                              ? agent.chainId
+                              : null) ?? parseChainIdFromUaid(uaid),
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
-                      <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
+                      </div>
+                      <div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                        <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
+                      </div>
                     </div>
-                  </div>
+                  )
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
                     <div>
