@@ -834,11 +834,18 @@ const AgentDetailsTabs = ({
       if (!descriptorJson) return null;
       try {
         const parsed = JSON.parse(descriptorJson) as any;
-        const services = Array.isArray(parsed?.services) ? parsed.services : [];
         const target = serviceName.trim().toLowerCase();
+        const services = Array.isArray(parsed?.services) ? parsed.services : [];
         for (const svc of services) {
-          const name = typeof svc?.name === 'string' ? svc.name.trim().toLowerCase() : '';
+          const nameRaw = typeof svc?.name === 'string' ? svc.name : typeof svc?.type === 'string' ? svc.type : '';
+          const name = nameRaw.trim().toLowerCase();
           const endpoint = typeof svc?.endpoint === 'string' ? svc.endpoint.trim() : '';
+          if (name === target && endpoint) return endpoint;
+        }
+        const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+        for (const ep of endpoints) {
+          const name = typeof ep?.name === 'string' ? ep.name.trim().toLowerCase() : '';
+          const endpoint = typeof ep?.endpoint === 'string' ? ep.endpoint.trim() : '';
           if (name === target && endpoint) return endpoint;
         }
       } catch {
@@ -891,10 +898,28 @@ const AgentDetailsTabs = ({
     return { entries, byKey };
   }, [identityOnchainMetadata, identityTab]);
 
+  const extractKbServiceUrl = useCallback((serviceName: string): string | null => {
+    const endpoints = (agent as any)?.serviceEndpoints;
+    if (!Array.isArray(endpoints)) return null;
+    const target = serviceName.trim().toLowerCase();
+    for (const ep of endpoints) {
+      const name = typeof (ep as any)?.name === 'string' ? String((ep as any).name).trim().toLowerCase() : '';
+      if (!name || name !== target) continue;
+      const serviceUrl =
+        typeof (ep as any)?.protocol?.serviceUrl === 'string' ? String((ep as any).protocol.serviceUrl).trim() : '';
+      if (serviceUrl) return serviceUrl;
+    }
+    return null;
+  }, [agent]);
+
   const identityA2aEndpoint =
-    extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'a2a') ?? (identityTab === 'id8004' ? agent.a2aEndpoint : null);
+    extractKbServiceUrl('a2a') ??
+    extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'a2a') ??
+    (identityTab === 'id8004' ? agent.a2aEndpoint : null);
   const identityMcpEndpoint =
-    extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'mcp') ?? (identityTab === 'id8004' ? agent.mcpEndpoint : null);
+    extractKbServiceUrl('mcp') ??
+    extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'mcp') ??
+    (identityTab === 'id8004' ? agent.mcpEndpoint : null);
 
   const identityDescriptorPretty = useMemo(
     () => formatJsonIfPossible(identityDescriptorJsonRaw),
@@ -1057,14 +1082,22 @@ const AgentDetailsTabs = ({
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
-                      <div>
-                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
-                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                        <div>
+                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Agent ID</strong>
+                          <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>{agent.agentId}</div>
+                        </div>
+                        <div>
+                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
+                          <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
+                        </div>
                       </div>
                       <div>
-                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Chain</strong>
-                        <div style={{ color: palette.textPrimary }}>{agent.chainId}</div>
+                        <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>UAID</strong>
+                        <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                          {uaid ?? '—'}
+                        </div>
                       </div>
                     </div>
                   )

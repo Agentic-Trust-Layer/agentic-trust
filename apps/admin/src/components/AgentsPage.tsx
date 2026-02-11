@@ -92,6 +92,11 @@ export type AgentsPageAgent = {
   identity8004?: unknown | null;
   identityEns?: unknown | null;
   identityHol?: unknown | null;
+  /**
+   * KB v2 service endpoints (A2A, MCP, etc).
+   * Returned by kbAgentByUaid.serviceEndpoints and used by Agent Details.
+   */
+  serviceEndpoints?: unknown[] | null;
 };
 
 type Agent = AgentsPageAgent;
