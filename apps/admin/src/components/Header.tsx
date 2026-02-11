@@ -260,7 +260,7 @@ export function Header({
                       }}
                     />
                   )}
-                  {isMobile ? 'Register' : 'Agent Registration'}
+                  {isMobile ? 'Create' : 'Create Agent'}
                   <span style={{ marginLeft: '0.15rem', fontSize: '0.75rem', opacity: 0.85 }}>▾</span>
                 </button>
                 {showRegistrationMenu && (
@@ -299,7 +299,7 @@ export function Header({
                     >
                       <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>Smart Agent</div>
                       <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
-                        Smart account + ENS Registration
+                        Smart account + ENS
                       </div>
                     </button>
 
@@ -328,54 +328,6 @@ export function Header({
                       </div>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowRegistrationMenu(false);
-                        setNavigatingToRegistration(true);
-                        router.push('/agent-registration/8004-eoa'); // ERC-8004 EOA-only flow
-                        setTimeout(() => setNavigatingToRegistration(false), 1000);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '0.65rem 0.85rem',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        color: palette.textPrimary,
-                        borderBottom: `1px solid ${palette.border}`,
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8004 (EOA only)</div>
-                      <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
-                        Register identity from your wallet (no ENS, no smart account)
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowRegistrationMenu(false);
-                        setNavigatingToRegistration(true);
-                        router.push('/agent-registration/8122'); // ERC-8122 flow
-                        setTimeout(() => setNavigatingToRegistration(false), 1000);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '0.65rem 0.85rem',
-                        backgroundColor: 'transparent',
-                        border: 'none',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        color: palette.textPrimary,
-                      }}
-                    >
-                      <div style={{ fontWeight: 700, fontSize: '0.92rem' }}>ERC-8122 Smart Agent</div>
-                      <div style={{ marginTop: '0.2rem', fontSize: '0.8rem', color: palette.textSecondary }}>
-                      Create/register a Smart Agent
-                      </div>
-                    </button>
                   </div>
                 )}
               </div>
@@ -502,6 +454,26 @@ export function Header({
                     }}
                   >
                     Messaging
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      router.push('/registries/8004');
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.85rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      color: palette.textPrimary,
+                      borderBottom: `1px solid ${palette.border}`,
+                    }}
+                  >
+                    8004 Registries
                   </button>
                   <button
                     type="button"

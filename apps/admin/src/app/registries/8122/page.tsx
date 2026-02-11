@@ -402,12 +402,43 @@ export default function Registries8122AdminPage() {
       />
 
       <main style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-        <div style={{ marginBottom: '1.25rem' }}>
-          <div style={{ color: palette.textSecondary, fontSize: '0.9rem' }}>Administration</div>
-          <h1 style={{ margin: '0.25rem 0 0', fontSize: '1.6rem' }}>ERC-8122 Collections</h1>
-          <div style={{ marginTop: '0.5rem', color: palette.textSecondary, lineHeight: 1.4 }}>
-            Lists registries from the Knowledge Base and filters to collections you administer on-chain.
+        <div
+          style={{
+            marginBottom: '1.25rem',
+            display: 'flex',
+            alignItems: 'flex-start',
+            justifyContent: 'space-between',
+            gap: '1rem',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div>
+            <div style={{ color: palette.textSecondary, fontSize: '0.9rem' }}>Administration</div>
+            <h1 style={{ margin: '0.25rem 0 0', fontSize: '1.6rem' }}>ERC-8122 Collections</h1>
+            <div style={{ marginTop: '0.5rem', color: palette.textSecondary, lineHeight: 1.4 }}>
+              Lists registries from the Knowledge Base and filters to collections you administer on-chain.
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = '/agent-registration/8122';
+            }}
+            style={{
+              padding: '0.55rem 0.85rem',
+              borderRadius: '10px',
+              border: `1px solid ${palette.borderStrong}`,
+              background: palette.accent,
+              color: palette.surface,
+              fontWeight: 800,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+            title="Go to Agent ERC-8122 Registration"
+          >
+            Agent ERC-8122 Registration
+          </button>
         </div>
 
         <section

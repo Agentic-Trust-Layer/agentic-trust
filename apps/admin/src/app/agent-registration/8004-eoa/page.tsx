@@ -812,7 +812,7 @@ export default function AgentRegistration8004EoaPage() {
               boxShadow: '0 8px 24px rgba(15,23,42,0.08)',
             }}
           >
-            <h2 style={{ margin: 0, marginBottom: '1.25rem', color: palette.textPrimary }}>Agent Registration</h2>
+            <h2 style={{ margin: 0, marginBottom: '1.25rem', color: palette.textPrimary }}>ERC-8004 Agent Registration</h2>
 
             {!canSign && (
               <div

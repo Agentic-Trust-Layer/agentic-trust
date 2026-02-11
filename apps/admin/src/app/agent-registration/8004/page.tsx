@@ -2622,7 +2622,7 @@ export default function AgentRegistrationPage() {
           border: isMobile ? 'none' : '1px solid #dcdcdc',
         }}
       >
-        {!isMobile && <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>Agent Registration</h2>}
+        {!isMobile && <h2 style={{ marginBottom: '1rem', fontSize: '1.5rem' }}>ERC-8004 Agent Registration</h2>}
         <form onSubmit={(event) => event.preventDefault()}>
           <div style={{ display: 'flex', gap: isMobile ? '0.35rem' : '0.5rem', flexWrap: isMobile ? 'nowrap' : 'wrap', marginBottom: isMobile ? '0.75rem' : '1.0rem', overflowX: isMobile ? 'auto' : undefined }}>
             {CREATE_STEPS.map((label, index) => {
@@ -2739,7 +2739,7 @@ export default function AgentRegistrationPage() {
                   opacity: registering ? 0.7 : 1,
                 }}
               >
-                {isMobile ? 'Register' : 'Agent Registration'}
+                {isMobile ? 'Register' : 'ERC-8004 Agent Registration'}
               </button>
             )}
           </div>
