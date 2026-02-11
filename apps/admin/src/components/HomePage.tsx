@@ -122,7 +122,7 @@ export function LoginModal({ onClose }: LoginModalProps) {
             textAlign: 'center',
           }}
         >
-          Open Agent Explorer
+          Agent Explorer
         </h1>
 
         {error && (
@@ -246,7 +246,7 @@ export function HomePage({
 }: HomePageProps) {
   const primaryHeroCta = 'Explore Live Agents →';
   const secondaryHeroCta = 'See how the stack works ↓';
-  const explorerCta = 'Open Agent Explorer →';
+  const explorerCta = 'Agent Explorer →';
 
   const stackRef = useRef<HTMLDivElement | null>(null);
   const scrollToStack = useCallback(() => {
@@ -607,7 +607,7 @@ export function HomePage({
                   See the trust graph in action
                 </Typography>
                 <Typography variant="body1" color="text.secondary" sx={{ maxWidth: 980 }}>
-                  Open Agent Explorer lets you inspect real agents, identities, service endpoints, and trust signals — live and
+                  Agent Explorer lets you inspect real agents, identities, service endpoints, and trust signals — live and
                   verifiable.
                 </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 3 }}>

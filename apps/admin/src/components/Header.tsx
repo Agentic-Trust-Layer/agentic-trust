@@ -156,7 +156,7 @@ export function Header({
           >
             <Image
               src="/8004Agent.png"
-              alt="Open Agent Explorer"
+              alt="Agent Explorer"
               width={64}
               height={64}
               style={{
@@ -173,7 +173,7 @@ export function Header({
                 fontWeight: 500,
               }}
             >
-              Open Agent Explorer
+            Agent Explorer
             </h1>
           </Link>
           {!isMobile && (
@@ -194,7 +194,7 @@ export function Header({
             }}
             title={
               canRequestGraphql
-                ? 'Open Agent Explorer'
+                ? 'Agent Explorer'
                 : 'Connect to request a GraphQL access code'
             }
           >

@@ -27,6 +27,14 @@ export type AgentsPageAgent = {
   chainId: number;
   uaid?: string | null;
   agentName?: string | null;
+  /**
+   * KB v2 ontology types (used for Smart Agent detection).
+   */
+  agentTypes?: string[] | null;
+  /**
+   * Best-effort boolean hint (legacy / derived).
+   */
+  isSmartAgent?: boolean | null;
   agentAccount?: string | null;
   agentIdentityOwnerAccount?: string | null;
   eoaAgentIdentityOwnerAccount?: string | null;
@@ -47,13 +55,16 @@ export type AgentsPageAgent = {
    * Used to render identity-scoped tabs in agent details view.
    */
   identity8004Did?: string | null;
+  identity8122Did?: string | null;
   identityEnsDid?: string | null;
   identityHolDid?: string | null;
   identityHolUaid?: string | null;
   identity8004DescriptorJson?: string | null;
+  identity8122DescriptorJson?: string | null;
   identityEnsDescriptorJson?: string | null;
   identityHolDescriptorJson?: string | null;
   identity8004OnchainMetadataJson?: string | null;
+  identity8122OnchainMetadataJson?: string | null;
   identityEnsOnchainMetadataJson?: string | null;
   identityHolOnchainMetadataJson?: string | null;
   agentCategory?: string | null;
@@ -90,6 +101,7 @@ export type AgentsPageAgent = {
    * Shape matches the discovery GraphQL KB schema; kept as unknown for flexibility.
    */
   identity8004?: unknown | null;
+  identity8122?: unknown | null;
   identityEns?: unknown | null;
   identityHol?: unknown | null;
   /**

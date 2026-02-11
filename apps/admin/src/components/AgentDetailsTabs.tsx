@@ -60,6 +60,7 @@ type AgentDetailsTabsProps = {
 const ALL_TAB_DEFS = [
   // Main identity tabs (ENS/HOL are conditionally shown)
   { id: 'id8004', label: '8004' },
+  { id: 'id8122', label: '8122' },
   { id: 'ens', label: 'ENS' },
   { id: 'hol', label: 'HOL' },
   // Opened via dialogs (not shown in the main tab bar)
@@ -430,7 +431,14 @@ const AgentDetailsTabs = ({
 
     let cancelled = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
+    const abort = (reason: unknown) => {
+      try {
+        (controller as any).abort(reason);
+      } catch {
+        controller.abort();
+      }
+    };
+    const timeout = setTimeout(() => abort('timeout'), 12_000);
 
     (async () => {
       setFeedbackLoading(true);
@@ -476,6 +484,11 @@ const AgentDetailsTabs = ({
         }
       } catch (e: any) {
         if (!cancelled) {
+          if (controller.signal.aborted || e?.name === 'AbortError') {
+            const reason = (controller.signal as any)?.reason;
+            if (reason === 'timeout') setFeedbackError('Feedback request timed out. Retry.');
+            return;
+          }
           setFeedbackError(e?.message || 'Failed to load feedback');
         }
       } finally {
@@ -490,7 +503,7 @@ const AgentDetailsTabs = ({
     return () => {
       cancelled = true;
       clearTimeout(timeout);
-      controller.abort();
+      abort('cleanup');
     };
   }, [activeTab, modalTab, canonicalUaid]);
 
@@ -501,7 +514,14 @@ const AgentDetailsTabs = ({
 
     let cancelled = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
+    const abort = (reason: unknown) => {
+      try {
+        (controller as any).abort(reason);
+      } catch {
+        controller.abort();
+      }
+    };
+    const timeout = setTimeout(() => abort('timeout'), 12_000);
 
     (async () => {
       setValidationsLoading(true);
@@ -588,6 +608,11 @@ const AgentDetailsTabs = ({
         });
       } catch (e: any) {
         if (!cancelled) {
+          if (controller.signal.aborted || e?.name === 'AbortError') {
+            const reason = (controller.signal as any)?.reason;
+            if (reason === 'timeout') setValidationsError('Validations request timed out. Retry.');
+            return;
+          }
           setValidationsError(e?.message || 'Failed to load validations');
         }
       } finally {
@@ -602,7 +627,7 @@ const AgentDetailsTabs = ({
     return () => {
       cancelled = true;
       clearTimeout(timeout);
-      controller.abort();
+      abort('cleanup');
     };
   }, [activeTab, modalTab, canonicalUaid]);
 
@@ -727,9 +752,13 @@ const AgentDetailsTabs = ({
     (agent as any).identityHolDid || (agent as any).identityHolUaid || (agent as any).identityHolDescriptorJson,
   );
   const didForRegistry = String((agent as any).identity8004Did ?? (agent as any).did ?? '').trim();
+  const did8122ForRegistry = String((agent as any).identity8122Did ?? '').trim();
   const parsedRegistryFromUaid = parseRegistryFromUaid(uaid);
   const has8004Registry = parsedRegistryFromUaid?.registryId === '8004' || didForRegistry.startsWith('did:8004:');
-  const has8122Registry = parsedRegistryFromUaid?.registryId === '8122' || didForRegistry.startsWith('did:8122:');
+  const has8122Registry =
+    parsedRegistryFromUaid?.registryId === '8122' ||
+    did8122ForRegistry.startsWith('did:8122:') ||
+    Boolean((agent as any).identity8122DescriptorJson || (agent as any).identity8122OnchainMetadataJson || (agent as any).identity8122);
   const SMART_AGENT_TYPE_IRIS = [
     'https://agentictrust.io/ontology/core#AISmartAgent',
     'https://agentictrust.io/ontology/erc8004#SmartAgent',
@@ -751,38 +780,20 @@ const AgentDetailsTabs = ({
     const did = (agent as any).identity8004Did ?? agent.did ?? null;
     const descriptor = parseJsonObject((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null) ?? {};
     const parsedDid = parseRegistryFromUaid(uaid) ?? parseRegistryFromDid(did);
-    const registryId: '8004' | '8122' | null = (() => {
-      if (parsedDid?.registryId) return parsedDid.registryId;
-      if (has8122Registry) return '8122';
-      if (has8004Registry) return '8004';
-      const registryNamespace =
-        typeof (descriptor as any)?.registryNamespace === 'string'
-          ? String((descriptor as any).registryNamespace).trim().toLowerCase()
-          : '';
-      const type =
-        typeof (descriptor as any)?.type === 'string'
-          ? String((descriptor as any).type).trim().toLowerCase()
-          : '';
-      if (registryNamespace.includes('8122') || type.includes('8122')) return '8122';
-      if (registryNamespace.includes('8004') || type.includes('8004')) return '8004';
-      return null;
-    })();
     const chainIdForRegistry =
       parsedDid?.chainId ??
       (typeof agent.chainId === 'number' && Number.isFinite(agent.chainId) && agent.chainId > 0 ? agent.chainId : null) ??
       parseChainIdFromUaid(uaid);
     const chainLabel = getChainLabel(chainIdForRegistry);
-    const registryLabel = (() => {
-      // If the agent has no on-chain registry identity, do not imply "8004".
-      if (!registryId) {
-        return isSmartAgent ? `Smart Agent (${chainLabel})` : `Agent (${chainLabel})`;
-      }
-      return isSmartAgent ? `Smart Agent (${registryId} ${chainLabel})` : `${registryId} ${chainLabel}`;
-    })();
-
-    const tabs: Array<{ id: TabId; label: string }> = [
-      { id: 'id8004', label: registryLabel },
-    ];
+    const tabs: Array<{ id: TabId; label: string }> = [];
+    if (has8004Registry) {
+      tabs.push({ id: 'id8004', label: isSmartAgent ? `Smart Agent (8004 ${chainLabel})` : `8004 ${chainLabel}` });
+    } else {
+      tabs.push({ id: 'id8004', label: isSmartAgent ? `Smart Agent (${chainLabel})` : `Agent (${chainLabel})` });
+    }
+    if (has8122Registry) {
+      tabs.push({ id: 'id8122', label: `8122 ${chainLabel}` });
+    }
     if (hasEnsIdentity) tabs.push({ id: 'ens', label: 'ENS' });
     if (hasHolIdentity) tabs.push({ id: 'hol', label: 'HOL' });
     return tabs;
@@ -795,7 +806,7 @@ const AgentDetailsTabs = ({
       if (!has8004Registry) {
         out.push({ id: '8004', label: '8004', description: 'Register/update on-chain identity (ERC-8004)' });
       }
-      if (!has8122Registry) {
+      if (isSmartAgent && !has8122Registry) {
         out.push({ id: '8122', label: '8122', description: 'Register/update on-chain identity (ERC-8122)' });
       }
       if (!hasEnsIdentity) {
@@ -806,14 +817,18 @@ const AgentDetailsTabs = ({
       }
       return out;
     },
-    [has8004Registry, has8122Registry, hasEnsIdentity, hasHolIdentity],
+    [has8004Registry, has8122Registry, hasEnsIdentity, hasHolIdentity, isSmartAgent],
   );
 
   const handleStartRegistration = useCallback(
     (protocol: string) => {
       const safeProtocol = String(protocol || '').trim().toLowerCase();
       if (!safeProtocol) return;
-      if (safeProtocol === '8004' || safeProtocol === '8122') {
+      if (safeProtocol === '8122') {
+        window.location.href = `/agent-registration/8122-existing?uaid=${encodeURIComponent(uaid)}`;
+        return;
+      }
+      if (safeProtocol === '8004') {
         // On-chain registry flows live in the Admin Tools registration tab.
         window.location.href = `/admin-tools/${encodeURIComponent(uaid)}?tab=registration&registry=${encodeURIComponent(safeProtocol)}`;
         return;
@@ -827,6 +842,7 @@ const AgentDetailsTabs = ({
     if (renderOnlyTab) return;
     if (activeTab === 'ens' && !hasEnsIdentity) setActiveTab('id8004');
     if (activeTab === 'hol' && !hasHolIdentity) setActiveTab('id8004');
+    if (activeTab === 'id8122' && !has8122Registry) setActiveTab('id8004');
   }, [activeTab, hasEnsIdentity, hasHolIdentity, renderOnlyTab]);
 
   const extractServiceEndpointFromDescriptorJson = useCallback(
@@ -856,26 +872,32 @@ const AgentDetailsTabs = ({
     [],
   );
 
-  const identityTab = activeTab === 'ens' || activeTab === 'hol' || activeTab === 'id8004' ? activeTab : 'id8004';
+  const identityTab = activeTab === 'ens' || activeTab === 'hol' || activeTab === 'id8004' || activeTab === 'id8122' ? activeTab : 'id8004';
   const identityDid =
     identityTab === 'ens'
       ? ((agent as any).identityEnsDid ?? null)
       : identityTab === 'hol'
         ? ((agent as any).identityHolDid ?? null)
-        : ((agent as any).identity8004Did ?? agent.did ?? null);
+        : identityTab === 'id8122'
+          ? ((agent as any).identity8122Did ?? null)
+          : ((agent as any).identity8004Did ?? agent.did ?? null);
   const identityHolUaid = identityTab === 'hol' ? ((agent as any).identityHolUaid ?? null) : null;
   const identityDescriptorJsonRaw =
     identityTab === 'ens'
       ? ((agent as any).identityEnsDescriptorJson ?? null)
       : identityTab === 'hol'
         ? ((agent as any).identityHolDescriptorJson ?? null)
-        : ((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null);
+        : identityTab === 'id8122'
+          ? ((agent as any).identity8122DescriptorJson ?? null)
+          : ((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null);
   const identityOnchainMetadataJsonRaw =
     identityTab === 'ens'
       ? ((agent as any).identityEnsOnchainMetadataJson ?? null)
       : identityTab === 'hol'
         ? ((agent as any).identityHolOnchainMetadataJson ?? null)
-        : ((agent as any).identity8004OnchainMetadataJson ?? (agent as any).onchainMetadataJson ?? null);
+        : identityTab === 'id8122'
+          ? ((agent as any).identity8122OnchainMetadataJson ?? null)
+          : ((agent as any).identity8004OnchainMetadataJson ?? (agent as any).onchainMetadataJson ?? null);
 
   const identityDescriptor = useMemo(
     () => parseJsonObject(identityDescriptorJsonRaw),
@@ -915,11 +937,11 @@ const AgentDetailsTabs = ({
   const identityA2aEndpoint =
     extractKbServiceUrl('a2a') ??
     extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'a2a') ??
-    (identityTab === 'id8004' ? agent.a2aEndpoint : null);
+    ((identityTab === 'id8004' || identityTab === 'id8122') ? agent.a2aEndpoint : null);
   const identityMcpEndpoint =
     extractKbServiceUrl('mcp') ??
     extractServiceEndpointFromDescriptorJson(identityDescriptorJsonRaw, 'mcp') ??
-    (identityTab === 'id8004' ? agent.mcpEndpoint : null);
+    ((identityTab === 'id8004' || identityTab === 'id8122') ? agent.mcpEndpoint : null);
 
   const identityDescriptorPretty = useMemo(
     () => formatJsonIfPossible(identityDescriptorJsonRaw),
@@ -1039,7 +1061,7 @@ const AgentDetailsTabs = ({
 
       {/* Tab Content */}
       <div style={{ padding: embedded ? 0 : '1.5rem' }}>
-        {(activeTab === 'id8004' || activeTab === 'ens' || activeTab === 'hol') && (
+        {(activeTab === 'id8004' || activeTab === 'id8122' || activeTab === 'ens' || activeTab === 'hol') && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.5rem' }}>
             {/* Left Column: Identity Info and Endpoints stacked */}

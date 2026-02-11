@@ -427,7 +427,14 @@ export default function AgentDetailsPageContent({
 
     let cancelled = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
+    const abort = (reason: unknown) => {
+      try {
+        (controller as any).abort(reason);
+      } catch {
+        controller.abort();
+      }
+    };
+    const timeout = setTimeout(() => abort('timeout'), 12_000);
 
     (async () => {
       setTrustGraphValidationsLoading(true);
@@ -467,6 +474,9 @@ export default function AgentDetailsPageContent({
         });
       } catch (e: any) {
         if (!cancelled) {
+          if (controller.signal.aborted || e?.name === 'AbortError') {
+            return;
+          }
           console.warn('[TrustGraphModal] Failed to load validations:', e?.message || 'Failed to load validations');
           setTrustGraphValidations({ pending: [], completed: [] });
         }
@@ -481,7 +491,7 @@ export default function AgentDetailsPageContent({
     return () => {
       cancelled = true;
       clearTimeout(timeout);
-      controller.abort();
+      abort('cleanup');
     };
   }, [trustGraphModalOpen, uaid]);
 
@@ -543,7 +553,18 @@ export default function AgentDetailsPageContent({
 
     setOwnershipChecking(true);
     try {
-      const response = await fetch(`/api/agents/${encodeURIComponent(uaid)}`, {
+      // The isOwner API expects a uaid:did:8004... (it checks ownerOf on the 8004 identity registry).
+      // Agent detail pages can be addressed by uaid:did:ethr... (Smart Agent UAID), so map to the 8004 UAID when present.
+      const uaidForOwnerCheck = (() => {
+        if (typeof uaid === 'string' && uaid.startsWith('uaid:did:8004:')) return uaid;
+        const did8004 = (agent as any)?.identity8004Did;
+        if (typeof did8004 === 'string' && did8004.startsWith('did:8004:')) {
+          return `uaid:${did8004}`;
+        }
+        return uaid;
+      })();
+
+      const response = await fetch(`/api/agents/${encodeURIComponent(uaidForOwnerCheck)}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -555,18 +576,19 @@ export default function AgentDetailsPageContent({
       });
 
       if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+        // Treat unsupported UAIDs (or older agents) as "not owner" without spamming console.
+        setOwnershipVerified(false);
+        return;
       }
 
       const data = await response.json();
       setOwnershipVerified(data.isOwner);
     } catch (error) {
-      console.error('[AgentDetails] Ownership check failed:', error);
       setOwnershipVerified(false);
     } finally {
       setOwnershipChecking(false);
     }
-  }, [isConnected, walletAddress, uaid]);
+  }, [isConnected, walletAddress, uaid, agent]);
 
   // Show Manage Agent button when user is connected AND ownership is verified
   const showManageButton = isConnected && ownershipVerified === true;
@@ -955,9 +977,12 @@ export default function AgentDetailsPageContent({
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
       <Container
-        maxWidth="lg"
+        maxWidth={false}
+        disableGutters
         sx={{
-          py: { xs: 4, md: 6 },
+          py: { xs: 3, md: 4 },
+          px: { xs: 2, md: 4 },
+          width: '100%',
           display: 'flex',
           flexDirection: 'column',
           gap: '1.75rem',

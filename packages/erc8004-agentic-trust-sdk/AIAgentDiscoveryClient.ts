@@ -58,15 +58,19 @@ export interface AgentData {
   trustLedgerCapabilityRank?: number | null;
   // Identity-scoped fields (KB v2)
   identity8004Did?: string | null;
+  identity8122Did?: string | null;
   identityEnsDid?: string | null;
   identityHolDid?: string | null;
   identityHolUaid?: string | null;
   identity8004DescriptorJson?: string | null;
+  identity8122DescriptorJson?: string | null;
   identityEnsDescriptorJson?: string | null;
   identityHolDescriptorJson?: string | null;
   identity8004OnchainMetadataJson?: string | null;
+  identity8122OnchainMetadataJson?: string | null;
   identityEnsOnchainMetadataJson?: string | null;
   identityHolOnchainMetadataJson?: string | null;
+  identity8122?: unknown | null;
   [key: string]: unknown; // Allow for additional fields that may exist
 }
 
@@ -1302,6 +1306,13 @@ export class AIAgentDiscoveryClient {
         ? String((a as any).identityHol.descriptor.nftMetadataJson)
         : null;
 
+    const identity8122Did =
+      typeof (a as any).identity8122?.did8122 === 'string' && String((a as any).identity8122.did8122).trim()
+        ? String((a as any).identity8122.did8122).trim()
+        : typeof (a as any).identity8122?.did === 'string' && String((a as any).identity8122.did).trim()
+          ? String((a as any).identity8122.did).trim()
+          : null;
+
     // Legacy aggregate: prefer 8004, else ENS, else HOL.
     const onchainMetadataJson =
       identity8004OnchainMetadataJson ?? identityEnsOnchainMetadataJson ?? identityHolOnchainMetadataJson ?? null;
@@ -1424,15 +1435,19 @@ export class AIAgentDiscoveryClient {
           : typeof (a as any).identity8122?.did === 'string'
             ? (a as any).identity8122.did
             : undefined,
+      identity8122Did: identity8122Did ?? undefined,
       identityEnsDid: typeof a.identityEns?.did === 'string' ? a.identityEns.did : undefined,
       identityHolDid: typeof a.identityHol?.did === 'string' ? a.identityHol.did : undefined,
       identityHolUaid: typeof a.identityHol?.uaidHOL === 'string' ? a.identityHol.uaidHOL : undefined,
       identity8004DescriptorJson: identity8004DescriptorJson ?? undefined,
+      identity8122DescriptorJson: identity8122DescriptorJson ?? undefined,
       identityEnsDescriptorJson: identityEnsDescriptorJson ?? undefined,
       identityHolDescriptorJson: identityHolDescriptorJson ?? undefined,
       identity8004OnchainMetadataJson: identity8004OnchainMetadataJson ?? undefined,
+      identity8122OnchainMetadataJson: identity8122OnchainMetadataJson ?? undefined,
       identityEnsOnchainMetadataJson: identityEnsOnchainMetadataJson ?? undefined,
       identityHolOnchainMetadataJson: identityHolOnchainMetadataJson ?? undefined,
+      identity8122: (a as any).identity8122 ?? undefined,
       didIdentity: didPrimary ?? undefined,
       did: didPrimary ?? undefined,
       agentUri: agentUriFromOnchainMetadata ?? undefined,

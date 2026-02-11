@@ -43,7 +43,15 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12_000);
+    const abort = (reason: unknown) => {
+      try {
+        // Some runtimes support abort(reason)
+        (controller as any).abort(reason);
+      } catch {
+        controller.abort();
+      }
+    };
+    const timeout = setTimeout(() => abort('timeout'), 12_000);
 
     (async () => {
       try {
@@ -136,6 +144,14 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
         }
       } catch (e: any) {
         if (cancelled) return;
+        if (controller.signal.aborted || e?.name === 'AbortError') {
+          const reason = (controller.signal as any)?.reason;
+          if (reason === 'timeout') {
+            setError('Request timed out while loading agent details. Retry.');
+          }
+          // Ignore aborts caused by navigation/unmount.
+          return;
+        }
         setError(e?.message ?? 'Failed to load agent');
         setDetail(null);
       } finally {
@@ -146,7 +162,7 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
     return () => {
       cancelled = true;
       clearTimeout(timeout);
-      controller.abort();
+      abort('cleanup');
     };
   }, [uaid]);
 
@@ -154,12 +170,26 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
     const shadowAgentSrc = (ShadowAgentImage as unknown as { src?: string }).src ?? '/8004ShadowAgent.png';
     const d = detail ?? {};
     const chainId = typeof d?.chainId === 'number' ? d.chainId : 0;
+    const agentTypes =
+      Array.isArray((d as any)?.agentTypes)
+        ? ((d as any).agentTypes as string[])
+        : Array.isArray((d as any)?.discovery?.agentTypes)
+          ? ((d as any).discovery.agentTypes as string[])
+          : null;
+    const isSmartAgent =
+      typeof (d as any)?.isSmartAgent === 'boolean'
+        ? ((d as any).isSmartAgent as boolean)
+        : typeof (d as any)?.discovery?.isSmartAgent === 'boolean'
+          ? ((d as any).discovery.isSmartAgent as boolean)
+          : null;
 
     const serializedAgent: AgentsPageAgent = {
       agentId: d?.agentId?.toString?.() ?? '',
       chainId,
       uaid: typeof d?.uaid === 'string' ? d.uaid : uaid,
       agentName: typeof d?.agentName === 'string' ? d.agentName : null,
+      agentTypes,
+      isSmartAgent,
       agentAccount: typeof d?.agentAccount === 'string' ? d.agentAccount : null,
       agentIdentityOwnerAccount: typeof d?.agentIdentityOwnerAccount === 'string' ? d.agentIdentityOwnerAccount : null,
       eoaAgentIdentityOwnerAccount: d?.eoaAgentIdentityOwnerAccount ?? null,
@@ -173,13 +203,16 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
       agentOwnerEOAAccount: d?.agentOwnerEOAAccount ?? null,
       smartAgentAccount: d?.smartAgentAccount ?? null,
       identity8004Did: d?.identity8004Did ?? null,
+      identity8122Did: d?.identity8122Did ?? null,
       identityEnsDid: d?.identityEnsDid ?? null,
       identityHolDid: d?.identityHolDid ?? null,
       identityHolUaid: d?.identityHolUaid ?? null,
       identity8004DescriptorJson: d?.identity8004DescriptorJson ?? null,
+      identity8122DescriptorJson: d?.identity8122DescriptorJson ?? null,
       identityEnsDescriptorJson: d?.identityEnsDescriptorJson ?? null,
       identityHolDescriptorJson: d?.identityHolDescriptorJson ?? null,
       identity8004OnchainMetadataJson: d?.identity8004OnchainMetadataJson ?? null,
+      identity8122OnchainMetadataJson: d?.identity8122OnchainMetadataJson ?? null,
       identityEnsOnchainMetadataJson: d?.identityEnsOnchainMetadataJson ?? null,
       identityHolOnchainMetadataJson: d?.identityHolOnchainMetadataJson ?? null,
       agentUri: typeof d?.agentUri === 'string' ? d.agentUri : null,
@@ -207,6 +240,7 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
       trustLedgerOverallRank: d?.trustLedgerOverallRank ?? null,
       trustLedgerCapabilityRank: d?.trustLedgerCapabilityRank ?? null,
       serviceEndpoints: Array.isArray(d?.serviceEndpoints) ? d.serviceEndpoints : null,
+      identity8122: d?.identity8122 ?? null,
     };
 
     const heroImageSrc = normalizeResourceUrl(serializedAgent.image) ?? shadowAgentSrc;
@@ -270,7 +304,11 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
     return (
       <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
         {header}
-        <Container maxWidth="lg" sx={{ py: 6 }}>
+        <Container
+          maxWidth={false}
+          disableGutters
+          sx={{ py: { xs: 3, md: 4 }, px: { xs: 2, md: 4 }, width: '100%' }}
+        >
           <Alert severity="error">{error}</Alert>
         </Container>
       </Box>
