@@ -54,8 +54,9 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
           const raw = sessionStorage.getItem('nav:agentDetails');
           const parsed = raw ? (JSON.parse(raw) as any) : null;
           if (parsed && typeof parsed === 'object' && parsed.uaid === uaid && typeof parsed.startedAt === 'number') {
-            navStartedAt = parsed.startedAt;
-            console.log('[AgentDetailsPageLoader] nav -> mount ms:', Math.max(0, Date.now() - navStartedAt));
+            const startedAt = parsed.startedAt as number;
+            navStartedAt = startedAt;
+            console.log('[AgentDetailsPageLoader] nav -> mount ms:', Math.max(0, Date.now() - startedAt));
           }
           sessionStorage.removeItem('nav:agentDetails');
         } catch {

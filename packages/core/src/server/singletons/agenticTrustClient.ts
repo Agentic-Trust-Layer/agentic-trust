@@ -1230,8 +1230,29 @@ export class AgenticTrustClient {
       type: (agent as any).type ?? null,
       description: (agent as any).description ?? null,
       image: (agent as any).image ?? null,
-      a2aEndpoint: (agent as any).a2aEndpoint ?? null,
-      mcpEndpoint: (agent as any).mcpEndpoint ?? null,
+      serviceEndpoints: Array.isArray((agent as any).serviceEndpoints) ? ((agent as any).serviceEndpoints as any[]) : null,
+      a2aEndpoint: (() => {
+        const direct = (agent as any).a2aEndpoint;
+        if (typeof direct === 'string' && direct.trim()) return direct.trim();
+        const eps = Array.isArray((agent as any).serviceEndpoints) ? ((agent as any).serviceEndpoints as any[]) : [];
+        const match = eps.find(
+          (ep) => ep && typeof ep.name === 'string' && String(ep.name).trim().toLowerCase() === 'a2a',
+        );
+        const url =
+          match && typeof match?.protocol?.serviceUrl === 'string' ? String(match.protocol.serviceUrl).trim() : '';
+        return url || null;
+      })(),
+      mcpEndpoint: (() => {
+        const direct = (agent as any).mcpEndpoint;
+        if (typeof direct === 'string' && direct.trim()) return direct.trim();
+        const eps = Array.isArray((agent as any).serviceEndpoints) ? ((agent as any).serviceEndpoints as any[]) : [];
+        const match = eps.find(
+          (ep) => ep && typeof ep.name === 'string' && String(ep.name).trim().toLowerCase() === 'mcp',
+        );
+        const url =
+          match && typeof match?.protocol?.serviceUrl === 'string' ? String(match.protocol.serviceUrl).trim() : '';
+        return url || null;
+      })(),
       supportedTrust: (agent as any).supportedTrust ?? null,
       rawJson: (agent as any).rawJson ?? null,
       agentCardJson: (agent as any).agentCardJson ?? null,
