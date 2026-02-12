@@ -241,6 +241,16 @@ export default function AgentsRoute() {
             throw new Error('Honor roll view requires a specific chain (not "all").');
           }
 
+          const agentIdentifierMatch =
+            typeof safeFilters.agentIdentifierMatch === 'string' && safeFilters.agentIdentifierMatch.trim()
+              ? safeFilters.agentIdentifierMatch.trim()
+              : null;
+          const minReviewAssertionCountParsed = Number.parseInt((safeFilters.minReviews || '').trim(), 10);
+          const minReviewAssertionCount =
+            Number.isFinite(minReviewAssertionCountParsed) && minReviewAssertionCountParsed > 0
+              ? minReviewAssertionCountParsed
+              : null;
+
           const rankedRes = await fetch('/api/agents/ranked', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -248,6 +258,8 @@ export default function AgentsRoute() {
               chainId,
               page,
               pageSize: PAGE_SIZE,
+              agentIdentifierMatch,
+              minReviewAssertionCount,
             }),
             cache: 'no-store',
           });

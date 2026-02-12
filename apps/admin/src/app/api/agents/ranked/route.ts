@@ -90,6 +90,19 @@ export async function POST(req: Request) {
       ? Math.floor(body.page)
       : 1;
     const skip = Math.max(0, (page - 1) * first);
+    const agentIdentifierMatchRaw =
+      typeof body.agentIdentifierMatch === 'string' ? body.agentIdentifierMatch.trim() : '';
+    const agentIdentifierMatch = agentIdentifierMatchRaw ? agentIdentifierMatchRaw : null;
+    const minReviewAssertionCountRaw =
+      typeof body.minReviewAssertionCount === 'number'
+        ? Math.floor(body.minReviewAssertionCount)
+        : typeof body.minReviewAssertionCount === 'string'
+          ? Math.floor(Number(body.minReviewAssertionCount))
+          : Number.NaN;
+    const minReviewAssertionCount =
+      Number.isFinite(minReviewAssertionCountRaw) && minReviewAssertionCountRaw > 0
+        ? minReviewAssertionCountRaw
+        : null;
 
     if (!Number.isFinite(chainId)) {
       return NextResponse.json({ error: 'chainId is required (number)' }, { status: 400 });
@@ -121,9 +134,9 @@ export async function POST(req: Request) {
     }
 
     const query = `
-      query KbRankedAgents($chainId: Int!, $first: Int!, $skip: Int!) {
+      query KbRankedAgents($where: KbAgentWhereInput, $first: Int!, $skip: Int!) {
         kbAgents(
-          where: { chainId: $chainId }
+          where: $where
           first: $first
           skip: $skip
           orderBy: bestRank
@@ -172,7 +185,15 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify({
         query,
-        variables: { chainId, first, skip },
+        variables: {
+          where: {
+            chainId,
+            ...(agentIdentifierMatch ? { agentIdentifierMatch } : {}),
+            ...(minReviewAssertionCount ? { minReviewAssertionCount } : {}),
+          },
+          first,
+          skip,
+        },
       }),
     });
 
