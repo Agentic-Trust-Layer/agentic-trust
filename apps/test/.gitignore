@@ -1,6 +1,0 @@
-node_modules
-dist
-.env
-.env.*
-*.secret
-secret.sessionpackage.json

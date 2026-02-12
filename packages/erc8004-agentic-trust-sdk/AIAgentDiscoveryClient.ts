@@ -54,6 +54,7 @@ export interface AgentData {
   atiBundleJson?: string | null;
   trustLedgerScore?: number | null;
   trustLedgerBadgeCount?: number | null;
+  trustLedgerBadges?: unknown[] | null;
   trustLedgerOverallRank?: number | null;
   trustLedgerCapabilityRank?: number | null;
   // Identity-scoped fields (KB v2)
@@ -174,6 +175,12 @@ export type KbIdentity8122 = {
   did8122?: string | null;
   agentId8122?: string | null;
   registryAddress?: string | null;
+  /**
+   * Human-friendly collection/registry name (when KB schema supports it).
+   * Note: some KB deployments may use alternate names like `collectionName`.
+   */
+  registryName?: string | null;
+  collectionName?: string | null;
   endpointType?: string | null;
   endpoint?: string | null;
   descriptor?: KbIdentityDescriptor | null;
@@ -878,6 +885,15 @@ export class AIAgentDiscoveryClient {
       .filter(Boolean)
       .join('\n        ');
 
+    const identity8122Fields = await fieldNames('KbIdentity8122');
+    const identity8122Extras = [
+      identity8122Fields.has('registryName') ? 'registryName' : '',
+      identity8122Fields.has('collectionName') ? 'collectionName' : '',
+      identity8122Fields.has('registrarName') ? 'registrarName' : '',
+    ]
+      .filter(Boolean)
+      .join('\n          ');
+
     // New schema: identities list with inline fragments.
     const identitiesListBlock = hasIdentitiesList
       ? `
@@ -901,6 +917,7 @@ export class AIAgentDiscoveryClient {
           did8122
           agentId8122
           registryAddress
+          ${identity8122Extras}
           endpointType
           endpoint
           ownerAccount { iri chainId address accountType didEthr }
@@ -925,6 +942,7 @@ export class AIAgentDiscoveryClient {
         did8122
         agentId8122
         registryAddress
+        ${identity8122Extras}
         endpointType
         endpoint
         descriptor {
@@ -1373,6 +1391,15 @@ export class AIAgentDiscoveryClient {
     const feedbackCount = toFiniteNumberOrUndefined(a.assertions?.reviewResponses?.total);
     const validationTotal = toFiniteNumberOrUndefined(a.assertions?.validationResponses?.total);
 
+    const parsedIdentity8004Descriptor = (() => {
+      if (typeof identity8004DescriptorJson !== 'string' || !identity8004DescriptorJson.trim()) return null;
+      try {
+        return JSON.parse(identity8004DescriptorJson) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    })();
+
     const normalized: AgentData = {
       agentId: agentId8004 ?? agentIdFromParsed ?? undefined,
       uaid:
@@ -1386,12 +1413,16 @@ export class AIAgentDiscoveryClient {
           ? a.agentDescription
           : typeof a.agentDescriptor?.description === 'string'
             ? a.agentDescriptor.description
+            : typeof parsedIdentity8004Descriptor?.description === 'string'
+              ? String(parsedIdentity8004Descriptor.description)
             : undefined,
       image:
         typeof a.agentImage === 'string'
           ? a.agentImage
           : typeof a.agentDescriptor?.image === 'string'
             ? a.agentDescriptor.image
+            : typeof parsedIdentity8004Descriptor?.image === 'string'
+              ? String(parsedIdentity8004Descriptor.image)
             : undefined,
       chainId: chainId ?? undefined,
       createdAtBlock: typeof a.createdAtBlock === 'number' ? a.createdAtBlock : undefined,
@@ -1407,6 +1438,44 @@ export class AIAgentDiscoveryClient {
           : a.updatedAtTime != null
             ? Number(a.updatedAtTime)
             : undefined,
+      // Trust ledger / ATI (KB v2 fields)
+      trustLedgerScore:
+        typeof (a as any).trustLedgerTotalPoints === 'number' && Number.isFinite((a as any).trustLedgerTotalPoints)
+          ? ((a as any).trustLedgerTotalPoints as number)
+          : undefined,
+      trustLedgerBadgeCount:
+        typeof (a as any).trustLedgerBadgeCount === 'number' && Number.isFinite((a as any).trustLedgerBadgeCount)
+          ? ((a as any).trustLedgerBadgeCount as number)
+          : undefined,
+      trustLedgerBadges:
+        Array.isArray((a as any).trustLedgerBadges)
+          ? ((a as any).trustLedgerBadges as unknown[])
+          : Array.isArray((a as any).trustLedgerBadgesList)
+            ? ((a as any).trustLedgerBadgesList as unknown[])
+            : typeof (a as any).trustLedgerBadgesJson === 'string'
+              ? (() => {
+                  try {
+                    const parsed = JSON.parse(String((a as any).trustLedgerBadgesJson));
+                    return Array.isArray(parsed) ? parsed : null;
+                  } catch {
+                    return null;
+                  }
+                })()
+              : null,
+      // ATI is already part of AgentData and is displayed in agent cards.
+      atiOverallScore:
+        typeof (a as any).atiOverallScore === 'number' && Number.isFinite((a as any).atiOverallScore)
+          ? ((a as any).atiOverallScore as number)
+          : undefined,
+      atiOverallConfidence:
+        typeof (a as any).atiOverallConfidence === 'number' && Number.isFinite((a as any).atiOverallConfidence)
+          ? ((a as any).atiOverallConfidence as number)
+          : undefined,
+      atiVersion: typeof (a as any).atiVersion === 'string' ? String((a as any).atiVersion) : undefined,
+      atiComputedAt:
+        typeof (a as any).atiComputedAt === 'number' && Number.isFinite((a as any).atiComputedAt)
+          ? ((a as any).atiComputedAt as number)
+          : undefined,
       feedbackCount,
       // KB assertions only provide totals (not pending/requested breakdowns). Treat them as "completed".
       validationCompletedCount: validationTotal ?? undefined,
@@ -1501,6 +1570,17 @@ export class AIAgentDiscoveryClient {
         if (names.has('createdAtBlock')) baseParts.push('createdAtBlock');
         if (names.has('createdAtTime')) baseParts.push('createdAtTime');
         if (names.has('updatedAtTime')) baseParts.push('updatedAtTime');
+        if (names.has('trustLedgerTotalPoints')) baseParts.push('trustLedgerTotalPoints');
+        if (names.has('trustLedgerBadgeCount')) baseParts.push('trustLedgerBadgeCount');
+        if (names.has('trustLedgerComputedAt')) baseParts.push('trustLedgerComputedAt');
+        if (names.has('atiOverallScore')) baseParts.push('atiOverallScore');
+        if (names.has('atiOverallConfidence')) baseParts.push('atiOverallConfidence');
+        if (names.has('atiVersion')) baseParts.push('atiVersion');
+        if (names.has('atiComputedAt')) baseParts.push('atiComputedAt');
+        // Optional badge list (schema-dependent).
+        if (names.has('trustLedgerBadges')) baseParts.push('trustLedgerBadges');
+        if (names.has('trustLedgerBadgesList')) baseParts.push('trustLedgerBadgesList');
+        if (names.has('trustLedgerBadgesJson')) baseParts.push('trustLedgerBadgesJson');
         // Optional legacy/derived fields (may not exist in newer KB schemas)
         if (names.has('did8004')) baseParts.push('did8004');
         if (names.has('agentId8004')) baseParts.push('agentId8004');
@@ -1528,9 +1608,40 @@ export class AIAgentDiscoveryClient {
               }
             `;
 
+        // For agent list views (cards), we need identity descriptors to provide image/description
+        // even when KB does not populate agentImage/agentDescription at the agent root.
+        const identityLightBlock = (() => {
+          if (!names.has('identities')) return '';
+          return `
+            identities {
+              kind
+              did
+              descriptor {
+                iri
+                kind
+                name
+                description
+                image
+                registrationJson
+                nftMetadataJson
+                registeredBy
+                registryNamespace
+                skills
+                domains
+              }
+              ... on KbIdentity8122 {
+                registryAddress
+                agentId8122
+                registry { registryName }
+              }
+            }
+          `;
+        })();
+
         const selection = [
           baseParts.join('\n'),
           assertionsBlock,
+          mode === 'light' ? identityLightBlock : '',
           mode === 'full' ? identityAndAccounts : '',
         ]
           .filter((part) => typeof part === 'string' && part.trim().length > 0)

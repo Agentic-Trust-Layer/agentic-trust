@@ -40,13 +40,14 @@ type DiscoverParams = {
 const PAGE_SIZE = 18;
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
-  chainId: 'all',
+  // Default Agents page to Honor roll (ranked). Ranked requires a concrete chain id.
+  chainId: '1',
   address: '',
   name: '',
   agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
-  view: 'newest',
+  view: 'ranked',
   protocol: 'all',
   path: '',
   minReviews: '',
@@ -237,7 +238,7 @@ export default function AgentsRoute() {
           const chainId =
             chainIdRaw && chainIdRaw !== 'all' ? Number(chainIdRaw) : Number.NaN;
           if (!Number.isFinite(chainId)) {
-            throw new Error('Ranked view requires a specific chain (not "all").');
+            throw new Error('Honor roll view requires a specific chain (not "all").');
           }
 
           const rankedRes = await fetch('/api/agents/ranked', {

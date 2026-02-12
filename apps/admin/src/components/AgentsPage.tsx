@@ -35,6 +35,10 @@ export type AgentsPageAgent = {
    * Best-effort boolean hint (legacy / derived).
    */
   isSmartAgent?: boolean | null;
+  /**
+   * Optional: badge labels if provided by backend.
+   */
+  trustLedgerBadges?: string[] | null;
   agentAccount?: string | null;
   agentIdentityOwnerAccount?: string | null;
   eoaAgentIdentityOwnerAccount?: string | null;
@@ -113,9 +117,8 @@ export type AgentsPageAgent = {
 
 type Agent = AgentsPageAgent;
 
-// Agent Index (right-side leaderboard).
-// Uses the KB ranked agents query (bestRank DESC).
-const ENABLE_AGENT_INDEX = true;
+// Agent Index (right-side leaderboard) has been removed from the Agents view UI.
+const ENABLE_AGENT_INDEX = false;
 
 type ChainOption = {
   id: number;
@@ -3272,6 +3275,122 @@ export function AgentsPage({
               <button
                 type="button"
                 onClick={() => {
+                  const nextView: AgentsPageFilters['view'] = filters.view === 'ranked' ? 'newest' : 'ranked';
+                  const nextChainId =
+                    nextView === 'ranked' && (filters.chainId === 'all' || !String(filters.chainId || '').trim())
+                      ? '1'
+                      : filters.chainId;
+                  const nextMineOnly = nextView === 'ranked' ? false : filters.mineOnly;
+                  const updatedFilters: AgentsPageFilters = {
+                    ...filters,
+                    view: nextView,
+                    chainId: nextChainId,
+                    mineOnly: nextMineOnly,
+                  };
+                  onFilterChange('view', nextView);
+                  if (nextChainId !== filters.chainId) {
+                    onFilterChange('chainId', nextChainId);
+                  }
+                  if (nextMineOnly !== filters.mineOnly) {
+                    onFilterChange('mineOnly', nextMineOnly);
+                  }
+                  onSearch(updatedFilters);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${filters.view === 'ranked' ? '#7c3aed' : palette.border}`,
+                  backgroundColor: filters.view === 'ranked' ? '#7c3aed' : palette.surfaceMuted,
+                  color: filters.view === 'ranked' ? palette.surface : palette.textSecondary,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="Toggle Honor roll view (bestRank DESC)"
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    border: `1px solid ${filters.view === 'ranked' ? palette.surface : palette.border}`,
+                    backgroundColor: 'transparent',
+                    fontSize: '0.7rem',
+                    color: filters.view === 'ranked' ? palette.surface : 'transparent',
+                  }}
+                >
+                  {filters.view === 'ranked' ? '✓' : ''}
+                </span>
+                <span>honor roll</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const updatedFilters: AgentsPageFilters = {
+                    ...filters,
+                    view: 'newest',
+                    mineOnly: false,
+                    only8004Agents: false,
+                    name: '',
+                    address: '',
+                    agentIdentifierMatch: '',
+                    protocol: 'all',
+                    path: '',
+                  };
+                  onFilterChange('view', 'newest');
+                  if (filters.mineOnly) onFilterChange('mineOnly', false);
+                  if (filters.only8004Agents) onFilterChange('only8004Agents', false);
+                  if (filters.name) onFilterChange('name', '');
+                  if (filters.address) onFilterChange('address', '');
+                  if (filters.agentIdentifierMatch) onFilterChange('agentIdentifierMatch', '');
+                  if (filters.protocol !== 'all') onFilterChange('protocol', 'all');
+                  if (filters.path) onFilterChange('path', '');
+                  onSearch(updatedFilters);
+                }}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.3rem',
+                  padding: '0.2rem 0.6rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.border}`,
+                  backgroundColor: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.surfaceMuted,
+                  color: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : palette.textSecondary,
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+                title="All agents (newest)"
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '50%',
+                    border: `1px solid ${
+                      filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : palette.border
+                    }`,
+                    backgroundColor: 'transparent',
+                    fontSize: '0.7rem',
+                    color: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : 'transparent',
+                  }}
+                >
+                  {filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? '✓' : ''}
+                </span>
+                <span>all agents</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
                   const nextValue = !filters.only8004Agents;
                   const nextName = nextValue
                     ? '8004-agent.eth'
@@ -3320,63 +3439,6 @@ export function AgentsPage({
                   {filters.only8004Agents ? '✓' : ''}
                 </span>
                 <span>8004-agent.eth</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const nextView: AgentsPageFilters['view'] = filters.view === 'ranked' ? 'newest' : 'ranked';
-                  const nextChainId =
-                    nextView === 'ranked' && (filters.chainId === 'all' || !String(filters.chainId || '').trim())
-                      ? '1'
-                      : filters.chainId;
-                  const nextMineOnly = nextView === 'ranked' ? false : filters.mineOnly;
-                  const updatedFilters: AgentsPageFilters = {
-                    ...filters,
-                    view: nextView,
-                    chainId: nextChainId,
-                    mineOnly: nextMineOnly,
-                  };
-                  onFilterChange('view', nextView);
-                  if (nextChainId !== filters.chainId) {
-                    onFilterChange('chainId', nextChainId);
-                  }
-                  if (nextMineOnly !== filters.mineOnly) {
-                    onFilterChange('mineOnly', nextMineOnly);
-                  }
-                  onSearch(updatedFilters);
-                }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '0.3rem',
-                  padding: '0.2rem 0.6rem',
-                  borderRadius: '999px',
-                  border: `1px solid ${filters.view === 'ranked' ? '#7c3aed' : palette.border}`,
-                  backgroundColor: filters.view === 'ranked' ? '#7c3aed' : palette.surfaceMuted,
-                  color: filters.view === 'ranked' ? palette.surface : palette.textSecondary,
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-                title="Toggle Ranked view (bestRank DESC)"
-              >
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    width: '14px',
-                    height: '14px',
-                    borderRadius: '50%',
-                    border: `1px solid ${filters.view === 'ranked' ? palette.surface : palette.border}`,
-                    backgroundColor: 'transparent',
-                    fontSize: '0.7rem',
-                    color: filters.view === 'ranked' ? palette.surface : 'transparent',
-                  }}
-                >
-                  {filters.view === 'ranked' ? '✓' : ''}
-                </span>
-                <span>ranked</span>
               </button>
               {isConnected && Boolean(walletAddress) && (
                 <button
@@ -4017,6 +4079,35 @@ export function AgentsPage({
               (agent as any).trustLedgerBadgeCount >= 0
                 ? ((agent as any).trustLedgerBadgeCount as number)
                 : null;
+            const trustLedgerBadges = (() => {
+              const raw =
+                (agent as any).trustLedgerBadges ??
+                (agent as any).trustLedgerBadgesList ??
+                (agent as any).badges ??
+                null;
+              if (!Array.isArray(raw)) return [];
+              const toLabel = (b: any): string => {
+                if (typeof b === 'string') return b.trim();
+                if (!b || typeof b !== 'object') return String(b ?? '').trim();
+                const candidate =
+                  b.name ?? b.label ?? b.title ?? b.badge ?? b.iri ?? b.id ?? null;
+                if (typeof candidate === 'string') return candidate.trim();
+                try {
+                  return JSON.stringify(b);
+                } catch {
+                  return String(b);
+                }
+              };
+              return raw.map(toLabel).filter(Boolean).slice(0, 12);
+            })();
+            const atiOverallScore =
+              typeof (agent as any).atiOverallScore === 'number' && Number.isFinite((agent as any).atiOverallScore)
+                ? ((agent as any).atiOverallScore as number)
+                : null;
+            const atiOverallConfidence =
+              typeof (agent as any).atiOverallConfidence === 'number' && Number.isFinite((agent as any).atiOverallConfidence)
+                ? ((agent as any).atiOverallConfidence as number)
+                : null;
 
             const createdAtTimeSeconds =
               typeof agent.createdAtTime === 'number' && Number.isFinite(agent.createdAtTime)
@@ -4311,6 +4402,44 @@ export function AgentsPage({
                     </p>
                   );
                 })()}
+                {trustLedgerBadges.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
+                    {trustLedgerBadges.map((b) => {
+                      const label = String(b || '').trim();
+                      if (!label) return null;
+                      const initials = label
+                        .split(/[\s._\-:/]+/g)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((p) => p.slice(0, 1).toUpperCase())
+                        .join('');
+                      return (
+                        <span
+                          key={`${uaid}::badge::${label}`}
+                          title={label}
+                          aria-label={`Badge: ${label}`}
+                          style={{
+                            width: 26,
+                            height: 26,
+                            borderRadius: 999,
+                            border: `1px solid ${palette.border}`,
+                            backgroundColor: palette.surfaceMuted,
+                            color: palette.textPrimary,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            letterSpacing: '0.02em',
+                            userSelect: 'none',
+                          }}
+                        >
+                          {initials || '★'}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <div
                   style={{
                     marginTop: '0.75rem',
@@ -4487,10 +4616,13 @@ export function AgentsPage({
                     )}
                     {trustLedgerScore !== null && trustLedgerOverallRank !== null && (
                       <span
-                        title={`Agent Index · score: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`}
+                        title={`Honor roll · score: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`}
                       >
                         score {Math.round(trustLedgerScore)} · rank #{trustLedgerOverallRank}
                       </span>
+                    )}
+                    {typeof trustLedgerBadgeCount === 'number' && trustLedgerBadgeCount > 0 && (
+                      <span title="Badge count">badges {trustLedgerBadgeCount}</span>
                     )}
                     {(() => {
                       const score =
@@ -4580,211 +4712,7 @@ export function AgentsPage({
 
           </div>
 
-          {!isMobile && !hideLeaderboard && ENABLE_AGENT_INDEX && (
-            <aside
-              style={{
-                width: 340,
-                flex: '0 0 340px',
-                borderRadius: '16px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: palette.surface,
-                padding: '1.25rem',
-                position: 'sticky',
-                top: '1rem',
-                boxShadow: '0 4px 12px rgba(15,23,42,0.06)',
-                alignSelf: 'flex-start',
-              }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: palette.textPrimary }}>
-                    Agent Index
-                  </h3>
-                  <span style={{ fontSize: '0.75rem', color: palette.textSecondary }}>Top by rank</span>
-                </div>
-
-                {/* compact filters (match "VIEW: All Time / All Mountains" style) */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', color: palette.textSecondary }}>
-                    VIEW:
-                  </span>
-                  <select
-                    value={atiLeaderboardTimeWindow}
-                    onChange={(e) => setAtiLeaderboardTimeWindow(e.target.value as any)}
-                    aria-label="ATI leaderboard time window"
-                    disabled
-                    style={{
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: '8px',
-                      border: `1px solid ${palette.border}`,
-                      backgroundColor: palette.surfaceMuted,
-                      color: palette.textPrimary,
-                      fontSize: '0.75rem',
-                      height: 28,
-                    }}
-                  >
-                    <option value="all">All Time</option>
-                    <option value="10d">Past 10 days</option>
-                    <option value="30d">Past Month</option>
-                    <option value="180d">Past 6 months</option>
-                  </select>
-
-                  <select
-                    value={atiLeaderboardChainId}
-                    onChange={(e) => setAtiLeaderboardChainId(e.target.value)}
-                    aria-label="ATI leaderboard chain filter"
-                    style={{
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: '8px',
-                      border: `1px solid ${palette.border}`,
-                      backgroundColor: palette.surfaceMuted,
-                      color: palette.textPrimary,
-                      fontSize: '0.75rem',
-                      height: 28,
-                    }}
-                  >
-                    {chainOptions.map((c) => (
-                      <option key={c.id} value={String(c.id)}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={atiLeaderboardCategory}
-                    onChange={(e) => setAtiLeaderboardCategory(e.target.value)}
-                    aria-label="ATI leaderboard agent category"
-                    disabled
-                    style={{
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: '8px',
-                      border: `1px solid ${palette.border}`,
-                      backgroundColor: palette.surfaceMuted,
-                      color: palette.textPrimary,
-                      fontSize: '0.75rem',
-                      height: 28,
-                      minWidth: 160,
-                      flex: '1 1 160px',
-                    }}
-                  >
-                    {/* same category list as registration */}
-                    {AGENT_CATEGORY_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>
-                        {opt.value === '' ? 'All categories' : opt.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {atiLeaderboardLoading && (
-                  <div style={{ fontSize: '0.85rem', color: palette.textSecondary }}>Loading…</div>
-                )}
-                {atiLeaderboardError && (
-                  <div style={{ fontSize: '0.85rem', color: '#b91c1c' }}>{atiLeaderboardError}</div>
-                )}
-
-                {!atiLeaderboardLoading && !atiLeaderboardError && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {atiLeaderboard.length === 0 ? (
-                      <div style={{ fontSize: '0.85rem', color: palette.textSecondary }}>
-                        No ranked agents found.
-                      </div>
-                    ) : (
-                      atiLeaderboard.map((row, idx) => (
-                        <button
-                          key={`${String((row as any).uaid ?? `${row.chainId}:${row.agentId}`)}::lb::${idx}`}
-                          type="button"
-                          onClick={() => {
-                            const uaid = String((row as any).uaid ?? '').trim();
-                            if (!uaid) return;
-                            router.push(`/agents/${encodeURIComponent(uaid)}`);
-                          }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '0.75rem',
-                            padding: '0.65rem 0.75rem',
-                            borderRadius: '12px',
-                            border: `1px solid ${palette.border}`,
-                            background: palette.surfaceMuted,
-                            cursor: 'pointer',
-                            textAlign: 'left',
-                          }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', minWidth: 0 }}>
-                            <div
-                              style={{
-                                width: 26,
-                                height: 26,
-                                borderRadius: 999,
-                                backgroundColor: '#0f172a',
-                                color: 'white',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: '0.75rem',
-                                fontWeight: 700,
-                                flex: '0 0 auto',
-                              }}
-                            >
-                              {idx + 1}
-                            </div>
-                            <img
-                              src={row.image && row.image.trim() ? row.image.trim() : shadowAgentSrc}
-                              alt={row.agentName}
-                              style={{
-                                width: 28,
-                                height: 28,
-                                borderRadius: 999,
-                                objectFit: 'cover',
-                                border: `1px solid ${palette.border}`,
-                                flex: '0 0 auto',
-                                backgroundColor: palette.surface,
-                              }}
-                              onError={(e) => {
-                                const target = e.target as HTMLImageElement;
-                                if (!target.src.includes(shadowAgentSrc)) {
-                                  target.src = shadowAgentSrc;
-                                }
-                              }}
-                            />
-                            <div style={{ minWidth: 0 }}>
-                              <div
-                                style={{
-                                  fontSize: '0.85rem',
-                                  fontWeight: 700,
-                                  color: palette.textPrimary,
-                                  whiteSpace: 'nowrap',
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  maxWidth: 220,
-                                }}
-                                title={row.agentName}
-                              >
-                                #{row.trustLedgerOverallRank} {row.agentName}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: palette.textSecondary }}>
-                                #{row.agentId}
-                              </div>
-                            </div>
-                          </div>
-                          <div
-                            title={`Agent Index score${typeof row.trustLedgerBadgeCount === 'number' ? ` · badges: ${row.trustLedgerBadgeCount}` : ''}`}
-                            style={{ fontSize: '0.9rem', fontWeight: 800, color: palette.accent }}
-                          >
-                            {typeof row.trustLedgerScore === 'number' && Number.isFinite(row.trustLedgerScore)
-                              ? Math.round(row.trustLedgerScore)
-                              : '—'}
-                          </div>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            </aside>
-          )}
+          {/* Agent Index sidebar removed */}
         </div>
       </section>
     {activeDialog && dialogContent && (() => {

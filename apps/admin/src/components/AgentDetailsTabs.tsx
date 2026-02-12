@@ -751,6 +751,15 @@ const AgentDetailsTabs = ({
   const hasHolIdentity = Boolean(
     (agent as any).identityHolDid || (agent as any).identityHolUaid || (agent as any).identityHolDescriptorJson,
   );
+  const identity8122CollectionName = (() => {
+    const id = (agent as any)?.identity8122;
+    const v =
+      (id && typeof id === 'object' ? (id as any).registryName : null) ??
+      (id && typeof id === 'object' ? (id as any).collectionName : null) ??
+      (id && typeof id === 'object' ? (id as any).registrarName : null) ??
+      null;
+    return typeof v === 'string' && v.trim() ? v.trim() : null;
+  })();
   const didForRegistry = String((agent as any).identity8004Did ?? (agent as any).did ?? '').trim();
   const did8122ForRegistry = String((agent as any).identity8122Did ?? '').trim();
   const parsedRegistryFromUaid = parseRegistryFromUaid(uaid);
@@ -792,12 +801,15 @@ const AgentDetailsTabs = ({
       tabs.push({ id: 'id8004', label: isSmartAgent ? `Smart Agent (${chainLabel})` : `Agent (${chainLabel})` });
     }
     if (has8122Registry) {
-      tabs.push({ id: 'id8122', label: `8122 ${chainLabel}` });
+      tabs.push({
+        id: 'id8122',
+        label: identity8122CollectionName ? `${identity8122CollectionName} (8122 ${chainLabel})` : `8122 ${chainLabel}`,
+      });
     }
     if (hasEnsIdentity) tabs.push({ id: 'ens', label: 'ENS' });
     if (hasHolIdentity) tabs.push({ id: 'hol', label: 'HOL' });
     return tabs;
-  }, [agent, uaid, hasEnsIdentity, hasHolIdentity, isSmartAgent, has8004Registry, has8122Registry]);
+  }, [agent, uaid, hasEnsIdentity, hasHolIdentity, isSmartAgent, has8004Registry, has8122Registry, identity8122CollectionName]);
 
   const [registerDialogOpen, setRegisterDialogOpen] = useState(false);
   const registerProtocols = useMemo(
@@ -1131,6 +1143,36 @@ const AgentDetailsTabs = ({
                         {identityDid ?? '—'}
                       </div>
                     </div>
+                    {identityTab === 'id8122' && (
+                      <>
+                        <div>
+                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                            Collection Name
+                          </strong>
+                          <div style={{ color: palette.textPrimary }}>
+                            {identity8122CollectionName ?? '—'}
+                          </div>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '1rem' }}>
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                              Registry Address
+                            </strong>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all' }}>
+                              {String((agent as any)?.identity8122?.registryAddress ?? '').trim() || '—'}
+                            </div>
+                          </div>
+                          <div>
+                            <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                              Agent ID (8122)
+                            </strong>
+                            <div style={{ fontFamily: 'monospace', color: palette.textPrimary }}>
+                              {String((agent as any)?.identity8122?.agentId8122 ?? '').trim() || '—'}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
                     {identityTab === 'hol' && identityHolUaid && (
                       <div>
                         <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>HOL UAID</strong>

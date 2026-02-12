@@ -53,6 +53,9 @@ type KbRankedAgentsResponse = {
       iri?: string | null;
       uaid?: string | null;
       agentName?: string | null;
+      agentDescription?: string | null;
+      agentImage?: string | null;
+      agentTypes?: string[] | null;
       createdAtTime?: number | null;
       updatedAtTime?: number | null;
       trustLedgerTotalPoints?: number | null;
@@ -122,6 +125,9 @@ export async function POST(req: Request) {
             iri
             uaid
             agentName
+            agentDescription
+            agentImage
+            agentTypes
             createdAtTime
             updatedAtTime
 
@@ -187,6 +193,9 @@ export async function POST(req: Request) {
         agentId: derivedAgentId || String(skip + idx + 1),
         uaid,
         agentName: typeof a?.agentName === 'string' ? a.agentName : null,
+        description: typeof a?.agentDescription === 'string' ? a.agentDescription : null,
+        image: typeof a?.agentImage === 'string' ? a.agentImage : null,
+        agentTypes: Array.isArray((a as any)?.agentTypes) ? ((a as any).agentTypes as string[]) : null,
         createdAtTime: typeof a?.createdAtTime === 'number' ? a.createdAtTime : null,
         updatedAtTime: typeof a?.updatedAtTime === 'number' ? a.updatedAtTime : null,
 

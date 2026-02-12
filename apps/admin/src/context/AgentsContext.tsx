@@ -21,13 +21,14 @@ type AgentsContextType = {
 };
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
-  chainId: 'all',
+  // Honor roll (ranked) requires a specific chain.
+  chainId: '1',
   address: '',
   name: '',
   agentIdentifierMatch: '',
   mineOnly: false,
   only8004Agents: false,
-  view: 'newest',
+  view: 'ranked',
   protocol: 'all',
   path: '',
   minReviews: '',
