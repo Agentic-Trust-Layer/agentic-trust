@@ -61,6 +61,16 @@ type KbRankedAgentsResponse = {
       trustLedgerTotalPoints?: number | null;
       trustLedgerBadgeCount?: number | null;
       trustLedgerComputedAt?: number | null;
+      trustLedgerBadges?: Array<{
+        iri?: string | null;
+        awardedAt?: number | null;
+        definition?: {
+          badgeId?: string | null;
+          name?: string | null;
+          iconRef?: string | null;
+          points?: number | null;
+        } | null;
+      }> | null;
       atiOverallScore?: number | null;
       atiOverallConfidence?: number | null;
       atiVersion?: string | null;
@@ -134,6 +144,16 @@ export async function POST(req: Request) {
             trustLedgerTotalPoints
             trustLedgerBadgeCount
             trustLedgerComputedAt
+            trustLedgerBadges {
+              iri
+              awardedAt
+              definition {
+                badgeId
+                name
+                iconRef
+                points
+              }
+            }
 
             atiOverallScore
             atiOverallConfidence
@@ -203,6 +223,7 @@ export async function POST(req: Request) {
         trustLedgerScore,
         trustLedgerBadgeCount,
         trustLedgerOverallRank: skip + idx + 1,
+        trustLedgerBadges: Array.isArray(a?.trustLedgerBadges) ? a.trustLedgerBadges : null,
         atiOverallScore: typeof a?.atiOverallScore === 'number' ? a.atiOverallScore : null,
         atiOverallConfidence: typeof a?.atiOverallConfidence === 'number' ? a.atiOverallConfidence : null,
         atiVersion: typeof a?.atiVersion === 'string' ? a.atiVersion : null,

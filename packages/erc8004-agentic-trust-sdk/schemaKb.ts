@@ -83,10 +83,11 @@ export const graphQLSchemaStringKb = `
     iri: ID!
     chainId: Int
     address: String
-    accountType: String
+    accountType: String # EOAAccount | SmartAccount | Account | (null/unknown)
     didEthr: String
   }
 
+  # Generic descriptor for core entities (protocols, endpoints, etc.)
   type KbDescriptor {
     iri: ID!
     name: String
@@ -94,6 +95,7 @@ export const graphQLSchemaStringKb = `
     image: String
   }
 
+  # Protocol descriptor payload (e.g. A2A agent-card.json)
   type KbProtocolDescriptor {
     iri: ID!
     name: String
@@ -104,7 +106,7 @@ export const graphQLSchemaStringKb = `
 
   type KbProtocol {
     iri: ID!
-    protocol: String!
+    protocol: String! # a2a | mcp | other
     protocolVersion: String
     serviceUrl: String
     descriptor: KbProtocolDescriptor
@@ -114,14 +116,14 @@ export const graphQLSchemaStringKb = `
 
   type KbServiceEndpoint {
     iri: ID!
-    name: String!
+    name: String! # a2a | mcp | other
     descriptor: KbDescriptor
     protocol: KbProtocol!
   }
 
   type KbIdentityDescriptor {
     iri: ID!
-    kind: String!
+    kind: String! # 8004 | ens | hol | nanda | other
     name: String
     description: String
     image: String
@@ -131,34 +133,6 @@ export const graphQLSchemaStringKb = `
     registryNamespace: String
     skills: [String!]!
     domains: [String!]!
-  }
-
-  # Agent identity record (may include multiple identities per agent, even multiple of the same kind).
-  interface KbAgentIdentity {
-    iri: ID!
-    kind: String! # 8004 | 8122 | ens | hol | other
-    did: String!
-    descriptor: KbIdentityDescriptor
-    serviceEndpoints: [KbServiceEndpoint!]!
-  }
-
-  type KbIdentity8004 implements KbAgentIdentity {
-    iri: ID!
-    kind: String! # "8004"
-    did: String!
-
-    did8004: String!
-    agentId8004: Int
-    isSmartAgent: Boolean
-
-    descriptor: KbIdentityDescriptor
-    serviceEndpoints: [KbServiceEndpoint!]!
-
-    ownerAccount: KbAccount
-    agentAccount: KbAccount
-    operatorAccount: KbAccount
-    walletAccount: KbAccount
-    ownerEOAAccount: KbAccount
   }
 
   # ERC-8122 registries (factory-deployed registries + registrars)
@@ -174,14 +148,46 @@ export const graphQLSchemaStringKb = `
     lastAgentUpdatedAtTime: Int
   }
 
+  # Agent identity record (may include multiple identities per agent, even multiple of the same kind).
+  interface KbAgentIdentity {
+    iri: ID!
+    kind: String! # 8004 | 8122 | ens | hol | other
+    did: String!
+    chainId: Int
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
+  }
+
+  type KbIdentity8004 implements KbAgentIdentity {
+    iri: ID!
+    kind: String! # "8004"
+    did: String!
+    chainId: Int
+
+    did8004: String!
+    agentId8004: Int
+    isSmartAgent: Boolean
+
+    descriptor: KbIdentityDescriptor
+    serviceEndpoints: [KbServiceEndpoint!]!
+
+    ownerAccount: KbAccount
+    agentAccount: KbAccount
+    operatorAccount: KbAccount
+    walletAccount: KbAccount
+    ownerEOAAccount: KbAccount
+  }
+
   type KbIdentity8122 implements KbAgentIdentity {
     iri: ID!
     kind: String! # "8122"
     did: String!
+    chainId: Int
 
     did8122: String!
     agentId8122: String!
     registryAddress: String
+    collectionName: String
     registry: KbAgentRegistry8122
     endpointType: String
     endpoint: String
@@ -197,8 +203,10 @@ export const graphQLSchemaStringKb = `
     iri: ID!
     kind: String! # "ens"
     did: String!
+    chainId: Int
 
     didEns: String!
+    ensName: String
 
     descriptor: KbIdentityDescriptor
     serviceEndpoints: [KbServiceEndpoint!]!
@@ -208,6 +216,7 @@ export const graphQLSchemaStringKb = `
     iri: ID!
     kind: String! # "hol"
     did: String!
+    chainId: Int
 
     uaidHOL: String
 
@@ -219,9 +228,86 @@ export const graphQLSchemaStringKb = `
     iri: ID!
     kind: String!
     did: String!
+    chainId: Int
 
     descriptor: KbIdentityDescriptor
     serviceEndpoints: [KbServiceEndpoint!]!
+  }
+
+  type KbHolAgentProfile {
+    uaid: String!
+    displayName: String
+    alias: String
+    bio: String
+    profileImage: String
+    profileJson: String
+  }
+
+  type KbHolCapability {
+    iri: ID!
+    key: String!
+    label: String
+    json: String
+  }
+
+  type KbHolSyncResult {
+    success: Boolean!
+    count: Int!
+    message: String
+  }
+
+  type KbHolRegistryCount {
+    registry: String!
+    agentCount: Int!
+  }
+
+  type KbHolCapabilityCount {
+    capability: String!
+    agentCount: Int!
+  }
+
+  type KbHolStats {
+    totalAgents: Int!
+    lastUpdate: String
+    status: String
+    registries: [KbHolRegistryCount!]!
+    capabilities: [KbHolCapabilityCount!]!
+  }
+
+  type KbHolRegistrySearchHit {
+    uaid: String
+    id: String
+    registry: String
+    name: String
+    description: String
+    originalId: String
+    protocols: [String!]
+    json: String
+  }
+
+  type KbHolRegistrySearchResult {
+    total: Int!
+    page: Int
+    limit: Int
+    hits: [KbHolRegistrySearchHit!]!
+  }
+
+  input KbHolVectorSearchFilterInput {
+    registry: String
+    capabilities: [String!]
+  }
+
+  input KbHolVectorSearchInput {
+    query: String!
+    limit: Int
+    filter: KbHolVectorSearchFilterInput
+  }
+
+  input KbHolResolveIncludeInput {
+    capabilities: Boolean
+    endpoints: Boolean
+    relationships: Boolean
+    validations: Boolean
   }
 
   type KbAgentDescriptor {
@@ -239,21 +325,31 @@ export const graphQLSchemaStringKb = `
     agentImage: String
     agentDescriptor: KbAgentDescriptor
     agentTypes: [String!]!
+
+    # Provenance (best-effort; may be null for older/missing records)
     createdAtBlock: Int
     createdAtTime: Int
     updatedAtTime: Int
+
+    # KB analytics (GraphDB-resident) scoring signals
     trustLedgerTotalPoints: Int
     trustLedgerBadgeCount: Int
     trustLedgerComputedAt: Int
+    trustLedgerBadges: [TrustLedgerBadgeAward!]!
     atiOverallScore: Int
     atiOverallConfidence: Float
     atiVersion: String
     atiComputedAt: Int
+
     identities: [KbAgentIdentity!]!
+
     serviceEndpoints: [KbServiceEndpoint!]!
+
+    # Counts are always available; items are only fetched when you request a specific agent.
     assertions: KbAgentAssertions
     reviewAssertions(first: Int, skip: Int): KbReviewResponseConnection
     validationAssertions(first: Int, skip: Int): KbValidationResponseConnection
+
   }
 
   type KbAgentSearchResult {
@@ -316,6 +412,7 @@ export const graphQLSchemaStringKb = `
     intentType: String
   }
 
+  # Reuse input shape from v1 for compatibility with existing clients.
   input SemanticAgentSearchInput {
     text: String
     intentJson: String
@@ -332,22 +429,164 @@ export const graphQLSchemaStringKb = `
     tags: [String!]
   }
 
+  # ATI / TrustLedger: keep the v1 shapes for now (served from GraphDB in v2 endpoint).
+  type TrustReason {
+    code: String!
+    weight: Float
+    detail: String
+  }
+
+  type TrustScore {
+    interfaceId: String!
+    score: Float!
+    reputationScore: Float!
+    overlapScore: Float!
+    clientMembershipCount: Int!
+    agentMembershipCount: Int!
+    sharedMembershipCount: Int!
+    sharedMembershipKeys: [String!]!
+    reasons: [TrustReason!]!
+  }
+
+  type AgentTrustComponent {
+    component: String!
+    score: Float!
+    weight: Float!
+    evidenceCountsJson: String
+  }
+
+  type AgentTrustIndex {
+    chainId: Int!
+    agentId: String!
+    overallScore: Int!
+    overallConfidence: Float
+    version: String!
+    computedAt: Int!
+    bundleJson: String
+    components: [AgentTrustComponent!]!
+  }
+
+  type TrustLedgerBadgeDefinition {
+    badgeId: String!
+    program: String!
+    name: String!
+    description: String
+    iconRef: String
+    points: Int!
+    ruleId: String!
+    ruleJson: String
+    active: Boolean!
+    createdAt: Int!
+    updatedAt: Int!
+  }
+
+  type TrustLedgerBadgeAward {
+    iri: ID!
+    awardedAt: Int
+    evidenceJson: String
+    definition: TrustLedgerBadgeDefinition
+  }
+
   type Query {
-    oasfSkills(key: String, nameKey: String, category: String, extendsKey: String, limit: Int, offset: Int, orderBy: String, orderDirection: String): [OasfSkill!]!
-    oasfDomains(key: String, nameKey: String, category: String, extendsKey: String, limit: Int, offset: Int, orderBy: String, orderDirection: String): [OasfDomain!]!
-    intentTypes(key: String, label: String, limit: Int, offset: Int): [IntentType!]!
-    taskTypes(key: String, label: String, limit: Int, offset: Int): [TaskType!]!
-    intentTaskMappings(intentKey: String, taskKey: String, limit: Int, offset: Int): [IntentTaskMapping!]!
-    kbAgents(where: KbAgentWhereInput, first: Int, skip: Int, orderBy: KbAgentOrderBy, orderDirection: OrderDirection): KbAgentSearchResult!
-    kbOwnedAgents(chainId: Int!, ownerAddress: String!, first: Int, skip: Int, orderBy: KbAgentOrderBy, orderDirection: OrderDirection): KbAgentSearchResult!
-    kbOwnedAgentsAllChains(ownerAddress: String!, first: Int, skip: Int, orderBy: KbAgentOrderBy, orderDirection: OrderDirection): KbAgentSearchResult!
+    # Discovery taxonomy (GraphDB-backed, same shape as v1 schema)
+    oasfSkills(
+      key: String
+      nameKey: String
+      category: String
+      extendsKey: String
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): [OasfSkill!]!
+
+    oasfDomains(
+      key: String
+      nameKey: String
+      category: String
+      extendsKey: String
+      limit: Int
+      offset: Int
+      orderBy: String
+      orderDirection: String
+    ): [OasfDomain!]!
+
+    intentTypes(
+      key: String
+      label: String
+      limit: Int
+      offset: Int
+    ): [IntentType!]!
+
+    taskTypes(
+      key: String
+      label: String
+      limit: Int
+      offset: Int
+    ): [TaskType!]!
+
+    intentTaskMappings(
+      intentKey: String
+      taskKey: String
+      limit: Int
+      offset: Int
+    ): [IntentTaskMapping!]!
+
+    kbAgents(
+      where: KbAgentWhereInput
+      first: Int
+      skip: Int
+      orderBy: KbAgentOrderBy
+      orderDirection: OrderDirection
+    ): KbAgentSearchResult!
+
+    # Convenience query: agents whose ERC-8004 identity hasOwnerAccount matches ownerAddress
+    kbOwnedAgents(
+      chainId: Int!
+      ownerAddress: String!
+      first: Int
+      skip: Int
+      orderBy: KbAgentOrderBy
+      orderDirection: OrderDirection
+    ): KbAgentSearchResult!
+
+    # Like kbOwnedAgents, but searches across all subgraph graphs (no chainId required).
+    kbOwnedAgentsAllChains(
+      ownerAddress: String!
+      first: Int
+      skip: Int
+      orderBy: KbAgentOrderBy
+      orderDirection: OrderDirection
+    ): KbAgentSearchResult!
+
+    # UAID-native ownership check. Returns true if walletAddress resolves to the same EOA as the agent's owner.
     kbIsOwner(uaid: String!, walletAddress: String!): Boolean!
+
     kbAgentByUaid(uaid: String!): KbAgent
+    kbHolAgentProfileByUaid(uaid: String!, include: KbHolResolveIncludeInput): KbHolAgentProfile
+    kbHolCapabilities(first: Int, skip: Int): [KbHolCapability!]!
+    kbHolRegistries: [String!]!
+    kbHolRegistriesForProtocol(protocol: String!): [String!]!
+    kbHolStats: KbHolStats!
+    kbHolRegistrySearch(registry: String!, q: String, originalId: String): KbHolRegistrySearchResult!
+    kbHolVectorSearch(input: KbHolVectorSearchInput!): KbHolRegistrySearchResult!
+
     kbSemanticAgentSearch(input: SemanticAgentSearchInput!): KbSemanticAgentSearchResult!
+
     kbErc8122Registries(chainId: Int!, first: Int, skip: Int): [KbAgentRegistry8122!]!
+
+    # Minimal trust/event reads from KB (typed nodes + raw JSON where needed)
     kbReviews(chainId: Int!, first: Int, skip: Int): [KbReviewResponse!]!
     kbValidations(chainId: Int!, first: Int, skip: Int): [KbValidationResponse!]!
     kbAssociations(chainId: Int!, first: Int, skip: Int): [KbAssociation!]!
+
+    # ATI / trust ledger (GraphDB-backed in v2)
+    kbAgentTrustIndex(chainId: Int!, agentId: String!): AgentTrustIndex
+    kbTrustLedgerBadgeDefinitions(program: String, active: Boolean): [TrustLedgerBadgeDefinition!]!
+  }
+
+  type Mutation {
+    kbHolSyncCapabilities: KbHolSyncResult!
   }
 `;
 

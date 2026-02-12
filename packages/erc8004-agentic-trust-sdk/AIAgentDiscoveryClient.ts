@@ -1578,7 +1578,22 @@ export class AIAgentDiscoveryClient {
         if (names.has('atiVersion')) baseParts.push('atiVersion');
         if (names.has('atiComputedAt')) baseParts.push('atiComputedAt');
         // Optional badge list (schema-dependent).
-        if (names.has('trustLedgerBadges')) baseParts.push('trustLedgerBadges');
+        // In the KB v2 schema this is a structured list (TrustLedgerBadgeAward), so we must select subfields.
+        if (names.has('trustLedgerBadges')) {
+          baseParts.push(`
+            trustLedgerBadges {
+              iri
+              awardedAt
+              definition {
+                badgeId
+                name
+                iconRef
+                points
+              }
+            }
+          `);
+        }
+        // Older experimental schemas (if any) may expose alternative badge encodings.
         if (names.has('trustLedgerBadgesList')) baseParts.push('trustLedgerBadgesList');
         if (names.has('trustLedgerBadgesJson')) baseParts.push('trustLedgerBadgesJson');
         // Optional legacy/derived fields (may not exist in newer KB schemas)
@@ -1663,6 +1678,20 @@ export class AIAgentDiscoveryClient {
             'createdAtBlock',
             'createdAtTime',
             'updatedAtTime',
+            'trustLedgerTotalPoints',
+            'trustLedgerBadgeCount',
+            'trustLedgerComputedAt',
+            `
+            trustLedgerBadges {
+              iri
+              awardedAt
+              definition { badgeId name iconRef points }
+            }
+          `,
+            'atiOverallScore',
+            'atiOverallConfidence',
+            'atiVersion',
+            'atiComputedAt',
           ].join('\n'),
           `
             assertions {

@@ -38,7 +38,7 @@ export type AgentsPageAgent = {
   /**
    * Optional: badge labels if provided by backend.
    */
-  trustLedgerBadges?: string[] | null;
+  trustLedgerBadges?: unknown[] | null;
   agentAccount?: string | null;
   agentIdentityOwnerAccount?: string | null;
   eoaAgentIdentityOwnerAccount?: string | null;
@@ -4079,26 +4079,55 @@ export function AgentsPage({
               (agent as any).trustLedgerBadgeCount >= 0
                 ? ((agent as any).trustLedgerBadgeCount as number)
                 : null;
-            const trustLedgerBadges = (() => {
+            const trustLedgerBadgeAwards = (() => {
               const raw =
                 (agent as any).trustLedgerBadges ??
                 (agent as any).trustLedgerBadgesList ??
                 (agent as any).badges ??
                 null;
               if (!Array.isArray(raw)) return [];
-              const toLabel = (b: any): string => {
-                if (typeof b === 'string') return b.trim();
-                if (!b || typeof b !== 'object') return String(b ?? '').trim();
-                const candidate =
-                  b.name ?? b.label ?? b.title ?? b.badge ?? b.iri ?? b.id ?? null;
-                if (typeof candidate === 'string') return candidate.trim();
-                try {
-                  return JSON.stringify(b);
-                } catch {
-                  return String(b);
-                }
+
+              const toText = (v: any): string => (typeof v === 'string' ? v.trim() : String(v ?? '').trim());
+              const toNumberOrNull = (v: any): number | null => {
+                const n = typeof v === 'number' ? v : v == null ? NaN : Number(v);
+                return Number.isFinite(n) ? n : null;
               };
-              return raw.map(toLabel).filter(Boolean).slice(0, 12);
+
+              const out = raw
+                .map((b: any) => {
+                  if (typeof b === 'string') {
+                    const s = b.trim();
+                    if (!s) return null;
+                    return { badgeId: s, name: s, iconRef: null as string | null, points: null as number | null };
+                  }
+                  if (!b || typeof b !== 'object') return null;
+
+                  const def = (b as any).definition && typeof (b as any).definition === 'object' ? (b as any).definition : null;
+                  const badgeId =
+                    (def && typeof def.badgeId === 'string' ? def.badgeId : null) ??
+                    (typeof (b as any).badgeId === 'string' ? (b as any).badgeId : null) ??
+                    (typeof (b as any).id === 'string' ? (b as any).id : null) ??
+                    (typeof (b as any).iri === 'string' ? (b as any).iri : null) ??
+                    '';
+                  const name =
+                    (def && typeof def.name === 'string' ? def.name : null) ??
+                    (typeof (b as any).name === 'string' ? (b as any).name : null) ??
+                    badgeId;
+                  const iconRef =
+                    (def && typeof def.iconRef === 'string' ? def.iconRef : null) ??
+                    (typeof (b as any).iconRef === 'string' ? (b as any).iconRef : null) ??
+                    null;
+                  const points =
+                    toNumberOrNull(def?.points ?? (b as any).points ?? null);
+
+                  const id = toText(badgeId);
+                  const nm = toText(name);
+                  if (!nm) return null;
+                  return { badgeId: id || nm, name: nm, iconRef: toText(iconRef) || null, points };
+                })
+                .filter(Boolean) as Array<{ badgeId: string; name: string; iconRef: string | null; points: number | null }>;
+
+              return out.slice(0, 12);
             })();
             const atiOverallScore =
               typeof (agent as any).atiOverallScore === 'number' && Number.isFinite((agent as any).atiOverallScore)
@@ -4402,29 +4431,50 @@ export function AgentsPage({
                     </p>
                   );
                 })()}
-                {trustLedgerBadges.length > 0 && (
+                {trustLedgerBadgeAwards.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.45rem' }}>
-                    {trustLedgerBadges.map((b) => {
-                      const label = String(b || '').trim();
-                      if (!label) return null;
-                      const initials = label
-                        .split(/[\s._\-:/]+/g)
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .map((p) => p.slice(0, 1).toUpperCase())
-                        .join('');
+                    {trustLedgerBadgeAwards.map((award) => {
+                      const label = award.name;
+                      const badgeId = award.badgeId;
+                      const points = award.points;
+                      const iconRef = award.iconRef;
+
+                      const glyph = (() => {
+                        const id = String(badgeId || '').toLowerCase();
+                        if (id.startsWith('a2a:')) return 'A2A';
+                        if (id.startsWith('feedback:')) return 'FB';
+                        if (id.startsWith('x402:')) return '402';
+                        const nm = String(label || '').trim();
+                        const initials = nm
+                          .split(/[\s._\-:/]+/g)
+                          .filter(Boolean)
+                          .slice(0, 2)
+                          .map((p) => p.slice(0, 1).toUpperCase())
+                          .join('');
+                        return initials || '★';
+                      })();
+
+                      const hashKey = (badgeId || iconRef || label || '').trim();
+                      let hue = 250;
+                      for (let i = 0; i < hashKey.length; i += 1) {
+                        hue = (hue * 31 + hashKey.charCodeAt(i)) % 360;
+                      }
+                      const bg = `hsla(${hue}, 75%, 92%, 0.95)`;
+                      const border = `hsla(${hue}, 55%, 65%, 0.65)`;
+                      const fg = `hsla(${hue}, 55%, 25%, 1)`;
+
                       return (
                         <span
-                          key={`${uaid}::badge::${label}`}
-                          title={label}
+                          key={`${uaid}::badge::${badgeId || label}`}
+                          title={`${label}${typeof points === 'number' ? ` (+${points})` : ''}${iconRef ? ` · ${iconRef}` : ''}`}
                           aria-label={`Badge: ${label}`}
                           style={{
                             width: 26,
                             height: 26,
                             borderRadius: 999,
-                            border: `1px solid ${palette.border}`,
-                            backgroundColor: palette.surfaceMuted,
-                            color: palette.textPrimary,
+                            border: `1px solid ${border}`,
+                            backgroundColor: bg,
+                            color: fg,
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -4434,7 +4484,7 @@ export function AgentsPage({
                             userSelect: 'none',
                           }}
                         >
-                          {initials || '★'}
+                          {glyph}
                         </span>
                       );
                     })}
@@ -4614,11 +4664,16 @@ export function AgentsPage({
                         associations ({initiatedAssociationsCount ?? 0} / {approvedAssociationsCount ?? 0})
                       </span>
                     )}
-                    {trustLedgerScore !== null && trustLedgerOverallRank !== null && (
+                    {trustLedgerScore !== null && (
                       <span
-                        title={`Honor roll · score: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`}
+                        title={
+                          trustLedgerOverallRank !== null
+                            ? `Honor roll · points: ${Math.round(trustLedgerScore)} · rank: #${trustLedgerOverallRank}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`
+                            : `Points: ${Math.round(trustLedgerScore)}${trustLedgerBadgeCount !== null ? ` · badges: ${trustLedgerBadgeCount}` : ''}`
+                        }
                       >
-                        score {Math.round(trustLedgerScore)} · rank #{trustLedgerOverallRank}
+                        points {Math.round(trustLedgerScore)}
+                        {trustLedgerOverallRank !== null ? ` · rank #${trustLedgerOverallRank}` : ''}
                       </span>
                     )}
                     {typeof trustLedgerBadgeCount === 'number' && trustLedgerBadgeCount > 0 && (
