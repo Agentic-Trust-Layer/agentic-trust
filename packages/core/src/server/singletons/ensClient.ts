@@ -7,7 +7,7 @@
 
 import { AIAgentENSClient, AIAgentL2ENSDurenClient } from '@agentic-trust/8004-ext-sdk';
 import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
-import { sepolia, baseSepolia, optimismSepolia, getEnsOrgName } from '../lib/chainConfig';
+import { sepolia, baseSepolia, optimismSepolia, linea, getEnsOrgName } from '../lib/chainConfig';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
@@ -65,7 +65,7 @@ class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
     const ensRegistryRaw = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || defaultEnsRegistry;
     
     if (!ensRegistryRaw || ensRegistryRaw === '') {
-      const chainSuffix = targetChainId === 11155111 ? 'SEPOLIA' : targetChainId === 84532 ? 'BASE_SEPOLIA' : targetChainId === 11155420 ? 'OPTIMISM_SEPOLIA' : String(targetChainId);
+      const chainSuffix = targetChainId === 11155111 ? 'SEPOLIA' : targetChainId === 84532 ? 'BASE_SEPOLIA' : targetChainId === 11155420 ? 'OPTIMISM_SEPOLIA' : targetChainId === 59144 ? 'LINEA' : String(targetChainId);
       throw new Error(
         `Missing required environment variable: AGENTIC_TRUST_ENS_REGISTRY_${chainSuffix}. ` +
         `This is required for the ENS client to resolve ENS names on chain ${targetChainId}.`
@@ -95,10 +95,12 @@ class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
         ? baseSepolia
         : targetChainId === 11155420
         ? optimismSepolia
+        : targetChainId === 59144
+        ? linea
         : sepolia;
 
     // Choose L1 vs L2 ENS client implementation
-    const isL2 = targetChainId === 84532 || targetChainId === 11155420;
+    const isL2 = targetChainId === 84532 || targetChainId === 11155420 || targetChainId === 59144;
     const ClientCtor = isL2 ? AIAgentL2ENSDurenClient : AIAgentENSClient;
 
     return new ClientCtor(
