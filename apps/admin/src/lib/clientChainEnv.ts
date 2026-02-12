@@ -54,6 +54,16 @@ const CHAIN_SPECIFIC_ENV: Record<number, ClientChainEnv> = {
     validationRegistry: (process.env.NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_OPTIMISM_SEPOLIA ??
       DEFAULT_CHAIN_ENV.validationRegistry) as `0x${string}` | undefined,
   },
+  59144: {
+    bundlerUrl: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_LINEA ?? DEFAULT_CHAIN_ENV.bundlerUrl,
+    rpcUrl: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_LINEA ?? DEFAULT_CHAIN_ENV.rpcUrl,
+    identityRegistry: (process.env.NEXT_PUBLIC_AGENTIC_TRUST_IDENTITY_REGISTRY_LINEA ??
+      DEFAULT_CHAIN_ENV.identityRegistry) as `0x${string}` | undefined,
+    reputationRegistry: (process.env.NEXT_PUBLIC_AGENTIC_TRUST_REPUTATION_REGISTRY_LINEA ??
+      DEFAULT_CHAIN_ENV.reputationRegistry) as `0x${string}` | undefined,
+    validationRegistry: (process.env.NEXT_PUBLIC_AGENTIC_TRUST_VALIDATION_REGISTRY_LINEA ??
+      DEFAULT_CHAIN_ENV.validationRegistry) as `0x${string}` | undefined,
+  },
 };
 
 export function getClientChainEnv(chainId: number): ClientChainEnv {

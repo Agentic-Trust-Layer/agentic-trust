@@ -5,10 +5,10 @@
  * used throughout the AgenticTrust system.
  */
 
-import { mainnet, sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { mainnet, sepolia, baseSepolia, optimismSepolia, linea } from 'viem/chains';
 
 // Re-export chains for convenience
-export { mainnet, sepolia, baseSepolia, optimismSepolia };
+export { mainnet, sepolia, baseSepolia, optimismSepolia, linea };
 
 /**
  * Chain configuration mapping
@@ -36,6 +36,12 @@ export const CHAIN_CONFIG = {
     suffix: 'OPTIMISM_SEPOLIA',
     name: 'optimismSepolia',
     displayName: 'Optimism Sepolia',
+    layer: 'L2' as const,
+  },
+  59144: { // Linea Mainnet
+    suffix: 'LINEA',
+    name: 'linea',
+    displayName: 'Linea Mainnet',
     layer: 'L2' as const,
   },
 } as const;
@@ -67,6 +73,7 @@ const SERVER_CHAIN_RPC_ENV: Partial<Record<SupportedChainId, string | undefined>
   11155111: process.env.AGENTIC_TRUST_RPC_URL_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA,
+  59144: process.env.AGENTIC_TRUST_RPC_URL_LINEA,
 } as const;
 
 const CLIENT_CHAIN_RPC_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
@@ -74,6 +81,7 @@ const CLIENT_CHAIN_RPC_ENV: Partial<Record<SupportedChainId, string | undefined>
   11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_SEPOLIA,
   84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA,
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA,
+  59144: process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_LINEA,
 } as const;
 
 const SERVER_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
@@ -81,6 +89,7 @@ const SERVER_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefi
   11155111: process.env.AGENTIC_TRUST_BUNDLER_URL_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
+  59144: process.env.AGENTIC_TRUST_BUNDLER_URL_LINEA,
 } as const;
 
 const CLIENT_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
@@ -88,6 +97,7 @@ const CLIENT_CHAIN_BUNDLER_ENV: Partial<Record<SupportedChainId, string | undefi
   11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_SEPOLIA,
   84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_BASE_SEPOLIA,
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA,
+  59144: process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_LINEA,
 } as const;
 
 // ENS chain-specific variables
@@ -96,6 +106,7 @@ const SERVER_CHAIN_ENS_PRIVKEY_ENV: Partial<Record<SupportedChainId, string | un
   11155111: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_OPTIMISM_SEPOLIA,
+  59144: process.env.AGENTIC_TRUST_ENS_PRIVATE_KEY_LINEA,
 } as const;
 
 const SERVER_CHAIN_ENS_ORG_ADDRESS_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
@@ -103,6 +114,7 @@ const SERVER_CHAIN_ENS_ORG_ADDRESS_ENV: Partial<Record<SupportedChainId, string 
   11155111: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_SEPOLIA,
   84532: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_BASE_SEPOLIA,
   11155420: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_OPTIMISM_SEPOLIA,
+  59144: process.env.AGENTIC_TRUST_ENS_ORG_ADDRESS_LINEA,
 } as const;
 
 const CLIENT_CHAIN_ENS_ORG_NAME_ENV: Partial<Record<SupportedChainId, string | undefined>> = {
@@ -110,6 +122,7 @@ const CLIENT_CHAIN_ENS_ORG_NAME_ENV: Partial<Record<SupportedChainId, string | u
   11155111: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_SEPOLIA,
   84532: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_BASE_SEPOLIA,
   11155420: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_OPTIMISM_SEPOLIA,
+  59144: process.env.NEXT_PUBLIC_AGENTIC_TRUST_ENS_ORG_NAME_LINEA,
 } as const;
 
 /**
@@ -227,6 +240,8 @@ export function getChainById(chainId: number): any {
       return baseSepolia;
     case 'optimismSepolia':
       return optimismSepolia;
+    case 'linea':
+      return linea;
     default:
       throw new Error(`Chain ${chainName} not implemented`);
   }
@@ -292,6 +307,9 @@ export function getChainRpcUrl(chainId: number): string {
     } else if (chainId === 11155420) {
       serverValue = process.env.AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
       clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
+    } else if (chainId === 59144) {
+      serverValue = process.env.AGENTIC_TRUST_RPC_URL_LINEA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_LINEA;
     }
 
     if (isBrowser) {
@@ -487,6 +505,9 @@ export function getChainBundlerUrl(chainId: number): string {
     } else if (chainId === 11155420) {
       serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA;
       clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_OPTIMISM_SEPOLIA;
+    } else if (chainId === 59144) {
+      serverValue = process.env.AGENTIC_TRUST_BUNDLER_URL_LINEA;
+      clientValue = process.env.NEXT_PUBLIC_AGENTIC_TRUST_BUNDLER_URL_LINEA;
     }
 
     if (isBrowser) {

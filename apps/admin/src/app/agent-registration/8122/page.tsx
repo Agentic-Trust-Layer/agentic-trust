@@ -14,7 +14,7 @@ import {
   http,
   toHex,
 } from 'viem';
-import { mainnet, sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { mainnet, sepolia, baseSepolia, optimismSepolia, linea } from 'viem/chains';
 
 import { Header } from '@/components/Header';
 import { useAuth } from '@/components/AuthProvider';
@@ -86,6 +86,7 @@ const SUPPORTED_CHAINS = [
   { id: 11155111, label: 'Sepolia' },
   { id: 84532, label: 'Base Sepolia' },
   { id: 11155420, label: 'Optimism Sepolia' },
+  { id: 59144, label: 'Linea Mainnet' },
 ] as const;
 
 const CHAIN_BY_ID: Record<number, any> = {
@@ -93,6 +94,7 @@ const CHAIN_BY_ID: Record<number, any> = {
   11155111: sepolia,
   84532: baseSepolia,
   11155420: optimismSepolia,
+  59144: linea,
 };
 
 type Registry8122 = {

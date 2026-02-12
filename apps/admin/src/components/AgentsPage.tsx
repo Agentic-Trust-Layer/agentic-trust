@@ -19,7 +19,7 @@ import {
   giveFeedbackWithWallet,
 } from '@agentic-trust/core';
 import { signAndSendTransaction } from '@agentic-trust/core/client';
-import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { sepolia, baseSepolia, optimismSepolia, linea } from 'viem/chains';
 import { getClientChainEnv } from '@/lib/clientChainEnv';
 
 export type AgentsPageAgent = {
@@ -175,6 +175,7 @@ function getChainForId(chainId: number) {
   if (chainId === 11155111) return sepolia;
   if (chainId === 84532) return baseSepolia;
   if (chainId === 11155420) return optimismSepolia;
+  if (chainId === 59144) return linea;
   return sepolia;
 }
 
@@ -422,6 +423,7 @@ export function AgentsPage({
     11155111: 'https://sepolia.etherscan.io',
     84532: 'https://sepolia.basescan.org',
     11155420: 'https://sepolia-optimism.etherscan.io',
+    59144: 'https://lineascan.build',
   };
 
   const shadowAgentSrc =

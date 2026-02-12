@@ -19,7 +19,7 @@ import { useOwnedAgents } from '@/context/OwnedAgentsContext';
 import { buildDid8004, signAndSendTransaction, type PreparedTransaction } from '@agentic-trust/core';
 import type { Address } from 'viem';
 import { decodeAbiParameters, encodeAbiParameters, getAddress, parseAbiParameters, recoverAddress, createPublicClient, http, parseAbi } from 'viem';
-import { sepolia, baseSepolia, optimismSepolia } from 'viem/chains';
+import { sepolia, baseSepolia, optimismSepolia, linea } from 'viem/chains';
 import { grayscalePalette as palette } from '@/styles/palette';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
@@ -50,7 +50,7 @@ function ipfsToHttp(uri: string): string {
  */
 async function isContractAddress(address: `0x${string}`, chainId: number): Promise<boolean> {
   try {
-    const chain = chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
+    const chain = chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : chainId === optimismSepolia.id ? optimismSepolia : chainId === linea.id ? linea : sepolia;
     
     // Get RPC URL from environment variables (client-side)
     let rpcUrl: string | undefined;
@@ -60,6 +60,8 @@ async function isContractAddress(address: `0x${string}`, chainId: number): Promi
       rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_BASE_SEPOLIA;
     } else if (chainId === 11155420) {
       rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_OPTIMISM_SEPOLIA;
+    } else if (chainId === 59144) {
+      rpcUrl = process.env.NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL_LINEA;
     }
     
     // Fallback to chain default RPC URL
@@ -268,7 +270,7 @@ async function storeErc8092SarOnChainEoa(params: {
   // Note: approverSignature can be empty ('0x') in new flow - agent will update it
   
   const chain =
-    chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : optimismSepolia;
+    chainId === sepolia.id ? sepolia : chainId === baseSepolia.id ? baseSepolia : chainId === optimismSepolia.id ? optimismSepolia : chainId === linea.id ? linea : sepolia;
 
   const resp = await fetch('/api/associate', {
     method: 'POST',
@@ -505,6 +507,8 @@ export default function AgentDetailsPageContent({
         return baseSepolia;
       case 11155420:
         return optimismSepolia;
+      case 59144:
+        return linea;
       default:
         return sepolia;
     }
