@@ -251,6 +251,7 @@ export {
   baseSepolia,
   optimismSepolia,
   linea,
+  lineaSepolia,
   type SupportedChainId,
 } from './lib/chainConfig';
 

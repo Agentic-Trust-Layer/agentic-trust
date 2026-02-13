@@ -46,12 +46,14 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error('Error preparing L2 ENS calls:', error);
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    const isAlreadyRegistered = message === 'ENS name is already registered.';
     return NextResponse.json(
       {
-        error: 'Failed to prepare L2 ENS calls',
-        message: error instanceof Error ? error.message : 'Unknown error',
+        error: isAlreadyRegistered ? 'ENS name is already registered' : 'Failed to prepare L2 ENS calls',
+        message,
       },
-      { status: 500 }
+      { status: isAlreadyRegistered ? 409 : 500 }
     );
   }
 }

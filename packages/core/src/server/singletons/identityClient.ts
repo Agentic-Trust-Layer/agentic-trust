@@ -21,16 +21,18 @@ class IdentityDomainClient extends DomainClient<AIAgentIdentityClient, number> {
 
     // Create AccountProvider using ViemAccountProvider (read-only, no wallet)
     const { createPublicClient, http } = await import('viem');
-    const { sepolia, baseSepolia, optimismSepolia, linea } = await import('viem/chains');
+    const { sepolia, baseSepolia, optimismSepolia, linea, lineaSepolia } = await import('viem/chains');
     
     // Get chain by ID
-    let chain: typeof sepolia | typeof baseSepolia | typeof optimismSepolia | typeof linea = sepolia;
+    let chain: typeof sepolia | typeof baseSepolia | typeof optimismSepolia | typeof linea | typeof lineaSepolia = sepolia;
     if (targetChainId === 84532) {
       chain = baseSepolia;
     } else if (targetChainId === 11155420) {
       chain = optimismSepolia;
     } else if (targetChainId === 59144) {
       chain = linea;
+    } else if (targetChainId === 59141) {
+      chain = lineaSepolia;
     }
     
     const publicClient = createPublicClient({

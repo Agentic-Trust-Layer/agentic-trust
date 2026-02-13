@@ -7,7 +7,7 @@
 
 import { AIAgentENSClient, AIAgentL2ENSDurenClient } from '@agentic-trust/8004-ext-sdk';
 import { ViemAccountProvider, type AccountProvider } from '@agentic-trust/8004-sdk';
-import { sepolia, baseSepolia, optimismSepolia, linea, getEnsOrgName } from '../lib/chainConfig';
+import { sepolia, baseSepolia, optimismSepolia, linea, lineaSepolia, getEnsOrgName } from '../lib/chainConfig';
 import { createPublicClient, createWalletClient, http } from 'viem';
 import { getAdminApp } from '../userApps/adminApp';
 import { getClientApp } from '../userApps/clientApp';
@@ -16,7 +16,7 @@ import { isUserAppEnabled } from '../userApps/userApp';
 import { createBundlerClient } from 'viem/account-abstraction';
 import { createPimlicoClient } from 'permissionless/clients/pimlico';
 import { privateKeyToAccount } from 'viem/accounts';
-import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey } from '../lib/chainConfig';
+import { getChainEnvVar, requireChainEnvVar, getEnsOrgAddress, getEnsPrivateKey, getChainById } from '../lib/chainConfig';
 import { toMetaMaskSmartAccount, Implementation } from '@metamask/smart-accounts-kit';
 import { DomainClient } from './domainClient';
 import { resolveDomainUserApps, resolveENSAccountProvider, type DomainUserApps } from './domainAccountProviders';
@@ -65,7 +65,7 @@ class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
     const ensRegistryRaw = getChainEnvVar('AGENTIC_TRUST_ENS_REGISTRY', targetChainId) || defaultEnsRegistry;
     
     if (!ensRegistryRaw || ensRegistryRaw === '') {
-      const chainSuffix = targetChainId === 11155111 ? 'SEPOLIA' : targetChainId === 84532 ? 'BASE_SEPOLIA' : targetChainId === 11155420 ? 'OPTIMISM_SEPOLIA' : targetChainId === 59144 ? 'LINEA' : String(targetChainId);
+      const chainSuffix = targetChainId === 11155111 ? 'SEPOLIA' : targetChainId === 84532 ? 'BASE_SEPOLIA' : targetChainId === 11155420 ? 'OPTIMISM_SEPOLIA' : targetChainId === 59144 ? 'LINEA' : targetChainId === 59141 ? 'LINEA_SEPOLIA' : String(targetChainId);
       throw new Error(
         `Missing required environment variable: AGENTIC_TRUST_ENS_REGISTRY_${chainSuffix}. ` +
         `This is required for the ENS client to resolve ENS names on chain ${targetChainId}.`
@@ -97,10 +97,12 @@ class ENSDomainClient extends DomainClient<AIAgentENSClient, number> {
         ? optimismSepolia
         : targetChainId === 59144
         ? linea
+        : targetChainId === 59141
+        ? lineaSepolia
         : sepolia;
 
     // Choose L1 vs L2 ENS client implementation
-    const isL2 = targetChainId === 84532 || targetChainId === 11155420 || targetChainId === 59144;
+    const isL2 = targetChainId === 84532 || targetChainId === 11155420 || targetChainId === 59144 || targetChainId === 59141;
     const ClientCtor = isL2 ? AIAgentL2ENSDurenClient : AIAgentENSClient;
 
     return new ClientCtor(
@@ -169,6 +171,17 @@ export async function isENSNameAvailable(
     // Normalize the ENS name (ensure it ends with .eth if not already)
     const normalizedName = ensName.trim().toLowerCase();
     const fullName = normalizedName.endsWith('.eth') ? normalizedName : `${normalizedName}.eth`;
+
+    // Linea Sepolia (59141): registry has no resolver(node); getAgentAccountByName returns null. Use hasAgentNameOwner so "taken" names show as unavailable.
+    if (chainId === 59141 && typeof (ensClient as { hasAgentNameOwner?: (o: string, a: string) => Promise<boolean> }).hasAgentNameOwner === 'function') {
+      const withoutEth = fullName.replace(/\.eth$/i, '').split('.');
+      if (withoutEth.length >= 2) {
+        const agentNameLabel = withoutEth[0]!;
+        const orgNameClean = withoutEth.slice(1).join('.');
+        const hasOwner = await (ensClient as { hasAgentNameOwner: (o: string, a: string) => Promise<boolean> }).hasAgentNameOwner(orgNameClean, agentNameLabel);
+        return !hasOwner;
+      }
+    }
 
     // Check if ENS name is available
     console.log('*********** zzz isENSNameAvailable fullName', fullName);
@@ -695,6 +708,45 @@ export async function addAgentNameToL2Org(
       agentAddress,
       agentUrl: agentUrl || '',
     });
+
+    // Linea Sepolia (59141): registry requires controller/parent owner as msg.sender. Execute createSubnode server-side from org EOA instead of from user's smart account.
+    if (targetChainId === 59141 && orgCalls.length > 0) {
+      try {
+        const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', 59141) || getChainEnvVar('NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL', 59141);
+        const ensPrivKey = getEnsPrivateKey(59141);
+        if (rpcUrl && ensPrivKey) {
+          const chain = getChainById(59141);
+          const account = privateKeyToAccount(ensPrivKey as `0x${string}`);
+          const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+          const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) });
+          for (const call of orgCalls) {
+            const hash = await walletClient.sendTransaction({
+              chain,
+              to: call.to,
+              data: call.data,
+              value: (call as { value?: bigint }).value ?? 0n,
+            });
+            await publicClient.waitForTransactionReceipt({ hash });
+          }
+          console.info("addAgentNameToL2Org: Linea Sepolia createSubnode executed server-side");
+          return { calls: [] };
+        }
+      } catch (err) {
+        console.error("addAgentNameToL2Org: Linea Sepolia server-side createSubnode failed", err);
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes('reverted') || msg.includes('revert')) {
+          // Re-check: name may already be registered (common revert reason)
+          const hasOwnerNow = await ensClient.hasAgentNameOwner(orgNameClean, agentNameLabel);
+          if (hasOwnerNow) {
+            console.info("addAgentNameToL2Org: Linea Sepolia name already registered, returning empty calls");
+            return { calls: [] };
+          }
+          throw new Error('ENS name is already registered.');
+        }
+        throw err;
+      }
+    }
+
     calls.push(...orgCalls);
   }
 

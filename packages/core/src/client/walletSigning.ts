@@ -30,6 +30,7 @@ import {
   baseSepolia,
   optimismSepolia,
   linea,
+  lineaSepolia,
   isL1,
   isL2,
   isPrivateKeyMode,
@@ -1374,6 +1375,9 @@ async function createAgentWithWalletAA(
       break;
     case 59144: // Linea Mainnet
       chain = linea;
+      break;
+    case 59141: // Linea Sepolia
+      chain = lineaSepolia;
       break;
     default:
       chain = sepolia;

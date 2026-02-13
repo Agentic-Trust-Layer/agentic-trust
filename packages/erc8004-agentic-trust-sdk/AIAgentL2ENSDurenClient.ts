@@ -14,14 +14,49 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
     ensResolverAddress: `0x${string}`,
     identityRegistryAddress: `0x${string}`,
   ) {
-    super(chain, rpcUrl, adapter, 
-      '0x119bFf40969bFBe0438c3f72f3855958E8E0d30c', 
-      '0x119bFf40969bFBe0438c3f72f3855958E8E0d30c', 
-      identityRegistryAddress);
+    super(chain, rpcUrl, adapter, ensRegistryAddress, ensResolverAddress, identityRegistryAddress);
+  }
 
-    
-    //ensRegistryAddress = '0xf584057f3e9ecd550b52a86f84dfeb9f928e003f' as `0x${string}`;
-    //ensResolverAddress = '0xf584057f3e9ecd550b52a86f84dfeb9f928e003f' as `0x${string}`;
+  /** Chain ID for Linea Sepolia (registry uses createSubnode(baseNode, label, owner, [])). */
+  private static readonly CHAIN_ID_LINEA_SEPOLIA = 59141;
+
+  /**
+   * L2Registrar address per chain. Base Sepolia uses a separate L2Registrar contract;
+   * Linea Sepolia uses the registry's createSubnode(bytes32,string,address,bytes[]) (no separate registrar).
+   */
+  private getL2RegistrarAddress(): `0x${string}` | null {
+    const chainId = (this as any).chain?.id;
+    if (chainId === 84532) return '0x68CAd072571E8bea1DA9e5C071367Aa6ddC8F37F' as `0x${string}`;
+    return null;
+  }
+
+  /** True when this chain uses registry.createSubnode for subdomain registration (e.g. Linea Sepolia). */
+  private usesRegistryCreateSubnode(): boolean {
+    return (this as any).chain?.id === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_SEPOLIA;
+  }
+
+  private getEffectiveRpcUrl(): string | undefined {
+    const rpc = (this as any).rpcUrl;
+    if (typeof rpc === 'string' && rpc.trim()) return rpc.trim();
+    const chain = (this as any).chain;
+    const first = chain?.rpcUrls?.default?.http?.[0];
+    return typeof first === 'string' ? first : undefined;
+  }
+
+  private hasValidResolver(): boolean {
+    const addr = this.getEnsResolverAddress();
+    return typeof addr === 'string' && addr.length > 0 && addr !== zeroAddress;
+  }
+
+  /** On Linea Sepolia the registry does not implement setAddr/setText; resolver must be a different contract. */
+  private hasValidResolverForSetInfo(): boolean {
+    if (!this.hasValidResolver()) return false;
+    if (this.usesRegistryCreateSubnode()) {
+      const r = this.getEnsResolverAddress().toLowerCase();
+      const reg = this.getEnsRegistryAddress().toLowerCase();
+      if (r === reg) return false;
+    }
+    return true;
   }
 
 
@@ -48,18 +83,14 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
 
 
   async getAgentUrlByName(name: string): Promise<string | null> {
-
-    console.info("AIAgentL2ENSDurenClient.getAgentUrlByName: ", name);
-    
     try {
-      // Calculate namehash for the subdomain
-      const node = namehash(name);
-      console.info("AIAgentL2ENSDurenClient.getAgentUrlByName: node", node);
+      if (!this.hasValidResolver()) return null;
+      const rpcUrl = this.getEffectiveRpcUrl();
+      if (!rpcUrl) return null;
 
-      // Use direct resolver call to get URL text record (equivalent to cast call)
-      const resolverAddress = this.getEnsResolverAddress()
+      const node = namehash(name);
+      const resolverAddress = this.getEnsResolverAddress();
       
-      // ENS Resolver ABI for text function
       const resolverAbi = [
         {
           "inputs": [
@@ -87,23 +118,17 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
         }
       ] as const;
 
-      // Create public client for reading
-      const publicClient = // @ts-ignore - viem version compatibility issue
-    createPublicClient({
+      const publicClient = createPublicClient({
         chain: (this as any).chain,
-        transport: http((this as any).rpcUrl)
+        transport: http(rpcUrl),
       });
 
-      // Call the resolver directly to get URL text record
-      const url = await // @ts-ignore - viem version compatibility issue
-    publicClient.readContract({
+      const url = await publicClient.readContract({
         address: resolverAddress,
         abi: resolverAbi,
         functionName: 'text',
-        args: [node, 'url']
+        args: [node, 'url'],
       });
-
-      console.info("AIAgentL2ENSDurenClient.getAgentUrlByName: resolved url", url);
       
       // Return null if URL is empty
       if (!url || url.trim() === '') {
@@ -120,75 +145,31 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
 
 
   async getAgentAccountByName(name: string): Promise<`0x${string}` | null> {
-
-    console.info("AIAgentL2ENSDurenClient.getAgentAccountByName: ", name);
-    
     try {
-      // Calculate namehash for the subdomain
       const node = namehash(name);
-      console.info(".....node from hash: ", name, " is: ", node);
-      //const node = '0x6ea6fadc0faff80d2349984bfc18c82b246ba9e8ba697f0356956a4f1e6b2b29' as `0x${string}`;
-      console.info("AIAgentL2ENSDurenClient.getAgentAccountByName: node", node);
+      const rpcUrl = this.getEffectiveRpcUrl();
+      if (!rpcUrl) return null;
 
-      // TEST: Check if NFT exists but may not have address set
-      console.info("********************* TEST: Checking if NFT exists for name:", name);
-      
-      // First check if the name exists in the ENS registry (has an owner)
-      const ensRegistryAddress = this.getEnsRegistryAddress()
-
-      const ensRegistryAbi = [
-        {
-          "inputs": [
-            {
-              "internalType": "bytes32",
-              "name": "node",
-              "type": "bytes32"
-            }
-          ],
-          "name": "owner",
-          "outputs": [
-            {
-              "internalType": "address",
-              "name": "",
-              "type": "address"
-            }
-          ],
-          "stateMutability": "view",
-          "type": "function"
-        }
-      ] as const;
-
-      console.info("********************* TEST: Public client chain", (this as any).chain);
-      console.info("********************* TEST: Public client rpcUrl", (this as any).rpcUrl);
-
-      const publicClient = // @ts-ignore - viem version compatibility issue
-    createPublicClient({
+      const publicClient = createPublicClient({
         chain: (this as any).chain,
-        transport: http((this as any).rpcUrl)
+        transport: http(rpcUrl),
       });
 
-      try {
-        const owner = await // @ts-ignore - viem version compatibility issue
-    publicClient.readContract({
-          address: ensRegistryAddress,
-          abi: ensRegistryAbi,
-          functionName: 'owner',
-          args: [node]
-        });
+      const ensRegistryAddress = this.getEnsRegistryAddress();
+      const ensRegistryAbi = [
+        { inputs: [{ internalType: 'bytes32', name: 'node', type: 'bytes32' }], name: 'owner', outputs: [{ internalType: 'address', name: '', type: 'address' }], stateMutability: 'view', type: 'function' },
+      ] as const;
 
-        console.info("********************* TEST: ENS Registry owner for", name, ":", owner);
-        
-        if (owner && owner !== '0x0000000000000000000000000000000000000000') {
-          console.info("********************* TEST: NFT EXISTS - Name has owner:", owner);
-        } else {
-          console.info("********************* TEST: NFT DOES NOT EXIST - No owner found");
-        }
-      } catch (registryError) {
-        console.error("********************* TEST: Error checking ENS registry:", registryError);
-      }
+      const owner = await publicClient.readContract({
+        address: ensRegistryAddress,
+        abi: ensRegistryAbi,
+        functionName: 'owner',
+        args: [node],
+      });
+      if (!owner || owner === zeroAddress) return null;
 
-      // Use direct resolver call to get address (equivalent to cast call)
-      const resolverAddress = this.getEnsResolverAddress()
+      if (!this.hasValidResolver()) return null;
+      const resolverAddress = this.getEnsResolverAddress();
 
       // ENS Resolver ABI for addr function
       const resolverAbi = [
@@ -284,16 +265,12 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
         }
       ] as const;
 
-      const address = await // @ts-ignore - viem version compatibility issue
-    publicClient.readContract({
+      const address = await publicClient.readContract({
         address: resolverAddress,
         abi: addressResolverAbi,
         functionName: 'addr',
-        args: [node]
+        args: [node],
       });
-
-      console.info("AIAgentL2ENSDurenClient.getAgentAccountByName: resolved address", address);
-      console.info("********************* TEST: Address resolution result:", address);
       
       // Return null if address is zero address
       if (!address || address === '0x0000000000000000000000000000000000000000') {
@@ -329,8 +306,32 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
     const fullSubname = `${label}.${parent}`;
     console.info("AIAgentL2ENSDurenClient.hasAgentNameOwner: fullSubname", fullSubname);
 
-    // Use L2Registrar contract address (same as registerSubdomain)
-    const l2RegistrarAddress = "0x68CAd072571E8bea1DA9e5C071367Aa6ddC8F37F" as `0x${string}`;
+    const l2RegistrarAddress = this.getL2RegistrarAddress();
+    if (!l2RegistrarAddress) {
+      // No L2Registrar on this chain (e.g. Linea Sepolia); fall back to ENS registry owner(node)
+      try {
+        const rpcUrl = this.getEffectiveRpcUrl();
+        if (!rpcUrl) return false;
+        const node = namehash(fullSubname);
+        const publicClient = createPublicClient({
+          chain: (this as any).chain,
+          transport: http(rpcUrl),
+        });
+        const owner = await publicClient.readContract({
+          address: this.getEnsRegistryAddress(),
+          abi: [{ inputs: [{ name: 'node', type: 'bytes32' }], name: 'owner', outputs: [{ type: 'address' }], stateMutability: 'view', type: 'function' }] as const,
+          functionName: 'owner',
+          args: [node],
+        });
+        const hasOwner = owner && owner !== zeroAddress;
+        console.info(`AIAgentL2ENSDurenClient.hasAgentNameOwner: "${fullSubname}" (registry) ${hasOwner ? 'HAS owner' : 'has NO owner'}`);
+        return hasOwner;
+      } catch (err) {
+        console.error('Error checking agent name owner via registry:', err);
+        return false;
+      }
+    }
+
     const l2RegistrarAbi = [
       {
         "inputs": [
@@ -595,52 +596,72 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
     subdomain: string,
     owner: `0x${string}`
   ): Promise<{ calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] }> {
-    
-    console.log("AIAgentL2ENSDurenClient.registerSubdomain");
-    console.log("subdomain:", subdomain);
-    console.log("owner:", owner);
-
+    console.log("AIAgentL2ENSDurenClient.registerSubdomain", { subdomain, owner });
 
     const calls: { to: `0x${string}`; data: `0x${string}`; value?: bigint }[] = [];
 
-    // L2Registrar ABI - 2-parameter register function
+    // Linea Sepolia: registry has baseNode() and createSubnode(bytes32,string,address,bytes[])
+    if (this.usesRegistryCreateSubnode()) {
+      const rpcUrl = this.getEffectiveRpcUrl();
+      if (!rpcUrl) return { calls };
+      const registryAddress = this.getEnsRegistryAddress();
+      const publicClient = createPublicClient({
+        chain: (this as any).chain,
+        transport: http(rpcUrl),
+      });
+      const baseNodeAbi = [{ inputs: [], name: 'baseNode', outputs: [{ type: 'bytes32' }], stateMutability: 'view', type: 'function' }] as const;
+      const baseNode = await publicClient.readContract({
+        address: registryAddress,
+        abi: baseNodeAbi,
+        functionName: 'baseNode',
+      });
+      const createSubnodeAbi = [
+        {
+          inputs: [
+            { internalType: 'bytes32', name: 'baseNode', type: 'bytes32' },
+            { internalType: 'string', name: 'label', type: 'string' },
+            { internalType: 'address', name: 'owner', type: 'address' },
+            { internalType: 'bytes[]', name: 'data', type: 'bytes[]' },
+          ],
+          name: 'createSubnode',
+          outputs: [],
+          stateMutability: 'nonpayable',
+          type: 'function',
+        },
+      ] as const;
+      const data = encodeFunctionData({
+        abi: createSubnodeAbi,
+        functionName: 'createSubnode',
+        args: [baseNode, subdomain, owner, []],
+      });
+      calls.push({ to: registryAddress, data, value: 0n });
+      return { calls };
+    }
+
+    const l2RegistrarAddress = this.getL2RegistrarAddress();
+    if (!l2RegistrarAddress) {
+      return { calls };
+    }
+
+    // Base Sepolia: separate L2Registrar with register(string, address)
     const l2RegistrarAbi = [
       {
-        "inputs": [
-          {
-            "internalType": "string",
-            "name": "name",
-            "type": "string"
-          },
-          {
-            "internalType": "address",
-            "name": "owner",
-            "type": "address"
-          }
+        inputs: [
+          { internalType: 'string', name: 'name', type: 'string' },
+          { internalType: 'address', name: 'owner', type: 'address' },
         ],
-        "name": "register",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-      }
+        name: 'register',
+        outputs: [],
+        stateMutability: 'nonpayable',
+        type: 'function',
+      },
     ] as const;
-
-    // Use L2Registrar contract address for Base Sepolia
-    const l2RegistrarAddress = "0x68CAd072571E8bea1DA9e5C071367Aa6ddC8F37F" as `0x${string}`;
-
-    // Register subdomain using L2Registrar (equivalent to your cast command)
     const registerData = encodeFunctionData({
       abi: l2RegistrarAbi,
       functionName: 'register',
-      args: [subdomain, owner]
+      args: [subdomain, owner],
     });
-
-    calls.push({
-      to: l2RegistrarAddress,
-      data: registerData,
-      value: 0n
-    });
-
+    calls.push({ to: l2RegistrarAddress, data: registerData, value: 0n });
     return { calls };
   }
 
@@ -702,6 +723,57 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
       to: resolverAddress,
       data
     };
+  }
+
+  /**
+   * Override for Linea Sepolia (59141): registry does not implement resolver(node).
+   * When no resolver is configured return empty; otherwise use configured resolver address and skip registry lookups.
+   */
+  override async prepareSetAgentNameInfoCalls(params: {
+    orgName: string;
+    agentName: string;
+    agentAddress: `0x${string}`;
+    agentUrl?: string | null;
+    agentDescription?: string | null;
+  }): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
+    if (this.usesRegistryCreateSubnode()) {
+      if (!this.hasValidResolverForSetInfo()) return { calls: [] };
+      const resolver = this.getEnsResolverAddress();
+      const clean = (s: string) => (s || '').trim().toLowerCase();
+      const parent = clean(params.orgName);
+      const label = clean(params.agentName).replace(/\s+/g, '-');
+      const ensFullName = `${label}.${parent}.eth`;
+      const childNode = namehash(ensFullName);
+      const calls: { to: `0x${string}`; data: `0x${string}` }[] = [];
+      const setAddrData = encodeFunctionData({
+        abi: [{ name: 'setAddr', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'node', type: 'bytes32' }, { name: 'a', type: 'address' }], outputs: [] }],
+        functionName: 'setAddr',
+        args: [childNode, params.agentAddress],
+      });
+      calls.push({ to: resolver, data: setAddrData });
+      if (params.agentUrl?.trim()) {
+        calls.push({
+          to: resolver,
+          data: encodeFunctionData({
+            abi: [{ name: 'setText', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'node', type: 'bytes32' }, { name: 'key', type: 'string' }, { name: 'value', type: 'string' }], outputs: [] }],
+            functionName: 'setText',
+            args: [childNode, 'url', params.agentUrl.trim()],
+          }),
+        });
+      }
+      if (params.agentDescription?.trim()) {
+        calls.push({
+          to: resolver,
+          data: encodeFunctionData({
+            abi: [{ name: 'setText', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'node', type: 'bytes32' }, { name: 'key', type: 'string' }, { name: 'value', type: 'string' }], outputs: [] }],
+            functionName: 'setText',
+            args: [childNode, 'description', params.agentDescription.trim()],
+          }),
+        });
+      }
+      return { calls };
+    }
+    return super.prepareSetAgentNameInfoCalls(params);
   }
 
   /**

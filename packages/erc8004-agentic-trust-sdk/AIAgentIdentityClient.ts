@@ -18,7 +18,7 @@ import {
   type Hex,
   type Abi,
 } from 'viem';
-import { sepolia, baseSepolia, optimismSepolia, linea } from 'viem/chains';
+import { sepolia, baseSepolia, optimismSepolia, linea, lineaSepolia } from 'viem/chains';
 import { 
   BaseIdentityClient,
   AccountProvider,
@@ -63,6 +63,8 @@ function getChainById(chainId: number): Chain {
       return optimismSepolia;
     case 59144: // Linea Mainnet
       return linea;
+    case 59141: // Linea Sepolia
+      return lineaSepolia;
     default:
       console.warn(`Unknown chainId ${chainId}, defaulting to ETH Sepolia`);
       return sepolia;

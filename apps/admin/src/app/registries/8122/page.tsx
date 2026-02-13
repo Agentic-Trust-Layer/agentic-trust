@@ -17,7 +17,7 @@ import {
   parseEther,
   toHex,
 } from 'viem';
-import { mainnet, sepolia, baseSepolia, optimismSepolia, linea } from 'viem/chains';
+import { mainnet, sepolia, baseSepolia, optimismSepolia, linea, lineaSepolia } from 'viem/chains';
 
 import { agentRegistryAbi, agentRegistrarAbi, agentRegistryFactoryAbi } from '@agentic-trust/8122-sdk';
 
@@ -29,6 +29,7 @@ const SUPPORTED_CHAINS = [
   { id: 84532, label: 'Base Sepolia' },
   { id: 11155420, label: 'Optimism Sepolia' },
   { id: 59144, label: 'Linea Mainnet' },
+  { id: 59141, label: 'Linea Sepolia' },
 ] as const;
 
 const CHAIN_BY_ID: Record<number, any> = {
@@ -37,6 +38,7 @@ const CHAIN_BY_ID: Record<number, any> = {
   84532: baseSepolia,
   11155420: optimismSepolia,
   59144: linea,
+  59141: lineaSepolia,
 };
 
 const DEFAULT_ADMIN_ROLE: Hex = `0x${'00'.repeat(32)}` as Hex;
