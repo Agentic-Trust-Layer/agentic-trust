@@ -43,6 +43,8 @@ export type AgentDetailsValidationsSummary = {
 type AgentDetailsTabsProps = {
   uaid: string;
   agent: AgentsPageAgent;
+  isConnected: boolean;
+  isMobile: boolean;
   feedbackItems?: unknown[];
   feedbackSummary?: AgentDetailsFeedbackSummary;
   validations?: AgentDetailsValidationsSummary | null;
@@ -230,6 +232,8 @@ function formatIsoTime(value: unknown): string | null {
 const AgentDetailsTabs = ({
   uaid,
   agent,
+  isConnected,
+  isMobile,
   feedbackItems: initialFeedbackItems,
   feedbackSummary: initialFeedbackSummary,
   validations: initialValidations,
@@ -239,6 +243,10 @@ const AgentDetailsTabs = ({
 }: AgentDetailsTabsProps) => {
   const [activeTab, setActiveTab] = useState<TabId>(renderOnlyTab ?? 'id8004');
   const [modalTab, setModalTab] = useState<ModalTabId | null>(null);
+
+  const identityPadding = isMobile ? '0.3rem' : '1.5rem';
+  const identityGap = isMobile ? '0.6rem' : '1.5rem';
+  const panePadding = isMobile ? '0.3rem' : '1.25rem';
 
   // Feedback + validations are lazy-loaded when their respective tabs are opened
   const [feedbackItems, setFeedbackItems] = useState<unknown[]>(
@@ -915,6 +923,19 @@ const AgentDetailsTabs = ({
     () => parseJsonObject(identityDescriptorJsonRaw),
     [identityDescriptorJsonRaw],
   );
+  const identityDescription = useMemo(() => {
+    const fromDescriptor =
+      typeof (identityDescriptor as any)?.description === 'string'
+        ? String((identityDescriptor as any).description)
+        : null;
+    const fromAgent =
+      typeof (agent as any)?.description === 'string'
+        ? String((agent as any).description)
+        : null;
+    const raw = (fromDescriptor ?? fromAgent) ?? null;
+    const trimmed = raw ? raw.trim() : '';
+    return trimmed ? trimmed : null;
+  }, [identityDescriptor, (agent as any)?.description]);
   const identityOnchainMetadata = useMemo(() => {
     const parsed = parseJsonObject(identityOnchainMetadataJsonRaw);
     return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
@@ -1050,40 +1071,48 @@ const AgentDetailsTabs = ({
               );
             })}
           </div>
-          <div style={{ padding: '0.5rem 1rem', flex: '0 0 auto' }}>
-            <button
-              type="button"
-              onClick={() => setRegisterDialogOpen(true)}
-              style={{
-                padding: '0.55rem 0.9rem',
-                borderRadius: '999px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: palette.surface,
-                color: palette.textPrimary,
-                fontWeight: 700,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Register agent
-            </button>
-          </div>
+          {!isMobile && isConnected && (
+            <div style={{ padding: '0.5rem 1rem', flex: '0 0 auto' }}>
+              <button
+                type="button"
+                onClick={() => setRegisterDialogOpen(true)}
+                style={{
+                  padding: '0.55rem 0.9rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: palette.surface,
+                  color: palette.textPrimary,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Register agent
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       {/* Tab Content */}
-      <div style={{ padding: embedded ? 0 : '1.5rem' }}>
+      <div style={{ padding: embedded ? 0 : identityPadding }}>
         {(activeTab === 'id8004' || activeTab === 'id8122' || activeTab === 'ens' || activeTab === 'hol') && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: identityGap }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'minmax(0, 1fr) minmax(0, 1fr)',
+                gap: identityGap,
+              }}
+            >
             {/* Left Column: Identity Info and Endpoints stacked */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: identityGap }}>
               {/* Identity Info Pane */}
               <div
                 style={{
                   border: `1px solid ${palette.border}`,
                   borderRadius: '12px',
-                  padding: '1.25rem',
+                  padding: panePadding,
                   backgroundColor: palette.surfaceMuted,
                 }}
               >
@@ -1190,15 +1219,39 @@ const AgentDetailsTabs = ({
 
                 {identityTab === 'id8004' && (
                   <>
-                    {identityRegistryInfo && (
+                    {isMobile && identityDescription && (
                       <div
                         style={{
                           borderTop: `1px dashed ${palette.border}`,
-                          paddingTop: '0.85rem',
+                          borderBottom: `1px dashed ${palette.border}`,
+                          paddingTop: '0.3rem',
+                          paddingBottom: '0.3rem',
                           marginTop: '0.25rem',
                           display: 'flex',
                           flexDirection: 'column',
-                          gap: '0.6rem',
+                          gap: '0.35rem',
+                        }}
+                      >
+                        <div>
+                          <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>
+                            Description
+                          </strong>
+                          <div style={{ color: palette.textPrimary, lineHeight: 1.5 }}>{identityDescription}</div>
+                        </div>
+                      </div>
+                    )}
+                    {identityRegistryInfo && (
+                      <div
+                        style={{
+                          borderTop:
+                            isMobile && identityDescription
+                              ? 'none'
+                              : `1px dashed ${palette.border}`,
+                          paddingTop: isMobile ? '0.3rem' : '0.85rem',
+                          marginTop: '0.25rem',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: isMobile ? '0.35rem' : '0.6rem',
                         }}
                       >
                         <div>
@@ -1297,7 +1350,7 @@ const AgentDetailsTabs = ({
                 style={{
                   border: `1px solid ${palette.border}`,
                   borderRadius: '12px',
-                  padding: '1.25rem',
+                  padding: panePadding,
                   backgroundColor: palette.surfaceMuted,
                 }}
               >
@@ -1371,14 +1424,15 @@ const AgentDetailsTabs = ({
             </div>
 
             {/* Right Column: Metadata Pane */}
-            <div
-              style={{
-                border: `1px solid ${palette.border}`,
-                borderRadius: '12px',
-                padding: '1.25rem',
-                backgroundColor: palette.surfaceMuted,
-              }}
-            >
+            {!isMobile && (
+              <div
+                style={{
+                  border: `1px solid ${palette.border}`,
+                  borderRadius: '12px',
+                  padding: panePadding,
+                  backgroundColor: palette.surfaceMuted,
+                }}
+              >
               <h3 style={{ margin: '0 0 1rem', fontSize: '1.1rem', fontWeight: 600, color: palette.textPrimary }}>Metadata</h3>
               <div
                 style={{
@@ -1618,6 +1672,7 @@ const AgentDetailsTabs = ({
                 )}
               </div>
             </div>
+            )}
             </div>
 
             {/* Descriptor JSON (from identity descriptor json) */}
@@ -1625,7 +1680,7 @@ const AgentDetailsTabs = ({
               style={{
                 border: `1px solid ${palette.border}`,
                 borderRadius: '12px',
-                padding: '1.25rem',
+                padding: panePadding,
                 backgroundColor: palette.surfaceMuted,
               }}
             >

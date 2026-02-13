@@ -3937,14 +3937,14 @@ export function AgentsPage({
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: isMobile ? '0.2rem' : '1.5rem',
+          gap: isMobile || gridColumns === 1 ? '0.2rem' : '1.5rem',
         }}
       >
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
-            gap: isMobile ? '0.2rem' : '1.5rem',
+            gap: isMobile || gridColumns === 1 ? '0.2rem' : '1.5rem',
           }}
         >
           {agentsToRender.length === 0 && (
@@ -4187,7 +4187,7 @@ export function AgentsPage({
                 style={{
                   borderRadius: isMobile ? '5px' : '20px',
                   border: `1px solid ${palette.border}`,
-                  padding: isMobile ? '0.25rem' : '1.75rem',
+                  padding: isMobile ? '0.5rem' : '1.75rem',
                   backgroundColor: palette.surface,
                   boxShadow: '0 4px 12px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04)',
                   display: 'flex',

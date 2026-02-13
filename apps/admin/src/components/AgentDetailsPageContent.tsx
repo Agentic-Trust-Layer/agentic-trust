@@ -988,12 +988,12 @@ export default function AgentDetailsPageContent({
         maxWidth={false}
         disableGutters
         sx={{
-          py: { xs: 3, md: 4 },
-          px: { xs: 2, md: 4 },
+          py: { xs: 0.625, md: 4 },
+          px: { xs: 0.625, md: 4 },
           width: '100%',
           display: 'flex',
           flexDirection: 'column',
-          gap: '1.75rem',
+          gap: { xs: 1, md: '1.75rem' },
         }}
       >
         <BackToAgentsButton />
@@ -1002,12 +1002,12 @@ export default function AgentDetailsPageContent({
         <Box
           sx={{
             borderRadius: '20px',
-            p: { xs: 2, md: 4 },
+            p: { xs: 1, md: 4 },
             border: '1px solid rgba(0,0,0,0.1)',
             backgroundColor: palette.surface,
             color: palette.textPrimary,
             display: 'flex',
-            gap: { xs: '1.5rem', md: '2.5rem' },
+            gap: { xs: 1, md: '2.5rem' },
             flexWrap: 'wrap',
             alignItems: 'stretch',
             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
@@ -1019,8 +1019,8 @@ export default function AgentDetailsPageContent({
             onClick={handleShare}
             sx={{
               position: 'absolute',
-              top: 16,
-              right: 16,
+              top: { xs: 8, md: 16 },
+              right: { xs: 8, md: 16 },
               color: palette.textPrimary,
               backgroundColor: palette.surfaceMuted,
               '&:hover': {
@@ -1120,7 +1120,7 @@ export default function AgentDetailsPageContent({
           </Box>
           <Box
             sx={{
-              flex: '0 0 260px',
+              flex: { xs: '0 0 150px', md: '0 0 260px' },
               display: 'flex',
               justifyContent: 'center',
               alignItems: 'center',
@@ -1133,7 +1133,7 @@ export default function AgentDetailsPageContent({
                 border: '1px solid #d1d5db',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
                 backgroundColor: palette.surface,
-                height: '150px',
+                height: isMobile ? '110px' : '150px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -1164,7 +1164,7 @@ export default function AgentDetailsPageContent({
             borderRadius: '16px',
             border: `1px solid ${palette.border}`,
             backgroundColor: palette.surfaceMuted,
-            p: { xs: 2, md: 3 },
+            p: { xs: 1, md: 3 },
             boxShadow: '0 8px 20px rgba(15,23,42,0.08)',
           }}
         >
@@ -1242,6 +1242,8 @@ export default function AgentDetailsPageContent({
             uaid={uaid}
           agent={agent}
             onChainMetadata={onChainMetadata}
+            isConnected={isConnected}
+            isMobile={isMobile}
         />
       </Container>
 
@@ -1272,6 +1274,8 @@ export default function AgentDetailsPageContent({
               uaid={uaid}
               agent={agent}
               onChainMetadata={onChainMetadata}
+              isConnected={isConnected}
+              isMobile={isMobile}
               embedded
               renderOnlyTab={insightsDialogTab}
             />
