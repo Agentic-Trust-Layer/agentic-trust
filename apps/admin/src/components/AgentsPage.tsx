@@ -4185,9 +4185,9 @@ export function AgentsPage({
                 // Include idx to keep React keys unique and stable per render.
                 key={`${uaid}::${idx}`}
                 style={{
-                  borderRadius: '20px',
+                  borderRadius: isMobile ? '5px' : '20px',
                   border: `1px solid ${palette.border}`,
-                  padding: '1.75rem',
+                  padding: isMobile ? '0.25rem' : '1.75rem',
                   backgroundColor: palette.surface,
                   boxShadow: '0 4px 12px rgba(15,23,42,0.08), 0 2px 4px rgba(15,23,42,0.04)',
                   display: 'flex',
