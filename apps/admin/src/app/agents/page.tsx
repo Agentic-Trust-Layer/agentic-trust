@@ -270,10 +270,22 @@ export default function AgentsRoute() {
           }
 
           const rankedData = await rankedRes.json().catch(() => ({} as any));
-          setAgents((rankedData.agents as Agent[]) ?? []);
-          setTotal(rankedData.total);
-          setTotalPages(rankedData.totalPages);
-          setCurrentPage(rankedData.page ?? page);
+          const rawAgents = (rankedData.agents as Agent[]) ?? [];
+          const nameQuery = typeof safeFilters.name === 'string' ? safeFilters.name.trim().toLowerCase() : '';
+          const filteredAgents =
+            nameQuery.length > 0
+              ? rawAgents.filter((a) => {
+                  const nm = typeof (a as any)?.agentName === 'string' ? String((a as any).agentName) : '';
+                  return nm.toLowerCase().includes(nameQuery);
+                })
+              : rawAgents;
+
+          setAgents(filteredAgents);
+          // Ranked API totals refer to the unfiltered leaderboard; when applying a client-side name filter,
+          // treat the result as a single page.
+          setTotal(nameQuery ? filteredAgents.length : rankedData.total);
+          setTotalPages(nameQuery ? 1 : rankedData.totalPages);
+          setCurrentPage(nameQuery ? 1 : (rankedData.page ?? page));
           setHasLoaded(true);
           return;
         }

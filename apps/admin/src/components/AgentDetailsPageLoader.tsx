@@ -51,7 +51,8 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
         controller.abort();
       }
     };
-    const timeout = setTimeout(() => abort('timeout'), 12_000);
+    // Cold starts + large payloads can exceed 12s in some deployments.
+    const timeout = setTimeout(() => abort('timeout'), 30_000);
 
     (async () => {
       try {
@@ -104,6 +105,10 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
         if (!res.ok) {
           throw new Error((json as any)?.message || (json as any)?.error || `Failed to load agent (${res.status})`);
         }
+
+        // Fetch completed successfully; prevent the timeout from aborting later.
+        clearTimeout(timeout);
+
         const tSet0 = performance.now();
         setDetail(json);
         const tSet1 = performance.now();
@@ -155,6 +160,7 @@ export default function AgentDetailsPageLoader({ uaid }: Props) {
         setError(e?.message ?? 'Failed to load agent');
         setDetail(null);
       } finally {
+        clearTimeout(timeout);
         if (!cancelled) setLoading(false);
       }
     })();
