@@ -528,8 +528,8 @@ export default function AgentsRoute() {
         maxWidth={false}
         disableGutters
         sx={{
-          py: { xs: 3, md: 4 },
-          px: { xs: 2, md: 4 },
+          py: { xs: 0.625, md: 4 },
+          px: { xs: 0.625, md: 4 },
           width: '100%',
         }}
       >

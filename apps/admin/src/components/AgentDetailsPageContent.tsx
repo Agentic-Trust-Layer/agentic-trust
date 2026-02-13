@@ -1094,27 +1094,28 @@ export default function AgentDetailsPageContent({
                 </Button>
               )}
 
-              {/* Always show Give Review (no gating). */}
-              <Button
-                variant="contained"
-                color="primary"
-                startIcon={<ChatBubbleOutlineIcon />}
-                onClick={handleGiveFeedback}
-                sx={{
-                  backgroundColor: palette.accent,
-                  color: palette.surface,
-                  border: `1px solid ${palette.accent}`,
-                  '&:hover': {
-                    backgroundColor: palette.border,
-                    color: palette.textPrimary,
-                    borderColor: palette.border,
-                  },
-                  textTransform: 'none',
-                  fontWeight: 700,
-                }}
-              >
-                Give Feedback
-              </Button>
+              {!isMobile && (
+                <Button
+                  variant="contained"
+                  color="primary"
+                  startIcon={<ChatBubbleOutlineIcon />}
+                  onClick={handleGiveFeedback}
+                  sx={{
+                    backgroundColor: palette.accent,
+                    color: palette.surface,
+                    border: `1px solid ${palette.accent}`,
+                    '&:hover': {
+                      backgroundColor: palette.border,
+                      color: palette.textPrimary,
+                      borderColor: palette.border,
+                    },
+                    textTransform: 'none',
+                    fontWeight: 700,
+                  }}
+                >
+                  Give Feedback
+                </Button>
+              )}
             </Stack>
           </Box>
           <Box

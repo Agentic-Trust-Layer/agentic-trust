@@ -2695,7 +2695,13 @@ export default function MessagesPage() {
         onDisconnect={auth.handleDisconnect}
         disableConnect={loading || auth.loading}
       />
-      <Container maxWidth={false} sx={{ py: { xs: 2, md: 3 } }}>
+      <Container
+        maxWidth={false}
+        sx={{
+          py: { xs: 0.625, md: 3 },
+          px: { xs: 0.625, md: 3 },
+        }}
+      >
         <Stack spacing={2}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
             <Box>

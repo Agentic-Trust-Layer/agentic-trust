@@ -21,6 +21,21 @@ import {
 import { signAndSendTransaction } from '@agentic-trust/core/client';
 import { sepolia, baseSepolia, optimismSepolia, linea, lineaSepolia } from 'viem/chains';
 import { getClientChainEnv } from '@/lib/clientChainEnv';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
+
+function formatChainLabelMobile(raw: string): string {
+  return String(raw || '')
+    .replace(/\(.*?\)/g, '')
+    .replace(/Ethereum Mainnet/i, 'ETH')
+    .replace(/Ethereum/i, 'ETH')
+    .replace(/Optimism/i, 'OP')
+    .replace(/Linea Sepolia/i, 'Linea Sep')
+    .replace(/Sepolia/i, 'Sep')
+    .replace(/Testnet/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export type AgentsPageAgent = {
   agentId: string;
@@ -464,6 +479,10 @@ export function AgentsPage({
     window.addEventListener('resize', updateColumns);
     return () => window.removeEventListener('resize', updateColumns);
   }, []);
+
+  useEffect(() => {
+    if (isMobile) setShowAdvancedFilters(false);
+  }, [isMobile]);
 
   const ENS_APP_BY_CHAIN: Record<number, string> = {
     1: 'https://app.ens.domains',
@@ -2973,7 +2992,7 @@ export function AgentsPage({
           100% { transform: rotate(360deg); }
         }
       `}</style>
-      <section style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+      <section style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '0.2rem' : '2rem' }}>
         <div
           style={{
             display: isMobile ? 'block' : 'flex',
@@ -2981,7 +3000,7 @@ export function AgentsPage({
             alignItems: 'flex-start',
           }}
         >
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: isMobile ? '0.2rem' : '2rem' }}>
 
       {!hideFilters && (
       <div
@@ -2996,112 +3015,113 @@ export function AgentsPage({
           flex: '1 1 auto',
           minWidth: 0,
           backgroundColor: palette.surface,
-          padding: '1.5rem',
-          borderRadius: '12px',
-          border: `1px solid ${palette.border}`,
-          boxShadow: '0 8px 20px rgba(15,23,42,0.05)',
+          padding: isMobile ? '0.85rem' : '1.5rem',
+          borderRadius: isMobile ? '10px' : '12px',
+          border: isMobile ? 'none' : `1px solid ${palette.border}`,
+          boxShadow: isMobile ? '0 4px 10px rgba(15,23,42,0.04)' : '0 8px 20px rgba(15,23,42,0.05)',
         }}
       >
         {isMobile ? (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.75rem', width: '100%' }}>
-            <div
+          <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', width: '100%', flexWrap: 'nowrap' }}>
+            <select
+              value={filters.chainId}
+              onChange={event => {
+                const nextValue = event.target.value;
+                onFilterChange('chainId', nextValue);
+                onSearch({ ...filters, chainId: nextValue });
+              }}
+              aria-label="Chain"
               style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(120px, 0.6fr) 1fr',
-                gap: '0.75rem',
-                alignItems: 'end',
-                width: '100%',
+                flex: '0 0 92px',
+                width: '92px',
+                padding: '0.55rem 0.5rem',
+                borderRadius: '10px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
+                fontWeight: 600,
+                color: palette.textPrimary,
+                boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                height: '36px',
               }}
             >
-              <select
-                value={filters.chainId}
-                onChange={event => {
-                  const nextValue = event.target.value;
-                  onFilterChange('chainId', nextValue);
-                  onSearch({ ...filters, chainId: nextValue });
-                }}
-                aria-label="Chain"
-                style={{
-                  width: '100%',
-                  padding: '0.85rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  backgroundColor: palette.surfaceMuted,
-                  fontWeight: 600,
-                  color: palette.textPrimary,
-                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-                  height: '44px',
-                }}
-              >
-              <option value="all">Chain (All)</option>
+              <option value="all">Chain</option>
               {chainOptions.map(option => (
                 <option key={option.id} value={option.id}>
-                  {option.label
-                    .replace(/Ethereum/i, 'ETH')
-                    .replace(/Optimism/i, 'OP')
-                    .replace(/Base/i, 'Base')
-                    .replace(/Sepolia/i, 'Sep')}
+                  {formatChainLabelMobile(option.label)}
                 </option>
               ))}
-              </select>
-              <input
-                value={singleQuery}
-                onChange={e => setSingleQuery(e.target.value)}
-                onKeyDown={event => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    onSearch(buildSingleQueryFilters());
-                  }
-                }}
-                placeholder={isMobile ? 'Search by name' : 'Search by name or ID'}
-                aria-label="Search"
-                style={{
-                  width: '100%',
-                  padding: '0.85rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  backgroundColor: palette.surfaceMuted,
-                  boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
-                  height: '44px',
-                }}
-              />
-            </div>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button
-                onClick={() => onSearch(buildSingleQueryFilters())}
-                disabled={loading}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: palette.accent,
-                  color: palette.surface,
-                  border: 'none',
-                  borderRadius: '10px',
-                  fontWeight: 600,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  opacity: loading ? 0.7 : 1,
-                }}
-              >
-                {loading ? 'Searching...' : 'Search'}
-              </button>
-              <button
-                onClick={() => {
-                  setSingleQuery('');
-                  onClear();
-                }}
-                disabled={loading}
-                style={{
-                  padding: '0.75rem 1.5rem',
-                  backgroundColor: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                  border: `1px solid ${palette.border}`,
-                  borderRadius: '10px',
-                  fontWeight: 600,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                }}
-              >
-                Clear
-              </button>
-            </div>
+            </select>
+            <input
+              value={singleQuery}
+              onChange={e => setSingleQuery(e.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  onSearch(buildSingleQueryFilters());
+                }
+              }}
+              placeholder="Search"
+              aria-label="Search"
+              style={{
+                flex: '1 1 auto',
+                minWidth: 0,
+                width: '100%',
+                padding: '0.55rem 0.65rem',
+                borderRadius: '10px',
+                border: `1px solid ${palette.border}`,
+                backgroundColor: palette.surfaceMuted,
+                boxShadow: '0 2px 6px rgba(15,23,42,0.08)',
+                height: '36px',
+              }}
+            />
+            <button
+              onClick={() => onSearch(buildSingleQueryFilters())}
+              disabled={loading}
+              style={{
+                padding: '0.55rem 0.6rem',
+                backgroundColor: palette.accent,
+                color: palette.surface,
+                border: 'none',
+                borderRadius: '10px',
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                opacity: loading ? 0.7 : 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '36px',
+                height: '36px',
+              }}
+              aria-label="Search"
+              title="Search"
+            >
+              <SearchIcon fontSize="small" />
+            </button>
+            <button
+              onClick={() => {
+                setSingleQuery('');
+                onClear();
+              }}
+              disabled={loading}
+              style={{
+                padding: '0.55rem 0.6rem',
+                backgroundColor: palette.surfaceMuted,
+                color: palette.textPrimary,
+                border: `1px solid ${palette.border}`,
+                borderRadius: '10px',
+                fontWeight: 600,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '36px',
+                height: '36px',
+              }}
+              aria-label="Clear"
+              title="Clear"
+            >
+              <ClearIcon fontSize="small" />
+            </button>
           </div>
         ) : (
           <div
@@ -3304,12 +3324,12 @@ export function AgentsPage({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.3rem',
-                  padding: '0.2rem 0.6rem',
+                  padding: isMobile ? '0.15rem 0.45rem' : '0.2rem 0.6rem',
                   borderRadius: '999px',
-                  border: `1px solid ${filters.view === 'ranked' ? '#7c3aed' : palette.border}`,
+                  border: isMobile ? 'none' : `1px solid ${filters.view === 'ranked' ? '#7c3aed' : palette.border}`,
                   backgroundColor: filters.view === 'ranked' ? '#7c3aed' : palette.surfaceMuted,
                   color: filters.view === 'ranked' ? palette.surface : palette.textSecondary,
-                  fontSize: '0.75rem',
+                  fontSize: isMobile ? '0.7rem' : '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
@@ -3320,12 +3340,12 @@ export function AgentsPage({
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: '14px',
-                    height: '14px',
+                    width: isMobile ? '12px' : '14px',
+                    height: isMobile ? '12px' : '14px',
                     borderRadius: '50%',
-                    border: `1px solid ${filters.view === 'ranked' ? palette.surface : palette.border}`,
+                    border: isMobile ? 'none' : `1px solid ${filters.view === 'ranked' ? palette.surface : palette.border}`,
                     backgroundColor: 'transparent',
-                    fontSize: '0.7rem',
+                    fontSize: isMobile ? '0.65rem' : '0.7rem',
                     color: filters.view === 'ranked' ? palette.surface : 'transparent',
                   }}
                 >
@@ -3361,12 +3381,12 @@ export function AgentsPage({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '0.3rem',
-                  padding: '0.2rem 0.6rem',
+                  padding: isMobile ? '0.15rem 0.45rem' : '0.2rem 0.6rem',
                   borderRadius: '999px',
-                  border: `1px solid ${filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.border}`,
+                  border: isMobile ? 'none' : `1px solid ${filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.border}`,
                   backgroundColor: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.surfaceMuted,
                   color: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : palette.textSecondary,
-                  fontSize: '0.75rem',
+                  fontSize: isMobile ? '0.7rem' : '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
@@ -3377,14 +3397,14 @@ export function AgentsPage({
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: '14px',
-                    height: '14px',
+                    width: isMobile ? '12px' : '14px',
+                    height: isMobile ? '12px' : '14px',
                     borderRadius: '50%',
-                    border: `1px solid ${
+                    border: isMobile ? 'none' : `1px solid ${
                       filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : palette.border
                     }`,
                     backgroundColor: 'transparent',
-                    fontSize: '0.7rem',
+                    fontSize: isMobile ? '0.65rem' : '0.7rem',
                     color: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : 'transparent',
                   }}
                 >
@@ -3489,22 +3509,24 @@ export function AgentsPage({
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowAdvancedFilters(prev => !prev)}
-              style={{
-                padding: '0.4rem 0.9rem',
-                borderRadius: '999px',
-                border: `1px solid ${palette.border}`,
-                backgroundColor: showAdvancedFilters ? palette.surfaceMuted : palette.surface,
-                fontSize: '0.8rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                color: palette.textSecondary,
-              }}
-            >
-              {showAdvancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
-            </button>
+            {!isMobile && (
+              <button
+                type="button"
+                onClick={() => setShowAdvancedFilters(prev => !prev)}
+                style={{
+                  padding: '0.4rem 0.9rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${palette.border}`,
+                  backgroundColor: showAdvancedFilters ? palette.surfaceMuted : palette.surface,
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  color: palette.textSecondary,
+                }}
+              >
+                {showAdvancedFilters ? 'Hide advanced filters' : 'Show advanced filters'}
+              </button>
+            )}
           </div>
           {showAdvancedFilters && (
             <div
@@ -3915,14 +3937,14 @@ export function AgentsPage({
         style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: '1.5rem',
+          gap: isMobile ? '0.2rem' : '1.5rem',
         }}
       >
         <div
           style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
-            gap: '1.5rem',
+            gap: isMobile ? '0.2rem' : '1.5rem',
           }}
         >
           {agentsToRender.length === 0 && (
@@ -4473,16 +4495,16 @@ export function AgentsPage({
                           title={`${label}${typeof points === 'number' ? ` (+${points})` : ''}${iconRef ? ` · ${iconRef}` : ''}`}
                           aria-label={`Badge: ${label}`}
                           style={{
-                            width: 26,
-                            height: 26,
+                            width: isMobile ? 22 : 26,
+                            height: isMobile ? 22 : 26,
                             borderRadius: 999,
-                            border: `1px solid ${border}`,
+                            border: isMobile ? 'none' : `1px solid ${border}`,
                             backgroundColor: bg,
                             color: fg,
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            fontSize: '0.72rem',
+                            fontSize: isMobile ? '0.66rem' : '0.72rem',
                             fontWeight: 800,
                             letterSpacing: '0.02em',
                             userSelect: 'none',

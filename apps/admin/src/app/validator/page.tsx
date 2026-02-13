@@ -30,7 +30,16 @@ export default function BecomeValidatorPage() {
         onDisconnect={handleDisconnect}
         disableConnect={loading}
       />
-      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 }, display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <Container
+        maxWidth="lg"
+        sx={{
+          py: { xs: 0.625, md: 6 },
+          px: { xs: 0.625, md: 2 },
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 3,
+        }}
+      >
         <Card
           variant="outlined"
           sx={{

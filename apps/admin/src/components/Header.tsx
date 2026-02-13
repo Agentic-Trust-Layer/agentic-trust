@@ -8,7 +8,6 @@ import { grayscalePalette as palette } from '@/styles/palette';
 
 const NAV_ITEMS = [
   { href: '/agents', label: 'Agents' },
-  { href: '/agent-discovery', label: 'Semantic Discovery' },
   { href: '/stats', label: 'Stats' },
 ];
 
@@ -128,7 +127,7 @@ export function Header({
     <>
     <header
       style={{
-        padding: '0.9rem 2rem 1.3rem',
+        padding: isMobile ? '0.75rem 0.75rem 1rem' : '0.9rem 2rem 1.3rem',
         borderBottom: `1px solid ${palette.border}`,
         backgroundColor: palette.surface,
         color: palette.textPrimary,
@@ -137,9 +136,9 @@ export function Header({
       <div
         style={{
           display: 'flex',
-          flexWrap: 'wrap',
+          flexWrap: isMobile ? 'nowrap' : 'wrap',
           alignItems: 'center',
-          gap: '1.25rem',
+          gap: isMobile ? '0.6rem' : '1.25rem',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -148,7 +147,7 @@ export function Header({
             style={{
               textDecoration: 'none',
               color: 'inherit',
-              minWidth: isMobile ? '160px' : '240px',
+              minWidth: isMobile ? 0 : '240px',
               display: 'flex',
               alignItems: 'center',
               gap: '0.75rem',
@@ -169,8 +168,9 @@ export function Header({
             <h1
               style={{
                 margin: 0,
-                fontSize: isMobile ? '1.35rem' : '2rem',
+                fontSize: isMobile ? '1.05rem' : '2rem',
                 fontWeight: 500,
+                whiteSpace: 'nowrap',
               }}
             >
             Agent Explorer
@@ -208,8 +208,8 @@ export function Header({
             marginLeft: 'auto',
             display: 'flex',
             alignItems: 'center',
-            gap: '0.75rem',
-            flexWrap: 'wrap',
+            gap: isMobile ? '0.45rem' : '0.75rem',
+            flexWrap: isMobile ? 'nowrap' : 'wrap',
             justifyContent: 'flex-end',
           }}
         >
@@ -219,8 +219,8 @@ export function Header({
             style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '0.75rem',
-              flexWrap: 'wrap',
+              gap: isMobile ? '0.45rem' : '0.75rem',
+              flexWrap: isMobile ? 'nowrap' : 'wrap',
             }}
           >
             {isConnected && (
@@ -233,7 +233,7 @@ export function Header({
                   disabled={navigatingToRegistration}
                   style={{
                     textDecoration: 'none',
-                    padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
+                    padding: isMobile ? '0.35rem 0.7rem' : '0.45rem 1.25rem',
                     borderRadius: '999px',
                     border: `1px solid ${palette.borderStrong}`,
                     backgroundColor: pathname.startsWith('/agent-registration') ? palette.accent : palette.surfaceMuted,
@@ -343,7 +343,7 @@ export function Header({
                   href={item.href}
                   style={{
                     textDecoration: 'none',
-                    padding: isMobile ? '0.45rem 0.9rem' : '0.45rem 1.25rem',
+                    padding: isMobile ? '0.35rem 0.7rem' : '0.45rem 1.25rem',
                     borderRadius: '999px',
                     border: `1px solid ${palette.borderStrong}`,
                     backgroundColor: isActive ? palette.accent : palette.surfaceMuted,
