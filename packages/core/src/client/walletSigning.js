@@ -635,7 +635,7 @@ export async function getWalletAddress(ethereumProvider) {
  * 1. Calls the API to create agent (endpoint: /api/agents/create)
  * 2. If client-side signing is required, signs and sends transaction
  * 3. Waits for receipt and extracts agentId
- * 4. Refreshes GraphQL indexer
+ * 4. (No automatic indexer refresh)
  *
  * Only agentData is required - account, chain, and provider are auto-detected
  *
@@ -784,7 +784,6 @@ async function createAgentWithWalletEOA(options) {
         catch (e) {
             console.warn('[createAgentWithWalletEOA] setAgentWallet failed (non-fatal):', e);
         }
-        await refreshAgentInIndexer(result.agentId, plan.chainId);
     }
     return {
         agentId: result.agentId,
@@ -800,7 +799,7 @@ async function createAgentWithWalletEOA(options) {
  * 2. Creates/retrieves AA account client for the agent
  * 3. Calls the server API route `/api/agents/create` to prepare registration
  * 4. Sends UserOperation via bundler using the AA account
- * 5. Extracts agentId and refreshes the indexer
+ * 5. Extracts agentId
  *
  * **Setup Required:**
  * Your Next.js app must mount the API route handler:
@@ -1204,9 +1203,8 @@ async function createAgentWithWalletAA(options) {
     catch (error) {
         console.warn('Unable to extract agentId via API:', error);
     }
-    // Refresh GraphQL indexer
+    // After registration, we may optionally set agentWallet on-chain.
     if (agentId) {
-        // After registration, set agentWallet on-chain BEFORE notifying the indexer.
         try {
             const identityRegistry = data.identityRegistry;
             if (!identityRegistry) {
@@ -1282,7 +1280,6 @@ async function createAgentWithWalletAA(options) {
         catch (e) {
             console.warn('[createAgentWithWalletAA] setAgentWallet failed (non-fatal):', e);
         }
-        await refreshAgentInIndexer(agentId, chain.id);
         // Finalize UAID now that we have a real on-chain agentId, and write it back by updating tokenUri.
         try {
             onStatusUpdate?.('Finalizing UAID and updating registration tokenUri...');

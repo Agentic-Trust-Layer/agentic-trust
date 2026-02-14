@@ -20,6 +20,11 @@ export interface AgentRegistrationInfo {
   description?: string;
 
   /**
+   * Agent base URL (non-standard but used by our implementation)
+   */
+  agentUrl?: string;
+
+  /**
    * Agent image URL
    */
   image?: string;

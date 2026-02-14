@@ -21,16 +21,105 @@ export async function uploadRegistration(
 ): Promise<{ cid: string; url: string; tokenUri: string }> {
   const ipfsStorage = storage || getIPFSStorage();
   
+  // Canonicalize registration JSON: always emit `services`, never `endpoints`.
+  // This protects "update registration" flows that might send legacy `endpoints`.
+  const canonicalRegistration: AgentRegistrationInfo = (() => {
+    const input: any = { ...registration };
+
+    const services: Array<{
+      type: string;
+      endpoint: string;
+      version?: string;
+      capabilities?: string[];
+    }> = [];
+
+    if (Array.isArray(input.services)) {
+      for (const s of input.services) {
+        const type = typeof s?.type === 'string' ? s.type.trim() : '';
+        const endpoint = typeof s?.endpoint === 'string' ? s.endpoint.trim() : '';
+        if (!type || !endpoint) continue;
+        if (type.toLowerCase() === 'mcp') continue;
+        services.push({
+          type: type.toLowerCase(),
+          endpoint,
+          version: typeof s.version === 'string' ? s.version : undefined,
+          capabilities: Array.isArray(s.capabilities)
+            ? s.capabilities.map((c: any) => String(c)).filter(Boolean)
+            : undefined,
+        });
+      }
+    }
+
+    if (services.length === 0 && Array.isArray(input.endpoints)) {
+      for (const e of input.endpoints) {
+        const name = typeof e?.name === 'string' ? e.name.trim() : '';
+        const endpoint = typeof e?.endpoint === 'string' ? e.endpoint.trim() : '';
+        if (!name || !endpoint) continue;
+        if (name.toLowerCase() === 'mcp') continue;
+        const capsFromRecord =
+          e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
+            ? Object.keys(e.capabilities as Record<string, unknown>)
+            : [];
+        const caps: string[] = [];
+        const addCaps = (arr: unknown): void => {
+          if (!Array.isArray(arr)) return;
+          for (const item of arr) {
+            const v = String(item ?? '').trim();
+            if (v) caps.push(v);
+          }
+        };
+        addCaps(e.a2aSkills);
+        addCaps(e.mcpSkills);
+        addCaps(e.a2aDomains);
+        addCaps(e.mcpDomains);
+        addCaps(capsFromRecord);
+
+        const capabilities: string[] | undefined = caps.length > 0 ? Array.from(new Set(caps)) : undefined;
+        services.push({
+          type: name.toLowerCase(),
+          endpoint,
+          version: typeof e.version === 'string' ? e.version : undefined,
+          capabilities,
+        });
+      }
+    }
+
+    // If agentUrl is provided, ensure A2A service aligns to it.
+    const agentUrl = typeof input.agentUrl === 'string' ? input.agentUrl.trim() : '';
+    if (agentUrl) {
+      const baseUrl = agentUrl.replace(/\/$/, '');
+      const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
+      const existingA2A = services.find((s) => s.type === 'a2a');
+      if (existingA2A) {
+        existingA2A.endpoint = a2aEndpoint;
+        existingA2A.version = existingA2A.version || '0.3.0';
+      } else {
+        services.push({
+          type: 'a2a',
+          endpoint: a2aEndpoint,
+          version: '0.3.0',
+        });
+      }
+    }
+
+    // Drop legacy endpoints.
+    delete input.endpoints;
+    input.services = services.length > 0 ? services : undefined;
+    return input as AgentRegistrationInfo;
+  })();
+
   // Ensure ERC-8004 type is set
   const registrationWithType: AgentRegistrationInfo = {
-    ...registration,
-    type: registration.type || 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+    ...canonicalRegistration,
+    type:
+      canonicalRegistration.type ||
+      'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     // Set timestamps for legacy fields if not provided
-    createdAt: registration.createdAt || new Date().toISOString(),
-    updatedAt: registration.updatedAt || new Date().toISOString(),
+    createdAt: canonicalRegistration.createdAt || new Date().toISOString(),
+    updatedAt: canonicalRegistration.updatedAt || new Date().toISOString(),
   };
   
-  console.log('[uploadRegistration] registration.supportedTrust:', registration.supportedTrust);
+  console.log('[uploadRegistration] registration.supportedTrust:', canonicalRegistration.supportedTrust);
   console.log('[uploadRegistration] registrationWithType.supportedTrust:', registrationWithType.supportedTrust);
   
   // Convert to JSON string
@@ -144,11 +233,18 @@ export function createRegistrationJSON(params: {
         e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
           ? Object.keys(e.capabilities as Record<string, unknown>)
           : [];
-      const caps =
-        (Array.isArray(e.a2aSkills) ? e.a2aSkills : [])
-          .concat(Array.isArray(e.mcpSkills) ? e.mcpSkills : [])
-          .concat(capsFromRecord);
-      const capabilities = caps.length > 0 ? Array.from(new Set(caps.map((c) => String(c).trim()).filter(Boolean))) : undefined;
+      const caps: string[] = [];
+      const addCaps = (arr: unknown): void => {
+        if (!Array.isArray(arr)) return;
+        for (const item of arr) {
+          const v = String(item ?? '').trim();
+          if (v) caps.push(v);
+        }
+      };
+      addCaps(e.a2aSkills);
+      addCaps(e.mcpSkills);
+      addCaps(capsFromRecord);
+      const capabilities: string[] | undefined = caps.length > 0 ? Array.from(new Set(caps)) : undefined;
       services.push({
         type: name.toLowerCase(),
         endpoint,
@@ -210,6 +306,7 @@ export function createRegistrationJSON(params: {
     type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
     name: params.name,
     description: params.description,
+    agentUrl: params.agentUrl,
     image: params.image,
     active: typeof params.active === 'boolean' ? params.active : true,
     services: services.length > 0 ? services : undefined,
