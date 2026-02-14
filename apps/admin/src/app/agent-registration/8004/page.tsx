@@ -32,6 +32,7 @@ const CHAIN_SUFFIX_MAP: Record<number, string> = {
   11155111: 'SEPOLIA',
   84532: 'BASE_SEPOLIA',
   11155420: 'OPTIMISM_SEPOLIA',
+  59144: 'LINEA',
 };
 
 const getEnvVarHints = (chainId: number) => {

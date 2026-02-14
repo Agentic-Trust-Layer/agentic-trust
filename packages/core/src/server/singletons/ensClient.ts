@@ -709,13 +709,16 @@ export async function addAgentNameToL2Org(
       agentUrl: agentUrl || '',
     });
 
-    // Linea Sepolia (59141): registry requires controller/parent owner as msg.sender. Execute createSubnode server-side from org EOA instead of from user's smart account.
-    if (targetChainId === 59141 && orgCalls.length > 0) {
+    // Linea (59144) + Linea Sepolia (59141): Durin registry requires controller/parent owner (or registrar) as msg.sender.
+    // Execute createSubnode server-side from org EOA instead of from user's smart account.
+    if ((targetChainId === 59141 || targetChainId === 59144) && orgCalls.length > 0) {
       try {
-        const rpcUrl = getChainEnvVar('AGENTIC_TRUST_RPC_URL', 59141) || getChainEnvVar('NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL', 59141);
-        const ensPrivKey = getEnsPrivateKey(59141);
+        const rpcUrl =
+          getChainEnvVar('AGENTIC_TRUST_RPC_URL', targetChainId) ||
+          getChainEnvVar('NEXT_PUBLIC_AGENTIC_TRUST_RPC_URL', targetChainId);
+        const ensPrivKey = getEnsPrivateKey(targetChainId);
         if (rpcUrl && ensPrivKey) {
-          const chain = getChainById(59141);
+          const chain = getChainById(targetChainId);
           const account = privateKeyToAccount(ensPrivKey as `0x${string}`);
           const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
           const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) });
@@ -728,17 +731,17 @@ export async function addAgentNameToL2Org(
             });
             await publicClient.waitForTransactionReceipt({ hash });
           }
-          console.info("addAgentNameToL2Org: Linea Sepolia createSubnode executed server-side");
+          console.info("addAgentNameToL2Org: Linea createSubnode executed server-side");
           return { calls: [] };
         }
       } catch (err) {
-        console.error("addAgentNameToL2Org: Linea Sepolia server-side createSubnode failed", err);
+        console.error("addAgentNameToL2Org: Linea server-side createSubnode failed", err);
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes('reverted') || msg.includes('revert')) {
           // Re-check: name may already be registered (common revert reason)
           const hasOwnerNow = await ensClient.hasAgentNameOwner(orgNameClean, agentNameLabel);
           if (hasOwnerNow) {
-            console.info("addAgentNameToL2Org: Linea Sepolia name already registered, returning empty calls");
+            console.info("addAgentNameToL2Org: Linea name already registered, returning empty calls");
             return { calls: [] };
           }
           throw new Error('ENS name is already registered.');

@@ -19,6 +19,8 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
 
   /** Chain ID for Linea Sepolia (registry uses createSubnode(baseNode, label, owner, [])). */
   private static readonly CHAIN_ID_LINEA_SEPOLIA = 59141;
+  /** Chain ID for Linea Mainnet (Durin L2Registry acts as registry + resolver). */
+  private static readonly CHAIN_ID_LINEA_MAINNET = 59144;
 
   /**
    * L2Registrar address per chain. Base Sepolia uses a separate L2Registrar contract;
@@ -32,7 +34,11 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
 
   /** True when this chain uses registry.createSubnode for subdomain registration (e.g. Linea Sepolia). */
   private usesRegistryCreateSubnode(): boolean {
-    return (this as any).chain?.id === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_SEPOLIA;
+    const id = (this as any).chain?.id;
+    return (
+      id === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_SEPOLIA ||
+      id === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_MAINNET
+    );
   }
 
   private getEffectiveRpcUrl(): string | undefined {
@@ -54,7 +60,9 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
     if (this.usesRegistryCreateSubnode()) {
       const r = this.getEnsResolverAddress().toLowerCase();
       const reg = this.getEnsRegistryAddress().toLowerCase();
-      if (r === reg) return false;
+      // Linea Sepolia: registry is NOT a resolver (treat resolver===registry as invalid).
+      // Linea Mainnet: Durin L2Registry can be both registry + resolver (allow resolver===registry).
+      if ((this as any).chain?.id === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_SEPOLIA && r === reg) return false;
     }
     return true;
   }
@@ -737,8 +745,16 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
     agentDescription?: string | null;
   }): Promise<{ calls: { to: `0x${string}`; data: `0x${string}` }[] }> {
     if (this.usesRegistryCreateSubnode()) {
-      if (!this.hasValidResolverForSetInfo()) return { calls: [] };
-      const resolver = this.getEnsResolverAddress();
+      const chainId = (this as any).chain?.id;
+      // Linea Mainnet Durin L2Registry: registry is also the resolver.
+      // Linea Sepolia: requires a separately configured resolver; otherwise skip.
+      if (chainId === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_SEPOLIA && !this.hasValidResolverForSetInfo()) {
+        return { calls: [] };
+      }
+      const resolver =
+        chainId === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_MAINNET
+          ? this.getEnsRegistryAddress()
+          : this.getEnsResolverAddress();
       const clean = (s: string) => (s || '').trim().toLowerCase();
       const parent = clean(params.orgName);
       const label = clean(params.agentName).replace(/\s+/g, '-');
