@@ -1201,11 +1201,27 @@ export default function AgentRegistrationPage() {
               agentId: String(directPlan.agentId),
               txHash: String(directPlan.txHash || ''),
             });
+            // Best-effort: trigger knowledge base sync after agent creation.
+            try {
+              const kbChainId =
+                selectedChainId === 1 || selectedChainId === 59144 ? String(selectedChainId) : 'all';
+              void fetch(`/api/sync/agent-pipeline?chainId=${encodeURIComponent(kbChainId)}`, { method: 'POST' });
+            } catch {
+              // ignore
+            }
           } else if (directPlan.txHash) {
             setSuccess(`Agent creation transaction confirmed! TX: ${directPlan.txHash} (Agent ID will be available after indexing)`);
             openCompletionModal({
               txHash: String(directPlan.txHash || ''),
             });
+            // Best-effort: trigger knowledge base sync after agent creation.
+            try {
+              const kbChainId =
+                selectedChainId === 1 || selectedChainId === 59144 ? String(selectedChainId) : 'all';
+              void fetch(`/api/sync/agent-pipeline?chainId=${encodeURIComponent(kbChainId)}`, { method: 'POST' });
+            } catch {
+              // ignore
+            }
           } else {
             setSuccess('Agent SmartAccount creation requested. Check server logs for details.');
             openCompletionModal({});
@@ -1290,6 +1306,15 @@ export default function AgentRegistrationPage() {
               } else {
                 setSuccess(`Agent creation transaction confirmed! TX: ${result.txHash} (Agent ID will be available after indexing)`);
                 openCompletionModal({ txHash: String(result.txHash || '') });
+              }
+
+              // Best-effort: trigger knowledge base sync after agent creation.
+              try {
+                const kbChainId =
+                  selectedChainId === 1 || selectedChainId === 59144 ? String(selectedChainId) : 'all';
+                void fetch(`/api/sync/agent-pipeline?chainId=${encodeURIComponent(kbChainId)}`, { method: 'POST' });
+              } catch {
+                // ignore
               }
 
               // Refresh owned agents cache so new agents appear quickly

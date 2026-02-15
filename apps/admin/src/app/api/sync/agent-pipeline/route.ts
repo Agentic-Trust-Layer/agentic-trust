@@ -6,7 +6,7 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const upstream = await fetch(
-      `https://8004-agent.io/sync/agent-pipeline?chainId=${encodeURIComponent(chainId)}`,
+      `https://sync.agentkg.io/sync/agent-pipeline?chainId=${encodeURIComponent(chainId)}`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -14,13 +14,29 @@ export async function POST(request: Request): Promise<Response> {
       },
     );
 
-    const text = await upstream.text().catch(() => '');
+    const json = (await upstream.json().catch(() => null)) as any;
+    const text = json ? '' : await upstream.text().catch(() => '');
+
+    const jobId =
+      typeof json?.jobId === 'string'
+        ? json.jobId
+        : typeof json?.jobId === 'number'
+          ? String(json.jobId)
+          : null;
+    const statusUrl =
+      typeof json?.statusUrl === 'string'
+        ? json.statusUrl
+        : typeof json?.status_url === 'string'
+          ? json.status_url
+          : null;
 
     return NextResponse.json(
       {
         ok: upstream.ok,
         status: upstream.status,
-        body: text,
+        jobId,
+        statusUrl,
+        body: json ?? text,
       },
       { status: upstream.ok ? 200 : 502 },
     );

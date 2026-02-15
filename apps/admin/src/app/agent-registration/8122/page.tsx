@@ -1111,6 +1111,15 @@ export default function AgentRegistration8122WizardPage() {
         registry: String(registry),
         registrar: String(registrar),
       });
+
+      // Best-effort: trigger knowledge base sync after agent creation.
+      try {
+        const kbChainId =
+          selectedChainId === 1 || selectedChainId === 59144 ? String(selectedChainId) : 'all';
+        void fetch(`/api/sync/agent-pipeline?chainId=${encodeURIComponent(kbChainId)}`, { method: 'POST' });
+      } catch {
+        // ignore
+      }
     } catch (e) {
       // Ensure UI always shows something
       setError(formatViemError(e));
