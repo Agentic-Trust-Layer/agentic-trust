@@ -23,12 +23,8 @@ export async function POST(request: Request): Promise<Response> {
         : typeof json?.jobId === 'number'
           ? String(json.jobId)
           : null;
-    const statusUrl =
-      typeof json?.statusUrl === 'string'
-        ? json.statusUrl
-        : typeof json?.status_url === 'string'
-          ? json.status_url
-          : null;
+    // Prefer a stable in-app status URL we control.
+    const statusUrl = jobId ? `/api/sync/jobs/${encodeURIComponent(jobId)}` : null;
 
     return NextResponse.json(
       {

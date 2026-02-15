@@ -155,8 +155,21 @@ export function Header({
         const status = typeof statusRaw === 'string' ? statusRaw : typeof statusRaw === 'number' ? String(statusRaw) : null;
         if (status) setKbSyncStatus(status);
 
-        const terminal = status && ['completed', 'complete', 'done', 'success', 'succeeded', 'failed', 'error', 'cancelled', 'canceled'].includes(status.toLowerCase());
-        if (terminal) break;
+        const lower = status ? status.toLowerCase() : '';
+        const terminal = Boolean(
+          lower && ['completed', 'complete', 'done', 'success', 'succeeded', 'failed', 'error', 'cancelled', 'canceled'].includes(lower),
+        );
+        if (terminal) {
+          if (lower === 'failed' || lower === 'error') {
+            const errMsg =
+              body && typeof body === 'object' && typeof body.error === 'string' && body.error.trim()
+                ? body.error.trim()
+                : 'KB sync failed';
+            // Show the reason once, at terminal state.
+            alert(errMsg);
+          }
+          break;
+        }
       }
     } catch (e) {
       console.error('[Header] KB sync failed', e);

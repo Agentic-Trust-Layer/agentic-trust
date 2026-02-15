@@ -423,6 +423,14 @@ export default function AgentRegistration8122ExistingPage() {
       }
 
       setSuccess(`Registered agent into ERC-8122 collection. Minted agentId=${agentId.toString()} on ${chainLabel}.`);
+
+      // Best-effort: trigger knowledge base sync after agent registration.
+      try {
+        const kbChainId = chainId === 1 || chainId === 59144 ? String(chainId) : 'all';
+        void fetch(`/api/sync/agent-pipeline?chainId=${encodeURIComponent(kbChainId)}`, { method: 'POST' });
+      } catch {
+        // ignore
+      }
     } catch (e) {
       setError(formatError(e));
     } finally {
