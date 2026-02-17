@@ -7,10 +7,16 @@ export async function GET(
   const { jobId } = await context.params;
 
   try {
-    const upstream = await fetch(`https://sync.agentkg.io/sync/jobs/${encodeURIComponent(jobId)}`, {
-      method: 'GET',
-      headers: { accept: 'application/json' },
-    });
+    const base = 'https://sync.agentkg.io';
+
+    const tryFetch = async (path: string): Promise<Response> =>
+      fetch(`${base}${path}`, { method: 'GET', headers: { accept: 'application/json' } });
+
+    // Upstream has been seen with job status at `/jobs/<id>` (and sometimes `/sync/jobs/<id>`).
+    let upstream = await tryFetch(`/sync/jobs/${encodeURIComponent(jobId)}`);
+    if (upstream.status === 404) {
+      upstream = await tryFetch(`/jobs/${encodeURIComponent(jobId)}`);
+    }
 
     const json = (await upstream.json().catch(() => null)) as any;
     const text = json ? '' : await upstream.text().catch(() => '');

@@ -39,6 +39,19 @@ export declare function createRegistrationJSON(params: {
     chainId?: number;
     identityRegistry?: `0x${string}`;
     supportedTrust?: string[];
+    services?: Array<{
+        type?: string;
+        name?: string;
+        endpoint: string;
+        version?: string;
+        capabilities?: string[];
+        a2aSkills?: string[];
+        a2aDomains?: string[];
+        mcpTools?: string[];
+        mcpPrompts?: string[];
+        skills?: string[];
+        domains?: string[];
+    }>;
     endpoints?: Array<{
         name: string;
         endpoint: string;
@@ -48,6 +61,10 @@ export declare function createRegistrationJSON(params: {
         a2aDomains?: string[];
         mcpSkills?: string[];
         mcpDomains?: string[];
+        mcpTools?: string[];
+        mcpPrompts?: string[];
+        skills?: string[];
+        domains?: string[];
     }>;
     uaid?: string;
     metadata?: Record<string, string>;

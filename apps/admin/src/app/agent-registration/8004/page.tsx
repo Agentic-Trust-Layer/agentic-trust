@@ -109,21 +109,39 @@ export default function AgentRegistrationPage() {
   const [ensExisting, setEnsExisting] = useState<{ image: string | null; url: string | null; description: string | null } | null>(null);
   const [createStep, setCreateStep] = useState(0);
   const [protocolSettings, setProtocolSettings] = useState<{
-    protocol: 'A2A' | 'MCP' | null;
+    enableA2A: boolean;
+    enableMCP: boolean;
+    enableOASF: boolean;
+    enableWeb: boolean;
     a2aEndpoint: string;
     mcpEndpoint: string;
+    oasfEndpoint: string;
+    webEndpoint: string;
     a2aSkills: string[];
     a2aDomains: string[];
     mcpSkills: string[];
     mcpDomains: string[];
+    mcpTools: string[];
+    mcpPrompts: string[];
+    oasfSkills: string[];
+    oasfDomains: string[];
   }>({
-    protocol: 'A2A',
+    enableA2A: true,
+    enableMCP: false,
+    enableOASF: false,
+    enableWeb: true,
     a2aEndpoint: '',
     mcpEndpoint: '',
+    oasfEndpoint: '',
+    webEndpoint: '',
     a2aSkills: [],
     a2aDomains: [],
     mcpSkills: [],
     mcpDomains: [],
+    mcpTools: [],
+    mcpPrompts: [],
+    oasfSkills: [],
+    oasfDomains: [],
   });
   const [registering, setRegistering] = useState(false);
   const [registerProgress, setRegisterProgress] = useState(0);
@@ -916,14 +934,25 @@ export default function AgentRegistrationPage() {
         if (!baseUrl) {
           return { valid: false, message: 'Agent URL is required (or set an agent name to auto-generate).' };
         }
-        if (!protocolSettings.protocol) {
-          return { valid: false, message: 'Select a protocol (A2A or MCP).' };
+        const anyServiceEnabled =
+          protocolSettings.enableA2A ||
+          protocolSettings.enableMCP ||
+          protocolSettings.enableOASF ||
+          protocolSettings.enableWeb;
+        if (!anyServiceEnabled) {
+          return { valid: false, message: 'Enable at least one service (A2A, MCP, OASF, or web).' };
         }
-        if (protocolSettings.protocol === 'A2A' && !((protocolSettings.a2aEndpoint || '').trim() || baseUrl)) {
+        if (protocolSettings.enableA2A && !((protocolSettings.a2aEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an A2A agent card URL (agent.json).' };
         }
-        if (protocolSettings.protocol === 'MCP' && !((protocolSettings.mcpEndpoint || '').trim() || baseUrl)) {
+        if (protocolSettings.enableMCP && !((protocolSettings.mcpEndpoint || '').trim() || baseUrl)) {
           return { valid: false, message: 'Provide an MCP protocol endpoint URL.' };
+        }
+        if (protocolSettings.enableOASF && !((protocolSettings.oasfEndpoint || '').trim() || baseUrl)) {
+          return { valid: false, message: 'Provide an OASF endpoint URL.' };
+        }
+        if (protocolSettings.enableWeb && !((protocolSettings.webEndpoint || '').trim() || baseUrl)) {
+          return { valid: false, message: 'Provide a web endpoint URL.' };
         }
         if (!ensOrgName.trim()) {
           return { valid: false, message: 'ENS parent name is required when ENS publishing is enabled.' };
@@ -940,9 +969,14 @@ export default function AgentRegistrationPage() {
     createForm.agentAccount,
     createForm.description,
     createForm.agentUrl,
-    protocolSettings.protocol,
+    protocolSettings.enableA2A,
+    protocolSettings.enableMCP,
+    protocolSettings.enableOASF,
+    protocolSettings.enableWeb,
     protocolSettings.a2aEndpoint,
     protocolSettings.mcpEndpoint,
+    protocolSettings.oasfEndpoint,
+    protocolSettings.webEndpoint,
     ensOrgName,
     ensAvailable,
     ensFullNamePreview,
@@ -1037,11 +1071,17 @@ export default function AgentRegistrationPage() {
 
       const baseUrl = resolveAgentBaseUrl();
       const resolvedA2A =
-        protocolSettings.protocol === 'A2A' &&
+        protocolSettings.enableA2A &&
         (protocolSettings.a2aEndpoint.trim() || (baseUrl ? `${baseUrl}/.well-known/agent-card.json` : ''));
       const resolvedMcp =
-        protocolSettings.protocol === 'MCP' &&
+        protocolSettings.enableMCP &&
         (protocolSettings.mcpEndpoint.trim() || (baseUrl ? `${baseUrl}/api/mcp` : ''));
+      const resolvedOasf =
+        protocolSettings.enableOASF &&
+        (protocolSettings.oasfEndpoint.trim() || (baseUrl ? `${baseUrl}/oasf` : ''));
+      const resolvedWeb =
+        protocolSettings.enableWeb &&
+        (protocolSettings.webEndpoint.trim() || baseUrl || '');
 
       if (!privateKeyMode) {
         const ready = await synchronizeProvidersWithChain(selectedChainId);
@@ -1157,8 +1197,12 @@ export default function AgentRegistrationPage() {
             a2aDomains?: string[];
             mcpSkills?: string[];
             mcpDomains?: string[];
+            mcpTools?: string[];
+            mcpPrompts?: string[];
+            skills?: string[];
+            domains?: string[];
           }> = [];
-          if (protocolSettings.protocol === 'A2A' && resolvedA2A) {
+          if (resolvedA2A) {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
@@ -1167,13 +1211,30 @@ export default function AgentRegistrationPage() {
               a2aDomains: protocolSettings.a2aDomains.length > 0 ? protocolSettings.a2aDomains : undefined,
             });
           }
-          if (protocolSettings.protocol === 'MCP' && resolvedMcp) {
+          if (resolvedMcp) {
             endpoints.push({
               name: 'MCP',
               endpoint: resolvedMcp,
               version: '2025-06-18',
               mcpSkills: protocolSettings.mcpSkills.length > 0 ? protocolSettings.mcpSkills : undefined,
               mcpDomains: protocolSettings.mcpDomains.length > 0 ? protocolSettings.mcpDomains : undefined,
+              mcpTools: protocolSettings.mcpTools.length > 0 ? protocolSettings.mcpTools : undefined,
+              mcpPrompts: protocolSettings.mcpPrompts.length > 0 ? protocolSettings.mcpPrompts : undefined,
+            });
+          }
+          if (resolvedOasf) {
+            endpoints.push({
+              name: 'OASF',
+              endpoint: resolvedOasf,
+              version: 'v0.8.0',
+              skills: protocolSettings.oasfSkills.length > 0 ? protocolSettings.oasfSkills : undefined,
+              domains: protocolSettings.oasfDomains.length > 0 ? protocolSettings.oasfDomains : undefined,
+            });
+          }
+          if (resolvedWeb) {
+            endpoints.push({
+              name: 'web',
+              endpoint: resolvedWeb,
             });
           }
 
@@ -1240,8 +1301,12 @@ export default function AgentRegistrationPage() {
             a2aDomains?: string[];
             mcpSkills?: string[];
             mcpDomains?: string[];
+            mcpTools?: string[];
+            mcpPrompts?: string[];
+            skills?: string[];
+            domains?: string[];
           }> = [];
-          if (protocolSettings.protocol === 'A2A' && resolvedA2A) {
+          if (resolvedA2A) {
             endpoints.push({
               name: 'A2A',
               endpoint: resolvedA2A,
@@ -1250,18 +1315,38 @@ export default function AgentRegistrationPage() {
               a2aDomains: protocolSettings.a2aDomains.length > 0 ? protocolSettings.a2aDomains : undefined,
             });
           }
-          if (protocolSettings.protocol === 'MCP' && resolvedMcp) {
+          if (resolvedMcp) {
             endpoints.push({
               name: 'MCP',
               endpoint: resolvedMcp,
               version: '2025-06-18',
               mcpSkills: protocolSettings.mcpSkills.length > 0 ? protocolSettings.mcpSkills : undefined,
               mcpDomains: protocolSettings.mcpDomains.length > 0 ? protocolSettings.mcpDomains : undefined,
+              mcpTools: protocolSettings.mcpTools.length > 0 ? protocolSettings.mcpTools : undefined,
+              mcpPrompts: protocolSettings.mcpPrompts.length > 0 ? protocolSettings.mcpPrompts : undefined,
+            });
+          }
+          if (resolvedOasf) {
+            endpoints.push({
+              name: 'OASF',
+              endpoint: resolvedOasf,
+              version: 'v0.8.0',
+              skills: protocolSettings.oasfSkills.length > 0 ? protocolSettings.oasfSkills : undefined,
+              domains: protocolSettings.oasfDomains.length > 0 ? protocolSettings.oasfDomains : undefined,
+            });
+          }
+          if (resolvedWeb) {
+            endpoints.push({
+              name: 'web',
+              endpoint: resolvedWeb,
             });
           }
 
           // Friendly pre-confirm before MetaMask shows the raw UserOperation typed-data.
           if (!walletConfirmOpen) {
+            const isMetaMask = Boolean((eip1193Provider as any)?.isMetaMask);
+            const isWeb3Auth = !isMetaMask && Boolean((eip1193Provider as any)?.isWeb3Auth);
+
             const chainLabel =
               CHAIN_METADATA[selectedChainId]?.displayName ||
               CHAIN_METADATA[selectedChainId]?.chainName ||
@@ -1331,6 +1416,22 @@ export default function AgentRegistrationPage() {
               }
               resetRegistrationProgress();
             };
+
+            // Web3Auth: skip the MetaMask-specific confirmation modal.
+            if (isWeb3Auth) {
+              const fn = pendingWalletActionRef.current;
+              try {
+                await fn?.();
+              } catch (e: any) {
+                resetRegistrationProgress();
+                setError(e?.message || 'Failed to create agent');
+              } finally {
+                setWalletConfirmPayload(null);
+                pendingWalletActionRef.current = null;
+              }
+              return;
+            }
+
             setWalletConfirmOpen(true);
             return;
           }
@@ -1344,7 +1445,24 @@ export default function AgentRegistrationPage() {
       setAgentUrlAutofillDisabled(false);
       setAaAddress(null);
       setCreateStep(0);
-      setProtocolSettings({ protocol: 'A2A', a2aEndpoint: '', mcpEndpoint: '', a2aSkills: [], a2aDomains: [], mcpSkills: [], mcpDomains: [] });
+      setProtocolSettings({
+        enableA2A: true,
+        enableMCP: false,
+        enableOASF: false,
+        enableWeb: true,
+        a2aEndpoint: '',
+        mcpEndpoint: '',
+        oasfEndpoint: '',
+        webEndpoint: '',
+        a2aSkills: [],
+        a2aDomains: [],
+        mcpSkills: [],
+        mcpDomains: [],
+        mcpTools: [],
+        mcpPrompts: [],
+        oasfSkills: [],
+        oasfDomains: [],
+      });
 
       // Refresh owned agents cache so new agents appear in dropdowns immediately
       await refreshOwnedAgents();
@@ -1436,14 +1554,14 @@ export default function AgentRegistrationPage() {
     setProtocolSettings(prev => {
       const next: typeof prev = { ...prev };
       let changed = false;
-      if (prev.protocol === 'A2A' && defaultA2AEndpoint) {
+      if (prev.enableA2A && defaultA2AEndpoint) {
         const shouldUpdate = !prev.a2aEndpoint || prev.a2aEndpoint === prevDefaults.a2a;
         if (shouldUpdate) {
           next.a2aEndpoint = defaultA2AEndpoint;
           changed = true;
         }
       }
-      if (prev.protocol === 'MCP' && defaultMcpEndpoint) {
+      if (prev.enableMCP && defaultMcpEndpoint) {
         const shouldUpdate = !prev.mcpEndpoint || prev.mcpEndpoint === prevDefaults.mcp;
         if (shouldUpdate) {
           next.mcpEndpoint = defaultMcpEndpoint;
@@ -1819,43 +1937,70 @@ export default function AgentRegistrationPage() {
             </div>
             <div style={{ marginBottom: '1rem', padding: '1rem', backgroundColor: '#f6f6f6', borderRadius: '8px', border: '1px solid #dcdcdc' }}>
               <label style={{ display: 'block', marginBottom: '0.75rem', fontWeight: 600 }}>
-                Select Protocol *
+                Services *
               </label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.protocol === 'A2A' ? '#e3f2fd' : 'transparent' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.enableA2A ? '#e3f2fd' : 'transparent' }}>
                   <input
-                    type="radio"
-                    name="protocol"
-                    value="A2A"
-                    checked={protocolSettings.protocol === 'A2A'}
+                    type="checkbox"
+                    checked={protocolSettings.enableA2A}
                     onChange={(e) => {
+                      const checked = e.target.checked;
                       setProtocolSettings(prev => ({
                         ...prev,
-                        protocol: 'A2A',
-                        a2aEndpoint: prev.a2aEndpoint || defaultA2AEndpoint || '',
+                        enableA2A: checked,
+                        a2aEndpoint: checked ? (prev.a2aEndpoint || defaultA2AEndpoint || '') : prev.a2aEndpoint,
                       }));
                     }}
                   />
-                  <span style={{ fontWeight: 600 }}>A2A Protocol</span>
+                  <span style={{ fontWeight: 600 }}>A2A</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.protocol === 'MCP' ? '#e3f2fd' : 'transparent' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.enableMCP ? '#e3f2fd' : 'transparent' }}>
                   <input
-                    type="radio"
-                    name="protocol"
-                    value="MCP"
-                    checked={protocolSettings.protocol === 'MCP'}
+                    type="checkbox"
+                    checked={protocolSettings.enableMCP}
                     onChange={(e) => {
+                      const checked = e.target.checked;
                       setProtocolSettings(prev => ({
                         ...prev,
-                        protocol: 'MCP',
-                        mcpEndpoint: prev.mcpEndpoint || defaultMcpEndpoint || '',
+                        enableMCP: checked,
+                        mcpEndpoint: checked ? (prev.mcpEndpoint || defaultMcpEndpoint || '') : prev.mcpEndpoint,
                       }));
                     }}
                   />
-                  <span style={{ fontWeight: 600 }}>MCP Protocol</span>
+                  <span style={{ fontWeight: 600 }}>MCP</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.enableOASF ? '#e3f2fd' : 'transparent' }}>
+                  <input
+                    type="checkbox"
+                    checked={protocolSettings.enableOASF}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        enableOASF: checked,
+                      }));
+                    }}
+                  />
+                  <span style={{ fontWeight: 600 }}>OASF</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', padding: '0.5rem', borderRadius: '4px', backgroundColor: protocolSettings.enableWeb ? '#e3f2fd' : 'transparent' }}>
+                  <input
+                    type="checkbox"
+                    checked={protocolSettings.enableWeb}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        enableWeb: checked,
+                        webEndpoint: checked ? (prev.webEndpoint || normalizedAgentBaseUrl || '') : prev.webEndpoint,
+                      }));
+                    }}
+                  />
+                  <span style={{ fontWeight: 600 }}>web</span>
                 </label>
               </div>
-              {protocolSettings.protocol === 'A2A' && (
+              {protocolSettings.enableA2A && (
                 <div style={{ marginTop: '0.75rem' }}>
                   <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
                     Endpoint URL
@@ -2086,7 +2231,7 @@ export default function AgentRegistrationPage() {
                 </div>
               )}
             </div>
-            {protocolSettings.protocol === 'MCP' && (
+            {protocolSettings.enableMCP && (
               <div style={{ marginTop: '0.75rem' }}>
                 <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
                   Endpoint URL
@@ -2100,6 +2245,46 @@ export default function AgentRegistrationPage() {
                   placeholder={defaultMcpEndpoint || 'https://agent.example.com/api/mcp'}
                   style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
                 />
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                    MCP Tools (one per line)
+                  </label>
+                  <textarea
+                    value={protocolSettings.mcpTools.join('\n')}
+                    onChange={(e) =>
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        mcpTools: e.target.value
+                          .split('\n')
+                          .map(v => v.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    placeholder="chat\nget_agent_info"
+                    rows={3}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
+                  />
+                </div>
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                    MCP Prompts (one per line)
+                  </label>
+                  <textarea
+                    value={protocolSettings.mcpPrompts.join('\n')}
+                    onChange={(e) =>
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        mcpPrompts: e.target.value
+                          .split('\n')
+                          .map(v => v.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    placeholder="greeting\nhelp"
+                    rows={3}
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
+                  />
+                </div>
                 <div style={{ marginTop: '1rem' }}>
                   <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 600 }}>
                     OASF Skills
@@ -2280,6 +2465,76 @@ export default function AgentRegistrationPage() {
                 </div>
               </div>
             )}
+            {protocolSettings.enableOASF && (
+              <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #dcdcdc' }}>
+                <h4 style={{ margin: '0 0 0.6rem', fontSize: '1rem' }}>OASF</h4>
+                <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                  Endpoint URL
+                </label>
+                <input
+                  type="url"
+                  value={protocolSettings.oasfEndpoint}
+                  onChange={(e) => setProtocolSettings(prev => ({ ...prev, oasfEndpoint: e.target.value }))}
+                  placeholder={normalizedAgentBaseUrl ? `${normalizedAgentBaseUrl}/oasf` : 'https://agent.example.com/oasf'}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
+                />
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                    Skills (one per line)
+                  </label>
+                  <textarea
+                    value={protocolSettings.oasfSkills.join('\n')}
+                    onChange={(e) =>
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        oasfSkills: e.target.value
+                          .split('\n')
+                          .map(v => v.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    rows={4}
+                    placeholder="natural_language_processing/natural_language_generation/text_generation"
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
+                  />
+                </div>
+                <div style={{ marginTop: '1rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                    Domains (one per line)
+                  </label>
+                  <textarea
+                    value={protocolSettings.oasfDomains.join('\n')}
+                    onChange={(e) =>
+                      setProtocolSettings(prev => ({
+                        ...prev,
+                        oasfDomains: e.target.value
+                          .split('\n')
+                          .map(v => v.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                    rows={4}
+                    placeholder="hospitality_and_tourism/travel/trip_planning"
+                    style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
+                  />
+                </div>
+              </div>
+            )}
+            {protocolSettings.enableWeb && (
+              <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #dcdcdc' }}>
+                <h4 style={{ margin: '0 0 0.6rem', fontSize: '1rem' }}>web</h4>
+                <label style={{ display: 'block', marginBottom: '0.35rem', fontWeight: 600 }}>
+                  Endpoint URL
+                </label>
+                <input
+                  type="url"
+                  value={protocolSettings.webEndpoint}
+                  onChange={(e) => setProtocolSettings(prev => ({ ...prev, webEndpoint: e.target.value }))}
+                  placeholder={normalizedAgentBaseUrl || 'https://example.com'}
+                  style={{ width: '100%', padding: '0.5rem', border: '1px solid #d7d7d7', borderRadius: '6px' }}
+                />
+              </div>
+            )}
           </>
         );
       case 4: {
@@ -2332,16 +2587,50 @@ export default function AgentRegistrationPage() {
             <div style={{ border: '1px solid #dcdcdc', borderRadius: '10px', padding: '1rem', marginBottom: '1rem', backgroundColor: '#f6f6f6' }}>
               <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.1rem', color: '#2f2f2f' }}>Protocols</h3>
               <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
-                <strong>Protocol:</strong> {protocolSettings.protocol || 'Not selected'}
+                <strong>Services:</strong>{' '}
+                {[
+                  protocolSettings.enableA2A ? 'A2A' : null,
+                  protocolSettings.enableMCP ? 'MCP' : null,
+                  protocolSettings.enableOASF ? 'OASF' : null,
+                  protocolSettings.enableWeb ? 'web' : null,
+                ]
+                  .filter(Boolean)
+                  .join(', ') || 'None selected'}
               </p>
-              {protocolSettings.protocol === 'A2A' && (
+              {protocolSettings.enableA2A && (
                 <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
                   <strong>Agent Card:</strong> {protocolSettings.a2aEndpoint || defaultA2AEndpoint || 'Pending Agent URL'}
                 </p>
               )}
-              {protocolSettings.protocol === 'MCP' && (
+              {protocolSettings.enableMCP && (
                 <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
                   <strong>MCP Endpoint:</strong> {protocolSettings.mcpEndpoint || defaultMcpEndpoint || 'Pending Agent URL'}
+                </p>
+              )}
+              {protocolSettings.enableMCP && (protocolSettings.mcpTools.length > 0 || protocolSettings.mcpPrompts.length > 0) && (
+                <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                  <strong>MCP:</strong>{' '}
+                  {protocolSettings.mcpTools.length > 0 ? `${protocolSettings.mcpTools.length} tools` : null}
+                  {protocolSettings.mcpTools.length > 0 && protocolSettings.mcpPrompts.length > 0 ? ', ' : null}
+                  {protocolSettings.mcpPrompts.length > 0 ? `${protocolSettings.mcpPrompts.length} prompts` : null}
+                </p>
+              )}
+              {protocolSettings.enableOASF && (
+                <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                  <strong>OASF Endpoint:</strong> {protocolSettings.oasfEndpoint || 'Pending Agent URL'}
+                </p>
+              )}
+              {protocolSettings.enableOASF && (protocolSettings.oasfSkills.length > 0 || protocolSettings.oasfDomains.length > 0) && (
+                <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                  <strong>OASF:</strong>{' '}
+                  {protocolSettings.oasfSkills.length > 0 ? `${protocolSettings.oasfSkills.length} skills` : null}
+                  {protocolSettings.oasfSkills.length > 0 && protocolSettings.oasfDomains.length > 0 ? ', ' : null}
+                  {protocolSettings.oasfDomains.length > 0 ? `${protocolSettings.oasfDomains.length} domains` : null}
+                </p>
+              )}
+              {protocolSettings.enableWeb && (
+                <p style={{ margin: '0.25rem 0', color: '#2f2f2f' }}>
+                  <strong>web:</strong> {protocolSettings.webEndpoint || normalizedAgentBaseUrl || 'Pending Agent URL'}
                 </p>
               )}
             </div>
@@ -2554,7 +2843,7 @@ export default function AgentRegistrationPage() {
                       fontSize: '0.9rem',
                     }}
                   >
-                    In MetaMask, confirm you see <strong>Sepolia</strong> (or your selected network) and the smart account address above.
+                    In MetaMask, confirm you see <strong>{walletConfirmPayload?.chainLabel || 'the selected network'}</strong> and the smart account address above.
                   </div>
 
                   <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem' }}>

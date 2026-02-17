@@ -14,13 +14,115 @@ import { getChainContractAddress } from './chainConfig';
  */
 export async function uploadRegistration(registration, storage) {
     const ipfsStorage = storage || getIPFSStorage();
+    // Canonicalize registration JSON: always emit `services`, never `endpoints`.
+    // This protects "update registration" flows that might send legacy `endpoints`.
+    const canonicalRegistration = (() => {
+        const input = { ...registration };
+        const services = [];
+        if (Array.isArray(input.services)) {
+            for (const s of input.services) {
+                const rawType = typeof (s === null || s === void 0 ? void 0 : s.type) === 'string'
+                    ? s.type.trim()
+                    : typeof (s === null || s === void 0 ? void 0 : s.name) === 'string'
+                        ? s.name.trim()
+                        : '';
+                const endpoint = typeof (s === null || s === void 0 ? void 0 : s.endpoint) === 'string' ? s.endpoint.trim() : '';
+                if (!rawType || !endpoint)
+                    continue;
+                const type = rawType.toLowerCase();
+                services.push({
+                    type,
+                    name: typeof (s === null || s === void 0 ? void 0 : s.name) === 'string' && s.name.trim() ? s.name.trim() : rawType,
+                    endpoint,
+                    version: typeof s.version === 'string' ? s.version : undefined,
+                    capabilities: Array.isArray(s.capabilities) ? s.capabilities.map((c) => String(c)).filter(Boolean) : undefined,
+                    a2aSkills: Array.isArray(s.a2aSkills) ? s.a2aSkills.map((v) => String(v)).filter(Boolean) : undefined,
+                    a2aDomains: Array.isArray(s.a2aDomains) ? s.a2aDomains.map((v) => String(v)).filter(Boolean) : undefined,
+                    mcpTools: Array.isArray(s.mcpTools) ? s.mcpTools.map((v) => String(v)).filter(Boolean) : undefined,
+                    mcpPrompts: Array.isArray(s.mcpPrompts) ? s.mcpPrompts.map((v) => String(v)).filter(Boolean) : undefined,
+                    skills: Array.isArray(s.skills) ? s.skills.map((v) => String(v)).filter(Boolean) : undefined,
+                    domains: Array.isArray(s.domains) ? s.domains.map((v) => String(v)).filter(Boolean) : undefined,
+                });
+            }
+        }
+        if (services.length === 0 && Array.isArray(input.endpoints)) {
+            for (const e of input.endpoints) {
+                const name = typeof (e === null || e === void 0 ? void 0 : e.name) === 'string' ? e.name.trim() : '';
+                const endpoint = typeof (e === null || e === void 0 ? void 0 : e.endpoint) === 'string' ? e.endpoint.trim() : '';
+                if (!name || !endpoint)
+                    continue;
+                const type = name.toLowerCase();
+                const capsFromRecord = e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
+                    ? Object.keys(e.capabilities)
+                    : [];
+                const caps = [];
+                const addCaps = (arr) => {
+                    if (!Array.isArray(arr))
+                        return;
+                    for (const item of arr) {
+                        const v = String(item !== null && item !== void 0 ? item : '').trim();
+                        if (v)
+                            caps.push(v);
+                    }
+                };
+                addCaps(e.a2aSkills);
+                addCaps(e.mcpSkills);
+                addCaps(e.a2aDomains);
+                addCaps(e.mcpDomains);
+                addCaps(e.mcpTools);
+                addCaps(e.mcpPrompts);
+                addCaps(e.skills);
+                addCaps(e.domains);
+                addCaps(capsFromRecord);
+                const capabilities = caps.length > 0 ? Array.from(new Set(caps)) : undefined;
+                services.push({
+                    type,
+                    name,
+                    endpoint,
+                    version: typeof e.version === 'string' ? e.version : undefined,
+                    capabilities,
+                    a2aSkills: Array.isArray(e.a2aSkills) ? e.a2aSkills.map((v) => String(v)).filter(Boolean) : undefined,
+                    a2aDomains: Array.isArray(e.a2aDomains) ? e.a2aDomains.map((v) => String(v)).filter(Boolean) : undefined,
+                    mcpTools: Array.isArray(e.mcpTools) ? e.mcpTools.map((v) => String(v)).filter(Boolean) : undefined,
+                    mcpPrompts: Array.isArray(e.mcpPrompts) ? e.mcpPrompts.map((v) => String(v)).filter(Boolean) : undefined,
+                    skills: Array.isArray(e.skills) ? e.skills.map((v) => String(v)).filter(Boolean) : undefined,
+                    domains: Array.isArray(e.domains) ? e.domains.map((v) => String(v)).filter(Boolean) : undefined,
+                });
+            }
+        }
+        // If agentUrl is provided, ensure A2A service aligns to it.
+        const agentUrl = typeof input.agentUrl === 'string' ? input.agentUrl.trim() : '';
+        if (agentUrl) {
+            const baseUrl = agentUrl.replace(/\/$/, '');
+            const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
+            const existingA2A = services.find((svc) => { var _a, _b; return ((_a = svc.type) !== null && _a !== void 0 ? _a : '').toLowerCase() === 'a2a' || ((_b = svc.name) !== null && _b !== void 0 ? _b : '').toLowerCase() === 'a2a'; });
+            if (existingA2A) {
+                existingA2A.endpoint = a2aEndpoint;
+                existingA2A.version = existingA2A.version || '0.3.0';
+                existingA2A.type = existingA2A.type || 'a2a';
+                existingA2A.name = existingA2A.name || 'A2A';
+            }
+            else {
+                services.push({
+                    type: 'a2a',
+                    name: 'A2A',
+                    endpoint: a2aEndpoint,
+                    version: '0.3.0',
+                });
+            }
+        }
+        // Drop legacy endpoints.
+        delete input.endpoints;
+        input.services = services.length > 0 ? services : undefined;
+        return input;
+    })();
     // Ensure ERC-8004 type is set
     const registrationWithType = {
-        ...registration,
-        type: registration.type || 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
+        ...canonicalRegistration,
+        type: canonicalRegistration.type || 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
         // Set timestamps for legacy fields if not provided
-        createdAt: registration.createdAt || new Date().toISOString(),
-        updatedAt: registration.updatedAt || new Date().toISOString(),
+        createdAt: canonicalRegistration.createdAt || new Date().toISOString(),
+        updatedAt: canonicalRegistration.updatedAt || new Date().toISOString(),
     };
     console.log('[uploadRegistration] registration.supportedTrust:', registration.supportedTrust);
     console.log('[uploadRegistration] registrationWithType.supportedTrust:', registrationWithType.supportedTrust);
@@ -57,17 +159,85 @@ export async function getRegistration(cidOrTokenUri, storage) {
  * Helper function to build ERC-8004 compliant registration JSON
  */
 export function createRegistrationJSON(params) {
-    const endpoints = (params.endpoints ? params.endpoints.map(e => ({ ...e })) : [])
-        // Never include MCP endpoint entries in registration JSON.
-        .filter(e => e.name !== 'MCP');
-    // If agentUrl is provided, automatically create an A2A endpoint
+    // Normalize caller-provided services/endpoints into a single `services` array.
+    // New registrations should emit `services` (not `endpoints`).
+    const services = [];
+    if (Array.isArray(params.services)) {
+        for (const s of params.services) {
+            const rawType = typeof (s === null || s === void 0 ? void 0 : s.type) === 'string'
+                ? s.type.trim()
+                : typeof (s === null || s === void 0 ? void 0 : s.name) === 'string'
+                    ? s.name.trim()
+                    : '';
+            const endpoint = typeof (s === null || s === void 0 ? void 0 : s.endpoint) === 'string' ? s.endpoint.trim() : '';
+            if (!rawType || !endpoint)
+                continue;
+            const type = rawType.toLowerCase();
+            services.push({
+                type,
+                name: typeof (s === null || s === void 0 ? void 0 : s.name) === 'string' && s.name.trim() ? s.name.trim() : rawType,
+                endpoint,
+                version: typeof s.version === 'string' ? s.version : undefined,
+                capabilities: Array.isArray(s.capabilities) ? s.capabilities.map((c) => String(c)) : undefined,
+                a2aSkills: Array.isArray(s.a2aSkills) ? s.a2aSkills.map((v) => String(v)).filter(Boolean) : undefined,
+                a2aDomains: Array.isArray(s.a2aDomains) ? s.a2aDomains.map((v) => String(v)).filter(Boolean) : undefined,
+                mcpTools: Array.isArray(s.mcpTools) ? s.mcpTools.map((v) => String(v)).filter(Boolean) : undefined,
+                mcpPrompts: Array.isArray(s.mcpPrompts) ? s.mcpPrompts.map((v) => String(v)).filter(Boolean) : undefined,
+                skills: Array.isArray(s.skills) ? s.skills.map((v) => String(v)).filter(Boolean) : undefined,
+                domains: Array.isArray(s.domains) ? s.domains.map((v) => String(v)).filter(Boolean) : undefined,
+            });
+        }
+    }
+    if (Array.isArray(params.endpoints)) {
+        for (const e of params.endpoints) {
+            const name = typeof (e === null || e === void 0 ? void 0 : e.name) === 'string' ? e.name.trim() : '';
+            const endpoint = typeof (e === null || e === void 0 ? void 0 : e.endpoint) === 'string' ? e.endpoint.trim() : '';
+            if (!name || !endpoint)
+                continue;
+            const type = name.toLowerCase();
+            const capsFromRecord = e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
+                ? Object.keys(e.capabilities)
+                : [];
+            const caps = [];
+            const addCaps = (arr) => {
+                if (!Array.isArray(arr))
+                    return;
+                for (const item of arr) {
+                    const v = String(item !== null && item !== void 0 ? item : '').trim();
+                    if (v)
+                        caps.push(v);
+                }
+            };
+            addCaps(e.a2aSkills);
+            addCaps(e.mcpSkills);
+            addCaps(e.a2aDomains);
+            addCaps(e.mcpDomains);
+            addCaps(e.mcpTools);
+            addCaps(e.mcpPrompts);
+            addCaps(e.skills);
+            addCaps(e.domains);
+            addCaps(capsFromRecord);
+            const capabilities = caps.length > 0 ? Array.from(new Set(caps)) : undefined;
+            services.push({
+                type,
+                name,
+                endpoint,
+                version: typeof e.version === 'string' ? e.version : undefined,
+                capabilities,
+                a2aSkills: Array.isArray(e.a2aSkills) ? e.a2aSkills.map((v) => String(v)).filter(Boolean) : undefined,
+                a2aDomains: Array.isArray(e.a2aDomains) ? e.a2aDomains.map((v) => String(v)).filter(Boolean) : undefined,
+                mcpTools: Array.isArray(e.mcpTools) ? e.mcpTools.map((v) => String(v)).filter(Boolean) : undefined,
+                mcpPrompts: Array.isArray(e.mcpPrompts) ? e.mcpPrompts.map((v) => String(v)).filter(Boolean) : undefined,
+                skills: Array.isArray(e.skills) ? e.skills.map((v) => String(v)).filter(Boolean) : undefined,
+                domains: Array.isArray(e.domains) ? e.domains.map((v) => String(v)).filter(Boolean) : undefined,
+            });
+        }
+    }
+    // If agentUrl is provided, automatically create/update an A2A service.
     if (params.agentUrl) {
-        const baseUrl = params.agentUrl.replace(/\/$/, ''); // Remove trailing slash
-        // Upsert A2A endpoint (always align to agentUrl so provider base URLs or other defaults
-        // don't accidentally become the registered A2A endpoint).
-        // Default to the canonical A2A agent card location (agent-card.json).
+        const baseUrl = params.agentUrl.replace(/\/$/, '');
         const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
-        const existingA2A = endpoints.find(e => e.name === 'A2A');
+        const existingA2A = services.find((svc) => { var _a, _b; return ((_a = svc.type) !== null && _a !== void 0 ? _a : '').toLowerCase() === 'a2a' || ((_b = svc.name) !== null && _b !== void 0 ? _b : '').toLowerCase() === 'a2a'; });
         if (existingA2A) {
             if (existingA2A.endpoint !== a2aEndpoint) {
                 console.warn('[createRegistrationJSON] Overriding A2A endpoint to match agentUrl:', {
@@ -78,10 +248,12 @@ export function createRegistrationJSON(params) {
             }
             existingA2A.endpoint = a2aEndpoint;
             existingA2A.version = existingA2A.version || '0.3.0';
-            // Preserve a2aSkills if already set
+            existingA2A.type = existingA2A.type || 'a2a';
+            existingA2A.name = existingA2A.name || 'A2A';
         }
         else {
-            endpoints.push({
+            services.push({
+                type: 'a2a',
                 name: 'A2A',
                 endpoint: a2aEndpoint,
                 version: '0.3.0',
@@ -104,9 +276,10 @@ export function createRegistrationJSON(params) {
         type: 'https://eips.ethereum.org/EIPS/eip-8004#registration-v1',
         name: params.name,
         description: params.description,
+        agentUrl: params.agentUrl,
         image: params.image,
         active: typeof params.active === 'boolean' ? params.active : true,
-        endpoints: endpoints.length > 0 ? endpoints : undefined,
+        services: services.length > 0 ? services : undefined,
         registrations: registrations.length > 0 ? registrations : undefined,
         agentAccount: params.agentAccount,
         // Registry metadata fields

@@ -62,11 +62,31 @@ function isL1ChainId(chainId: number): boolean {
   return chainId === 1 || chainId === 11155111;
 }
 
+function getDefaultAgentBaseUrl(): string {
+  const envBase = (process.env.NEXT_PUBLIC_AGENTIC_TRUST_AGENT_BASE_URL || '').trim();
+  const originBase = typeof window !== 'undefined' ? String(window.location.origin || '').trim() : '';
+  const base = (envBase || originBase).replace(/\/+$/, '');
+  return base;
+}
+
+function formatAgentSlug(name?: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
 const buildDefaultAgentUrl = (name?: string): string => {
-  const n = String(name || '').trim().toLowerCase();
-  if (!n) return '';
-  const safe = n.replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  const safe = formatAgentSlug(name);
   if (!safe) return '';
+  const base = getDefaultAgentBaseUrl();
+  // For hosted envs like https://t.agentictrust.io, prefer path-based URLs.
+  if (base && /^https?:\/\/[^/]+\.agentictrust\.io(?::\d+)?$/i.test(base)) return `${base}/${safe}`;
+  // Fallback to subdomain pattern.
   return `https://${safe}.agentictrust.io`;
 };
 
@@ -87,6 +107,17 @@ export default function SmartAgentRegistrationPage() {
   const router = useRouter();
   const { isConnected, privateKeyMode, loading, walletAddress, openLoginModal, handleDisconnect } = useAuth();
   const { eip1193Provider } = useWallet();
+
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const onResize = () => {
+      if (typeof window === 'undefined') return;
+      setIsMobile(window.innerWidth <= 640);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const [createStep, setCreateStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +160,15 @@ export default function SmartAgentRegistrationPage() {
       agentUrl: '',
     };
   });
+  const [agentUrlAutofillDisabled, setAgentUrlAutofillDisabled] = useState(false);
+  const previousDefaultAgentUrlRef = React.useRef<string>('');
+
+  const handleResetAgentUrlToDefault = useCallback(() => {
+    const next = buildDefaultAgentUrl(form.agentName);
+    setAgentUrlAutofillDisabled(false);
+    setForm((prev) => ({ ...prev, agentUrl: next }));
+    previousDefaultAgentUrlRef.current = next;
+  }, [form.agentName]);
 
   const ensFullNamePreview =
     form.agentName && ensOrgName ? `${form.agentName.toLowerCase()}.${ensOrgName.toLowerCase()}.eth` : '';
@@ -148,11 +188,26 @@ export default function SmartAgentRegistrationPage() {
     const defaultUrl = buildDefaultAgentUrl(form.agentName);
     setForm((prev) => {
       const current = (prev.agentUrl || '').trim();
-      if (current) return prev;
       if (!defaultUrl) return prev;
+
+      const base = getDefaultAgentBaseUrl().replace(/\/+$/, '');
+      const normalizedCurrent = current.replace(/\/+$/, '');
+      const previousDefault = (previousDefaultAgentUrlRef.current || '').trim();
+
+      // Autofill rules:
+      // - If user never edited the field → always keep in sync.
+      // - If user edited the field, still "self-heal" when the value is just the bare base URL
+      //   (common during dev/hot-reload state preservation).
+      if (agentUrlAutofillDisabled) {
+        const isBareBase = Boolean(base) && normalizedCurrent === base;
+        const isPreviousDefault = Boolean(previousDefault) && current === previousDefault;
+        if (!isBareBase && !isPreviousDefault) return prev;
+      }
+
+      previousDefaultAgentUrlRef.current = defaultUrl;
       return { ...prev, agentUrl: defaultUrl };
     });
-  }, [form.agentName]);
+  }, [form.agentName, agentUrlAutofillDisabled]);
 
   // ENS availability
   useEffect(() => {
@@ -509,12 +564,29 @@ export default function SmartAgentRegistrationPage() {
   ]);
 
   const renderStep = () => {
+    const gridCols = isMobile ? '1fr' : '220px 1fr';
+    const labelStyle: React.CSSProperties = {
+      color: palette.textSecondary,
+      paddingTop: isMobile ? 0 : '0.55rem',
+      fontWeight: 700,
+    };
+    const fieldStyle: React.CSSProperties = {
+      width: '100%',
+      minWidth: 0,
+      boxSizing: 'border-box',
+      padding: '0.55rem 0.7rem',
+      borderRadius: '10px',
+      border: `1px solid ${palette.border}`,
+      background: palette.surfaceMuted,
+      color: palette.textPrimary,
+    };
+
     switch (createStep) {
       case 0: {
         return (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '0.75rem' }}>
-              <label style={{ color: palette.textSecondary, paddingTop: '0.55rem', fontWeight: 700 }}>Chain</label>
+            <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: isMobile ? '0.55rem' : '0.75rem' }}>
+              <label style={labelStyle}>Chain</label>
               <select
                 value={String(selectedChainId)}
                 onChange={(e) => {
@@ -522,13 +594,7 @@ export default function SmartAgentRegistrationPage() {
                   setEnsAvailable(null);
                   setAaAddress(null);
                 }}
-                style={{
-                  padding: '0.55rem 0.7rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                }}
+                style={fieldStyle}
               >
                 {SUPPORTED_CHAINS.map((c) => (
                   <option key={c.id} value={String(c.id)}>
@@ -537,24 +603,26 @@ export default function SmartAgentRegistrationPage() {
                 ))}
               </select>
 
-              <label style={{ color: palette.textSecondary, paddingTop: '0.55rem', fontWeight: 700 }}>
-                Agent name *
-              </label>
+              <label style={labelStyle}>Agent name *</label>
               <input
                 value={form.agentName}
                 onChange={(e) => setForm((prev) => ({ ...prev, agentName: e.target.value }))}
-                style={{
-                  padding: '0.55rem 0.7rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                }}
+                style={fieldStyle}
               />
 
-              <div />
-              <div style={{ color: palette.textSecondary, fontSize: '0.92rem', lineHeight: 1.45 }}>
-                <div style={{ fontFamily: 'monospace' }}>{ensFullNamePreview || 'Enter an agent name…'}</div>
+              {!isMobile ? <div /> : null}
+              <div
+                style={{
+                  gridColumn: isMobile ? '1 / -1' : '2',
+                  color: palette.textSecondary,
+                  fontSize: '0.92rem',
+                  lineHeight: 1.45,
+                  minWidth: 0,
+                }}
+              >
+                <div style={{ fontFamily: 'monospace', overflowWrap: 'anywhere' }}>
+                  {ensFullNamePreview || 'Enter an agent name…'}
+                </div>
                 <div style={{ marginTop: '0.25rem' }}>
                   {ensChecking
                     ? 'Checking ENS…'
@@ -577,11 +645,11 @@ export default function SmartAgentRegistrationPage() {
                 )}
               </div>
 
-              <label style={{ color: palette.textSecondary, paddingTop: '0.55rem', fontWeight: 700 }}>
-                Smart account
-              </label>
+              <label style={labelStyle}>Smart account</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
-                <code>{form.agentAccount || (aaComputing ? 'Computing…' : '—')}</code>
+                <code style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
+                  {form.agentAccount || (aaComputing ? 'Computing…' : '—')}
+                </code>
               </div>
             </div>
           </>
@@ -590,53 +658,51 @@ export default function SmartAgentRegistrationPage() {
       case 1: {
         return (
           <>
-            <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr', gap: '0.75rem' }}>
-              <label style={{ color: palette.textSecondary, paddingTop: '0.55rem', fontWeight: 700 }}>
-                Description *
-              </label>
+            <div style={{ display: 'grid', gridTemplateColumns: gridCols, gap: isMobile ? '0.55rem' : '0.75rem' }}>
+              <label style={labelStyle}>Description *</label>
               <textarea
                 value={form.description}
                 onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
                 rows={5}
-                style={{
-                  padding: '0.55rem 0.7rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                }}
+                style={fieldStyle}
               />
 
-              <label style={{ color: palette.textSecondary, paddingTop: '0.55rem', fontWeight: 700 }}>
-                Image URL
-              </label>
+              <label style={labelStyle}>Image URL</label>
               <input
                 value={form.image}
                 onChange={(e) => setForm((prev) => ({ ...prev, image: e.target.value }))}
-                style={{
-                  padding: '0.55rem 0.7rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                }}
+                style={fieldStyle}
               />
 
-              <label style={{ color: palette.textSecondary, paddingTop: '0.55rem', fontWeight: 700 }}>
-                Agent URL *
-              </label>
-              <input
-                value={form.agentUrl}
-                onChange={(e) => setForm((prev) => ({ ...prev, agentUrl: e.target.value }))}
-                placeholder="https://your-agent.com"
-                style={{
-                  padding: '0.55rem 0.7rem',
-                  borderRadius: '10px',
-                  border: `1px solid ${palette.border}`,
-                  background: palette.surfaceMuted,
-                  color: palette.textPrimary,
-                }}
-              />
+              <label style={labelStyle}>Agent URL *</label>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                <input
+                  value={form.agentUrl}
+                  onChange={(e) => {
+                    setAgentUrlAutofillDisabled(true);
+                    setForm((prev) => ({ ...prev, agentUrl: e.target.value }));
+                  }}
+                  placeholder="https://your-agent.com"
+                  style={{ ...fieldStyle, flex: '1 1 260px' }}
+                />
+                <button
+                  type="button"
+                  onClick={handleResetAgentUrlToDefault}
+                  style={{
+                    padding: '0.55rem 0.75rem',
+                    borderRadius: '10px',
+                    border: `1px solid ${palette.borderStrong}`,
+                    background: palette.surfaceMuted,
+                    color: palette.textPrimary,
+                    fontWeight: 800,
+                    cursor: 'pointer',
+                    flex: '0 0 auto',
+                  }}
+                  title="Reset to the default URL derived from the agent name"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
           </>
         );
@@ -653,13 +719,14 @@ export default function SmartAgentRegistrationPage() {
                 Agent name: <b>{form.agentName || '—'}</b>
               </div>
               <div>
-                ENS: <code>{ensFullNamePreview || '—'}</code>
+                ENS: <code style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{ensFullNamePreview || '—'}</code>
               </div>
               <div>
-                Smart account: <code>{form.agentAccount || '—'}</code>
+                Smart account:{' '}
+                <code style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{form.agentAccount || '—'}</code>
               </div>
               <div>
-                Agent URL: <code>{form.agentUrl || '—'}</code>
+                Agent URL: <code style={{ wordBreak: 'break-all', overflowWrap: 'anywhere' }}>{form.agentUrl || '—'}</code>
               </div>
             </div>
           </>
@@ -679,7 +746,7 @@ export default function SmartAgentRegistrationPage() {
         disableConnect={loading}
       />
 
-      <main style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto' }}>
+      <main style={{ padding: isMobile ? '1rem' : '2rem', maxWidth: '1400px', margin: '0 auto' }}>
         {!canSign && (
           <div
             style={{
@@ -733,7 +800,7 @@ export default function SmartAgentRegistrationPage() {
           style={{
             border: `1px solid ${palette.border}`,
             borderRadius: '8px',
-            padding: '1.5rem',
+            padding: isMobile ? '1rem' : '1.5rem',
             background: palette.surface,
           }}
         >

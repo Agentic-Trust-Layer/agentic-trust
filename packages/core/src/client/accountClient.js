@@ -246,13 +246,60 @@ export async function sendSponsoredUserOperation(params) {
         chain: chain,
         paymasterContext: { mode: 'SPONSORED' }
     });
-    const { fast: fee } = await pimlicoClient.getUserOperationGasPrice();
-    const userOpHash = await bundlerClient.sendUserOperation({
-        account: accountClient,
-        calls,
-        ...fee
-    });
-    return userOpHash;
+    const { fast: feeRaw } = await pimlicoClient.getUserOperationGasPrice();
+    // Gas prices can drift between estimation and bundler validation. Add a small buffer.
+    const fee = (() => {
+        try {
+            const maxFeePerGas = BigInt((feeRaw === null || feeRaw === void 0 ? void 0 : feeRaw.maxFeePerGas) ?? 0);
+            const maxPriorityFeePerGas = BigInt((feeRaw === null || feeRaw === void 0 ? void 0 : feeRaw.maxPriorityFeePerGas) ?? 0);
+            if (maxFeePerGas === 0n || maxPriorityFeePerGas === 0n)
+                return feeRaw;
+            const bump = 125n; // +25%
+            return {
+                ...feeRaw,
+                maxFeePerGas: (maxFeePerGas * bump) / 100n,
+                maxPriorityFeePerGas: (maxPriorityFeePerGas * bump) / 100n,
+            };
+        }
+        catch {
+            return feeRaw;
+        }
+    })();
+    try {
+        const userOpHash = await bundlerClient.sendUserOperation({
+            account: accountClient,
+            calls,
+            ...fee
+        });
+        return userOpHash;
+    }
+    catch (err) {
+        // Common bundler error: maxFeePerGas too low (gas price stale). Retry once with a bumped maxFeePerGas.
+        try {
+            const msg = String((err === null || err === void 0 ? void 0 : err.details) || (err === null || err === void 0 ? void 0 : err.shortMessage) || (err === null || err === void 0 ? void 0 : err.message) || '');
+            const m = msg.match(/maxFeePerGas must be at least\s+(\d+)/i);
+            if (m === null || m === void 0 ? void 0 : m[1]) {
+                const required = BigInt(m[1]);
+                const currentMaxFee = BigInt((fee === null || fee === void 0 ? void 0 : fee.maxFeePerGas) ?? 0n);
+                const currentMaxPrio = BigInt((fee === null || fee === void 0 ? void 0 : fee.maxPriorityFeePerGas) ?? 0n);
+                const bumped = (required * 110n) / 100n; // +10% over required
+                const retryMaxFee = currentMaxFee > bumped ? currentMaxFee : bumped;
+                const retryMaxPrio = currentMaxPrio > retryMaxFee ? retryMaxFee : currentMaxPrio;
+                const userOpHash = await bundlerClient.sendUserOperation({
+                    account: accountClient,
+                    calls,
+                    ...fee,
+                    maxFeePerGas: retryMaxFee,
+                    maxPriorityFeePerGas: retryMaxPrio,
+                });
+                return userOpHash;
+            }
+        }
+        catch {
+            // ignore and rethrow original error
+        }
+        throw err;
+    }
 }
 /**
  * Wait for UserOperation receipt

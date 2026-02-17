@@ -344,7 +344,23 @@ export async function sendSponsoredUserOperation(params: {
     paymasterContext: { mode: 'SPONSORED' } 
   } as any);
 
-  const { fast: fee } = await (pimlicoClient as any).getUserOperationGasPrice();
+  const { fast: feeRaw } = await (pimlicoClient as any).getUserOperationGasPrice();
+  // Gas prices can drift between estimation and bundler validation. Add a small buffer.
+  const fee = (() => {
+    try {
+      const maxFeePerGas = BigInt(feeRaw?.maxFeePerGas ?? 0);
+      const maxPriorityFeePerGas = BigInt(feeRaw?.maxPriorityFeePerGas ?? 0);
+      if (maxFeePerGas === 0n || maxPriorityFeePerGas === 0n) return feeRaw;
+      const bump = 125n; // +25%
+      return {
+        ...feeRaw,
+        maxFeePerGas: (maxFeePerGas * bump) / 100n,
+        maxPriorityFeePerGas: (maxPriorityFeePerGas * bump) / 100n,
+      };
+    } catch {
+      return feeRaw;
+    }
+  })();
 
   console.log('[sendSponsoredUserOperation] Sending user operation (MetaMask should prompt for signature)...');
   try {
@@ -357,6 +373,38 @@ export async function sendSponsoredUserOperation(params: {
     console.log('[sendSponsoredUserOperation] User operation sent:', userOpHash);
     return userOpHash as `0x${string}`;
   } catch (err) {
+    // Common bundler error: maxFeePerGas too low (pimlico_getUserOperationGasPrice stale).
+    // Retry once with a bumped maxFeePerGas based on bundler-provided minimum.
+    try {
+      const anyErr = err as any;
+      const msg = String(anyErr?.details || anyErr?.shortMessage || anyErr?.message || '');
+      const m = msg.match(/maxFeePerGas must be at least\s+(\d+)/i);
+      if (m?.[1]) {
+        const required = BigInt(m[1]);
+        const currentMaxFee = BigInt((fee as any)?.maxFeePerGas ?? 0n);
+        const currentMaxPrio = BigInt((fee as any)?.maxPriorityFeePerGas ?? 0n);
+        const bumped = (required * 110n) / 100n; // +10% over required
+        const retryMaxFee = currentMaxFee > bumped ? currentMaxFee : bumped;
+        const retryMaxPrio = currentMaxPrio > retryMaxFee ? retryMaxFee : currentMaxPrio;
+        console.warn('[sendSponsoredUserOperation] Retrying UserOp with bumped maxFeePerGas', {
+          required: required.toString(),
+          previous: currentMaxFee.toString(),
+          next: retryMaxFee.toString(),
+        });
+        const userOpHash = await (bundlerClient as any).sendUserOperation({
+          account: accountClient,
+          calls,
+          ...(fee as any),
+          maxFeePerGas: retryMaxFee,
+          maxPriorityFeePerGas: retryMaxPrio,
+        });
+        console.log('[sendSponsoredUserOperation] User operation sent (retry):', userOpHash);
+        return userOpHash as `0x${string}`;
+      }
+    } catch {
+      // fall through to normal error formatting
+    }
+
     // Ensure upstream UIs always get a human-readable message.
     const anyErr = err as any;
     const parts: string[] = [];

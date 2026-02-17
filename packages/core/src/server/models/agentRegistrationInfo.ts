@@ -33,10 +33,28 @@ export interface AgentRegistrationInfo {
    * Agent services (A2A, MCP, APIs, etc.)
    */
   services?: Array<{
-    type: string;
+    /**
+     * Canonical service identifier (lowercase recommended).
+     * Ex: "a2a", "mcp", "oasf", "web"
+     */
+    type?: string;
+    /**
+     * Legacy/display key used by some agentUri JSON documents.
+     * Ex: "A2A", "MCP", "OASF", "web"
+     */
+    name?: string;
     endpoint: string;
     version?: string;
     capabilities?: string[];
+    /**
+     * Optional structured metadata for specific service types.
+     */
+    a2aSkills?: string[];
+    a2aDomains?: string[];
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    skills?: string[];
+    domains?: string[];
   }>;
 
   /**
@@ -51,6 +69,10 @@ export interface AgentRegistrationInfo {
     a2aDomains?: string[];
     mcpSkills?: string[];
     mcpDomains?: string[];
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    skills?: string[];
+    domains?: string[];
   }>;
 
   /**

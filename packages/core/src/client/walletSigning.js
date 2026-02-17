@@ -1328,10 +1328,7 @@ async function createAgentWithWalletAA(options) {
                         description: agentData.description,
                         image: agentData.image,
                         agentUrl: agentData.agentUrl,
-                        // Never include MCP endpoint in registration JSON updates.
-                        endpoints: Array.isArray(agentData.endpoints)
-                            ? agentData.endpoints.filter(e => e?.name !== 'MCP')
-                            : undefined,
+                        endpoints: Array.isArray(agentData.endpoints) ? agentData.endpoints : undefined,
                         supportedTrust: agentData.supportedTrust,
                         active: true,
                         registeredBy: 'agentic-trust',

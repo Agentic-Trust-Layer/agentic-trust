@@ -146,7 +146,8 @@ export function Header({
       setKbSyncStatus(`job ${jobId}`);
 
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-      for (let i = 0; i < 120; i++) {
+      // Poll for ~60s max (avoid spamming /api and never-ending loops).
+      for (let i = 0; i < 30; i++) {
         await sleep(2000);
         const s = await fetch(`/api/sync/jobs/${encodeURIComponent(jobId)}`, { method: 'GET' });
         const sj = (await s.json().catch(() => null)) as any;
@@ -550,6 +551,26 @@ export function Header({
                     }}
                   >
                     8122 Collections
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccountMenu(false);
+                      router.push('/ens');
+                    }}
+                    style={{
+                      width: '100%',
+                      padding: '0.6rem 0.85rem',
+                      backgroundColor: 'transparent',
+                      border: 'none',
+                      textAlign: 'left',
+                      fontSize: '0.9rem',
+                      cursor: 'pointer',
+                      color: palette.textPrimary,
+                      borderBottom: `1px solid ${palette.border}`,
+                    }}
+                  >
+                    ENS
                   </button>
                   <button
                     type="button"

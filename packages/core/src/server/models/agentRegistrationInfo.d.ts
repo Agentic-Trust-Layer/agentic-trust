@@ -17,11 +17,39 @@ export interface AgentRegistrationInfo {
      */
     description?: string;
     /**
+     * Agent base URL (non-standard but used by our implementation)
+     */
+    agentUrl?: string;
+    /**
      * Agent image URL
      */
     image?: string;
     /**
-     * Agent endpoints (A2A, MCP, etc.)
+     * Agent services (A2A, MCP, APIs, etc.)
+     */
+    services?: Array<{
+        /**
+         * Canonical service identifier (lowercase recommended).
+         * Ex: "a2a", "mcp", "oasf", "web"
+         */
+        type?: string;
+        /**
+         * Legacy/display key used by some agentUri JSON documents.
+         * Ex: "A2A", "MCP", "OASF", "web"
+         */
+        name?: string;
+        endpoint: string;
+        version?: string;
+        capabilities?: string[];
+        a2aSkills?: string[];
+        a2aDomains?: string[];
+        mcpTools?: string[];
+        mcpPrompts?: string[];
+        skills?: string[];
+        domains?: string[];
+    }>;
+    /**
+     * @deprecated Legacy field. New registrations should use `services`.
      */
     endpoints?: Array<{
         name: string;
@@ -32,6 +60,10 @@ export interface AgentRegistrationInfo {
         a2aDomains?: string[];
         mcpSkills?: string[];
         mcpDomains?: string[];
+        mcpTools?: string[];
+        mcpPrompts?: string[];
+        skills?: string[];
+        domains?: string[];
     }>;
     /**
      * Agent registrations across chains

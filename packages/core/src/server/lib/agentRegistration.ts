@@ -27,25 +27,45 @@ export async function uploadRegistration(
     const input: any = { ...registration };
 
     const services: Array<{
-      type: string;
+      type?: string;
+      name?: string;
       endpoint: string;
       version?: string;
       capabilities?: string[];
+      a2aSkills?: string[];
+      a2aDomains?: string[];
+      mcpTools?: string[];
+      mcpPrompts?: string[];
+      skills?: string[];
+      domains?: string[];
     }> = [];
 
     if (Array.isArray(input.services)) {
       for (const s of input.services) {
-        const type = typeof s?.type === 'string' ? s.type.trim() : '';
+        const rawType =
+          typeof s?.type === 'string'
+            ? s.type.trim()
+            : typeof s?.name === 'string'
+              ? s.name.trim()
+              : '';
         const endpoint = typeof s?.endpoint === 'string' ? s.endpoint.trim() : '';
-        if (!type || !endpoint) continue;
-        if (type.toLowerCase() === 'mcp') continue;
+        if (!rawType || !endpoint) continue;
+        const type = rawType.toLowerCase();
         services.push({
-          type: type.toLowerCase(),
+          // Preserve both keys: `type` for canonical use, `name` for legacy/display JSON.
+          type,
+          name: typeof s?.name === 'string' && s.name.trim() ? s.name.trim() : rawType,
           endpoint,
           version: typeof s.version === 'string' ? s.version : undefined,
           capabilities: Array.isArray(s.capabilities)
             ? s.capabilities.map((c: any) => String(c)).filter(Boolean)
             : undefined,
+          a2aSkills: Array.isArray(s.a2aSkills) ? s.a2aSkills.map((v: any) => String(v)).filter(Boolean) : undefined,
+          a2aDomains: Array.isArray(s.a2aDomains) ? s.a2aDomains.map((v: any) => String(v)).filter(Boolean) : undefined,
+          mcpTools: Array.isArray(s.mcpTools) ? s.mcpTools.map((v: any) => String(v)).filter(Boolean) : undefined,
+          mcpPrompts: Array.isArray(s.mcpPrompts) ? s.mcpPrompts.map((v: any) => String(v)).filter(Boolean) : undefined,
+          skills: Array.isArray(s.skills) ? s.skills.map((v: any) => String(v)).filter(Boolean) : undefined,
+          domains: Array.isArray(s.domains) ? s.domains.map((v: any) => String(v)).filter(Boolean) : undefined,
         });
       }
     }
@@ -55,7 +75,7 @@ export async function uploadRegistration(
         const name = typeof e?.name === 'string' ? e.name.trim() : '';
         const endpoint = typeof e?.endpoint === 'string' ? e.endpoint.trim() : '';
         if (!name || !endpoint) continue;
-        if (name.toLowerCase() === 'mcp') continue;
+        const type = name.toLowerCase();
         const capsFromRecord =
           e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
             ? Object.keys(e.capabilities as Record<string, unknown>)
@@ -72,14 +92,25 @@ export async function uploadRegistration(
         addCaps(e.mcpSkills);
         addCaps(e.a2aDomains);
         addCaps(e.mcpDomains);
+        addCaps(e.mcpTools);
+        addCaps(e.mcpPrompts);
+        addCaps(e.skills);
+        addCaps(e.domains);
         addCaps(capsFromRecord);
 
         const capabilities: string[] | undefined = caps.length > 0 ? Array.from(new Set(caps)) : undefined;
         services.push({
-          type: name.toLowerCase(),
+          type,
+          name,
           endpoint,
           version: typeof e.version === 'string' ? e.version : undefined,
           capabilities,
+          a2aSkills: Array.isArray(e.a2aSkills) ? e.a2aSkills.map((v: any) => String(v)).filter(Boolean) : undefined,
+          a2aDomains: Array.isArray(e.a2aDomains) ? e.a2aDomains.map((v: any) => String(v)).filter(Boolean) : undefined,
+          mcpTools: Array.isArray(e.mcpTools) ? e.mcpTools.map((v: any) => String(v)).filter(Boolean) : undefined,
+          mcpPrompts: Array.isArray(e.mcpPrompts) ? e.mcpPrompts.map((v: any) => String(v)).filter(Boolean) : undefined,
+          skills: Array.isArray(e.skills) ? e.skills.map((v: any) => String(v)).filter(Boolean) : undefined,
+          domains: Array.isArray(e.domains) ? e.domains.map((v: any) => String(v)).filter(Boolean) : undefined,
         });
       }
     }
@@ -89,13 +120,16 @@ export async function uploadRegistration(
     if (agentUrl) {
       const baseUrl = agentUrl.replace(/\/$/, '');
       const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
-      const existingA2A = services.find((s) => s.type === 'a2a');
+      const existingA2A = services.find((s) => (s.type || '').toLowerCase() === 'a2a' || (s.name || '').toLowerCase() === 'a2a');
       if (existingA2A) {
         existingA2A.endpoint = a2aEndpoint;
         existingA2A.version = existingA2A.version || '0.3.0';
+        existingA2A.type = existingA2A.type || 'a2a';
+        existingA2A.name = existingA2A.name || 'A2A';
       } else {
         services.push({
           type: 'a2a',
+          name: 'A2A',
           endpoint: a2aEndpoint,
           version: '0.3.0',
         });
@@ -178,10 +212,17 @@ export function createRegistrationJSON(params: {
   identityRegistry?: `0x${string}`;
   supportedTrust?: string[];
   services?: Array<{
-    type: string;
+    type?: string;
+    name?: string;
     endpoint: string;
     version?: string;
     capabilities?: string[];
+    a2aSkills?: string[];
+    a2aDomains?: string[];
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    skills?: string[];
+    domains?: string[];
   }>;
   endpoints?: Array<{
     name: string;
@@ -192,6 +233,10 @@ export function createRegistrationJSON(params: {
     a2aDomains?: string[];
     mcpSkills?: string[];
     mcpDomains?: string[];
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    skills?: string[];
+    domains?: string[];
   }>;
   uaid?: string;
   // Legacy fields
@@ -202,23 +247,42 @@ export function createRegistrationJSON(params: {
   // Normalize caller-provided services/endpoints into a single `services` array.
   // New registrations should emit `services` (not `endpoints`).
   const services: Array<{
-    type: string;
+    type?: string;
+    name?: string;
     endpoint: string;
     version?: string;
     capabilities?: string[];
+    a2aSkills?: string[];
+    a2aDomains?: string[];
+    mcpTools?: string[];
+    mcpPrompts?: string[];
+    skills?: string[];
+    domains?: string[];
   }> = [];
 
   if (Array.isArray(params.services)) {
     for (const s of params.services) {
-      const type = typeof s?.type === 'string' ? s.type.trim() : '';
+      const rawType =
+        typeof s?.type === 'string'
+          ? s.type.trim()
+          : typeof (s as any)?.name === 'string'
+            ? String((s as any).name).trim()
+            : '';
       const endpoint = typeof s?.endpoint === 'string' ? s.endpoint.trim() : '';
-      if (!type || !endpoint) continue;
-      if (type.toLowerCase() === 'mcp') continue;
+      if (!rawType || !endpoint) continue;
+      const type = rawType.toLowerCase();
       services.push({
-        type: type.toLowerCase(),
+        type,
+        name: typeof (s as any)?.name === 'string' && String((s as any).name).trim() ? String((s as any).name).trim() : rawType,
         endpoint,
         version: typeof s.version === 'string' ? s.version : undefined,
         capabilities: Array.isArray(s.capabilities) ? s.capabilities.map((c) => String(c)) : undefined,
+        a2aSkills: Array.isArray((s as any).a2aSkills) ? (s as any).a2aSkills.map((v: any) => String(v)).filter(Boolean) : undefined,
+        a2aDomains: Array.isArray((s as any).a2aDomains) ? (s as any).a2aDomains.map((v: any) => String(v)).filter(Boolean) : undefined,
+        mcpTools: Array.isArray((s as any).mcpTools) ? (s as any).mcpTools.map((v: any) => String(v)).filter(Boolean) : undefined,
+        mcpPrompts: Array.isArray((s as any).mcpPrompts) ? (s as any).mcpPrompts.map((v: any) => String(v)).filter(Boolean) : undefined,
+        skills: Array.isArray((s as any).skills) ? (s as any).skills.map((v: any) => String(v)).filter(Boolean) : undefined,
+        domains: Array.isArray((s as any).domains) ? (s as any).domains.map((v: any) => String(v)).filter(Boolean) : undefined,
       });
     }
   }
@@ -228,7 +292,7 @@ export function createRegistrationJSON(params: {
       const name = typeof e?.name === 'string' ? e.name.trim() : '';
       const endpoint = typeof e?.endpoint === 'string' ? e.endpoint.trim() : '';
       if (!name || !endpoint) continue;
-      if (name.toLowerCase() === 'mcp') continue;
+      const type = name.toLowerCase();
       const capsFromRecord =
         e.capabilities && typeof e.capabilities === 'object' && !Array.isArray(e.capabilities)
           ? Object.keys(e.capabilities as Record<string, unknown>)
@@ -243,13 +307,26 @@ export function createRegistrationJSON(params: {
       };
       addCaps(e.a2aSkills);
       addCaps(e.mcpSkills);
+      addCaps(e.a2aDomains);
+      addCaps(e.mcpDomains);
+      addCaps(e.mcpTools);
+      addCaps(e.mcpPrompts);
+      addCaps(e.skills);
+      addCaps(e.domains);
       addCaps(capsFromRecord);
       const capabilities: string[] | undefined = caps.length > 0 ? Array.from(new Set(caps)) : undefined;
       services.push({
-        type: name.toLowerCase(),
+        type,
+        name,
         endpoint,
         version: typeof e.version === 'string' ? e.version : undefined,
         capabilities,
+        a2aSkills: Array.isArray(e.a2aSkills) ? e.a2aSkills.map((v: any) => String(v)).filter(Boolean) : undefined,
+        a2aDomains: Array.isArray(e.a2aDomains) ? e.a2aDomains.map((v: any) => String(v)).filter(Boolean) : undefined,
+        mcpTools: Array.isArray(e.mcpTools) ? e.mcpTools.map((v: any) => String(v)).filter(Boolean) : undefined,
+        mcpPrompts: Array.isArray(e.mcpPrompts) ? e.mcpPrompts.map((v: any) => String(v)).filter(Boolean) : undefined,
+        skills: Array.isArray(e.skills) ? e.skills.map((v: any) => String(v)).filter(Boolean) : undefined,
+        domains: Array.isArray(e.domains) ? e.domains.map((v: any) => String(v)).filter(Boolean) : undefined,
       });
     }
   }
@@ -262,7 +339,7 @@ export function createRegistrationJSON(params: {
     // don't accidentally become the registered A2A endpoint).
     // Default to the canonical A2A agent card location (agent-card.json).
     const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
-    const existingA2A = services.find((s) => s.type === 'a2a');
+    const existingA2A = services.find((s) => (s.type || '').toLowerCase() === 'a2a' || (s.name || '').toLowerCase() === 'a2a');
     if (existingA2A) {
       if (existingA2A.endpoint !== a2aEndpoint) {
         console.warn('[createRegistrationJSON] Overriding A2A endpoint to match agentUrl:', {
@@ -273,9 +350,12 @@ export function createRegistrationJSON(params: {
       }
       existingA2A.endpoint = a2aEndpoint;
       existingA2A.version = existingA2A.version || '0.3.0';
+      existingA2A.type = existingA2A.type || 'a2a';
+      existingA2A.name = existingA2A.name || 'A2A';
     } else {
       services.push({
         type: 'a2a',
+        name: 'A2A',
         endpoint: a2aEndpoint,
         version: '0.3.0',
       });
