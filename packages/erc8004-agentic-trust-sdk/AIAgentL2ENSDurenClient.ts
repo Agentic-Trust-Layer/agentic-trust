@@ -54,16 +54,14 @@ export class AIAgentL2ENSDurenClient extends AIAgentENSClient {
     return typeof addr === 'string' && addr.length > 0 && addr !== zeroAddress;
   }
 
-  /** On Linea Sepolia the registry does not implement setAddr/setText; resolver must be a different contract. */
+  /**
+   * Guard for preparing metadata calls (setAddr/setText/etc).
+   *
+   * Historically Linea Sepolia used a registry that was not a resolver, so we rejected resolver===registry.
+   * If the deployed contract implements both registry+resolver interfaces at the same address, allow it.
+   */
   private hasValidResolverForSetInfo(): boolean {
     if (!this.hasValidResolver()) return false;
-    if (this.usesRegistryCreateSubnode()) {
-      const r = this.getEnsResolverAddress().toLowerCase();
-      const reg = this.getEnsRegistryAddress().toLowerCase();
-      // Linea Sepolia: registry is NOT a resolver (treat resolver===registry as invalid).
-      // Linea Mainnet: Durin L2Registry can be both registry + resolver (allow resolver===registry).
-      if ((this as any).chain?.id === AIAgentL2ENSDurenClient.CHAIN_ID_LINEA_SEPOLIA && r === reg) return false;
-    }
     return true;
   }
 
