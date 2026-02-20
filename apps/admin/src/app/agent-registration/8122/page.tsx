@@ -173,6 +173,19 @@ function normalizeEnsAgentLabel(params: { agentName: string; orgName: string | n
     .replace(/\s+/g, '-');
 }
 
+function normalizeAgentNameForAa(raw: string): string {
+  const t = String(raw || '').trim().toLowerCase();
+  if (!t) return '';
+  const withoutEth = t.endsWith('.eth') ? t.slice(0, -4) : t;
+  const firstLabel = withoutEth.split('.')[0] || '';
+  return firstLabel
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-+/, '')
+    .replace(/-+$/, '');
+}
+
 async function generateSmartAgentUaid(params: {
   chainId: number;
   account: Address;
@@ -481,7 +494,7 @@ export default function AgentRegistration8122WizardPage() {
 
   // compute AA address like 8004 flow
   useEffect(() => {
-    const name = createForm.agentName.trim();
+    const name = normalizeAgentNameForAa(createForm.agentName);
     if (!useAA || !name) {
       setAaAddress(null);
       setCreateForm((prev) => ({ ...prev, agentAccount: '' }));
@@ -796,7 +809,8 @@ export default function AgentRegistration8122WizardPage() {
       }
 
       // Ensure the MetaMask smart account client exists (and deploy it if needed) so MetaMask can sign the UserOp.
-      const accountClient = await getDeployedAccountClientByAgentName(bundlerUrl, createForm.agentName.trim(), eoa, {
+      const aaName = normalizeAgentNameForAa(createForm.agentName);
+      const accountClient = await getDeployedAccountClientByAgentName(bundlerUrl, aaName, eoa, {
         ethereumProvider: eip1193Provider,
         chain,
       });

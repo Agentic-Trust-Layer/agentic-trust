@@ -23,6 +23,7 @@ import { grayscalePalette as palette } from '@/styles/palette';
 import { getClientBundlerUrl } from '@/lib/clientChainEnv';
 
 import {
+  getDeployedAccountClientByAddress,
   getDeployedAccountClientByAgentName,
   sendSponsoredUserOperation,
   waitForUserOperationReceipt,
@@ -264,12 +265,6 @@ export default function AgentRegistration8122ExistingPage() {
     return img || '';
   }, [agentDetail]);
 
-  const agentLabelForAa = useMemo(() => {
-    if (ensName) return String(ensName).split('.')[0]?.trim() || '';
-    const raw = typeof agentDetail?.agentName === 'string' ? agentDetail.agentName.trim() : '';
-    return raw.split('.')[0]?.trim() || raw;
-  }, [agentDetail, ensName]);
-
   const selectedRegistrarLabel = useMemo(() => {
     const registrar = selectedRegistrar.trim().toLowerCase();
     const r = registries.find((x) => String(x.registrarAddress || '').trim().toLowerCase() === registrar);
@@ -309,14 +304,44 @@ export default function AgentRegistration8122ExistingPage() {
       if (typeof rpcUrl !== 'string' || !rpcUrl.trim()) throw new Error(`No RPC URL available for chainId ${chainId}.`);
       const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
 
-      // Ensure the MetaMask account client exists for this agent name (should already be deployed).
-      const accountClient = await getDeployedAccountClientByAgentName(bundlerUrl, agentLabelForAa, eoa, {
+      // Build a MetaMask smart account client from the UAID's target address.
+      // Do not re-derive by name; the UAID is the source of truth for the existing Smart Agent.
+      const aaAddr = getAddress(parsedEthr.account) as Address;
+      const accountClient = await getDeployedAccountClientByAddress(aaAddr, eoa, {
         ethereumProvider: eip1193Provider,
         chain,
       });
-      const aaAddr = getAddress(String(accountClient?.address || '')) as Address;
-      if (aaAddr !== parsedEthr.account) {
-        throw new Error(`Smart Account mismatch. UAID targets ${parsedEthr.account} but computed AA is ${aaAddr}.`);
+
+      // Preflight: ensure the connected EOA can actually sign for this Smart Account.
+      // If the UAID points to a Smart Account owned by a different EOA, the bundler will reject with AA24.
+      try {
+        const owner = (await publicClient.readContract({
+          address: aaAddr,
+          abi: [
+            {
+              type: 'function',
+              name: 'owner',
+              stateMutability: 'view',
+              inputs: [],
+              outputs: [{ type: 'address' }],
+            },
+          ] as const,
+          functionName: 'owner',
+        })) as Address;
+        const expectedOwner = getAddress(owner) as Address;
+        if (expectedOwner !== eoa) {
+          throw new Error(
+            `Connected wallet is not the Smart Account owner. ` +
+              `UAID targets ${aaAddr} but owner is ${expectedOwner}. ` +
+              `Connect ${expectedOwner} to register into this collection.`,
+          );
+        }
+      } catch (ownerErr) {
+        // If the account doesn't expose owner() we can't preflight; fall through.
+        // (Bundler will still reject if signature is invalid.)
+        if (ownerErr instanceof Error && ownerErr.message.includes('Connected wallet is not the Smart Account owner')) {
+          throw ownerErr;
+        }
       }
 
       // Registrar basics
@@ -436,7 +461,7 @@ export default function AgentRegistration8122ExistingPage() {
     } finally {
       setRegistering(false);
     }
-  }, [a2aEndpoint, agentLabelForAa, agentName, canRegister, chain, chainId, chainLabel, description, eip1193Provider, ensName, image, parsedEthr, selectedRegistrar, walletAddress]);
+  }, [a2aEndpoint, agentName, canRegister, chain, chainId, chainLabel, description, eip1193Provider, ensName, image, parsedEthr, selectedRegistrar, walletAddress]);
 
   return (
     <>
