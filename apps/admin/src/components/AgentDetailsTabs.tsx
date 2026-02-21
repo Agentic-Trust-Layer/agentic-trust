@@ -88,6 +88,15 @@ const shorten = (value?: string | null) => {
   return `${value.slice(0, 6)}…${value.slice(-6)}`;
 };
 
+function extractHexAddress(value: unknown): `0x${string}` | null {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (!raw) return null;
+  const last = raw.includes(':') ? (raw.split(':').pop() ?? '').trim() : raw;
+  if (/^0x[a-fA-F0-9]{40}$/.test(last)) return last as `0x${string}`;
+  return null;
+}
+
 function getChainLabel(chainId: number | null | undefined): string {
   if (!chainId || !Number.isFinite(chainId)) return 'Unknown chain';
   if (chainId === 1) return 'Mainnet';
@@ -793,6 +802,56 @@ const AgentDetailsTabs = ({
     return false;
   })();
 
+  const smartAgentAccountRaw = (agent as any)?.smartAgentAccount ?? null;
+  const smartAccountAddress = useMemo(() => {
+    if (!isSmartAgent) return null;
+    return extractHexAddress(agent.agentAccount) ?? extractHexAddress(smartAgentAccountRaw);
+  }, [isSmartAgent, agent.agentAccount, smartAgentAccountRaw]);
+  const smartAccountChainId = useMemo(() => {
+    const direct =
+      typeof agent.chainId === 'number' && Number.isFinite(agent.chainId) && agent.chainId > 0 ? agent.chainId : null;
+    return direct ?? parseChainIdFromUaid(uaid);
+  }, [agent.chainId, uaid]);
+  const smartAccountOwnerHint = useMemo(() => {
+    return extractHexAddress((agent as any)?.agentOwnerEOAAccount) ?? extractHexAddress((agent as any)?.eoaAgentAccount);
+  }, [agent]);
+  const [smartAccountOwnerEoa, setSmartAccountOwnerEoa] = useState<`0x${string}` | null>(smartAccountOwnerHint);
+  const [smartAccountOwnerLoading, setSmartAccountOwnerLoading] = useState(false);
+
+  useEffect(() => {
+    setSmartAccountOwnerEoa(smartAccountOwnerHint);
+  }, [smartAccountOwnerHint]);
+
+  useEffect(() => {
+    if (!smartAccountAddress || !smartAccountChainId) return;
+    if (smartAccountOwnerHint) return;
+
+    let cancelled = false;
+    const didEthr = `did:ethr:${smartAccountChainId}:${smartAccountAddress}`;
+    const path = `/api/accounts/owner/by-account/${encodeURIComponent(didEthr)}`;
+
+    (async () => {
+      setSmartAccountOwnerLoading(true);
+      try {
+        const res = await fetch(path, { cache: 'no-store' });
+        const json = await res.json().catch(() => null);
+        if (cancelled) return;
+        if (res.ok && json && typeof json?.owner === 'string') {
+          const owner = extractHexAddress(json.owner);
+          if (owner) setSmartAccountOwnerEoa(owner);
+        }
+      } catch {
+        // best-effort only
+      } finally {
+        if (!cancelled) setSmartAccountOwnerLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [smartAccountAddress, smartAccountChainId, smartAccountOwnerHint]);
+
   const mainTabDefs = useMemo(() => {
     const did = (agent as any).identity8004Did ?? agent.did ?? null;
     const descriptor = parseJsonObject((agent as any).identity8004DescriptorJson ?? (agent as any).rawJson ?? null) ?? {};
@@ -1215,6 +1274,23 @@ const AgentDetailsTabs = ({
                       <div style={{ color: palette.textPrimary }}>{agent.chainId || '—'}</div>
                     </div>
                   </div>
+                )}
+
+                {smartAccountAddress && (
+                  <>
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>Smart account</strong>
+                      <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                        {smartAccountAddress}
+                      </div>
+                    </div>
+                    <div>
+                      <strong style={{ color: palette.textSecondary, display: 'block', marginBottom: '0.25rem' }}>EOA owner</strong>
+                      <div style={{ fontFamily: 'monospace', color: palette.textPrimary, wordBreak: 'break-all', userSelect: 'text' }}>
+                        {smartAccountOwnerLoading ? 'Loading…' : smartAccountOwnerEoa ?? '—'}
+                      </div>
+                    </div>
+                  </>
                 )}
 
                 {identityTab === 'id8004' && (

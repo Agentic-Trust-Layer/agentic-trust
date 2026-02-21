@@ -445,15 +445,49 @@ export default function AdminPage() {
 
   function getRegistrationUriFromAgentDetails(agentDetails: any): string | null {
     if (!agentDetails) return null;
+    const pickString = (v: unknown): string | null => {
+      if (typeof v !== 'string') return null;
+      const s = v.trim();
+      return s ? s : null;
+    };
+    const pickJsonString = (v: unknown): string | null => {
+      const s = pickString(v);
+      if (!s) return null;
+      const trimmed = s.trim();
+      if (trimmed.startsWith('{') || trimmed.startsWith('[')) return trimmed;
+      return null;
+    };
+
+    // Prefer explicit URIs first (agentUri is the canonical tokenURI pointer for registration JSON).
     const fromTop =
-      (typeof agentDetails.agentUri === 'string' && agentDetails.agentUri.trim()) ||
+      pickString(agentDetails.agentUri) ??
+      pickString(agentDetails.registrationUri) ??
+      pickString(agentDetails.tokenUri) ??
+      pickString(agentDetails.tokenURI) ??
       null;
-    if (fromTop) return String(fromTop);
+    if (fromTop) return fromTop;
+
+    const identity = agentDetails.identityMetadata && typeof agentDetails.identityMetadata === 'object'
+      ? (agentDetails.identityMetadata as any)
+      : null;
     const fromIdentity =
-      agentDetails.identityMetadata && typeof agentDetails.identityMetadata === 'object'
-        ? ((agentDetails.identityMetadata as any).agentUri ?? null)
-        : null;
-    if (typeof fromIdentity === 'string' && fromIdentity.trim()) return fromIdentity.trim();
+      pickString(identity?.agentUri) ??
+      pickString(identity?.registrationUri) ??
+      pickString(identity?.tokenUri) ??
+      pickString(identity?.tokenURI) ??
+      null;
+    if (fromIdentity) return fromIdentity;
+
+    // Fallback: if the backend already inlined JSON, feed it directly into the loader
+    // (loadRegistrationContent can handle raw JSON strings).
+    const inlined =
+      pickJsonString(agentDetails.rawJson) ??
+      pickJsonString(agentDetails.agentCardJson) ??
+      pickJsonString(identity?.rawJson) ??
+      pickJsonString(identity?.agentCardJson) ??
+      null;
+    if (inlined) return inlined;
+
     return null;
   }
 

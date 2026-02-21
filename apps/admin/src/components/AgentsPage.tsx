@@ -150,9 +150,7 @@ export type AgentsPageFilters = {
   address: string;
   name: string;
   agentIdentifierMatch: string;
-  mineOnly: boolean;
-  only8004Agents: boolean;
-  view: 'newest' | 'ranked';
+  scope: 'honorRoll' | 'allAgents' | 'ens8004Subdomains' | 'myAgents';
   protocol: 'all' | 'a2a' | 'mcp';
   path: string;
   minReviews: string;
@@ -224,13 +222,12 @@ const ACTION_LABELS: Record<AgentActionType, string> = {
 };
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
-  chainId: 'all',
+  // Honor roll requires a concrete chain.
+  chainId: '1',
   address: '',
   name: '',
   agentIdentifierMatch: '',
-  mineOnly: false,
-  only8004Agents: false,
-  view: 'newest',
+  scope: 'honorRoll',
   protocol: 'all',
   path: '',
   minReviews: '',
@@ -268,10 +265,10 @@ export function AgentsPage({
 
   // If user disconnects, force "My agents" off (it depends on ownedMap from an active session)
   useEffect(() => {
-    if (!isConnected && filters.mineOnly) {
-      onFilterChange('mineOnly', false);
+    if (!isConnected && filters.scope === 'myAgents') {
+      onFilterChange('scope', 'allAgents');
     }
-  }, [isConnected, filters.mineOnly, onFilterChange]);
+  }, [isConnected, filters.scope, onFilterChange]);
 
   const [activeDialog, setActiveDialog] = useState<{ agent: Agent; action: AgentActionType } | null>(null);
   const [registrationPreview, setRegistrationPreview] = useState<{
@@ -3143,7 +3140,9 @@ export function AgentsPage({
               <select
                 value={filters.chainId}
                 onChange={event => {
-                  const nextValue = event.target.value;
+                  const nextValueRaw = event.target.value;
+                  const nextValue =
+                    filters.scope === 'honorRoll' && nextValueRaw === 'all' ? '1' : nextValueRaw;
                   onFilterChange('chainId', nextValue);
                   onSearch({ ...filters, chainId: nextValue });
                 }}
@@ -3299,25 +3298,39 @@ export function AgentsPage({
               <button
                 type="button"
                 onClick={() => {
-                  const nextView: AgentsPageFilters['view'] = filters.view === 'ranked' ? 'newest' : 'ranked';
+                  setShowAdvancedFilters(false);
                   const nextChainId =
-                    nextView === 'ranked' && (filters.chainId === 'all' || !String(filters.chainId || '').trim())
-                      ? '1'
-                      : filters.chainId;
-                  const nextMineOnly = nextView === 'ranked' ? false : filters.mineOnly;
+                    filters.chainId === 'all' || !String(filters.chainId || '').trim() ? '1' : filters.chainId;
                   const updatedFilters: AgentsPageFilters = {
                     ...filters,
-                    view: nextView,
+                    scope: 'honorRoll',
                     chainId: nextChainId,
-                    mineOnly: nextMineOnly,
+                    // Reset advanced + basic filters when switching scopes
+                    address: '',
+                    name: '',
+                    agentIdentifierMatch: '',
+                    protocol: 'all',
+                    path: '',
+                    minReviews: '',
+                    minValidations: '',
+                    minAssociations: '',
+                    minAtiOverallScore: '',
+                    minAvgRating: '',
+                    createdWithinDays: '',
                   };
-                  onFilterChange('view', nextView);
-                  if (nextChainId !== filters.chainId) {
-                    onFilterChange('chainId', nextChainId);
-                  }
-                  if (nextMineOnly !== filters.mineOnly) {
-                    onFilterChange('mineOnly', nextMineOnly);
-                  }
+                  onFilterChange('scope', 'honorRoll');
+                  if (nextChainId !== filters.chainId) onFilterChange('chainId', nextChainId);
+                  if (filters.address) onFilterChange('address', '');
+                  if (filters.name) onFilterChange('name', '');
+                  if (filters.agentIdentifierMatch) onFilterChange('agentIdentifierMatch', '');
+                  if (filters.protocol !== 'all') onFilterChange('protocol', 'all');
+                  if (filters.path) onFilterChange('path', '');
+                  if (filters.minReviews) onFilterChange('minReviews', '');
+                  if (filters.minValidations) onFilterChange('minValidations', '');
+                  if (filters.minAssociations) onFilterChange('minAssociations', '');
+                  if (filters.minAtiOverallScore) onFilterChange('minAtiOverallScore', '');
+                  if (filters.minAvgRating) onFilterChange('minAvgRating', '');
+                  if (filters.createdWithinDays) onFilterChange('createdWithinDays', '');
                   onSearch(updatedFilters);
                 }}
                 style={{
@@ -3326,14 +3339,14 @@ export function AgentsPage({
                   gap: '0.3rem',
                   padding: isMobile ? '0.15rem 0.45rem' : '0.2rem 0.6rem',
                   borderRadius: '999px',
-                  border: isMobile ? 'none' : `1px solid ${filters.view === 'ranked' ? '#7c3aed' : palette.border}`,
-                  backgroundColor: filters.view === 'ranked' ? '#7c3aed' : palette.surfaceMuted,
-                  color: filters.view === 'ranked' ? palette.surface : palette.textSecondary,
+                  border: isMobile ? 'none' : `1px solid ${filters.scope === 'honorRoll' ? '#7c3aed' : palette.border}`,
+                  backgroundColor: filters.scope === 'honorRoll' ? '#7c3aed' : palette.surfaceMuted,
+                  color: filters.scope === 'honorRoll' ? palette.surface : palette.textSecondary,
                   fontSize: isMobile ? '0.7rem' : '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
                 }}
-                title="Toggle Honor roll view (bestRank DESC)"
+                title="Honor roll (bestRank DESC)"
               >
                 <span
                   style={{
@@ -3343,38 +3356,48 @@ export function AgentsPage({
                     width: isMobile ? '12px' : '14px',
                     height: isMobile ? '12px' : '14px',
                     borderRadius: '50%',
-                    border: isMobile ? 'none' : `1px solid ${filters.view === 'ranked' ? palette.surface : palette.border}`,
+                    border: isMobile ? 'none' : `1px solid ${filters.scope === 'honorRoll' ? palette.surface : palette.border}`,
                     backgroundColor: 'transparent',
                     fontSize: isMobile ? '0.65rem' : '0.7rem',
-                    color: filters.view === 'ranked' ? palette.surface : 'transparent',
+                    color: filters.scope === 'honorRoll' ? palette.surface : 'transparent',
                   }}
                 >
-                  {filters.view === 'ranked' ? '✓' : ''}
+                  {filters.scope === 'honorRoll' ? '✓' : ''}
                 </span>
                 <span>honor roll</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
+                  setShowAdvancedFilters(false);
                   const updatedFilters: AgentsPageFilters = {
                     ...filters,
-                    view: 'newest',
-                    mineOnly: false,
-                    only8004Agents: false,
-                    name: '',
+                    scope: 'allAgents',
+                    // Reset advanced + basic filters when switching scopes
                     address: '',
+                    name: '',
                     agentIdentifierMatch: '',
                     protocol: 'all',
                     path: '',
+                    minReviews: '',
+                    minValidations: '',
+                    minAssociations: '',
+                    minAtiOverallScore: '',
+                    minAvgRating: '',
+                    createdWithinDays: '',
                   };
-                  onFilterChange('view', 'newest');
-                  if (filters.mineOnly) onFilterChange('mineOnly', false);
-                  if (filters.only8004Agents) onFilterChange('only8004Agents', false);
+                  onFilterChange('scope', 'allAgents');
                   if (filters.name) onFilterChange('name', '');
                   if (filters.address) onFilterChange('address', '');
                   if (filters.agentIdentifierMatch) onFilterChange('agentIdentifierMatch', '');
                   if (filters.protocol !== 'all') onFilterChange('protocol', 'all');
                   if (filters.path) onFilterChange('path', '');
+                  if (filters.minReviews) onFilterChange('minReviews', '');
+                  if (filters.minValidations) onFilterChange('minValidations', '');
+                  if (filters.minAssociations) onFilterChange('minAssociations', '');
+                  if (filters.minAtiOverallScore) onFilterChange('minAtiOverallScore', '');
+                  if (filters.minAvgRating) onFilterChange('minAvgRating', '');
+                  if (filters.createdWithinDays) onFilterChange('createdWithinDays', '');
                   onSearch(updatedFilters);
                 }}
                 style={{
@@ -3383,9 +3406,9 @@ export function AgentsPage({
                   gap: '0.3rem',
                   padding: isMobile ? '0.15rem 0.45rem' : '0.2rem 0.6rem',
                   borderRadius: '999px',
-                  border: isMobile ? 'none' : `1px solid ${filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.border}`,
-                  backgroundColor: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.accent : palette.surfaceMuted,
-                  color: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : palette.textSecondary,
+                  border: isMobile ? 'none' : `1px solid ${filters.scope === 'allAgents' ? palette.accent : palette.border}`,
+                  backgroundColor: filters.scope === 'allAgents' ? palette.accent : palette.surfaceMuted,
+                  color: filters.scope === 'allAgents' ? palette.surface : palette.textSecondary,
                   fontSize: isMobile ? '0.7rem' : '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -3401,33 +3424,49 @@ export function AgentsPage({
                     height: isMobile ? '12px' : '14px',
                     borderRadius: '50%',
                     border: isMobile ? 'none' : `1px solid ${
-                      filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : palette.border
+                      filters.scope === 'allAgents' ? palette.surface : palette.border
                     }`,
                     backgroundColor: 'transparent',
                     fontSize: isMobile ? '0.65rem' : '0.7rem',
-                    color: filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? palette.surface : 'transparent',
+                    color: filters.scope === 'allAgents' ? palette.surface : 'transparent',
                   }}
                 >
-                  {filters.view !== 'ranked' && !filters.mineOnly && !filters.only8004Agents ? '✓' : ''}
+                  {filters.scope === 'allAgents' ? '✓' : ''}
                 </span>
                 <span>all agents</span>
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  const nextValue = !filters.only8004Agents;
-                  const nextName = nextValue
-                    ? '8004-agent.eth'
-                    : filters.name.trim().toLowerCase() === '8004-agent.eth'
-                    ? ''
-                    : filters.name;
-                  const updatedFilters = {
+                  setShowAdvancedFilters(false);
+                  const updatedFilters: AgentsPageFilters = {
                     ...filters,
-                    only8004Agents: nextValue,
-                    name: nextName,
+                    scope: 'ens8004Subdomains',
+                    // Reset advanced + basic filters when switching scopes
+                    address: '',
+                    name: '',
+                    agentIdentifierMatch: '',
+                    protocol: 'all',
+                    path: '',
+                    minReviews: '',
+                    minValidations: '',
+                    minAssociations: '',
+                    minAtiOverallScore: '',
+                    minAvgRating: '',
+                    createdWithinDays: '',
                   };
-                  onFilterChange('only8004Agents', nextValue);
-                  onFilterChange('name', nextName);
+                  onFilterChange('scope', 'ens8004Subdomains');
+                  if (filters.address) onFilterChange('address', '');
+                  if (filters.name) onFilterChange('name', '');
+                  if (filters.agentIdentifierMatch) onFilterChange('agentIdentifierMatch', '');
+                  if (filters.protocol !== 'all') onFilterChange('protocol', 'all');
+                  if (filters.path) onFilterChange('path', '');
+                  if (filters.minReviews) onFilterChange('minReviews', '');
+                  if (filters.minValidations) onFilterChange('minValidations', '');
+                  if (filters.minAssociations) onFilterChange('minAssociations', '');
+                  if (filters.minAtiOverallScore) onFilterChange('minAtiOverallScore', '');
+                  if (filters.minAvgRating) onFilterChange('minAvgRating', '');
+                  if (filters.createdWithinDays) onFilterChange('createdWithinDays', '');
                   onSearch(updatedFilters);
                 }}
                 style={{
@@ -3436,9 +3475,9 @@ export function AgentsPage({
                   gap: '0.3rem',
                   padding: '0.2rem 0.6rem',
                   borderRadius: '999px',
-                  border: `1px solid ${filters.only8004Agents ? palette.accent : palette.border}`,
-                  backgroundColor: filters.only8004Agents ? palette.accent : palette.surfaceMuted,
-                  color: filters.only8004Agents ? palette.surface : palette.textSecondary,
+                  border: `1px solid ${filters.scope === 'ens8004Subdomains' ? palette.accent : palette.border}`,
+                  backgroundColor: filters.scope === 'ens8004Subdomains' ? palette.accent : palette.surfaceMuted,
+                  color: filters.scope === 'ens8004Subdomains' ? palette.surface : palette.textSecondary,
                   fontSize: '0.75rem',
                   fontWeight: 600,
                   cursor: 'pointer',
@@ -3453,14 +3492,14 @@ export function AgentsPage({
                     height: '14px',
                     borderRadius: '50%',
                     border: `1px solid ${
-                      filters.only8004Agents ? '#16a34a' : palette.border
+                      filters.scope === 'ens8004Subdomains' ? '#16a34a' : palette.border
                     }`,
                     backgroundColor: 'transparent',
                     fontSize: '0.7rem',
-                    color: filters.only8004Agents ? '#16a34a' : 'transparent',
+                    color: filters.scope === 'ens8004Subdomains' ? '#16a34a' : 'transparent',
                   }}
                 >
-                  {filters.only8004Agents ? '✓' : ''}
+                  {filters.scope === 'ens8004Subdomains' ? '✓' : ''}
                 </span>
                 <span>8004-agent.eth</span>
               </button>
@@ -3468,9 +3507,35 @@ export function AgentsPage({
                 <button
                   type="button"
                   onClick={() => {
-                    const nextValue = !filters.mineOnly;
-                    const updatedFilters = { ...filters, mineOnly: nextValue };
-                    onFilterChange('mineOnly', nextValue);
+                    setShowAdvancedFilters(false);
+                    const updatedFilters: AgentsPageFilters = {
+                      ...filters,
+                      scope: 'myAgents',
+                      // Reset advanced + basic filters when switching scopes
+                      address: '',
+                      name: '',
+                      agentIdentifierMatch: '',
+                      protocol: 'all',
+                      path: '',
+                      minReviews: '',
+                      minValidations: '',
+                      minAssociations: '',
+                      minAtiOverallScore: '',
+                      minAvgRating: '',
+                      createdWithinDays: '',
+                    };
+                    onFilterChange('scope', 'myAgents');
+                    if (filters.address) onFilterChange('address', '');
+                    if (filters.name) onFilterChange('name', '');
+                    if (filters.agentIdentifierMatch) onFilterChange('agentIdentifierMatch', '');
+                    if (filters.protocol !== 'all') onFilterChange('protocol', 'all');
+                    if (filters.path) onFilterChange('path', '');
+                    if (filters.minReviews) onFilterChange('minReviews', '');
+                    if (filters.minValidations) onFilterChange('minValidations', '');
+                    if (filters.minAssociations) onFilterChange('minAssociations', '');
+                    if (filters.minAtiOverallScore) onFilterChange('minAtiOverallScore', '');
+                    if (filters.minAvgRating) onFilterChange('minAvgRating', '');
+                    if (filters.createdWithinDays) onFilterChange('createdWithinDays', '');
                     onSearch(updatedFilters);
                   }}
                   style={{
@@ -3479,9 +3544,9 @@ export function AgentsPage({
                     gap: '0.3rem',
                     padding: '0.2rem 0.6rem',
                     borderRadius: '999px',
-                    border: `1px solid ${filters.mineOnly ? '#16a34a' : palette.border}`,
-                    backgroundColor: filters.mineOnly ? '#16a34a' : palette.surfaceMuted,
-                    color: filters.mineOnly ? palette.surface : palette.textSecondary,
+                    border: `1px solid ${filters.scope === 'myAgents' ? '#16a34a' : palette.border}`,
+                    backgroundColor: filters.scope === 'myAgents' ? '#16a34a' : palette.surfaceMuted,
+                    color: filters.scope === 'myAgents' ? palette.surface : palette.textSecondary,
                     fontSize: '0.75rem',
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -3496,14 +3561,14 @@ export function AgentsPage({
                       height: '14px',
                       borderRadius: '50%',
                       border: `1px solid ${
-                        filters.mineOnly ? palette.surface : palette.border
+                        filters.scope === 'myAgents' ? palette.surface : palette.border
                       }`,
                       backgroundColor: 'transparent',
                       fontSize: '0.7rem',
-                      color: filters.mineOnly ? palette.surface : 'transparent',
+                      color: filters.scope === 'myAgents' ? palette.surface : 'transparent',
                     }}
                   >
-                    {filters.mineOnly ? '✓' : ''}
+                    {filters.scope === 'myAgents' ? '✓' : ''}
                   </span>
                   <span>my agents</span>
                 </button>

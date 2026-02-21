@@ -554,13 +554,34 @@ export default function AgentDetailsPageContent({
 
   // Check if wallet owns the agent account using the isOwner API
   const checkOwnership = useCallback(async () => {
+    const extractHexAddress = (value: unknown): `0x${string}` | null => {
+      if (typeof value !== 'string') return null;
+      const raw = value.trim();
+      if (!raw) return null;
+      const last = raw.includes(':') ? (raw.split(':').pop() ?? '').trim() : raw;
+      if (/^0x[a-fA-F0-9]{40}$/.test(last)) return last as `0x${string}`;
+      return null;
+    };
+    const normalizeAddrLower = (value: unknown): string | null => {
+      const hex = extractHexAddress(value);
+      if (!hex) return null;
+      try {
+        return getAddress(hex as Address).toLowerCase();
+      } catch {
+        return null;
+      }
+    };
+
     if (!isConnected || !walletAddress) {
+      console.log('[AgentDetails] Ownership check skipped: not connected or no wallet address');
       setOwnershipVerified(false);
       return;
     }
 
     setOwnershipChecking(true);
     try {
+      const isSmartUaid = typeof uaid === 'string' && uaid.trim().startsWith('uaid:did:ethr:');
+
       // The isOwner API expects a uaid:did:8004... (it checks ownerOf on the 8004 identity registry).
       // Agent detail pages can be addressed by uaid:did:ethr... (Smart Agent UAID), so map to the 8004 UAID when present.
       const uaidForOwnerCheck = (() => {
@@ -571,6 +592,63 @@ export default function AgentDetailsPageContent({
         }
         return uaid;
       })();
+
+      const walletLower = normalizeAddrLower(walletAddress);
+      if (!walletLower) {
+        console.log('[AgentDetails] Ownership check skipped x: no wallet address');
+        setOwnershipVerified(false);
+        return;
+      }
+
+      // Smart-agent ownership: connected EOA equals Smart Account owner EOA.
+      const resolveSmartOwnerMatch = async (): Promise<boolean | null> => {
+        // Prefer explicit KB/discovery hints when present (avoid extra fetch).
+        const hintedOwnerLower =
+          normalizeAddrLower((agent as any)?.agentOwnerEOAAccount) ??
+          normalizeAddrLower((agent as any)?.eoaAgentAccount) ??
+          null;
+        if (hintedOwnerLower) return hintedOwnerLower === walletLower;
+
+        // Source of truth when present: UAID targets did:ethr:<chainId>:<account>
+        const parsedEthr = /^uaid:did:ethr:(\d+):(0x[a-fA-F0-9]{40})\b/.exec(String(uaid || '').trim());
+        const agentAccountRaw = typeof (agent as any)?.agentAccount === 'string' ? ((agent as any).agentAccount as string) : '';
+        const chainIdFromAgentAccount = (() => {
+          if (!agentAccountRaw || !agentAccountRaw.includes(':')) return null;
+          const head = agentAccountRaw.split(':')[0]?.trim();
+          if (!head || !/^\d+$/.test(head)) return null;
+          const n = Number(head);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })();
+
+        const chainIdForOwner =
+          parsedEthr
+            ? Number(parsedEthr[1])
+            : typeof (agent as any)?.chainId === 'number' && Number.isFinite((agent as any).chainId) && (agent as any).chainId > 0
+              ? ((agent as any).chainId as number)
+              : chainIdFromAgentAccount;
+
+        const smartAccountAddr =
+          parsedEthr
+            ? (parsedEthr[2] as `0x${string}`)
+            : extractHexAddress((agent as any)?.smartAgentAccount) ?? extractHexAddress((agent as any)?.agentAccount);
+
+        if (!chainIdForOwner || !Number.isFinite(chainIdForOwner) || !smartAccountAddr) return null;
+
+        const didEthr = `did:ethr:${chainIdForOwner}:${smartAccountAddr}`;
+        const ownerRes = await fetch(`/api/accounts/owner/by-account/${encodeURIComponent(didEthr)}`, { cache: 'no-store' });
+        const ownerJson = await ownerRes.json().catch(() => null);
+        const ownerLower = normalizeAddrLower(ownerJson?.owner);
+        return ownerLower ? ownerLower === walletLower : null;
+      };
+
+      // If this is a Smart Agent UAID, the Smart Account owner match is the primary gate.
+      // (The 8004 identity token may be owned by a different EOA.)
+      if (isSmartUaid) {
+        const smartMatch = await resolveSmartOwnerMatch();
+        console.log('[AgentDetails] Smart match 1:', smartMatch);
+        setOwnershipVerified(Boolean(smartMatch));
+        return;
+      }
 
       const response = await fetch(`/api/agents/${encodeURIComponent(uaidForOwnerCheck)}`, {
         method: 'POST',
@@ -583,15 +661,19 @@ export default function AgentDetailsPageContent({
         }),
       });
 
-      if (!response.ok) {
-        // Treat unsupported UAIDs (or older agents) as "not owner" without spamming console.
-        setOwnershipVerified(false);
-        return;
+      let is8004Owner: boolean | null = null;
+      if (response.ok) {
+        const data = await response.json().catch(() => null);
+        if (data && typeof data?.isOwner === 'boolean') {
+          is8004Owner = data.isOwner;
+        }
       }
 
-      const data = await response.json();
-      setOwnershipVerified(data.isOwner);
+      const smartMatch = await resolveSmartOwnerMatch();
+      console.log('[AgentDetails] Smart match 2:', smartMatch);
+      setOwnershipVerified(Boolean(is8004Owner || smartMatch));
     } catch (error) {
+      console.log('[AgentDetails] Ownership check failed 2:', error);
       setOwnershipVerified(false);
     } finally {
       setOwnershipChecking(false);

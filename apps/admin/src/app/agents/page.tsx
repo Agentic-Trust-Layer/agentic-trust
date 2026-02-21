@@ -34,20 +34,17 @@ type DiscoverParams = {
   minFeedbackAverageScore?: number;
   minAtiOverallScore?: number;
   createdWithinDays?: number;
-  only8004Agents?: boolean;
 };
 
 const PAGE_SIZE = 18;
 
 const DEFAULT_FILTERS: AgentsPageFilters = {
-  // Default Agents page to Honor roll (ranked). Ranked requires a concrete chain id.
+  // Default Agents page to Honor roll. Honor roll requires a concrete chain id.
   chainId: '1',
   address: '',
   name: '',
   agentIdentifierMatch: '',
-  mineOnly: false,
-  only8004Agents: false,
-  view: 'ranked',
+  scope: 'honorRoll',
   protocol: 'all',
   path: '',
   minReviews: '',
@@ -199,132 +196,47 @@ export default function AgentsRoute() {
         // Ensure sourceFilters is never undefined
         const safeFilters = sourceFilters || filters || DEFAULT_FILTERS;
 
-        // "My agents" should not just filter the current discovery page.
-        // If enabled, load the owned agents list directly (then the UI can still
-        // apply secondary client-side filters like protocol / 8004-agent name).
-        if (safeFilters.view !== 'ranked' && safeFilters.mineOnly && walletConnected && walletAddress) {
-          const ownedUrl =
-            `/api/agents/owned?eoaAddress=${encodeURIComponent(walletAddress)}` +
-            `&limit=1000&orderBy=createdAtTime&orderDirection=DESC&source=mineOnly`;
-          const ownedRes = await fetch(ownedUrl, { cache: 'no-store' });
-          if (!ownedRes.ok) {
-            const err = await ownedRes.json().catch(() => ({}));
-            throw new Error(err?.error || `Failed to fetch owned agents (${ownedRes.status})`);
-          }
-          const ownedData = await ownedRes.json().catch(() => ({} as any));
-          const ownedAgents = Array.isArray((ownedData as any)?.agents) ? ((ownedData as any).agents as Agent[]) : [];
-
-          // Ensure the UI's client-side "mineOnly" filter can't filter these out again.
-          // We don't always have an EIP-1193 provider available to compute ownership,
-          // so we mark returned agents as owned by key.
-          const ownedEntries: Record<string, boolean> = {};
-          for (const agent of ownedAgents) {
-            const uaid = typeof (agent as any)?.uaid === 'string' ? String((agent as any).uaid).trim() : '';
-            if (!uaid || !uaid.startsWith('uaid:')) continue;
-            ownedEntries[uaid] = true;
-          }
-          setOwnedMap(ownedEntries);
-
-          setAgents(ownedAgents);
-          setTotal(ownedAgents.length);
-          setTotalPages(1);
-          setCurrentPage(1);
-          setHasLoaded(true);
-          return;
-        }
-
-        if (safeFilters.view === 'ranked') {
-          const chainIdRaw = safeFilters.chainId;
-          const chainId =
-            chainIdRaw && chainIdRaw !== 'all' ? Number(chainIdRaw) : Number.NaN;
-          if (!Number.isFinite(chainId)) {
-            throw new Error('Honor roll view requires a specific chain (not "all").');
-          }
-
-          const agentIdentifierMatch =
-            typeof safeFilters.agentIdentifierMatch === 'string' && safeFilters.agentIdentifierMatch.trim()
-              ? safeFilters.agentIdentifierMatch.trim()
-              : null;
-          const minReviewAssertionCountParsed = Number.parseInt((safeFilters.minReviews || '').trim(), 10);
-          const minReviewAssertionCount =
-            Number.isFinite(minReviewAssertionCountParsed) && minReviewAssertionCountParsed > 0
-              ? minReviewAssertionCountParsed
-              : null;
-
-          const rankedRes = await fetch('/api/agents/ranked', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chainId,
-              page,
-              pageSize: PAGE_SIZE,
-              agentIdentifierMatch,
-              minReviewAssertionCount,
-            }),
-            cache: 'no-store',
-          });
-
-          if (!rankedRes.ok) {
-            const err = await rankedRes.json().catch(() => ({}));
-            throw new Error(err?.error || err?.message || `Failed to fetch ranked agents (${rankedRes.status})`);
-          }
-
-          const rankedData = await rankedRes.json().catch(() => ({} as any));
-          const rawAgents = (rankedData.agents as Agent[]) ?? [];
-          const nameQuery = typeof safeFilters.name === 'string' ? safeFilters.name.trim().toLowerCase() : '';
-          const filteredAgents =
-            nameQuery.length > 0
-              ? rawAgents.filter((a) => {
-                  const nm = typeof (a as any)?.agentName === 'string' ? String((a as any).agentName) : '';
-                  return nm.toLowerCase().includes(nameQuery);
-                })
-              : rawAgents;
-
-          setAgents(filteredAgents);
-          // Ranked API totals refer to the unfiltered leaderboard; when applying a client-side name filter,
-          // treat the result as a single page.
-          setTotal(nameQuery ? filteredAgents.length : rankedData.total);
-          setTotalPages(nameQuery ? 1 : rankedData.totalPages);
-          setCurrentPage(nameQuery ? 1 : (rankedData.page ?? page));
-          setHasLoaded(true);
-          return;
-        }
-
-        const params = buildParams(safeFilters);
-        const pathQuery =
-          typeof safeFilters.path === 'string' && safeFilters.path.trim().length > 0
-            ? safeFilters.path.trim()
-            : undefined;
         const payload = {
+          scope: safeFilters.scope,
           page,
           pageSize: PAGE_SIZE,
-          // Order by createdAtTime descending so newest agents appear first.
-          orderBy: 'createdAtTime',
-          orderDirection: 'DESC' as const,
-          query: pathQuery,
-          params: Object.keys(params).length > 0 ? params : undefined,
+          walletAddress: walletConnected && walletAddress ? walletAddress : undefined,
+          filters: safeFilters,
         };
 
-        const response = await fetch('/api/agents/search', {
+        const response = await fetch('/api/agents/list', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          cache: 'no-store',
         });
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.message || errorData.error || 'Failed to fetch agents');
+          throw new Error(errorData.message || errorData.error || `Failed to fetch agents (${response.status})`);
         }
 
         const data = await response.json();
         if (process.env.NODE_ENV === 'development') {
           const list = Array.isArray((data as any)?.agents) ? ((data as any).agents as any[]) : [];
           // eslint-disable-next-line no-console
-          console.log('[Admin][AgentsRoute] /api/agents/search response:', {
+          console.log('[Admin][AgentsRoute] /api/agents/list response:', {
             agentsLength: list.length,
             total: (data as any)?.total,
             sampleUaid: list.slice(0, 5).map((a) => a?.uaid).filter(Boolean),
           });
+        }
+        if (safeFilters.scope === 'myAgents') {
+          const ownedEntries: Record<string, boolean> = {};
+          const list = Array.isArray((data as any)?.agents) ? ((data as any).agents as Agent[]) : [];
+          for (const agent of list) {
+            const uaid = typeof (agent as any)?.uaid === 'string' ? String((agent as any).uaid).trim() : '';
+            if (!uaid || !uaid.startsWith('uaid:')) continue;
+            ownedEntries[uaid] = true;
+          }
+          setOwnedMap(ownedEntries);
+        } else {
+          setOwnedMap({});
         }
         setAgents((data.agents as Agent[]) ?? []);
         setTotal(data.total);
@@ -338,7 +250,7 @@ export default function AgentsRoute() {
         setLoadingAgents(false);
       }
     },
-    [buildParams, filters, setAgents, setTotal, setTotalPages, setCurrentPage, setLoadingAgents, setHasLoaded],
+    [filters, setAgents, setTotal, setTotalPages, setCurrentPage, setLoadingAgents, setHasLoaded, walletConnected, walletAddress],
   );
 
   // Initial load: only if we haven't loaded yet or if explicitly refreshing.
@@ -374,14 +286,11 @@ export default function AgentsRoute() {
   }, [filters, setFilters]);
 
   const handleClear = useCallback(() => {
-    const defaultFilters: AgentsPageFilters = {
-      chainId: 'all',
+    const next: AgentsPageFilters = {
+      ...filters,
       address: '',
       name: '',
       agentIdentifierMatch: '',
-      mineOnly: false,
-      only8004Agents: false,
-      view: 'newest',
       protocol: 'all',
       path: '',
       minReviews: '',
@@ -391,10 +300,10 @@ export default function AgentsRoute() {
       minAtiOverallScore: '',
       createdWithinDays: '',
     };
-    setFilters(defaultFilters);
+    setFilters(next);
     setCurrentPage(1);
-    searchAgents(defaultFilters, 1);
-  }, [setFilters, setCurrentPage, searchAgents]);
+    searchAgents(next, 1);
+  }, [filters, setFilters, setCurrentPage, searchAgents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -425,7 +334,7 @@ export default function AgentsRoute() {
     async function computeOwnership() {
       // If "my agents" is enabled, we treat the list as already owned and keep
       // the ownedMap set by the owned-agents fetch.
-      if (filters.mineOnly) {
+      if (filters.scope === 'myAgents') {
         return;
       }
 
@@ -524,7 +433,7 @@ export default function AgentsRoute() {
     return () => {
       cancelled = true;
     };
-  }, [agents, walletConnected, walletAddress, eip1193Provider, filters.mineOnly]);
+  }, [agents, walletConnected, walletAddress, eip1193Provider, filters.scope]);
 
   return (
     <Box sx={{ bgcolor: 'background.default', minHeight: '100vh' }}>
