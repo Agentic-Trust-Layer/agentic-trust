@@ -115,14 +115,17 @@ export async function uploadRegistration(
       }
     }
 
-    // If agentUrl is provided, ensure A2A service aligns to it.
+    // If agentUrl is provided, fill a default A2A service endpoint ONLY when missing.
+    // Do not overwrite an explicit A2A endpoint set by the user/UI.
     const agentUrl = typeof input.agentUrl === 'string' ? input.agentUrl.trim() : '';
     if (agentUrl) {
       const baseUrl = agentUrl.replace(/\/$/, '');
       const a2aEndpoint = `${baseUrl}/.well-known/agent-card.json`;
       const existingA2A = services.find((s) => (s.type || '').toLowerCase() === 'a2a' || (s.name || '').toLowerCase() === 'a2a');
       if (existingA2A) {
-        existingA2A.endpoint = a2aEndpoint;
+        if (!existingA2A.endpoint || !existingA2A.endpoint.trim()) {
+          existingA2A.endpoint = a2aEndpoint;
+        }
         existingA2A.version = existingA2A.version || '0.3.0';
         existingA2A.type = existingA2A.type || 'a2a';
         existingA2A.name = existingA2A.name || 'A2A';

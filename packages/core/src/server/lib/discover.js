@@ -58,13 +58,33 @@ export async function discoverAgents(req, getClient) {
                 undefined;
             // Extract MCP endpoint from registration data
             let mcpEndpoint = undefined;
+            // Extract A2A endpoint from registration data (prefer rawJson.services / rawJson.endpoints)
+            let a2aEndpoint = undefined;
             try {
                 // First try to extract from rawJson if available
                 const rawJsonStr = stringOrNull(raw?.rawJson);
                 if (rawJsonStr) {
                     try {
                         const registration = JSON.parse(rawJsonStr);
-                        if (registration?.endpoints && Array.isArray(registration.endpoints)) {
+                        if (registration?.services && Array.isArray(registration.services)) {
+                            const a2aEntry = registration.services.find((s) => s &&
+                                typeof s.type === 'string' &&
+                                String(s.type).toLowerCase() === 'a2a' &&
+                                typeof s.endpoint === 'string');
+                            if (a2aEntry)
+                                a2aEndpoint = a2aEntry.endpoint;
+                            const mcpEntry = registration.services.find((s) => s &&
+                                typeof s.type === 'string' &&
+                                String(s.type).toLowerCase() === 'mcp' &&
+                                typeof s.endpoint === 'string');
+                            if (mcpEntry)
+                                mcpEndpoint = mcpEntry.endpoint;
+                        }
+                        else if (registration?.endpoints && Array.isArray(registration.endpoints)) {
+                            const a2aEndpointEntry = registration.endpoints.find((ep) => ep && typeof ep.name === 'string' && (ep.name === 'A2A' || ep.name === 'a2a'));
+                            if (a2aEndpointEntry && typeof a2aEndpointEntry.endpoint === 'string') {
+                                a2aEndpoint = a2aEndpointEntry.endpoint;
+                            }
                             const mcpEndpointEntry = registration.endpoints.find((ep) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp'));
                             if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
                                 mcpEndpoint = mcpEndpointEntry.endpoint;
@@ -75,7 +95,18 @@ export async function discoverAgents(req, getClient) {
                         // Ignore JSON parse errors
                     }
                 }
-                // If not found in rawJson, try to extract from endpoints array if available
+                // If not found in rawJson, try to extract from services/endpoints fields if available
+                if (!a2aEndpoint && raw?.services && Array.isArray(raw.services)) {
+                    const entry = raw.services.find((s) => s && typeof s.type === 'string' && String(s.type).toLowerCase() === 'a2a' && typeof s.endpoint === 'string');
+                    if (entry)
+                        a2aEndpoint = entry.endpoint;
+                }
+                if (!a2aEndpoint && raw?.endpoints && Array.isArray(raw.endpoints)) {
+                    const a2aEndpointEntry = raw.endpoints.find((ep) => ep && typeof ep.name === 'string' && (ep.name === 'A2A' || ep.name === 'a2a'));
+                    if (a2aEndpointEntry && typeof a2aEndpointEntry.endpoint === 'string') {
+                        a2aEndpoint = a2aEndpointEntry.endpoint;
+                    }
+                }
                 if (!mcpEndpoint && raw?.endpoints && Array.isArray(raw.endpoints)) {
                     const mcpEndpointEntry = raw.endpoints.find((ep) => ep && typeof ep.name === 'string' && (ep.name === 'MCP' || ep.name === 'mcp'));
                     if (mcpEndpointEntry && typeof mcpEndpointEntry.endpoint === 'string') {
@@ -121,7 +152,7 @@ export async function discoverAgents(req, getClient) {
                 type: stringOrNull(raw?.type) ?? undefined,
                 description: stringOrNull(raw?.description) ?? undefined,
                 image: stringOrNull(raw?.image) ?? undefined,
-                a2aEndpoint: stringOrNull(raw?.a2aEndpoint) ?? undefined,
+                a2aEndpoint: a2aEndpoint ?? (stringOrNull(raw?.a2aEndpoint) ?? undefined),
                 mcpEndpoint: mcpEndpoint, // Add extracted MCP endpoint
                 supportedTrust: stringOrNull(raw?.supportedTrust) ?? undefined,
                 rawJson: stringOrNull(raw?.rawJson) ?? undefined,

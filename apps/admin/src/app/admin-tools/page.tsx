@@ -45,6 +45,44 @@ function resolvePlainAddress(value: unknown): `0x${string}` | null {
   return null;
 }
 
+function extractProtocolEndpoints(registration: any): {
+  a2aEndpoint: string;
+  mcpEndpoint: string;
+  a2aSkills: string[];
+  a2aDomains: string[];
+} {
+  const endpoints = Array.isArray(registration?.endpoints) ? registration.endpoints : [];
+  const services = Array.isArray(registration?.services) ? registration.services : [];
+
+  const findEndpoint = (kind: 'a2a' | 'mcp') => {
+    const byEndpoints = endpoints.find(
+      (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === kind,
+    );
+    if (byEndpoints && typeof byEndpoints.endpoint === 'string') return byEndpoints;
+
+    const byServices = services.find((s: any) => {
+      const type = typeof s?.type === 'string' ? s.type.toLowerCase() : '';
+      const name = typeof s?.name === 'string' ? s.name.toLowerCase() : '';
+      return type === kind || name === kind;
+    });
+    if (byServices && typeof byServices.endpoint === 'string') return byServices;
+
+    return null;
+  };
+
+  const a2a = findEndpoint('a2a');
+  const mcp = findEndpoint('mcp');
+  const a2aSkills = Array.isArray((a2a as any)?.a2aSkills) ? ((a2a as any).a2aSkills as any[]).map(String) : [];
+  const a2aDomains = Array.isArray((a2a as any)?.a2aDomains) ? ((a2a as any).a2aDomains as any[]).map(String) : [];
+
+  return {
+    a2aEndpoint: a2a && typeof (a2a as any).endpoint === 'string' ? String((a2a as any).endpoint) : '',
+    mcpEndpoint: mcp && typeof (mcp as any).endpoint === 'string' ? String((mcp as any).endpoint) : '',
+    a2aSkills,
+    a2aDomains,
+  };
+}
+
 async function walletControlsAccount(params: {
   publicClient: any;
   walletEoa: `0x${string}`;
@@ -861,13 +899,7 @@ export default function AdminPage() {
               const category = typeof lastParsed.agentCategory === 'string' ? lastParsed.agentCategory : '';
               const supportedTrust = Array.isArray(lastParsed.supportedTrust) ? lastParsed.supportedTrust : [];
               const capability = typeof lastParsed.capability === 'string' ? lastParsed.capability : '';
-              const endpoints = Array.isArray(lastParsed.endpoints) ? lastParsed.endpoints : [];
-              const a2a = endpoints.find(
-                (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
-              );
-              const mcp = endpoints.find(
-                (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
-              );
+              const protocols = extractProtocolEndpoints(lastParsed);
 
               setRegistrationParsed(lastParsed);
               setRegistrationImage(image);
@@ -875,24 +907,23 @@ export default function AdminPage() {
               setRegistrationCategory(category);
               setRegistrationSupportedTrust(supportedTrust);
               setRegistrationA2aEndpoint(
-                a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
+                protocols.a2aEndpoint,
               );
               setRegistrationMcpEndpoint(
-                mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+                protocols.mcpEndpoint,
               );
               // Load skills from registration JSON (already in governance_and_trust/* format)
-              const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
-              setRegistrationA2aSkills(rawSkills);
+              setRegistrationA2aSkills(protocols.a2aSkills);
               setRegistrationA2aDomains(
-                Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
+                protocols.a2aDomains,
               );
               setRegistrationCapability(capability);
               setRegistrationImageError(validateUrlLike(image) ?? null);
               setRegistrationA2aError(
-                a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
+                protocols.a2aEndpoint ? validateUrlLike(protocols.a2aEndpoint) : null,
               );
               setRegistrationMcpError(
-                mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
+                protocols.mcpEndpoint ? validateUrlLike(protocols.mcpEndpoint) : null,
               );
               setRegistrationPreviewText(JSON.stringify(lastParsed, null, 2));
             } catch (refreshError) {
@@ -1725,13 +1756,7 @@ export default function AdminPage() {
           const category = typeof parsed.agentCategory === 'string' ? parsed.agentCategory : '';
           const supportedTrust = Array.isArray(parsed.supportedTrust) ? parsed.supportedTrust : [];
           const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
-          const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
-          const a2a = endpoints.find(
-            (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
-          );
-          const mcp = endpoints.find(
-            (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
-          );
+          const protocols = extractProtocolEndpoints(parsed);
 
           setRegistrationParsed(parsed);
           setRegistrationImage(image);
@@ -1739,24 +1764,23 @@ export default function AdminPage() {
           setRegistrationCategory(category);
           setRegistrationSupportedTrust(supportedTrust);
           setRegistrationA2aEndpoint(
-            a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
+            protocols.a2aEndpoint,
           );
           setRegistrationMcpEndpoint(
-            mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+            protocols.mcpEndpoint,
           );
           // Load skills from registration JSON (already in governance_and_trust/* format)
-          const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
-          setRegistrationA2aSkills(rawSkills);
+          setRegistrationA2aSkills(protocols.a2aSkills);
           setRegistrationA2aDomains(
-            Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
+            protocols.a2aDomains,
           );
           setRegistrationCapability(capability);
           setRegistrationImageError(validateUrlLike(image) ?? null);
           setRegistrationA2aError(
-            a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
+            protocols.a2aEndpoint ? validateUrlLike(protocols.a2aEndpoint) : null,
           );
           setRegistrationMcpError(
-            mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
+            protocols.mcpEndpoint ? validateUrlLike(protocols.mcpEndpoint) : null,
           );
 
           setRegistrationPreviewText(JSON.stringify(parsed, null, 2));
@@ -3758,30 +3782,123 @@ export default function AdminPage() {
 
                       {/* Protocols Tab */}
                       {agentInfoTab === 'protocols' && (() => {
-                        // Determine which protocol is configured
                         const hasA2A = registrationA2aEndpoint.trim().length > 0;
                         const hasMCP = registrationMcpEndpoint.trim().length > 0;
-                        const configuredProtocol = hasA2A ? 'A2A' : hasMCP ? 'MCP' : null;
 
                         return (
                           <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            {!configuredProtocol ? (
+                            {!hasA2A && !hasMCP ? (
                               <Alert severity="info">
-                                No protocol endpoint configured. Protocols are set during agent registration and cannot be changed.
+                                No protocol endpoint configured in `agentUri` (tokenUri JSON).
                               </Alert>
                             ) : (
                               <>
                                 <TextField
-                                  label={`${configuredProtocol} Protocol`}
+                                  label="A2A endpoint"
                                   fullWidth
-                                  value={configuredProtocol === 'A2A' ? registrationA2aEndpoint : registrationMcpEndpoint}
-                                  disabled
+                                  value={registrationA2aEndpoint}
+                                  disabled={!registrationParsed || registrationEditSaving}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    setRegistrationA2aEndpoint(next);
+                                    setRegistrationA2aError(validateUrlLike(next) ?? null);
+                                  }}
                                   variant="outlined"
                                   size="small"
-                                  helperText={`The ${configuredProtocol} protocol endpoint is configured and cannot be changed.`}
+                                  helperText="Stored on-chain in `agentUri` registration JSON (services[] / endpoints[])."
+                                />
+                                <TextField
+                                  label="MCP endpoint"
+                                  fullWidth
+                                  value={registrationMcpEndpoint}
+                                  disabled={!registrationParsed || registrationEditSaving}
+                                  onChange={(e) => {
+                                    const next = e.target.value;
+                                    setRegistrationMcpEndpoint(next);
+                                    setRegistrationMcpError(validateUrlLike(next) ?? null);
+                                  }}
+                                  variant="outlined"
+                                  size="small"
+                                  helperText="Optional."
                                 />
 
-                                {configuredProtocol === 'A2A' && (
+                                <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                  <Button
+                                    variant="contained"
+                                    disabled={
+                                      !registrationParsed ||
+                                      registrationEditSaving ||
+                                      Boolean(registrationA2aError) ||
+                                      Boolean(registrationMcpError)
+                                    }
+                                    onClick={async () => {
+                                      try {
+                                        setRegistrationEditError(null);
+                                        if (!registrationParsed && !registrationPreviewText) {
+                                          throw new Error('Registration JSON is not loaded.');
+                                        }
+                                        const base =
+                                          registrationParsed && typeof registrationParsed === 'object'
+                                            ? registrationParsed
+                                            : JSON.parse(registrationPreviewText as string);
+                                        // Clone so we never mutate React state in place
+                                        const parsed = JSON.parse(JSON.stringify(base));
+
+                                        const nextA2A = registrationA2aEndpoint.trim();
+                                        const nextMcp = registrationMcpEndpoint.trim();
+
+                                        const upsertService = (kind: 'a2a' | 'mcp', endpoint: string) => {
+                                          if (!endpoint) return;
+                                          if (Array.isArray(parsed.services)) {
+                                            const idx = parsed.services.findIndex((s: any) => {
+                                              const t = typeof s?.type === 'string' ? s.type.toLowerCase() : '';
+                                              const n = typeof s?.name === 'string' ? s.name.toLowerCase() : '';
+                                              return t === kind || n === kind;
+                                            });
+                                            if (idx !== -1) {
+                                              parsed.services[idx] = {
+                                                ...parsed.services[idx],
+                                                type: parsed.services[idx]?.type ?? kind,
+                                                name: parsed.services[idx]?.name ?? kind.toUpperCase(),
+                                                endpoint,
+                                              };
+                                            } else {
+                                              parsed.services.push({ type: kind, name: kind.toUpperCase(), endpoint });
+                                            }
+                                            return;
+                                          }
+                                          if (Array.isArray(parsed.endpoints)) {
+                                            const idx = parsed.endpoints.findIndex(
+                                              (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === kind,
+                                            );
+                                            if (idx !== -1) {
+                                              parsed.endpoints[idx] = { ...parsed.endpoints[idx], name: kind.toUpperCase(), endpoint };
+                                            } else {
+                                              parsed.endpoints.push({ name: kind.toUpperCase(), endpoint });
+                                            }
+                                            return;
+                                          }
+                                          parsed.services = [{ type: kind, name: kind.toUpperCase(), endpoint }];
+                                        };
+
+                                        upsertService('a2a', nextA2A);
+                                        upsertService('mcp', nextMcp);
+
+                                        const raw = JSON.stringify(parsed, null, 2);
+                                        setRegistrationParsed(parsed);
+                                        setRegistrationPreviewText(raw);
+                                        await updateRegistrationJsonRaw(raw);
+                                        setSuccess('Protocol endpoints saved to agentUri (registration updated).');
+                                      } catch (e: any) {
+                                        setRegistrationEditError(e?.message || 'Failed to save protocol endpoints.');
+                                      }
+                                    }}
+                                  >
+                                    Save protocol endpoints to agentUri
+                                  </Button>
+                                </Box>
+
+                                {hasA2A && (
                                   <>
                                     <Box>
                                       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
@@ -4021,13 +4138,7 @@ export default function AdminPage() {
                                 const category = typeof parsed.agentCategory === 'string' ? parsed.agentCategory : '';
                                 const supportedTrust = Array.isArray(parsed.supportedTrust) ? parsed.supportedTrust : [];
                                 const capability = typeof parsed.capability === 'string' ? parsed.capability : '';
-                                const endpoints = Array.isArray(parsed.endpoints) ? parsed.endpoints : [];
-                                const a2a = endpoints.find(
-                                  (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'a2a',
-                                );
-                                const mcp = endpoints.find(
-                                  (e: any) => e && typeof e.name === 'string' && e.name.toLowerCase() === 'mcp',
-                                );
+                                const protocols = extractProtocolEndpoints(parsed);
 
                                 setRegistrationParsed(parsed);
                                 setRegistrationImage(image);
@@ -4035,24 +4146,23 @@ export default function AdminPage() {
                                 setRegistrationCategory(category);
                                 setRegistrationSupportedTrust(supportedTrust);
                                 setRegistrationA2aEndpoint(
-                                  a2a && typeof a2a.endpoint === 'string' ? a2a.endpoint : '',
+                                  protocols.a2aEndpoint,
                                 );
                                 setRegistrationMcpEndpoint(
-                                  mcp && typeof mcp.endpoint === 'string' ? mcp.endpoint : '',
+                                  protocols.mcpEndpoint,
                                 );
                                 // Normalize skills when loading from registration JSON
-                                const rawSkills = Array.isArray(a2a?.a2aSkills) ? a2a.a2aSkills : [];
-                                setRegistrationA2aSkills(rawSkills);
+                                setRegistrationA2aSkills(protocols.a2aSkills);
                                 setRegistrationA2aDomains(
-                                  Array.isArray(a2a?.a2aDomains) ? a2a.a2aDomains : [],
+                                  protocols.a2aDomains,
                                 );
                                 setRegistrationCapability(capability);
                                 setRegistrationImageError(validateUrlLike(image) ?? null);
                                 setRegistrationA2aError(
-                                  a2a && typeof a2a.endpoint === 'string' ? validateUrlLike(a2a.endpoint) : null,
+                                  protocols.a2aEndpoint ? validateUrlLike(protocols.a2aEndpoint) : null,
                                 );
                                 setRegistrationMcpError(
-                                  mcp && typeof mcp.endpoint === 'string' ? validateUrlLike(mcp.endpoint) : null,
+                                  protocols.mcpEndpoint ? validateUrlLike(protocols.mcpEndpoint) : null,
                                 );
 
                                 setRegistrationPreviewText(JSON.stringify(parsed, null, 2));
